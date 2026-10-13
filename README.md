@@ -1,105 +1,113 @@
-# Chatbot UI
+# Remote Desktop in your browser
 
-Chatbot UI is an open source chat UI for AI models.
-
-See a [demo](https://twitter.com/mckaywrigley/status/1640380021423603713?s=46&t=AowqkodyK6B4JccSOxSPew).
-
-![Chatbot UI](./public/screenshots/screenshot-0402023.jpg)
-
-## Updates
-
-Chatbot UI will be updated over time.
-
-Expect frequent improvements.
-
-**Next up:**
-
-- [ ] Sharing
-- [ ] "Bots"
-
-## Deploy
-
-**Vercel**
-
-Host your own live version of Chatbot UI with Vercel.
-
-[![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https%3A%2F%2Fgithub.com%2Fmckaywrigley%2Fchatbot-ui)
-
-**Docker**
-
-Build locally:
-
-```shell
-docker build -t chatgpt-ui .
-docker run -e OPENAI_API_KEY=xxxxxxxx -p 3000:3000 chatgpt-ui
-```
-
-Pull from ghcr:
+Use your Windows PC from any browser (laptop, tablet or phone). The website runs on **Vercel** and is
+protected by a login (password + optional authenticator-app code). A small **gateway** runs on your
+home network and does the actual Remote Desktop (RDP) connection.
 
 ```
-docker run -e OPENAI_API_KEY=xxxxxxxx -p 3000:3000 ghcr.io/mckaywrigley/chatbot-ui:main
+Browser ──https──▶ Vercel app (login, issues 60-second tickets)
+   │
+   └──wss (ticket)──▶ Cloudflare Tunnel ──▶ gateway ──▶ guacd ──RDP──▶ your Windows PC
+                                            └──── runs at home (Docker) ────┘
 ```
 
-## Running Locally
+Why two parts? Vercel functions can't hold the long-lived connection an RDP session needs, so the
+streaming happens at home. Your Windows password stays at home too: it's only in the gateway's
+`.env`, never on Vercel or in the browser.
 
-**1. Clone Repo**
+Features: hi-DPI auto-resize to your window, keyboard/mouse/touch, two-way clipboard,
+Ctrl+Alt+Del and Win keys, on-screen keyboard for phones, fullscreen, audio.
+
+## Repo layout
+
+| Path | What it is |
+| --- | --- |
+| `app/`, `lib/`, `proxy.ts` | Next.js app deployed to Vercel (login + browser RDP client) |
+| `gateway/` | Gateway for your home network (Node + Apache Guacamole `guacd`, Docker Compose) |
+| `scripts/` | Helpers to hash your password and set up 2FA |
+
+---
+
+## Setup
+
+### 1. Turn on Remote Desktop on the PC
+
+Settings → System → Remote Desktop → **On**. This needs Windows **Pro, Enterprise or Education**
+(Windows Home can't accept RDP connections). Note the PC's local IP (`ipconfig`), and give it a
+static/reserved IP in your router.
+
+Use your Windows sign-in for `RDP_USERNAME`/`RDP_PASSWORD` (for a Microsoft account, the email
+address and its password).
+
+### 2. Create the secrets
 
 ```bash
-git clone https://github.com/mckaywrigley/chatbot-ui.git
+npm install
+npm run gen-secret                          # -> GATEWAY_SECRET (same value in Vercel AND gateway/.env)
+npm run gen-secret                          # -> SESSION_SECRET (Vercel only)
+npm run hash-password -- "a long password"  # -> AUTH_PASSWORD_HASH (Vercel only)
+npm run setup-2fa -- admin                  # -> TOTP_SECRET (optional, recommended)
 ```
 
-**2. Install Dependencies**
+### 3. Run the gateway at home
+
+On the PC itself (with [Docker Desktop](https://www.docker.com/products/docker-desktop/)) or on any
+always-on machine on the same network:
+
+1. In the [Cloudflare dashboard](https://one.dash.cloudflare.com/) → Networks → Tunnels → **Create a tunnel**
+   (type *Cloudflared*). Copy its token. Add a **public hostname**, e.g. `rdp-gw.yourdomain.com`, with
+   service `http://gateway:8080`. (Needs a domain on Cloudflare; the free plan works.)
+2. Configure and start:
+
+   ```bash
+   cd gateway
+   cp .env.example .env     # fill in GATEWAY_SECRET, ALLOWED_ORIGINS, RDP_*, CLOUDFLARE_TUNNEL_TOKEN
+   docker compose --profile tunnel up -d --build
+   ```
+
+   `RDP_HOST=host.docker.internal` targets the machine running Docker; otherwise use the PC's LAN IP.
+3. Check: `https://rdp-gw.yourdomain.com/healthz` should say `ok`.
+
+No ports need to be opened on your router. (Prefer not to use Cloudflare? Any HTTPS reverse proxy
+that supports WebSockets in front of port 8080 works — never expose port 3389 itself.)
+
+### 4. Deploy the website on Vercel
+
+1. Import this repo in Vercel (framework: Next.js, root directory: `/`).
+2. Add the environment variables from `.env.example`:
+   `AUTH_USERNAME`, `AUTH_PASSWORD_HASH`, `TOTP_SECRET`, `SESSION_SECRET`, `GATEWAY_SECRET`,
+   `GATEWAY_URL=wss://rdp-gw.yourdomain.com`.
+3. Deploy, then put the Vercel URL (e.g. `https://your-app.vercel.app`) in `ALLOWED_ORIGINS` in
+   `gateway/.env` and run `docker compose --profile tunnel up -d` again.
+4. Recommended: Vercel → Firewall → add a **rate limit** rule for `/login` (e.g. 10 requests/minute per IP).
+
+Open the site, sign in, and your desktop appears.
+
+---
+
+## Security
+
+- The login uses bcrypt, an HttpOnly/Secure/SameSite=Strict session cookie and optional TOTP 2FA.
+  Turn on 2FA: this page controls your computer.
+- The browser only ever gets a **60-second, single-use** ticket signed with `GATEWAY_SECRET`. The
+  gateway checks the signature, expiry, issuer, audience, single use and the page's `Origin`.
+- RDP credentials live only in `gateway/.env` on your network.
+- To sign out every device, change `SESSION_SECRET` in Vercel and redeploy.
+- RDP's own port (3389) is never exposed to the internet.
+
+## Local development
 
 ```bash
-npm i
-```
-
-**3. Provide OpenAI API Key**
-
-Create a .env.local file in the root of the repo with your OpenAI API Key:
-
-```bash
-OPENAI_API_KEY=YOUR_KEY
-```
-
-> You can set `OPENAI_API_HOST` where access to the official OpenAI host is restricted or unavailable, allowing users to configure an alternative host for their specific needs.
-
-> Additionally, if you have multiple OpenAI Organizations, you can set `OPENAI_ORGANIZATION` to specify one.
-
-**4. Run App**
-
-```bash
+cp .env.example .env.local   # fill it in; GATEWAY_URL=ws://localhost:8080 with the gateway running locally
 npm run dev
+cd gateway && npm install && npm test
 ```
 
-**5. Use It**
+## Troubleshooting
 
-You should be able to start chatting.
-
-## Configuration
-
-When deploying the application, the following environment variables can be set:
-
-| Environment Variable              | Default value                  | Description                                                                                                                               |
-| --------------------------------- | ------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------- |
-| OPENAI_API_KEY                    |                                | The default API key used for authentication with OpenAI                                                                                   |
-| OPENAI_API_HOST                   | `https://api.openai.com`       | The base url, for Azure use `https://<endpoint>.openai.azure.com`                                                                         |
-| OPENAI_API_TYPE                   | `openai`                       | The API type, options are `openai` or `azure`                                                                                             |
-| OPENAI_API_VERSION                | `2023-03-15-preview`           | Only applicable for Azure OpenAI                                                                                                          |
-| AZURE_DEPLOYMENT_ID               |                                | Needed when Azure OpenAI, Ref [Azure OpenAI API](https://learn.microsoft.com/zh-cn/azure/cognitive-services/openai/reference#completions) |
-| OPENAI_ORGANIZATION               |                                | Your OpenAI organization ID                                                                                                               |
-| DEFAULT_MODEL                     | `gpt-3.5-turbo`                | The default model to use on new conversations, for Azure use `gpt-35-turbo`                                                               |
-| NEXT_PUBLIC_DEFAULT_SYSTEM_PROMPT | [see here](utils/app/const.ts) | The default system prompt to use on new conversations                                                                                     |
-| NEXT_PUBLIC_DEFAULT_TEMPERATURE   | 1                              | The default temperature to use on new conversations                                                                                       |
-| GOOGLE_API_KEY                    |                                | See [Custom Search JSON API documentation][GCSE]                                                                                          |
-| GOOGLE_CSE_ID                     |                                | See [Custom Search JSON API documentation][GCSE]                                                                                          |
-
-If you do not provide an OpenAI API key with `OPENAI_API_KEY`, users will have to provide their own key.
-
-If you don't have an OpenAI API key, you can get one [here](https://platform.openai.com/account/api-keys).
-
-## Contact
-
-If you have any questions, feel free to reach out to Mckay on [Twitter](https://twitter.com/mckaywrigley).
-
-[GCSE]: https://developers.google.com/custom-search/v1/overview
+| Message | Fix |
+| --- | --- |
+| *Could not reach your PC* | Gateway/tunnel not running, wrong `RDP_HOST`, PC asleep, or Remote Desktop off. `docker compose logs gateway` |
+| *Windows rejected the username or password* | Fix `RDP_USERNAME`/`RDP_PASSWORD`/`RDP_DOMAIN`; try `RDP_SECURITY=nla` |
+| Connection drops instantly | `ALLOWED_ORIGINS` doesn't match your Vercel URL exactly, or `GATEWAY_SECRET` differs between Vercel and the gateway |
+| Wrong characters when typing | Set `RDP_KEYBOARD_LAYOUT` |
