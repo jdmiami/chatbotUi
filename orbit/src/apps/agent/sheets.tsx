@@ -53,7 +53,7 @@ export function CapabilitiesSheet({
   onClose: () => void;
 }) {
   return (
-    <Sheet title="What’s supported" onClose={onClose}>
+    <Sheet title="What's supported" onClose={onClose}>
       <div className="stack">
         <p className="ag-sheet-lead">
           <strong>{runnerLabel}</strong>
