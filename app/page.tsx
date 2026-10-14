@@ -44,10 +44,11 @@ export default async function Home({ searchParams }: { searchParams: Promise<{ c
   if (!(await currentUser())) redirect('/login');
   const { choose } = await searchParams;
   const pref = (await cookies()).get(PREF_COOKIE)?.value;
-  if (isWorkspace(pref) && !choose) redirect(WORKSPACES[pref]);
-
   const machines = listMachines().map((m) => m.id);
-  const options = OPTIONS.filter((o) => (o.needs === 'windows' ? machines.includes('windows') : true));
+  const ready = (o: (typeof OPTIONS)[number]) => o.needs !== 'windows' || machines.includes('windows');
+  const remembered = OPTIONS.find((o) => o.id === pref);
+  if (isWorkspace(pref) && remembered && ready(remembered) && !choose) redirect(WORKSPACES[pref]);
+
   const status = await machineStatus();
 
   return (
@@ -56,21 +57,33 @@ export default async function Home({ searchParams }: { searchParams: Promise<{ c
         <h1>Choose your workspace</h1>
         <form action={chooseWorkspace} className="stack-form">
           <div className="choices" role="group" aria-label="Workspaces">
-            {options.map((o) => (
-              <button key={o.id} type="submit" name="target" value={o.id} className={`choice choice-${o.id}`}>
-                <span className="choice-icon">
-                  <Icon id={o.id} />
-                </span>
-                <span className="choice-text">
-                  <span className="choice-name">{o.name}</span>
-                  <span className="choice-detail">{o.detail}</span>
-                  {o.needs === 'linux' && <span className="choice-needs">Needs the Linux machine on</span>}
-                </span>
-                <span className="chevron" aria-hidden>
-                  ›
-                </span>
-              </button>
-            ))}
+            {OPTIONS.map((o) =>
+              ready(o) ? (
+                <button key={o.id} type="submit" name="target" value={o.id} className={`choice choice-${o.id}`}>
+                  <span className="choice-icon">
+                    <Icon id={o.id} />
+                  </span>
+                  <span className="choice-text">
+                    <span className="choice-name">{o.name}</span>
+                    <span className="choice-detail">{o.detail}</span>
+                    {o.needs === 'linux' && <span className="choice-needs">Needs the Linux machine on</span>}
+                  </span>
+                  <span className="chevron" aria-hidden>
+                    ›
+                  </span>
+                </button>
+              ) : (
+                <div key={o.id} className={`choice choice-${o.id} choice-off`} aria-disabled="true">
+                  <span className="choice-icon">
+                    <Icon id={o.id} />
+                  </span>
+                  <span className="choice-text">
+                    <span className="choice-name">{o.name}</span>
+                    <span className="choice-detail">Not set up yet: needs the small gateway program on your PC.</span>
+                  </span>
+                </div>
+              ),
+            )}
           </div>
           <label className="remember">
             <input type="checkbox" name="remember" defaultChecked={Boolean(pref)} />

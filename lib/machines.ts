@@ -18,7 +18,19 @@ function urlFor(m: MachineConfig): string | undefined {
   return undefined;
 }
 
-const configured = (m: MachineConfig) => Boolean(urlFor(m) && process.env[m.secretEnv]);
+// The example value from .env.example means "not set up yet".
+const isPlaceholder = (url: string) => {
+  try {
+    return /(^|\.)example\.(com|org|net)$/i.test(new URL(url).hostname);
+  } catch {
+    return true;
+  }
+};
+
+const configured = (m: MachineConfig) => {
+  const url = urlFor(m);
+  return Boolean(url && !isPlaceholder(url) && process.env[m.secretEnv]);
+};
 
 /** Machines whose gateway is configured, safe to send to the browser. */
 export function listMachines(): Machine[] {
