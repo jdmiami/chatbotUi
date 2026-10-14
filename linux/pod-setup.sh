@@ -114,7 +114,9 @@ gateway_env=(
 unset DESKTOP_PASSWORD
 cd /opt/gateway
 while true; do
-  runuser -u "$DESKTOP_USER" -- env -i "${gateway_env[@]}" node src/index.js || true
+  # setpriv execs in place (no root parent process), so the secrets in gateway_env never sit in a
+  # process command line that any user on the machine could read with ps.
+  setpriv --reuid="$DESKTOP_USER" --regid="$DESKTOP_USER" --init-groups env -i "${gateway_env[@]}" node src/index.js || true
   log "gateway exited, restarting in 2s"
   sleep 2
 done

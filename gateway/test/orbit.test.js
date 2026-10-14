@@ -26,6 +26,7 @@ prompt=""; conv=""
 while [ $# -gt 0 ]; do
   case "$1" in
     --print) prompt="$2"; shift ;;
+    --print=*) prompt="\${1#--print=}" ;;
     --conversation) conv="$2"; shift ;;
     models)
       if [ -e "$(dirname "$0")/signed-out" ]; then echo "Fetching available models..."; echo "Error: Please sign in to view available models. Launch the CLI without arguments to sign in." >&2; exit 1; fi
@@ -308,6 +309,18 @@ test('agent: sessions of a renamed or deleted folder stay reachable, with a clea
   assert.equal(events[0].event, 'error');
   assert.match(events[0].data.message, /no longer in your projects folder/);
   assert.equal((await api(`/agent/sessions/${s.id}`, { method: 'DELETE' })).status, 200);
+});
+
+test('agent: a message that looks like an option is sent as a message; oversized messages are refused cleanly', async () => {
+  const s = await (await api('/agent/sessions', { method: 'POST', body: JSON.stringify({}) })).json();
+  const events = await sse(`/agent/sessions/${s.id}/send`, { text: '--version' });
+  assert.equal(events.find((e) => e.data.kind === 'assistant').data.text, 'echo: --version (conv new)');
+
+  const huge = await sse(`/agent/sessions/${s.id}/send`, { text: 'x'.repeat(150 * 1024) });
+  assert.equal(huge[0].event, 'error');
+  assert.match(huge[0].data.message, /too long to send/);
+  const after = await (await api(`/agent/sessions/${s.id}`)).json();
+  assert.notEqual(after.status, 'running', 'the session is not left running');
 });
 
 test('agent: sessions persist across a service restart', async () => {

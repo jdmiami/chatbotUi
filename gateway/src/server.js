@@ -194,6 +194,8 @@ export function createGateway(config, log = console, orbit = null) {
         algorithms: ['HS256'],
         audience: 'rdp-gateway',
         issuer: 'rdp-web',
+        requiredClaims: ['exp', 'iat'],
+        maxTokenAge: '2m',
       }));
     } catch {
       return reject(401, 'Unauthorized');

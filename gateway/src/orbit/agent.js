@@ -14,6 +14,7 @@ import { HttpError } from './files.js';
 
 const run = promisify(execFile);
 const MODES = new Set(['default', 'plan', 'accept-edits']);
+const MAX_PROMPT_BYTES = 100 * 1024;
 const now = () => Date.now();
 const id = (p) => `${p}_${crypto.randomBytes(8).toString('hex')}`;
 
@@ -230,13 +231,22 @@ export class AgentService {
     const s = this.getSession(sessionId);
     const prompt = String(text ?? '').trim();
     if (!prompt) throw new HttpError(400, 'Message is empty.', 'invalid');
+    // The message is passed to agy as one argument; Linux caps a single argument at 128 KB.
+    if (Buffer.byteLength(prompt) > MAX_PROMPT_BYTES) {
+      throw new HttpError(
+        413,
+        'This message is too long to send (over 100 KB). Save the text to a file in your project and ask Antigravity to read that file instead.',
+        'too-large',
+      );
+    }
     if (this.running.has(sessionId)) throw new HttpError(409, 'This session is already running a turn.', 'busy');
     const cwd = await this.projectPath(s.projectId);
 
-    const args = ['--print', prompt, '--output-format', 'json', '--print-timeout', `${this.turnTimeoutSec}s`];
+    // `--print=<text>`: a message such as "--help" stays a message, never an agy option.
+    const args = [`--print=${prompt}`, '--output-format', 'json', '--print-timeout', `${this.turnTimeoutSec}s`];
     if (s.conversationId) args.push('--conversation', s.conversationId);
     if (s.mode && s.mode !== 'default') args.push('--mode', s.mode);
-    if (s.model) args.push('--model', s.model);
+    if (s.model) args.push(`--model=${s.model}`);
 
     const listeners = new Set([emit]);
     const broadcast = (event, payload) => listeners.forEach((l) => l(event, payload));
@@ -257,7 +267,21 @@ export class AgentService {
     s.messageCount += 1;
     await this.save();
 
-    const child = spawn(this.agy, args, { cwd, env: cleanEnv(), detached: true, stdio: ['ignore', 'pipe', 'pipe'] });
+    let child;
+    try {
+      child = spawn(this.agy, args, { cwd, env: cleanEnv(), detached: true, stdio: ['ignore', 'pipe', 'pipe'] });
+    } catch (err) {
+      // spawn can throw synchronously (e.g. E2BIG): end the turn instead of leaving it "running".
+      activity.status = 'failed';
+      activity.title = 'Antigravity did not start';
+      broadcast('update', { ...activity });
+      broadcast('item', this.push(sessionId, notice(`Could not start agy: ${err.message}`, 'error')));
+      s.status = 'error';
+      s.updatedAt = now();
+      await this.save();
+      broadcast('done', { ...s });
+      return { userItem, activity };
+    }
     const job = { child, listeners, stopped: false, signedOut: false };
     this.running.set(sessionId, job);
     let stdout = '';
@@ -422,7 +446,7 @@ function firstLine(s) {
 
 function redactArgs(args) {
   // Show the command shape in the activity row without repeating the whole prompt.
-  return args.map((a, i) => (args[i - 1] === '--print' ? '"…"' : a));
+  return args.map((a) => (a.startsWith('--print=') ? '--print "…"' : a));
 }
 
 function cleanEnv() {

@@ -9,6 +9,9 @@ export async function verifyOrbitToken(token, secret) {
       algorithms: ['HS256'],
       audience: 'orbit-host',
       issuer: 'rdp-web',
+      // The site issues 1-hour tokens; refuse tokens without an expiry or older than that.
+      requiredClaims: ['exp', 'iat'],
+      maxTokenAge: '65m',
     });
     return payload;
   } catch {
