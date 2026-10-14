@@ -13,30 +13,40 @@ const KEY = {
 };
 
 // Guacamole status codes worth explaining in plain words.
-function describeError(status: G.Status): string {
+function describeError(status: G.Status, name: string): string {
   switch (status.code) {
     case 0x0201: // SERVER_BUSY
-      return 'Your PC is busy or too many sessions are open.';
+      return `${name} is busy or too many sessions are open.`;
     case 0x0202: // UPSTREAM_TIMEOUT
     case 0x0207: // UPSTREAM_NOT_FOUND
-      return 'Could not reach your PC. Is it on, with Remote Desktop enabled, and is the gateway running?';
+      return `Could not reach ${name}. Is it running, and is its gateway up?`;
     case 0x0203: // UPSTREAM_ERROR
-      return 'Your PC refused the connection.';
+      return `${name} refused the connection.`;
     case 0x0301: // CLIENT_UNAUTHORIZED
     case 0x0303: // CLIENT_FORBIDDEN
-      return 'Windows rejected the username or password configured on the gateway.';
+      return `${name} rejected the username or password configured on its gateway.`;
     case 0x0308: // CLIENT_TIMEOUT
       return 'The session timed out.';
     case 0x0209: // SESSION_CONFLICT
-      return 'Someone else signed in to the PC, so this session was ended.';
+      return `Someone else signed in to ${name}, so this session was ended.`;
     case 0x0205: // SESSION_CLOSED
-      return 'The session was closed by your PC.';
+      return `The session was closed by ${name}.`;
     default:
       return status.message ? `Connection error: ${status.message}` : 'The connection was lost.';
   }
 }
 
-export default function RemoteDesktop({ logout }: { logout: () => Promise<void> }) {
+type Machine = { id: string; name: string; os: 'windows' | 'linux' };
+
+export default function RemoteDesktop({
+  machine,
+  canSwitch,
+  logout,
+}: {
+  machine: Machine;
+  canSwitch: boolean;
+  logout: () => Promise<void>;
+}) {
   const viewportRef = useRef<HTMLDivElement>(null);
   const clientRef = useRef<G.Client | null>(null);
   const guacRef = useRef<typeof G | null>(null);
@@ -71,7 +81,9 @@ export default function RemoteDesktop({ logout }: { logout: () => Promise<void> 
       const Guacamole = (mod as unknown as { default: typeof G }).default;
       guacRef.current = Guacamole;
 
-      const res = await fetch('/api/gateway-token', { method: 'POST' });
+      const res = await fetch(`/api/gateway-token?machine=${encodeURIComponent(machine.id)}`, {
+        method: 'POST',
+      });
       if (res.status === 401) {
         window.location.href = '/login';
         return;
@@ -214,7 +226,7 @@ export default function RemoteDesktop({ logout }: { logout: () => Promise<void> 
       };
       client.onerror = (status) => {
         if (disposed) return;
-        setMessage(describeError(status));
+        setMessage(describeError(status, machine.name));
         setPhase('error');
       };
 
@@ -247,7 +259,7 @@ export default function RemoteDesktop({ logout }: { logout: () => Promise<void> 
       disposed = true;
       teardown.reverse().forEach((fn) => fn());
     };
-  }, [attempt, sendClipboard]);
+  }, [attempt, sendClipboard, machine.id]);
 
   const press = (...keys: number[]) => {
     const client = clientRef.current;
@@ -273,7 +285,7 @@ export default function RemoteDesktop({ logout }: { logout: () => Promise<void> 
             {phase === 'connecting' && (
               <>
                 <div className="spinner" aria-hidden />
-                <p>Connecting to your PC…</p>
+                <p>Connecting to {machine.name}…</p>
               </>
             )}
             {phase === 'disconnected' && <p>Disconnected.</p>}
@@ -285,6 +297,11 @@ export default function RemoteDesktop({ logout }: { logout: () => Promise<void> 
             {phase !== 'connecting' && (
               <div className="row">
                 <button onClick={() => setAttempt((n) => n + 1)}>Reconnect</button>
+                {canSwitch && (
+                  <a className="button secondary" href="/desktop">
+                    Switch computer
+                  </a>
+                )}
                 <form action={logout}>
                   <button type="submit" className="secondary">
                     Sign out
@@ -309,10 +326,17 @@ export default function RemoteDesktop({ logout }: { logout: () => Promise<void> 
             <div className="tools">
               <button onClick={toggleFullscreen}>Fullscreen</button>
               <button onClick={showKeyboard}>Keyboard</button>
-              <button onClick={() => press(KEY.ctrl, KEY.alt, KEY.del)}>Ctrl+Alt+Del</button>
-              <button onClick={() => press(KEY.win)}>Win</button>
+              {machine.os === 'windows' && (
+                <button onClick={() => press(KEY.ctrl, KEY.alt, KEY.del)}>Ctrl+Alt+Del</button>
+              )}
+              <button onClick={() => press(KEY.win)}>{machine.os === 'windows' ? 'Win' : 'Super'}</button>
               <button onClick={() => setClipboardOpen((o) => !o)}>Clipboard</button>
               <button onClick={() => clientRef.current?.disconnect()}>Disconnect</button>
+              {canSwitch && (
+                <a className="button secondary" href="/desktop">
+                  Switch
+                </a>
+              )}
               <form action={logout}>
                 <button type="submit" className="secondary">
                   Sign out

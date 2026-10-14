@@ -1,12 +1,12 @@
 import { randomUUID } from 'node:crypto';
 import { SignJWT } from 'jose';
 import { currentUser } from '@/lib/auth';
-import { config } from '@/lib/config';
+import { gatewayFor } from '@/lib/machines';
 
 export const dynamic = 'force-dynamic';
 
-// Mints a 60-second, single-use ticket the browser presents to the gateway.
-// The RDP password never leaves your home network: the gateway holds it.
+// Mints a 60-second, single-use ticket the browser presents to a machine's gateway.
+// The RDP password never leaves the gateway: only the ticket reaches the browser.
 export async function POST(request: Request) {
   const user = await currentUser();
   if (!user) return Response.json({ error: 'Unauthorized' }, { status: 401 });
@@ -17,6 +17,10 @@ export async function POST(request: Request) {
     return Response.json({ error: 'Forbidden' }, { status: 403 });
   }
 
+  const machine = new URL(request.url).searchParams.get('machine') ?? '';
+  const gateway = gatewayFor(machine);
+  if (!gateway) return Response.json({ error: 'Unknown machine' }, { status: 404 });
+
   const token = await new SignJWT({})
     .setProtectedHeader({ alg: 'HS256' })
     .setSubject(user)
@@ -25,10 +29,10 @@ export async function POST(request: Request) {
     .setJti(randomUUID())
     .setIssuedAt()
     .setExpirationTime('60s')
-    .sign(config.gatewaySecret);
+    .sign(gateway.key);
 
   return Response.json(
-    { gatewayUrl: config.gatewayUrl, token },
+    { gatewayUrl: gateway.url, token },
     { headers: { 'cache-control': 'no-store' } },
   );
 }

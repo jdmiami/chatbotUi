@@ -1,6 +1,6 @@
 # Remote Desktop in your browser
 
-Use your Windows PC from any browser (laptop, tablet or phone). The website runs on **Vercel** and is
+Use your Windows PC, or a Linux desktop in the cloud, from any browser (laptop, tablet or phone). The website runs on **Vercel** and is
 protected by a login (password + optional authenticator-app code). A small **gateway** runs on your
 home network and does the actual Remote Desktop (RDP) connection.
 
@@ -24,6 +24,7 @@ Ctrl+Alt+Del and Win keys, on-screen keyboard for phones, fullscreen, audio.
 | --- | --- |
 | `app/`, `lib/`, `proxy.ts` | Next.js app deployed to Vercel (login + browser RDP client) |
 | `gateway/` | Gateway for your home network (Node + Apache Guacamole `guacd`, Docker Compose) |
+| `linux/` | Script that turns an Ubuntu cloud machine into a Linux desktop for this app ([guide](linux/README.md)) |
 | `scripts/` | Helpers to hash your password and set up 2FA |
 
 ---

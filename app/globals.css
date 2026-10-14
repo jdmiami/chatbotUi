@@ -20,7 +20,7 @@ html, body {
   font: 15px/1.5 system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
 }
 
-button {
+button, a.button {
   font: inherit;
   border: 0;
   border-radius: 8px;
@@ -30,10 +30,10 @@ button {
   cursor: pointer;
   white-space: nowrap;
 }
-button:hover { background: var(--accent-hover); }
+button:hover, a.button:hover { background: var(--accent-hover); }
 button:disabled { opacity: 0.6; cursor: default; }
-button.secondary { background: transparent; border: 1px solid var(--border); color: var(--text); }
-button.secondary:hover { background: #1c2230; }
+button.secondary, a.button.secondary { background: transparent; border: 1px solid var(--border); color: var(--text); }
+button.secondary:hover, a.button.secondary:hover { background: #1c2230; }
 
 input, textarea {
   font: inherit;
@@ -142,3 +142,23 @@ label { display: block; font-size: 13px; color: var(--muted); }
 }
 
 .toolbar .tools form, .overlay form { display: contents; }
+
+/* Machine picker */
+.machines { max-width: 400px; }
+.machines h1 { margin: 0; font-size: 20px; }
+.machine {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 16px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  color: var(--text);
+  text-decoration: none;
+  font-weight: 500;
+}
+.machine:hover { background: #1c2230; border-color: var(--accent); }
+.machine svg { color: var(--accent); flex: none; }
+.machine .chevron { margin-left: auto; color: var(--muted); font-size: 22px; line-height: 1; }
+a.button { display: inline-block; text-decoration: none; }
+.toolbar .tools a.button { padding: 6px 10px; font-size: 13px; }
