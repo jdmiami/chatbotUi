@@ -172,7 +172,7 @@ describe('groupCapabilities', () => {
     expect(groups.map((g) => g.status)).toEqual(['supported', 'unsupported', 'unverified']);
     const keys = (s: string) => groups.find((g) => g.status === s)!.items.map((i) => i.key);
     expect(keys('supported')).toEqual(['newConversation', 'continueConversation', 'stop', 'modes', 'models']);
-    expect(keys('unsupported')).toEqual(['pauseResume']);
+    expect(keys('unsupported')).toEqual(['pauseResume', 'approvals']);
     expect(keys('unverified').sort()).toEqual(['streamOutput']);
   });
 });
