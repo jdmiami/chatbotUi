@@ -248,11 +248,12 @@ export function validateNewPath(value: string, existing: readonly string[], curr
 
 /* ------------------------------------------------------------------ Storage wording */
 
-type StoreInfo = Pick<FileStore, 'kind' | 'label'>;
+type StoreInfo = Pick<FileStore, 'kind' | 'label' | 'truncated'>;
 
 /** Persistent note in the file browser: where files live (from the store, never hard-coded). */
 export function storageNote(store: StoreInfo): string {
-  return store.label;
+  // The machine lists at most 5000 files; say so rather than silently hiding the rest.
+  return store.truncated ? `${store.label}. Showing the first 5,000 files; use Terminal for the rest.` : store.label;
 }
 
 /** " on your Linux machine" / " in this browser" — appended to toasts such as "Saved app.py". */

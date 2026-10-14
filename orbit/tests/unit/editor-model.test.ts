@@ -354,3 +354,14 @@ describe('errors', () => {
     expect(isRetryable(new FileStoreError('bad', 'invalid-path'))).toBe(false);
   });
 });
+
+describe('storageNote with a cut-off listing', () => {
+  it('says when the machine listed only the first 5,000 files', () => {
+    expect(storageNote({ kind: 'server', label: 'Saved on your Linux machine', truncated: true })).toBe(
+      'Saved on your Linux machine. Showing the first 5,000 files; use Terminal for the rest.',
+    );
+    expect(storageNote({ kind: 'server', label: 'Saved on your Linux machine', truncated: false })).toBe(
+      'Saved on your Linux machine',
+    );
+  });
+});
