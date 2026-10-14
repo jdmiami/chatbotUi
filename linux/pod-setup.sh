@@ -80,7 +80,9 @@ mkdir -p "$user_home/projects"
 if [ "$(stat -c %U "$user_home")" != "$DESKTOP_USER" ] || [ "$(stat -c %U "$user_home/projects")" != "$DESKTOP_USER" ]; then
   chown -R "$DESKTOP_USER:$DESKTOP_USER" "$user_home"
 fi
-chown "$DESKTOP_USER:$DESKTOP_USER" "$user_home/.xsession"
+# Silences Ubuntu's "To run a command as administrator..." banner in every new terminal.
+touch "$user_home/.sudo_as_admin_successful"
+chown "$DESKTOP_USER:$DESKTOP_USER" "$user_home/.xsession" "$user_home/.sudo_as_admin_successful"
 
 # Antigravity CLI for the desktop user (installs to ~/.local/bin; skipped if already there).
 if [ ! -x "$user_home/.local/bin/agy" ]; then

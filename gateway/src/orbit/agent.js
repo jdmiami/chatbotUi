@@ -17,6 +17,12 @@ const MODES = new Set(['default', 'plan', 'accept-edits']);
 const now = () => Date.now();
 const id = (p) => `${p}_${crypto.randomBytes(8).toString('hex')}`;
 
+// What agy prints when it has no saved sign-in (verified against agy 1.3.4): `agy models` exits 1 with
+// "Please sign in to view available models", and `agy --print` prints a Google sign-in link and waits.
+const SIGNED_OUT = /Authentication required|Please sign in/i;
+export const SIGN_IN_HINT =
+  'Antigravity is not signed in on your Linux machine yet. Open Terminal, run `agy`, and follow the sign-in link once. Then try again.';
+
 /** Must match orbit/src/services/runner/agyCapabilities.ts (verified facts only). */
 export const AGY_CAPABILITIES = {
   newConversation: { status: 'supported', note: 'Each new session starts a fresh `agy --print` conversation.' },
@@ -173,7 +179,10 @@ export class AgentService {
         .filter((p) => p.length >= 2 && p[0].trim())
         .map(([mid, label]) => ({ id: mid.trim(), label: label.trim() }));
     } catch (err) {
-      throw new HttpError(502, `Could not list models: ${firstLine(err.stderr || err.message)}`, 'agy');
+      const output = `${err.stdout ?? ''}\n${err.stderr ?? ''}`;
+      if (SIGNED_OUT.test(output)) throw new HttpError(424, SIGN_IN_HINT, 'agy-signed-out');
+      // 424, not 502: Runpod's proxy replaces 502 responses with its own "waiting for service" page.
+      throw new HttpError(424, `Could not list models: ${firstLine(err.stderr || err.message)}`, 'agy');
     }
   }
 
@@ -222,12 +231,25 @@ export class AgentService {
     await this.save();
 
     const child = spawn(this.agy, args, { cwd, env: cleanEnv(), detached: true, stdio: ['ignore', 'pipe', 'pipe'] });
-    const job = { child, listeners, stopped: false };
+    const job = { child, listeners, stopped: false, signedOut: false };
     this.running.set(sessionId, job);
     let stdout = '';
     let stderr = '';
-    child.stdout.on('data', (d) => (stdout += d));
-    child.stderr.on('data', (d) => (stderr = (stderr + d).slice(-8000)));
+    // Without a saved sign-in, agy prints a sign-in link and waits; nobody can answer it here, so end the turn.
+    const checkSignIn = () => {
+      if (!job.signedOut && SIGNED_OUT.test(stdout.slice(0, 4000) + stderr)) {
+        job.signedOut = true;
+        killGroup(child, 'SIGTERM');
+      }
+    };
+    child.stdout.on('data', (d) => {
+      stdout += d;
+      checkSignIn();
+    });
+    child.stderr.on('data', (d) => {
+      stderr = (stderr + d).slice(-8000);
+      checkSignIn();
+    });
 
     const finish = async (result) => {
       this.running.delete(sessionId);
@@ -246,6 +268,9 @@ export class AgentService {
       finish({ ok: false, status: 'error', item: notice(`Could not start agy: ${err.message}`, 'error') }),
     );
     child.on('close', async (code, signal) => {
+      if (job.signedOut) {
+        return finish({ ok: false, status: 'error', item: notice(SIGN_IN_HINT, 'error') });
+      }
       if (job.stopped) {
         return finish({
           ok: false,
@@ -286,20 +311,25 @@ export class AgentService {
     const job = this.running.get(sessionId);
     if (!job) return false;
     job.stopped = true;
-    try {
-      process.kill(-job.child.pid, 'SIGTERM'); // whole process group
-    } catch {
-      job.child.kill('SIGTERM');
-    }
-    setTimeout(() => {
-      try {
-        process.kill(-job.child.pid, 'SIGKILL');
-      } catch {
-        /* exited */
-      }
-    }, 5000).unref();
+    killGroup(job.child, 'SIGTERM');
     return true;
   }
+}
+
+/** Signal agy's whole process group, then make sure it is gone after 5 s. */
+function killGroup(child, signal) {
+  try {
+    process.kill(-child.pid, signal);
+  } catch {
+    child.kill(signal);
+  }
+  setTimeout(() => {
+    try {
+      process.kill(-child.pid, 'SIGKILL');
+    } catch {
+      /* exited */
+    }
+  }, 5000).unref();
 }
 
 function notice(text, tone) {

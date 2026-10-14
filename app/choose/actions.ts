@@ -4,7 +4,7 @@ import { cookies } from 'next/headers';
 import { redirect } from 'next/navigation';
 
 export const WORKSPACES = {
-  orbit: '/orbit/',
+  orbit: '/orbit',
   linux: '/desktop/linux',
   windows: '/desktop/windows',
 } as const;

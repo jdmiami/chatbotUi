@@ -1,35 +1,67 @@
-# Remote Desktop in your browser
+# Your workspace in a browser
 
-Use your Windows PC, or a Linux desktop in the cloud, from any browser (laptop, tablet or phone). The website runs on **Vercel** and is
-protected by a login (password + optional authenticator-app code). A small **gateway** runs on your
-home network and does the actual Remote Desktop (RDP) connection.
+One private website, one login. After you sign in you choose how you want to work:
+
+| Workspace | What it is | Runs on |
+| --- | --- | --- |
+| **Orbit** | A touch-first workspace for iPhone and iPad: Terminal, Code editor and Antigravity chat | Your Linux machine on Runpod |
+| **Linux desktop** | A full XFCE desktop (Remote Desktop) | Your Linux machine on Runpod |
+| **Windows PC** | Your own Windows PC (Remote Desktop) | Your PC at home, via the gateway (optional) |
+
+Tick **Remember my choice** to go straight to your favourite next time; **Switch workspace** (in
+each workspace) or `/?choose=1` brings the chooser back.
+
+The Linux machine only costs money while it is on. The chooser page shows whether it is on and has
+**Turn on** / **Turn off** buttons (Orbit offers **Turn on** too). Your files live on saved storage, so
+they are kept while the machine is off.
 
 ```
-Browser ──https──▶ Vercel app (login, issues 60-second tickets)
+Browser ──https──▶ Vercel app (login, workspace chooser, machine power, short-lived tokens)
    │
-   └──wss (ticket)──▶ Cloudflare Tunnel ──▶ gateway ──▶ guacd ──RDP──▶ your Windows PC
-                                            └──── runs at home (Docker) ────┘
+   ├──https/wss (1-hour token)──▶ Runpod Linux machine :8080 ─┬─ Orbit host: files, terminal (tmux), agy runner
+   │                                                          └─ gateway ─▶ guacd ─▶ xrdp (Linux desktop)
+   └──wss (60-second ticket)────▶ Cloudflare Tunnel ─▶ gateway ─▶ guacd ─RDP─▶ your Windows PC (at home)
 ```
 
-Why two parts? Vercel functions can't hold the long-lived connection an RDP session needs, so the
-streaming happens at home. Your Windows password stays at home too: it's only in the gateway's
-`.env`, never on Vercel or in the browser.
+Why two parts? Vercel functions can't hold the long-lived connection a terminal or desktop needs,
+so the streaming happens on the machine itself. Passwords for the desktops stay on those machines,
+never on Vercel or in the browser.
 
-Features: hi-DPI auto-resize to your window, keyboard/mouse/touch, two-way clipboard,
+Remote desktop features: hi-DPI auto-resize to your window, keyboard/mouse/touch, two-way clipboard,
 Ctrl+Alt+Del and Win keys, on-screen keyboard for phones, fullscreen, audio.
 
 ## Repo layout
 
 | Path | What it is |
 | --- | --- |
-| `app/`, `lib/`, `proxy.ts` | Next.js app deployed to Vercel (login + browser RDP client) |
-| `gateway/` | Gateway for your home network (Node + Apache Guacamole `guacd`, Docker Compose) |
-| `linux/` | Script that turns an Ubuntu cloud machine into a Linux desktop for this app ([guide](linux/README.md)) |
-| `scripts/` | Helpers to hash your password and set up 2FA |
+| `app/`, `lib/`, `proxy.ts` | Next.js app deployed to Vercel (login, workspace chooser, machine power, browser RDP client) |
+| `orbit/` | Orbit, a Vite + React app built into `public/orbit` and served at `/orbit` behind the same login ([spec](orbit/SPEC.md)) |
+| `gateway/` | Gateway: RDP over WebSocket (Apache Guacamole `guacd`) and, on the Linux machine, the Orbit host API |
+| `linux/` | Script that turns an Ubuntu cloud machine into the Linux machine for this app ([guide](linux/README.md)) |
+| `scripts/` | Helpers to hash your password, set up 2FA and build Orbit |
+
+## Antigravity (agy) on the Linux machine
+
+Orbit's Antigravity app drives the real `agy` CLI on your Linux machine, one `agy --print` call per
+message (it never turns on agy's "skip permissions" mode). agy needs a one-time sign-in on the
+machine: open **Orbit → Terminal**, run `agy`, open the link it prints, sign in with Google, and paste
+the code back. The sign-in is kept on saved storage, so you only do this once.
+
+## Linux machine settings (Vercel environment variables)
+
+| Variable | Purpose |
+| --- | --- |
+| `LINUX_POD_ID` | The Runpod pod id of your Linux machine |
+| `LINUX_GATEWAY_SECRET` | Shared secret with the machine (its `GATEWAY_SECRET`) |
+| `LINUX_GATEWAY_URL` | Optional; defaults to `wss://<LINUX_POD_ID>-8080.proxy.runpod.net` |
+| `RUNPOD_API_KEY` | Lets the site turn the machine on and off. Create it in the Runpod console → Settings → API Keys. It stays on the server and is never sent to the browser |
 
 ---
 
 ## Setup
+
+The steps below set up the optional **Windows PC** workspace. For the Linux machine, see
+[linux/README.md](linux/README.md).
 
 ### 1. Turn on Remote Desktop on the PC
 
@@ -82,7 +114,7 @@ that supports WebSockets in front of port 8080 works — never expose port 3389 
    `gateway/.env` and run `docker compose --profile tunnel up -d` again.
 4. Recommended: Vercel → Firewall → add a **rate limit** rule for `/login` (e.g. 10 requests/minute per IP).
 
-Open the site, sign in, and your desktop appears.
+Open the site, sign in, and choose **Windows PC**.
 
 ---
 
@@ -100,7 +132,8 @@ Open the site, sign in, and your desktop appears.
 
 ```bash
 cp .env.example .env.local   # fill it in; GATEWAY_URL=ws://localhost:8080 with the gateway running locally
-npm run dev
+npm run dev                  # the site; Orbit at /orbit needs `npm run build:orbit` first
+cd orbit && npm install && npm run dev    # Orbit alone, in demo mode (no Linux machine needed)
 cd gateway && npm install && npm test
 ```
 

@@ -23,11 +23,16 @@ while [ $# -gt 0 ]; do
   case "$1" in
     --print) prompt="$2"; shift ;;
     --conversation) conv="$2"; shift ;;
-    models) printf 'model-a\\tModel A\\nmodel-b\\tModel B\\n'; exit 0 ;;
+    models)
+      if [ -e "$(dirname "$0")/signed-out" ]; then echo "Fetching available models..."; echo "Error: Please sign in to view available models. Launch the CLI without arguments to sign in." >&2; exit 1; fi
+      printf 'model-a\\tModel A\\nmodel-b\\tModel B\\n'; exit 0 ;;
     --version) echo "1.3.4"; exit 0 ;;
   esac
   shift
 done
+if [ -e "$(dirname "$0")/signed-out" ]; then
+  echo "Authentication required. Please visit the URL to log in:"; echo "  https://accounts.example/auth"; echo "Waiting for authentication (timeout 60s)..."; sleep 60; exit 1
+fi
 case "$prompt" in *slow*) sleep 30 ;; esac
 case "$prompt" in *fail*) echo "boom: not signed in" >&2; exit 1 ;; esac
 id="\${conv:-conv-123}"
@@ -187,6 +192,25 @@ test('agent: failures and Stop end the turn with a notice', async () => {
   const stopped = await pending;
   assert.match(stopped.find((e) => e.data.kind === 'notice').data.text, /Stopped/);
   assert.equal(stopped.at(-1).data.status, 'stopped');
+});
+
+test('agent: a signed-out agy ends the turn at once with sign-in help', async () => {
+  const flag = path.join(tmp, 'signed-out');
+  await fs.writeFile(flag, '');
+  try {
+    const models = await api('/agent/models');
+    assert.equal(models.status, 424);
+    assert.equal((await models.json()).code, 'agy-signed-out');
+
+    const s = await (await api('/agent/sessions', { method: 'POST', body: JSON.stringify({}) })).json();
+    const t0 = Date.now();
+    const events = await sse(`/agent/sessions/${s.id}/send`, { text: 'hello' });
+    assert.ok(Date.now() - t0 < 10_000, 'turn should end quickly, not wait for the sign-in timeout');
+    assert.match(events.find((e) => e.data.kind === 'notice').data.text, /not signed in.*run `agy`/);
+    assert.equal(events.at(-1).data.status, 'error');
+  } finally {
+    await fs.rm(flag, { force: true });
+  }
 });
 
 test('agent: sessions persist across a service restart', async () => {
