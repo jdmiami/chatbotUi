@@ -6,7 +6,9 @@ import { existsSync, rmSync } from 'node:fs';
 const run = (cmd, opts = {}) => execSync(cmd, { stdio: 'inherit', ...opts });
 const cwd = new URL('../orbit/', import.meta.url).pathname;
 
-if (!existsSync(`${cwd}node_modules`)) run('npm ci --no-audit --no-fund', { cwd });
+// Orbit's build tools are devDependencies. Hosts like Vercel build with NODE_ENV=production, which makes
+// npm skip devDependencies unless asked, so include them explicitly.
+if (!existsSync(`${cwd}node_modules/.bin/vite`)) run('npm ci --include=dev --no-audit --no-fund', { cwd });
 run('npx tsc --noEmit', { cwd });
 rmSync(new URL('../public/orbit', import.meta.url).pathname, { recursive: true, force: true });
 run('npx vite build --outDir ../public/orbit --emptyOutDir', { cwd, env: { ...process.env, ORBIT_BASE: '/orbit/' } });
