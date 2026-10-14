@@ -11,7 +11,14 @@ const KNOWN: MachineConfig[] = [
   { id: 'linux', name: 'Linux desktop', os: 'linux', urlEnv: 'LINUX_GATEWAY_URL', secretEnv: 'LINUX_GATEWAY_SECRET' },
 ];
 
-const configured = (m: MachineConfig) => Boolean(process.env[m.urlEnv] && process.env[m.secretEnv]);
+/** Gateway URL for a machine. The Linux machine's URL can be derived from its Runpod pod id. */
+function urlFor(m: MachineConfig): string | undefined {
+  if (process.env[m.urlEnv]) return process.env[m.urlEnv];
+  if (m.id === 'linux' && process.env.LINUX_POD_ID) return `wss://${process.env.LINUX_POD_ID}-8080.proxy.runpod.net`;
+  return undefined;
+}
+
+const configured = (m: MachineConfig) => Boolean(urlFor(m) && process.env[m.secretEnv]);
 
 /** Machines whose gateway is configured, safe to send to the browser. */
 export function listMachines(): Machine[] {
@@ -28,5 +35,5 @@ export function gatewayFor(id: string) {
   if (!m || !configured(m)) return null;
   const secret = process.env[m.secretEnv]!;
   if (secret.length < 32) throw new Error(`${m.secretEnv} must be at least 32 characters`);
-  return { url: process.env[m.urlEnv]!, key: new TextEncoder().encode(secret) };
+  return { url: urlFor(m)!, key: new TextEncoder().encode(secret) };
 }

@@ -298,8 +298,8 @@ export default function RemoteDesktop({
               <div className="row">
                 <button onClick={() => setAttempt((n) => n + 1)}>Reconnect</button>
                 {canSwitch && (
-                  <a className="button secondary" href="/desktop">
-                    Switch computer
+                  <a className="button secondary" href="/?choose=1">
+                    Switch workspace
                   </a>
                 )}
                 <form action={logout}>
@@ -333,7 +333,7 @@ export default function RemoteDesktop({
               <button onClick={() => setClipboardOpen((o) => !o)}>Clipboard</button>
               <button onClick={() => clientRef.current?.disconnect()}>Disconnect</button>
               {canSwitch && (
-                <a className="button secondary" href="/desktop">
+                <a className="button secondary" href="/?choose=1">
                   Switch
                 </a>
               )}
