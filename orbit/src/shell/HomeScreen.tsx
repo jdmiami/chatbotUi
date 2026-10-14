@@ -18,7 +18,7 @@ export function HomeScreen({ hidden }: { hidden: boolean }) {
     <>
       <div className="shell-topbar" data-hidden={hidden} style={hidden ? { visibility: 'hidden' } : undefined}>
         <span className="brand">
-          <img src="/icon.svg" alt="" width={26} height={26} style={{ borderRadius: 7 }} />
+          <img src={`${import.meta.env.BASE_URL}icon.svg`} alt="" width={26} height={26} style={{ borderRadius: 7 }} />
           Orbit
         </span>
         <button
