@@ -1,0 +1,96 @@
+import { useEffect } from 'react';
+import { useShell, type AppId } from '../state/shell';
+import { useLayout } from '../state/viewport';
+import { useVisualViewport } from '../hooks/useVisualViewport';
+import { useApplySettings } from '../hooks/useApplySettings';
+import { HomeScreen } from './HomeScreen';
+import { Dock } from './Dock';
+import { AppHost } from './AppHost';
+import { AppSwitcher } from './AppSwitcher';
+import { ControlCenter } from './ControlCenter';
+import { Toasts } from './Toasts';
+import { IntroSheet } from './IntroSheet';
+
+/**
+ * Root of Orbit. Owns global layout concerns: visual viewport (keyboard), theme, overlays,
+ * and hardware-keyboard shortcuts. Apps render inside <AppHost> and stay mounted while open.
+ */
+export function Shell() {
+  useVisualViewport();
+  useApplySettings();
+  const { activeApp, overlay, settings } = useShell();
+  const layout = useLayout();
+  useShortcuts();
+
+  const inApp = activeApp !== null;
+  return (
+    <div
+      className="shell"
+      data-in-app={inApp}
+      data-compact={layout.compact}
+      data-keyboard={layout.keyboardOpen}
+      style={
+        {
+          // Apps reserve space for the floating dock, except while the keyboard is up (dock hides).
+          '--app-bottom-inset': layout.keyboardOpen
+            ? '0px'
+            : `calc(var(--safe-bottom) + ${layout.compact ? 58 : 64}px + var(--dock-gap) * 2)`,
+        } as React.CSSProperties
+      }
+    >
+      <HomeScreen hidden={inApp} />
+      <AppHost />
+      <Dock />
+      {overlay === 'switcher' && <AppSwitcher />}
+      {overlay === 'control-center' && <ControlCenter />}
+      {!settings.introSeen && <IntroSheet />}
+      <Toasts />
+    </div>
+  );
+}
+
+/**
+ * Hardware keyboard shortcuts (iPad Magic Keyboard etc.). Ctrl+Shift avoids clashing with
+ * Safari/iPadOS (⌘) shortcuts and with shells (plain Ctrl).
+ */
+function useShortcuts() {
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const s = useShell.getState();
+      if (e.key === 'Escape' && s.overlay) {
+        s.setOverlay(null);
+        return;
+      }
+      if (!(e.ctrlKey && e.shiftKey) || e.metaKey || e.altKey) return;
+      const apps: Record<string, AppId> = { Digit1: 'terminal', Digit2: 'editor', Digit3: 'agent', Comma: 'settings' };
+      let handled = true;
+      if (apps[e.code]) s.launch(apps[e.code]);
+      else if (e.code === 'KeyH') s.goHome();
+      else if (e.code === 'KeyA') s.toggleOverlay('switcher');
+      else if (e.code === 'Period') s.toggleOverlay('control-center');
+      else if (e.code === 'Backslash') {
+        if (s.split.enabled && s.activeApp && (s.activeApp === s.split.left || s.activeApp === s.split.right)) {
+          s.setSplit({ enabled: false });
+        } else s.openSplit();
+      } else handled = false;
+      if (handled) {
+        e.preventDefault();
+        e.stopPropagation();
+      }
+    };
+    window.addEventListener('keydown', onKey, true);
+    return () => window.removeEventListener('keydown', onKey, true);
+  }, []);
+}
+
+export const SHORTCUTS: { keys: string; action: string }[] = [
+  { keys: 'Ctrl ⇧ 1', action: 'Open Terminal' },
+  { keys: 'Ctrl ⇧ 2', action: 'Open Code' },
+  { keys: 'Ctrl ⇧ 3', action: 'Open Antigravity' },
+  { keys: 'Ctrl ⇧ ,', action: 'Open Settings' },
+  { keys: 'Ctrl ⇧ H', action: 'Home screen' },
+  { keys: 'Ctrl ⇧ A', action: 'App Switcher' },
+  { keys: 'Ctrl ⇧ .', action: 'Control Center' },
+  { keys: 'Ctrl ⇧ \\', action: 'Toggle Code + Chat split (iPad)' },
+  { keys: 'Esc', action: 'Close an overlay or sheet' },
+];

@@ -1,0 +1,184 @@
+/*
+ * Orbit design tokens.
+ * Theme comes from <html data-theme="dark|light">, accent from data-accent, wallpaper from data-wallpaper.
+ * Every colour used by the shell and apps should come from a token here.
+ */
+:root {
+  --font-ui: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', Roboto, 'Helvetica Neue', Arial,
+    sans-serif;
+  --font-mono: ui-monospace, 'SF Mono', SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace;
+
+  /* User text scale (Settings → Text size). */
+  --text-scale: 1;
+  --fs-xs: calc(12px * var(--text-scale));
+  --fs-sm: calc(13px * var(--text-scale));
+  --fs-md: calc(15px * var(--text-scale));
+  --fs-lg: calc(17px * var(--text-scale));
+  --fs-xl: calc(22px * var(--text-scale));
+  --fs-2xl: calc(28px * var(--text-scale));
+
+  --radius-sm: 8px;
+  --radius-md: 12px;
+  --radius-lg: 18px;
+  --radius-xl: 26px;
+  --radius-icon: 22.5%;
+
+  --tap: 44px; /* minimum touch target */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 24px;
+  --space-6: 32px;
+
+  /* Safe areas (notch, home indicator, landscape side insets). */
+  --safe-top: env(safe-area-inset-top, 0px);
+  --safe-right: env(safe-area-inset-right, 0px);
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
+  --safe-left: env(safe-area-inset-left, 0px);
+
+  /* Set from JS by useVisualViewport(): height of the visible area (shrinks when the keyboard opens). */
+  --app-height: 100dvh;
+  --keyboard-inset: 0px;
+
+  --dock-height: 64px;
+  --dock-gap: 10px;
+
+  --dur-fast: 140ms;
+  --dur-med: 240ms;
+  --ease-out: cubic-bezier(0.2, 0.8, 0.2, 1);
+  --ease-spring: cubic-bezier(0.34, 1.3, 0.5, 1);
+
+  --accent: #6c7cff;
+  --accent-strong: #5161f5;
+  --on-accent: #ffffff;
+  --accent-soft: rgb(108 124 255 / 0.18);
+}
+
+/* ---- Accents ---- */
+:root[data-accent='indigo'] { --accent: #6c7cff; --accent-strong: #5161f5; --accent-soft: rgb(108 124 255 / 0.18); --on-accent: #fff; }
+:root[data-accent='teal'] { --accent: #22b8a8; --accent-strong: #129a8c; --accent-soft: rgb(34 184 168 / 0.18); --on-accent: #fff; }
+:root[data-accent='amber'] { --accent: #f2a93b; --accent-strong: #d98f1f; --accent-soft: rgb(242 169 59 / 0.2); --on-accent: #1d1300; }
+:root[data-accent='rose'] { --accent: #f2557a; --accent-strong: #da3a61; --accent-soft: rgb(242 85 122 / 0.18); --on-accent: #fff; }
+:root[data-accent='sky'] { --accent: #3ea6f5; --accent-strong: #1f8de0; --accent-soft: rgb(62 166 245 / 0.18); --on-accent: #fff; }
+
+/* ---- Dark theme (default) ---- */
+:root,
+:root[data-theme='dark'] {
+  color-scheme: dark;
+  --bg: #0b1020;
+  --surface: #141a2e;
+  --surface-2: #1b2238;
+  --surface-3: #232b45;
+  --glass: rgb(22 28 48 / 0.72);
+  --glass-strong: rgb(18 23 40 / 0.9);
+  --glass-border: rgb(255 255 255 / 0.1);
+  --border: rgb(255 255 255 / 0.1);
+  --border-strong: rgb(255 255 255 / 0.18);
+  --text: #eef1fa;
+  --text-2: #b7bfd6;
+  --text-3: #8891ab;
+  --danger: #ff6b7d;
+  --danger-soft: rgb(255 107 125 / 0.16);
+  --warning: #ffc561;
+  --warning-soft: rgb(255 197 97 / 0.16);
+  --success: #4fd69c;
+  --success-soft: rgb(79 214 156 / 0.16);
+  --info: #7cc4ff;
+  --info-soft: rgb(124 196 255 / 0.16);
+  --shadow-1: 0 1px 2px rgb(0 0 0 / 0.35), 0 4px 14px rgb(0 0 0 / 0.25);
+  --shadow-2: 0 10px 40px rgb(0 0 0 / 0.45);
+  --scrim: rgb(5 8 18 / 0.55);
+  --focus-ring: 0 0 0 3px var(--bg), 0 0 0 5px var(--accent);
+  --term-bg: #0d1222;
+  --term-fg: #e6e9f2;
+  --code-bg: #10162a;
+}
+
+/* ---- Light theme ---- */
+:root[data-theme='light'] {
+  color-scheme: light;
+  --bg: #eef1f7;
+  --surface: #ffffff;
+  --surface-2: #f4f6fb;
+  --surface-3: #e8ecf5;
+  --glass: rgb(255 255 255 / 0.72);
+  --glass-strong: rgb(255 255 255 / 0.92);
+  --glass-border: rgb(15 23 42 / 0.1);
+  --border: rgb(15 23 42 / 0.1);
+  --border-strong: rgb(15 23 42 / 0.2);
+  --text: #111827;
+  --text-2: #3d4659;
+  --text-3: #5d6679;
+  --danger: #c8283f;
+  --danger-soft: rgb(200 40 63 / 0.1);
+  --warning: #8f5a00;
+  --warning-soft: rgb(214 140 0 / 0.14);
+  --success: #137a4c;
+  --success-soft: rgb(19 122 76 / 0.12);
+  --info: #1765a8;
+  --info-soft: rgb(23 101 168 / 0.12);
+  --shadow-1: 0 1px 2px rgb(15 23 42 / 0.08), 0 4px 14px rgb(15 23 42 / 0.08);
+  --shadow-2: 0 10px 40px rgb(15 23 42 / 0.18);
+  --scrim: rgb(15 23 42 / 0.35);
+  --term-bg: #0d1222;
+  --term-fg: #e6e9f2;
+  --code-bg: #ffffff;
+}
+/* Light theme needs darker accents for text contrast on white. */
+:root[data-theme='light'][data-accent='indigo'] { --accent: #4a57e0; --accent-strong: #3a46c9; }
+:root[data-theme='light'][data-accent='teal'] { --accent: #0e8577; --accent-strong: #0a6c61; }
+:root[data-theme='light'][data-accent='amber'] { --accent: #a86200; --accent-strong: #8c5100; --on-accent: #fff; }
+:root[data-theme='light'][data-accent='rose'] { --accent: #c92d55; --accent-strong: #ad1f45; }
+:root[data-theme='light'][data-accent='sky'] { --accent: #156fb8; --accent-strong: #0f5b99; }
+
+/* ---- Wallpapers (pure CSS so nothing needs downloading) ---- */
+:root {
+  --wallpaper: radial-gradient(120% 80% at 85% 0%, #3b2a8f 0%, transparent 55%),
+    radial-gradient(90% 70% at 0% 100%, #0e6f78 0%, transparent 60%),
+    radial-gradient(60% 50% at 50% 55%, #18204a 0%, transparent 70%), linear-gradient(160deg, #0b1020, #0a1a2a);
+}
+:root[data-wallpaper='orbit'] {
+  --wallpaper: radial-gradient(120% 80% at 85% 0%, #3b2a8f 0%, transparent 55%),
+    radial-gradient(90% 70% at 0% 100%, #0e6f78 0%, transparent 60%),
+    radial-gradient(60% 50% at 50% 55%, #18204a 0%, transparent 70%), linear-gradient(160deg, #0b1020, #0a1a2a);
+}
+:root[data-wallpaper='dusk'] {
+  --wallpaper: radial-gradient(110% 70% at 10% 0%, #7a3a6b 0%, transparent 55%),
+    radial-gradient(100% 70% at 100% 100%, #c2683a 0%, transparent 55%), linear-gradient(170deg, #241a3a, #3a1f2e);
+}
+:root[data-wallpaper='aurora'] {
+  --wallpaper: radial-gradient(90% 60% at 20% 10%, #1f8f7a 0%, transparent 60%),
+    radial-gradient(80% 60% at 90% 40%, #3651c9 0%, transparent 60%), linear-gradient(180deg, #071a1f, #0b1430);
+}
+:root[data-wallpaper='graphite'] {
+  --wallpaper: radial-gradient(80% 60% at 50% 0%, #3a4152 0%, transparent 65%), linear-gradient(180deg, #1a1d24, #0f1115);
+}
+:root[data-theme='light'][data-wallpaper='orbit'],
+:root[data-theme='light']:not([data-wallpaper]) {
+  --wallpaper: radial-gradient(120% 80% at 85% 0%, #b9b3ff 0%, transparent 55%),
+    radial-gradient(90% 70% at 0% 100%, #9fe3dc 0%, transparent 60%), linear-gradient(160deg, #eef1fb, #e3f2f4);
+}
+:root[data-theme='light'][data-wallpaper='dusk'] {
+  --wallpaper: radial-gradient(110% 70% at 10% 0%, #f2b6d9 0%, transparent 55%),
+    radial-gradient(100% 70% at 100% 100%, #ffc9a3 0%, transparent 55%), linear-gradient(170deg, #fbf1f6, #fff1e8);
+}
+:root[data-theme='light'][data-wallpaper='aurora'] {
+  --wallpaper: radial-gradient(90% 60% at 20% 10%, #a6ecd9 0%, transparent 60%),
+    radial-gradient(80% 60% at 90% 40%, #b8c6ff 0%, transparent 60%), linear-gradient(180deg, #effaf7, #eef1ff);
+}
+:root[data-theme='light'][data-wallpaper='graphite'] {
+  --wallpaper: radial-gradient(80% 60% at 50% 0%, #ffffff 0%, transparent 65%), linear-gradient(180deg, #e9ebef, #d9dce2);
+}
+
+/* Reduced motion: either the OS setting or Orbit's own toggle (data-reduce-motion="true"). */
+@media (prefers-reduced-motion: reduce) {
+  :root:not([data-reduce-motion='false']) {
+    --dur-fast: 0ms;
+    --dur-med: 0ms;
+  }
+}
+:root[data-reduce-motion='true'] {
+  --dur-fast: 0ms;
+  --dur-med: 0ms;
+}
