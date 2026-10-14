@@ -1,16 +1,28 @@
 import { describe, expect, it } from 'vitest';
 import {
+  ancestorFolders,
   buildTree,
+  deleteWarning,
   EDITOR_STATE_KEY,
+  editorStateKey,
   editorSummary,
+  errorMessage,
+  filterEntries,
+  foldersOpenByDefault,
+  isFolderCollapsed,
+  isRetryable,
+  LARGE_TREE_FILES,
   loadEditorState,
   minimalChange,
+  savedMessage,
   saveEditorState,
+  storageNote,
   validateNewPath,
   visibleRows,
+  whereSuffix,
   type TreeFolder,
 } from '../../src/apps/editor/model';
-import type { FileEntry } from '../../src/services/files/types';
+import { FileStoreError, type FileEntry } from '../../src/services/files/types';
 
 const entry = (path: string): FileEntry => ({ path, size: 1, updatedAt: 0 });
 
@@ -82,7 +94,7 @@ describe('persisted editor state', () => {
   it('round-trips open tabs and the active file', () => {
     const s = new MemoryStorage();
     saveEditorState({ open: ['README.md', 'src/app.py'], active: 'src/app.py', sidebar: false, wrap: true }, s);
-    expect(JSON.parse(s.getItem(EDITOR_STATE_KEY)!)).toEqual({
+    expect(JSON.parse(s.getItem(editorStateKey('demo'))!)).toEqual({
       open: ['README.md', 'src/app.py'],
       active: 'src/app.py',
       sidebar: false,
@@ -99,12 +111,33 @@ describe('persisted editor state', () => {
 
   it('sanitises bad data', () => {
     const s = new MemoryStorage();
-    s.setItem(EDITOR_STATE_KEY, '{broken');
+    s.setItem(editorStateKey('demo'), '{broken');
     expect(loadEditorState(s)).toBeNull();
-    s.setItem(EDITOR_STATE_KEY, JSON.stringify({ open: 'nope' }));
+    s.setItem(editorStateKey('demo'), JSON.stringify({ open: 'nope' }));
     expect(loadEditorState(s)).toBeNull();
-    s.setItem(EDITOR_STATE_KEY, JSON.stringify({ open: ['a', 'a', 3, '', 'b'], active: 'zzz', sidebar: 'x' }));
+    s.setItem(editorStateKey('demo'), JSON.stringify({ open: ['a', 'a', 3, '', 'b'], active: 'zzz', sidebar: 'x' }));
     expect(loadEditorState(s)).toEqual({ open: ['a', 'b'], active: 'a', sidebar: undefined, wrap: undefined });
+  });
+
+  it('keeps host and demo tab lists apart', () => {
+    const s = new MemoryStorage();
+    expect(editorStateKey('host')).toBe('orbit:editor:v1:host');
+    expect(editorStateKey('demo')).toBe('orbit:editor:v1:demo');
+    saveEditorState({ open: ['README.md'], active: 'README.md' }, s, 'demo');
+    expect(loadEditorState(s, 'host')).toBeNull(); // demo paths never leak into the real machine
+    saveEditorState({ open: ['server/main.go'], active: 'server/main.go' }, s, 'host');
+    expect(loadEditorState(s, 'host')).toMatchObject({ open: ['server/main.go'] });
+    expect(loadEditorState(s, 'demo')).toMatchObject({ open: ['README.md'] });
+  });
+
+  it('migrates the legacy key for demo mode only', () => {
+    const s = new MemoryStorage();
+    s.setItem(EDITOR_STATE_KEY, JSON.stringify({ open: ['src/app.py'], active: 'src/app.py' }));
+    expect(loadEditorState(s, 'demo')).toMatchObject({ open: ['src/app.py'], active: 'src/app.py' });
+    expect(loadEditorState(s, 'host')).toBeNull();
+    // Once the per-mode key exists it wins.
+    saveEditorState({ open: [], active: null }, s, 'demo');
+    expect(loadEditorState(s, 'demo')).toMatchObject({ open: [] });
   });
 
   it('never throws when storage is unavailable', () => {
@@ -196,5 +229,128 @@ describe('editorSummary', () => {
         'a',
       ),
     ).toBe('2 files open');
+  });
+});
+
+describe('large trees', () => {
+  const entries = ['a/b/c.ts', 'a/d.ts', 'e/f.ts', 'g.ts'].map(entry);
+  const tree = buildTree(entries);
+
+  it('collapses folders by default only for big projects', () => {
+    expect(foldersOpenByDefault(3)).toBe(true);
+    expect(foldersOpenByDefault(LARGE_TREE_FILES)).toBe(true);
+    expect(foldersOpenByDefault(LARGE_TREE_FILES + 1)).toBe(false);
+  });
+
+  it('isFolderCollapsed applies explicit choices over the default', () => {
+    const overrides = new Map([
+      ['a', true],
+      ['e', false],
+    ]);
+    expect(isFolderCollapsed('a', overrides, false)).toBe(false);
+    expect(isFolderCollapsed('e', overrides, true)).toBe(true);
+    expect(isFolderCollapsed('x', overrides, true)).toBe(false);
+    expect(isFolderCollapsed('x', overrides, false)).toBe(true);
+  });
+
+  it('visibleRows accepts a predicate (all collapsed shows only the top level)', () => {
+    expect(visibleRows(tree, () => true).map((r) => r.node.name)).toEqual(['a', 'e', 'g.ts']);
+    const onlyA = visibleRows(tree, (p) => p !== 'a');
+    expect(onlyA.map((r) => `${r.depth}:${r.node.name}`)).toEqual(['0:a', '1:b', '1:d.ts', '0:e', '0:g.ts']);
+  });
+
+  it('stays fast for thousands of files', () => {
+    const many = Array.from({ length: 5000 }, (_, i) => entry(`pkg${i % 50}/mod${i % 7}/file${i}.ts`));
+    const t0 = performance.now();
+    const big = buildTree(many);
+    const rows = visibleRows(big, (p) => isFolderCollapsed(p, new Map(), foldersOpenByDefault(many.length)));
+    expect(rows).toHaveLength(50); // only the top-level folders
+    expect(performance.now() - t0).toBeLessThan(1000);
+  });
+
+  it('ancestorFolders lists the containing folders outermost first', () => {
+    expect(ancestorFolders('a/b/c.ts')).toEqual(['a', 'a/b']);
+    expect(ancestorFolders('README.md')).toEqual([]);
+  });
+});
+
+describe('filterEntries', () => {
+  const entries = [
+    'README.md',
+    'src/app.py',
+    'src/utils.ts',
+    'src/components/AppHeader.tsx',
+    'docs/app-notes.md',
+    'tests/test_app.py',
+    'config/settings.json',
+  ].map(entry);
+
+  it('returns nothing for an empty query', () => {
+    expect(filterEntries(entries, '   ')).toEqual({ matches: [], total: 0 });
+  });
+
+  it('matches case-insensitively and ranks file-name matches first', () => {
+    const { matches, total } = filterEntries(entries, 'APP');
+    expect(total).toBe(4);
+    // name starts with "app" → name contains "app" → path only; shorter paths first.
+    expect(matches.map((m) => m.path)).toEqual([
+      'src/app.py',
+      'docs/app-notes.md',
+      'src/components/AppHeader.tsx',
+      'tests/test_app.py',
+    ]);
+  });
+
+  it('requires every term', () => {
+    expect(filterEntries(entries, 'src ts').matches.map((m) => m.path)).toEqual([
+      'src/utils.ts',
+      'src/components/AppHeader.tsx',
+    ]);
+    expect(filterEntries(entries, 'nope').total).toBe(0);
+  });
+
+  it('caps the results but reports the full count', () => {
+    const many = Array.from({ length: 1000 }, (_, i) => entry(`f/file${i}.txt`));
+    const r = filterEntries(many, 'file', 200);
+    expect(r.matches).toHaveLength(200);
+    expect(r.total).toBe(1000);
+    expect(r.matches[0].path).toBe('f/file0.txt'); // numeric-aware ordering
+  });
+});
+
+describe('storage wording', () => {
+  it('uses the store label for the note (never a hard-coded browser message)', () => {
+    expect(storageNote({ kind: 'server', label: 'Saved on your Linux machine' })).toBe('Saved on your Linux machine');
+    expect(storageNote({ kind: 'browser-local', label: 'Saved in this browser only — not synced' })).toMatch(/browser/);
+  });
+
+  it('says where a save went', () => {
+    expect(whereSuffix('server')).toBe(' on your Linux machine');
+    expect(whereSuffix('browser-local')).toBe(' in this browser');
+    expect(savedMessage('app.py', 'server')).toBe('Saved app.py on your Linux machine');
+    expect(savedMessage('app.py', 'browser-local')).toBe('Saved app.py in this browser');
+  });
+
+  it('delete warning names the right place', () => {
+    expect(deleteWarning('server')).toMatch(/Linux machine/);
+    expect(deleteWarning('server')).not.toMatch(/browser/);
+    expect(deleteWarning('browser-local')).toMatch(/browser/);
+  });
+});
+
+describe('errors', () => {
+  it('turns anything into a readable message', () => {
+    expect(errorMessage(new FileStoreError('Could not reach the Linux machine.', 'io'))).toBe(
+      'Could not reach the Linux machine.',
+    );
+    expect(errorMessage(new Error('boom'))).toBe('boom');
+    expect(errorMessage('weird')).toMatch(/went wrong/);
+  });
+
+  it('only offers Retry when trying again could help', () => {
+    expect(isRetryable(new FileStoreError('down', 'io'))).toBe(true);
+    expect(isRetryable(new Error('network'))).toBe(true);
+    expect(isRetryable(new FileStoreError('gone', 'not-found'))).toBe(false);
+    expect(isRetryable(new FileStoreError('bad', 'invalid-path'))).toBe(false);
   });
 });

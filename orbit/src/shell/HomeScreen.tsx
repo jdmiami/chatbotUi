@@ -23,9 +23,9 @@ export function HomeScreen({ hidden }: { hidden: boolean }) {
         </span>
         <button
           type="button"
-          className="chip demo"
+          className={`chip ${connection.mode === 'host' ? 'ok' : 'demo'}`}
           onClick={() => setShowConnection(true)}
-          aria-label={`${connection.label}: not connected to Ubuntu. Show details.`}
+          aria-label={`${connection.label}. ${connection.mode === 'host' ? 'Connected.' : 'Not connected to Ubuntu.'} Show details.`}
         >
           <span className="dot" aria-hidden />
           {connection.label}
@@ -138,14 +138,24 @@ export function HomeScreen({ hidden }: { hidden: boolean }) {
             </section>
 
             <section className="widget glass" aria-labelledby="conn-title">
-              <h2 id="conn-title">Ubuntu host</h2>
+              <h2 id="conn-title">Linux machine</h2>
               <div className="row-inline" style={{ flexWrap: 'nowrap', alignItems: 'flex-start' }}>
-                <Icon name="wifiOff" />
+                <Icon name={connection.mode === 'host' ? 'check' : 'wifiOff'} size={22} />
                 <div>
-                  <strong>Not connected</strong>
-                  <p className="muted" style={{ margin: '4px 0 0', fontSize: 'var(--fs-sm)' }}>
+                  <strong>{connection.mode === 'host' ? 'Connected' : 'Not connected'}</strong>
+                  <p className="muted" style={{ margin: '4px 0 8px', fontSize: 'var(--fs-sm)' }}>
                     {connection.detail}
                   </p>
+                  <div className="row-inline">
+                    {connection.mode === 'demo' && connection.demoReason !== 'no-backend' && (
+                      <button type="button" className="btn small primary" onClick={() => window.location.reload()}>
+                        Connect
+                      </button>
+                    )}
+                    <a className="btn small ghost" href="/?choose=1">
+                      Switch workspace
+                    </a>
+                  </div>
                 </div>
               </div>
             </section>
@@ -154,14 +164,22 @@ export function HomeScreen({ hidden }: { hidden: boolean }) {
       </main>
 
       {showConnection && (
-        <Sheet title="Demo mode" onClose={() => setShowConnection(false)}>
+        <Sheet title={connection.label} onClose={() => setShowConnection(false)}>
           <div className="stack">
             <p style={{ margin: 0 }}>{connection.detail}</p>
-            <ul style={{ margin: 0, paddingLeft: 20, color: 'var(--text-2)' }}>
-              <li>Terminal: a simulated shell that runs in this browser. No commands reach a server.</li>
-              <li>Code: a sample project saved in this browser&apos;s storage. It does not sync between devices.</li>
-              <li>Antigravity: canned demo replies. The real Antigravity CLI is not called.</li>
-            </ul>
+            {connection.mode === 'host' ? (
+              <ul style={{ margin: 0, paddingLeft: 20, color: 'var(--text-2)' }}>
+                <li>Terminal: a real shell on your Linux machine, kept running in tmux between visits.</li>
+                <li>Code: your project files in ~/projects on the machine&apos;s saved storage.</li>
+                <li>Antigravity: the real Antigravity CLI running on the machine; sessions are shared by your devices.</li>
+              </ul>
+            ) : (
+              <ul style={{ margin: 0, paddingLeft: 20, color: 'var(--text-2)' }}>
+                <li>Terminal: a simulated shell that runs in this browser. No commands reach a server.</li>
+                <li>Code: a sample project saved in this browser&apos;s storage. It does not sync between devices.</li>
+                <li>Antigravity: canned demo replies. The real Antigravity CLI is not called.</li>
+              </ul>
+            )}
             <button type="button" className="btn primary" onClick={() => setShowConnection(false)}>
               OK
             </button>

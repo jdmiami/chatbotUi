@@ -1,11 +1,11 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { EditorView, type ViewUpdate } from '@codemirror/view';
 import type { EditorState, StateEffect } from '@codemirror/state';
 import { indentLess, indentMore, redo, undo } from '@codemirror/commands';
 import { openSearchPanel } from '@codemirror/search';
 import type { AppProps } from '../types';
-import { getFileStore } from '../../services';
-import { FileStoreError, normalizePath, type FileEntry, type FileStore } from '../../services/files/types';
+import { connection, getFileStore } from '../../services';
+import { FileStoreError, normalizePath, type FileEntry } from '../../services/files/types';
 import { useShell } from '../../state/shell';
 import { useLayout } from '../../state/viewport';
 import { useWorkspace } from '../../state/workspace';
@@ -32,9 +32,24 @@ import {
   wrapExtension,
   type EditorHooks,
 } from './cm';
-import { FileBrowser } from './FileBrowser';
+import { FileBrowser, type ListStatus } from './FileBrowser';
 import { LANGUAGE_LABELS, languageIdForPath } from './language';
-import { editorSummary, loadEditorState, minimalChange, saveEditorState, validateNewPath } from './model';
+import {
+  ancestorFolders,
+  deleteWarning,
+  editorSummary,
+  errorMessage,
+  foldersOpenByDefault,
+  isFolderCollapsed,
+  isRetryable,
+  loadEditorState,
+  minimalChange,
+  savedMessage,
+  saveEditorState,
+  storageNote,
+  validateNewPath,
+  whereSuffix,
+} from './model';
 import { createCursorStore, EditorToolbar, type ToolbarCommand } from './Toolbar';
 import './editor.css';
 
@@ -49,13 +64,22 @@ interface Tab {
   conflict: Conflict | null;
 }
 
+type OpenResult = { ok: true } | { ok: false; error: unknown };
+
+/** Files that couldn't be opened (network / server error, or missing). */
+interface OpenError {
+  paths: string[];
+  message: string;
+  retryable: boolean;
+}
+
 type Dialog =
   | { kind: 'browser' }
   | { kind: 'more' }
   | { kind: 'file-actions'; path: string }
   | { kind: 'new' }
   | { kind: 'rename'; path: string }
-  | { kind: 'delete'; path: string }
+  | { kind: 'delete'; path: string; busy?: boolean; error?: string }
   | { kind: 'revert'; path: string }
   | { kind: 'close'; path: string }
   | null;
@@ -63,17 +87,11 @@ type Dialog =
 /** The sidebar docks only when the app is at least this wide; narrower layouts use a sheet. */
 const DOCK_MIN_WIDTH = 720;
 
-/** Persistent storage disclosure shown in the file browser. */
-function storageNote(store: FileStore): string {
-  return store.kind === 'browser-local'
-    ? 'Saved in this browser only — not synced to your other devices'
-    : store.label;
-}
-
 const nameOf = (path: string) => splitPath(path).name;
 
 /**
- * Code: CodeMirror 6 editor over the project file store (browser-local in Phase 1).
+ * Code: CodeMirror 6 editor over the project file store — files in this browser (demo mode) or
+ * the real project on the Linux machine (host mode), always through getFileStore().
  *
  * One EditorView per app instance; one EditorState per open file kept in a ref map (so undo
  * history, selection and scroll survive tab switches). The component stays mounted while the app
@@ -81,23 +99,32 @@ const nameOf = (path: string) => splitPath(path).name;
  */
 export default function EditorApp({ placement, isActive, compact }: AppProps) {
   const store = useMemo(() => getFileStore(), []);
+  const mode = connection.mode;
   const toast = useShell((s) => s.toast);
   const launch = useShell((s) => s.launch);
   const layout = useLayout();
   const intent = useWorkspace((s) => s.intent);
   const recentFiles = useWorkspace((s) => s.recentFiles);
 
-  const persisted = useMemo(() => loadEditorState(), []);
+  const persisted = useMemo(() => loadEditorState(undefined, mode), [mode]);
   const [tabs, setTabs] = useState<Tab[]>([]);
   const [active, setActive] = useState<string | null>(null);
   const [entries, setEntries] = useState<FileEntry[]>([]);
-  const [loadingEntries, setLoadingEntries] = useState(true);
+  const [listStatus, setListStatus] = useState<ListStatus>({ kind: 'loading' });
+  const [rootName, setRootName] = useState(store.rootName);
   const [ready, setReady] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(persisted?.sidebar ?? true);
   const [wrap, setWrap] = useState(persisted?.wrap ?? true);
-  const [collapsed, setCollapsed] = useState<ReadonlySet<string>>(() => new Set());
+  /** Explicit folder open/closed choices; the default depends on the project size. */
+  const [folderOverrides, setFolderOverrides] = useState<ReadonlyMap<string, boolean>>(() => new Map());
+  const [query, setQuery] = useState('');
   const [dialog, setDialog] = useState<Dialog>(null);
   const [saveError, setSaveError] = useState<{ path: string; message: string } | null>(null);
+  const [openError, setOpenError] = useState<OpenError | null>(null);
+  const [opening, setOpening] = useState<ReadonlySet<string>>(() => new Set());
+  /** The file the user last asked to open, while it is still loading. */
+  const [pendingFocus, setPendingFocus] = useState<string | null>(null);
+  const [saving, setSaving] = useState<ReadonlySet<string>>(() => new Set());
   const [dark, setDark] = useState(() => document.documentElement.dataset.theme !== 'light');
   const [width, setWidth] = useState(() => layout.width);
 
@@ -109,13 +136,21 @@ export default function EditorApp({ placement, isActive, compact }: AppProps) {
   const statesRef = useRef(new Map<string, EditorState>());
   /** Last saved/loaded content per open file (undefined = file no longer exists on disk). */
   const baselineRef = useRef(new Map<string, string>());
+  /** updatedAt of the disk version each tab was last reconciled with (server: skips needless reads). */
+  const stampRef = useRef(new Map<string, number>());
   const scrollRef = useRef(new Map<string, number>());
-  const openingRef = useRef(new Map<string, Promise<boolean>>());
+  const openingRef = useRef(new Map<string, Promise<OpenResult>>());
+  /** Paths with a save / rename / delete in flight: external-change checks leave them alone. */
+  const busyRef = useRef(new Set<string>());
+  const savingRef = useRef(new Set<string>());
+  const openSeq = useRef(0);
   const activeRef = useRef<string | null>(null);
   const tabsRef = useRef<Tab[]>([]);
   const darkRef = useRef(dark);
   const wrapRef = useRef(wrap);
   const restoreStarted = useRef(false);
+  /** First launch whose file list failed: open README.md once the list loads. */
+  const readmePending = useRef(false);
   const handledIntent = useRef<number | null>(null);
   const cursor = useMemo(() => createCursorStore(), []);
 
@@ -157,7 +192,35 @@ export default function EditorApp({ placement, isActive, compact }: AppProps) {
 
   const emptyState = () => createFileState('', '', { dark: darkRef.current, wrap: wrapRef.current, hooks });
 
+  const syncOpening = () => setOpening(new Set(openingRef.current.keys()));
+  const syncSaving = () => setSaving(new Set(savingRef.current));
+
   /* ------------------------------------------------------------------ actions */
+
+  /** Fetch the file list. Returns null (and shows an error with Retry) when it fails. */
+  async function loadList(): Promise<FileEntry[] | null> {
+    try {
+      const list = await store.list();
+      setEntries(list);
+      setRootName(store.rootName);
+      setListStatus({ kind: 'ready' });
+      return list;
+    } catch (err) {
+      setListStatus({ kind: 'error', message: errorMessage(err) });
+      return null;
+    }
+  }
+
+  /** Expand the folders containing a file so it's visible in the tree. */
+  function reveal(path: string) {
+    setFolderOverrides((prev) => {
+      const folders = ancestorFolders(path).filter((f) => prev.get(f) !== true);
+      if (folders.length === 0) return prev;
+      const next = new Map(prev);
+      folders.forEach((f) => next.set(f, true));
+      return next;
+    });
+  }
 
   function activate(path: string | null) {
     const view = viewRef.current;
@@ -186,19 +249,25 @@ export default function EditorApp({ placement, isActive, compact }: AppProps) {
     }
   }
 
-  async function openFile(raw: string, opts: { activate?: boolean; quiet?: boolean } = {}): Promise<boolean> {
+  /**
+   * Open a file in a tab (reading it from the store if needed) and, unless `activate: false`,
+   * show it. `quiet` suppresses the error banner (the caller reports failures itself).
+   */
+  async function openFile(raw: string, opts: { activate?: boolean; quiet?: boolean } = {}): Promise<OpenResult> {
     let path: string;
     try {
       path = normalizePath(raw);
-    } catch (err) {
-      if (!opts.quiet) toast((err as Error).message, 'error');
-      return false;
+    } catch (error) {
+      if (!opts.quiet) setOpenError({ paths: [raw], message: errorMessage(error), retryable: false });
+      return { ok: false, error };
     }
     const focus = opts.activate !== false;
+    const seq = focus ? ++openSeq.current : 0;
+    if (focus) setOpenError((e) => (e?.paths.includes(path) ? null : e));
     if (!tabsRef.current.some((t) => t.path === path)) {
       let pending = openingRef.current.get(path);
       if (!pending) {
-        pending = (async () => {
+        pending = (async (): Promise<OpenResult> => {
           try {
             const content = await store.read(path);
             if (!tabsRef.current.some((t) => t.path === path)) {
@@ -207,26 +276,80 @@ export default function EditorApp({ placement, isActive, compact }: AppProps) {
                 createFileState(path, content, { dark: darkRef.current, wrap: wrapRef.current, hooks }),
               );
               baselineRef.current.set(path, content);
+              stampRef.current.delete(path);
               commitTabs((prev) => [...prev, { path, dirty: false, conflict: null }]);
             }
-            return true;
-          } catch (err) {
-            if (!opts.quiet) toast(`Couldn't open ${path}: ${(err as Error).message}`, 'error');
-            if (err instanceof FileStoreError && err.code === 'not-found') useWorkspace.getState().forgetFile(path);
-            return false;
+            return { ok: true };
+          } catch (error) {
+            return { ok: false, error };
           } finally {
             openingRef.current.delete(path);
+            syncOpening();
           }
         })();
         openingRef.current.set(path, pending);
+        syncOpening();
       }
-      if (!(await pending)) return false;
+      if (focus) setPendingFocus(path);
+      const result = await pending;
+      if (focus) setPendingFocus((p) => (p === path ? null : p));
+      if (!result.ok) {
+        if (result.error instanceof FileStoreError && result.error.code === 'not-found') {
+          useWorkspace.getState().forgetFile(path);
+        }
+        if (!opts.quiet) {
+          setOpenError({ paths: [path], message: errorMessage(result.error), retryable: isRetryable(result.error) });
+        }
+        return result;
+      }
     }
-    if (focus) {
+    // Only the latest request wins (tapping B while A is still loading shows B).
+    if (focus && seq === openSeq.current) {
       activate(path);
+      reveal(path);
       useWorkspace.getState().noteFile(path);
     }
-    return true;
+    return { ok: true };
+  }
+
+  /** Open several files in parallel (restoring tabs, Retry), keeping their order. */
+  async function openMany(paths: string[], preferActive: string | null) {
+    const results = await Promise.all(paths.map((p) => openFile(p, { activate: false, quiet: true })));
+    const order = new Map(paths.map((p, i) => [p, i]));
+    commitTabs((prev) => {
+      const sorted = prev.slice().sort((a, b) => (order.get(a.path) ?? -1) - (order.get(b.path) ?? -1));
+      return sorted.every((t, i) => t === prev[i]) ? prev : sorted;
+    });
+    const failed = paths.filter((_, i) => {
+      const r = results[i];
+      return !r.ok && isRetryable(r.error);
+    });
+    if (failed.length > 0) {
+      const first = results.find((r) => !r.ok && isRetryable(r.error)) as { ok: false; error: unknown };
+      setOpenError({ paths: failed, message: errorMessage(first.error), retryable: true });
+    }
+    const open = tabsRef.current.map((t) => t.path);
+    if (!activeRef.current) {
+      const want = preferActive && open.includes(preferActive) ? preferActive : (open[0] ?? null);
+      if (want) {
+        activate(want);
+        useWorkspace.getState().noteFile(want);
+      }
+    }
+  }
+
+  async function retryOpen() {
+    const err = openError;
+    if (!err) return;
+    setOpenError(null);
+    if (listStatus.kind === 'error') retryList();
+    if (err.paths.length === 1) await openFile(err.paths[0]);
+    else await openMany(err.paths, persisted?.active ?? null);
+  }
+
+  function retryList() {
+    setListStatus({ kind: 'loading' });
+    queueRefresh();
   }
 
   function closeTab(path: string, force = false) {
@@ -245,32 +368,41 @@ export default function EditorApp({ placement, isActive, compact }: AppProps) {
     }
     statesRef.current.delete(path);
     baselineRef.current.delete(path);
+    stampRef.current.delete(path);
     scrollRef.current.delete(path);
     commitTabs(() => rest);
     setSaveError((e) => (e?.path === path ? null : e));
   }
 
   async function save(path: string | null = activeRef.current): Promise<boolean> {
-    if (!path) return false;
+    if (!path || savingRef.current.has(path)) return false;
     const text = docText(path);
     if (text === undefined) return false;
     const name = nameOf(path);
     const prevBase = baselineRef.current.get(path);
     // Set the baseline first so our own store notification is recognised as "no change".
     baselineRef.current.set(path, text);
+    savingRef.current.add(path);
+    busyRef.current.add(path);
+    syncSaving();
     try {
       await store.write(path, text);
+      stampRef.current.delete(path);
       patchTab(path, { conflict: null, dirty: computeDirty(path) });
       setSaveError((e) => (e?.path === path ? null : e));
-      toast(`Saved ${name} (in this browser)`, 'success');
+      toast(savedMessage(name, store.kind), 'success');
       return true;
     } catch (err) {
       if (prevBase === undefined) baselineRef.current.delete(path);
       else baselineRef.current.set(path, prevBase);
-      const message = err instanceof FileStoreError ? err.message : `Unexpected error: ${(err as Error).message}`;
+      const message = errorMessage(err);
       setSaveError({ path, message });
       toast(`Couldn't save ${name}. ${message}`, 'error');
       return false;
+    } finally {
+      savingRef.current.delete(path);
+      busyRef.current.delete(path);
+      syncSaving();
     }
   }
 
@@ -301,7 +433,7 @@ export default function EditorApp({ placement, isActive, compact }: AppProps) {
       loadFromDisk(path, disk);
       toast(`Reverted ${nameOf(path)} to the saved version`);
     } catch (err) {
-      toast(`Couldn't revert ${nameOf(path)}: ${(err as Error).message}`, 'error');
+      toast(`Couldn't revert ${nameOf(path)}: ${errorMessage(err)}`, 'error');
     }
   }
 
@@ -313,25 +445,30 @@ export default function EditorApp({ placement, isActive, compact }: AppProps) {
     patchTab(path, { conflict: null, dirty: computeDirty(path) });
   }
 
-  /** Reconcile open tabs with the file store after any change (terminal, other browser tab, our own ops). */
+  /** Reconcile open tabs with the file store after any change (terminal, other tab/device, our own ops). */
   async function refreshFromStore() {
-    let list: FileEntry[];
-    try {
-      list = await store.list();
-    } catch {
-      return;
+    const list = await loadList();
+    if (!list) return;
+    if (readmePending.current && list.some((e) => e.path === 'README.md')) {
+      readmePending.current = false;
+      if (tabsRef.current.length === 0) void openFile('README.md', { quiet: true });
     }
-    setEntries(list);
-    setLoadingEntries(false);
-    const existing = new Set(list.map((e) => e.path));
-    for (const { path } of tabsRef.current) {
+    const byPath = new Map(list.map((e) => [e.path, e]));
+    for (const { path } of tabsRef.current.slice()) {
+      if (busyRef.current.has(path)) continue;
       const tab = tabsRef.current.find((t) => t.path === path);
       if (!tab) continue;
-      if (!existing.has(path)) {
+      const entry = byPath.get(path);
+      if (!entry) {
         if (tab.conflict?.kind !== 'deleted') {
           baselineRef.current.delete(path);
+          stampRef.current.delete(path);
           patchTab(path, { conflict: { kind: 'deleted' }, dirty: true });
         }
+        continue;
+      }
+      // Unchanged on the server since we last looked: no need to download it again.
+      if (store.kind === 'server' && stampRef.current.get(path) === entry.updatedAt && tab.conflict?.kind !== 'deleted') {
         continue;
       }
       let disk: string;
@@ -341,7 +478,8 @@ export default function EditorApp({ placement, isActive, compact }: AppProps) {
         continue;
       }
       const now = tabsRef.current.find((t) => t.path === path);
-      if (!now) continue; // closed meanwhile
+      if (!now || busyRef.current.has(path)) continue; // closed or being saved meanwhile
+      stampRef.current.set(path, entry.updatedAt);
       const base = baselineRef.current.get(path);
       if (disk === base) {
         if (now.conflict) patchTab(path, { conflict: null, dirty: computeDirty(path) });
@@ -363,7 +501,10 @@ export default function EditorApp({ placement, isActive, compact }: AppProps) {
   }
 
   function rekey(from: string, to: string) {
-    for (const map of [statesRef.current, baselineRef.current, scrollRef.current] as Map<string, unknown>[]) {
+    for (const map of [statesRef.current, baselineRef.current, scrollRef.current, stampRef.current] as Map<
+      string,
+      unknown
+    >[]) {
       if (map.has(from)) {
         map.set(to, map.get(from));
         map.delete(from);
@@ -390,56 +531,78 @@ export default function EditorApp({ placement, isActive, compact }: AppProps) {
     }
     const err = validateNewPath(to, entries.map((e) => e.path), from);
     if (err) throw new Error(err);
+    if (busyRef.current.has(from)) throw new Error('This file is being saved. Try again in a moment.');
     const wasOpen = tabsRef.current.some((t) => t.path === from);
+    busyRef.current.add(from);
+    busyRef.current.add(to);
     // Re-key first so the store notification finds the tab under its new name.
     if (wasOpen) rekey(from, to);
     try {
       await store.rename(from, to);
     } catch (ex) {
       if (wasOpen) rekey(to, from);
-      throw ex; // shown inside the prompt
+      throw new Error(errorMessage(ex)); // shown inside the prompt; pressing Rename again retries
+    } finally {
+      busyRef.current.delete(from);
+      busyRef.current.delete(to);
     }
+    stampRef.current.delete(to);
     const ws = useWorkspace.getState();
     ws.forgetFile(from);
     if (wasOpen) ws.noteFile(to);
+    reveal(to);
     setDialog(null);
     toast(`Renamed to ${to}`, 'success');
   }
 
   async function deleteFile(path: string) {
-    setDialog(null);
-    closeTab(path, true);
+    if (busyRef.current.has(path)) {
+      setDialog({ kind: 'delete', path, error: 'It is being saved right now. Try again in a moment.' });
+      return;
+    }
+    busyRef.current.add(path);
+    setDialog({ kind: 'delete', path, busy: true });
     try {
       await store.remove(path);
-      useWorkspace.getState().forgetFile(path);
-      toast(`Deleted ${nameOf(path)}`);
     } catch (err) {
-      toast(`Couldn't delete ${nameOf(path)}: ${(err as Error).message}`, 'error');
+      busyRef.current.delete(path);
+      if (!(err instanceof FileStoreError && err.code === 'not-found')) {
+        setDialog({ kind: 'delete', path, error: errorMessage(err) });
+        return;
+      }
+      // Already gone: same outcome as deleting it.
     }
+    closeTab(path, true);
+    busyRef.current.delete(path);
+    useWorkspace.getState().forgetFile(path);
+    setDialog(null);
+    toast(`Deleted ${nameOf(path)}`);
   }
 
   async function createFile(raw: string) {
     const err = validateNewPath(raw, entries.map((e) => e.path));
     if (err) throw new Error(err);
     const path = normalizePath(raw);
-    await store.write(path, '');
+    try {
+      await store.write(path, '');
+    } catch (ex) {
+      throw new Error(errorMessage(ex)); // shown inside the prompt; pressing Create again retries
+    }
     setDialog(null);
-    // Make sure the new file is visible in the tree.
-    setCollapsed((prev) => {
-      const next = new Set(prev);
-      const parts = path.split('/');
-      for (let i = 1; i < parts.length; i++) next.delete(parts.slice(0, i).join('/'));
-      return next;
-    });
+    setQuery('');
     await openFile(path);
-    toast(`Created ${path} (in this browser)`, 'success');
+    toast(`Created ${path}${whereSuffix(store.kind)}`, 'success');
   }
 
   function askAgent(path: string) {
+    const fromSheet = dialog !== null;
     setDialog(null);
     useWorkspace.getState().sendIntent({ app: 'agent', type: 'compose', text: `About \`${path}\`: ` });
     // In Code + Chat split view this just focuses the chat pane; otherwise it switches to Antigravity.
-    launch('agent');
+    // A closing sheet hands focus back to the button that opened it (inside Code), which would make
+    // Code the focused pane again, so switch only after that has happened.
+    if (fromSheet) setTimeout(() => launch('agent'), 0);
+    else launch('agent');
   }
 
   function runCommand(cmd: ToolbarCommand) {
@@ -463,14 +626,28 @@ export default function EditorApp({ placement, isActive, compact }: AppProps) {
   }
 
   // Latest action closures for callbacks created once (CodeMirror hooks, store subscription).
-  const actions = useRef({ save, onUpdate, refreshFromStore, openFile, activate });
-  actions.current = { save, onUpdate, refreshFromStore, openFile, activate };
+  const actions = useRef({ save, onUpdate, refreshFromStore, openFile, openMany, activate, loadList });
+  actions.current = { save, onUpdate, refreshFromStore, openFile, openMany, activate, loadList };
   const hooksRef = useRef<EditorHooks | null>(null);
   hooksRef.current ??= {
     onSave: () => void actions.current.save(),
     onUpdate: (u) => actions.current.onUpdate(u),
   };
   const hooks = hooksRef.current;
+
+  /** Coalesced, serialised refresh (store notifications can arrive in bursts). */
+  const queueRefresh = useMemo(() => {
+    let queued = false;
+    let chain = Promise.resolve();
+    return () => {
+      if (queued) return;
+      queued = true;
+      queueMicrotask(() => {
+        queued = false;
+        chain = chain.then(() => actions.current.refreshFromStore()).catch(() => undefined);
+      });
+    };
+  }, []);
 
   const reconfigureAll = (effect: StateEffect<unknown>) => {
     for (const [path, state] of statesRef.current) {
@@ -500,45 +677,23 @@ export default function EditorApp({ placement, isActive, compact }: AppProps) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Restore the tabs from the last visit (or open README.md on first launch).
+  // Restore the tabs from the last visit in this mode (or open README.md on first launch).
   useEffect(() => {
     if (restoreStarted.current) return;
     restoreStarted.current = true;
     void (async () => {
-      let list: FileEntry[] = [];
-      try {
-        list = await store.list();
-      } catch {
-        /* storage blocked: start empty */
-      }
-      setEntries(list);
-      setLoadingEntries(false);
-      const paths = persisted
-        ? persisted.open
-        : list.some((e) => e.path === 'README.md')
-          ? ['README.md']
-          : list.slice(0, 1).map((e) => e.path);
-      for (const p of paths) await actions.current.openFile(p, { activate: false, quiet: true });
-      const open = tabsRef.current.map((t) => t.path);
-      const want = persisted?.active && open.includes(persisted.active) ? persisted.active : (open[0] ?? null);
-      if (want) actions.current.activate(want);
+      const list = await actions.current.loadList();
+      let paths: string[] = [];
+      if (persisted) paths = persisted.open;
+      else if (list?.some((e) => e.path === 'README.md')) paths = ['README.md'];
+      else if (!list) readmePending.current = true; // list failed: try again after Retry
+      await actions.current.openMany(paths, persisted?.active ?? null);
       setReady(true);
     })();
-  }, [store, persisted]);
+  }, [persisted]);
 
-  // React to changes made elsewhere (terminal, another browser tab, Settings → reset).
-  useEffect(() => {
-    let queued = false;
-    let chain = Promise.resolve();
-    return store.subscribe(() => {
-      if (queued) return;
-      queued = true;
-      queueMicrotask(() => {
-        queued = false;
-        chain = chain.then(() => actions.current.refreshFromStore()).catch(() => undefined);
-      });
-    });
-  }, [store]);
+  // React to changes made elsewhere (terminal, Antigravity, another tab or device, Settings → reset).
+  useEffect(() => store.subscribe(queueRefresh), [store, queueRefresh]);
 
   // Cross-app "open this file" requests.
   useEffect(() => {
@@ -548,6 +703,20 @@ export default function EditorApp({ placement, isActive, compact }: AppProps) {
     const seq = intent.seq;
     void actions.current.openFile(intent.path).finally(() => useWorkspace.getState().consumeIntent(seq));
   }, [ready, intent]);
+
+  // Hardware keyboard: ⌘S / Ctrl+S anywhere in the app (CodeMirror handles it first when focused).
+  useEffect(() => {
+    if (!isActive) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.defaultPrevented) return;
+      if ((e.metaKey || e.ctrlKey) && !e.shiftKey && !e.altKey && e.key.toLowerCase() === 's') {
+        e.preventDefault();
+        void actions.current.save();
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [isActive]);
 
   // Theme follows <html data-theme>.
   useEffect(() => {
@@ -607,11 +776,14 @@ export default function EditorApp({ placement, isActive, compact }: AppProps) {
   }, [tabs, active]);
   useEffect(() => () => useWorkspace.getState().setSummary('editor', undefined), []);
 
-  // Remember which tabs were open (paths only).
+  // Remember which tabs were open (paths only), per mode. Files that failed to open with a
+  // retryable error (machine briefly unreachable) stay in the list so a reload tries them again.
   useEffect(() => {
     if (!ready) return;
-    saveEditorState({ open: tabs.map((t) => t.path), active, sidebar: sidebarOpen, wrap });
-  }, [ready, tabs, active, sidebarOpen, wrap]);
+    const open = tabs.map((t) => t.path);
+    const retry = openError?.retryable ? openError.paths.filter((p) => !open.includes(p)) : [];
+    saveEditorState({ open: [...open, ...retry], active, sidebar: sidebarOpen, wrap }, undefined, mode);
+  }, [ready, tabs, active, sidebarOpen, wrap, openError, mode]);
 
   // Unsaved buffers are not persisted: warn before the page unloads.
   const anyDirty = tabs.some((t) => t.dirty);
@@ -635,6 +807,7 @@ export default function EditorApp({ placement, isActive, compact }: AppProps) {
 
   const closeDialog = useCallback(() => setDialog(null), []);
   const activeTab = tabs.find((t) => t.path === active) ?? null;
+  const activeSaving = !!active && saving.has(active);
   const docked = !compact && width >= DOCK_MIN_WIDTH;
   const showSidebar = docked && sidebarOpen;
   const tight = layout.keyboardOpen && layout.height < 520;
@@ -647,50 +820,82 @@ export default function EditorApp({ placement, isActive, compact }: AppProps) {
   }, [tabs]);
   const recent = recentFiles.filter((f) => entryPaths.has(f.path)).slice(0, 5);
   const note = storageNote(store);
+  const defaultOpen = foldersOpenByDefault(entries.length);
 
-  const toggleFolder = useCallback((path: string) => {
-    setCollapsed((prev) => {
-      const next = new Set(prev);
-      if (next.has(path)) next.delete(path);
-      else next.add(path);
-      return next;
-    });
-  }, []);
+  const isCollapsed = useCallback(
+    (folder: string) => isFolderCollapsed(folder, folderOverrides, defaultOpen),
+    [folderOverrides, defaultOpen],
+  );
+  const toggleFolder = useCallback(
+    (folder: string) =>
+      setFolderOverrides((prev) => {
+        const next = new Map(prev);
+        next.set(folder, isFolderCollapsed(folder, prev, defaultOpen));
+        return next;
+      }),
+    [defaultOpen],
+  );
+  const collapseAll = useCallback(() => {
+    const folders = new Set<string>();
+    entries.forEach((e) => ancestorFolders(e.path).forEach((f) => folders.add(f)));
+    setFolderOverrides(new Map([...folders].map((f) => [f, false])));
+  }, [entries]);
 
   const openBrowser = () => {
     if (docked) setSidebarOpen(true);
     else setDialog({ kind: 'browser' });
   };
 
-  const onRootKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
-    if (e.defaultPrevented) return; // CodeMirror already handled Mod-s
-    if ((e.metaKey || e.ctrlKey) && !e.shiftKey && !e.altKey && e.key.toLowerCase() === 's') {
-      e.preventDefault();
-      void save();
-    }
-  };
-
   const browser = (variant: 'sidebar' | 'sheet') => (
     <FileBrowser
       variant={variant}
       entries={entries}
-      loading={loadingEntries}
-      rootName={store.rootName}
+      status={listStatus}
+      rootName={rootName}
       storageNote={note}
       activePath={active}
       dirtyPaths={dirtyPaths}
-      collapsed={collapsed}
+      openingPaths={opening}
+      isCollapsed={isCollapsed}
+      query={query}
+      onQueryChange={setQuery}
       onToggleFolder={toggleFolder}
+      onCollapseAll={collapseAll}
       onOpen={(p) => {
         if (variant === 'sheet') setDialog(null);
         void openFile(p);
       }}
       onNewFile={() => setDialog({ kind: 'new' })}
       onFileActions={(p) => setDialog({ kind: 'file-actions', path: p })}
+      onRetry={retryList}
     />
   );
 
   const activeDir = active ? splitPath(active).dir : '';
+  const chip =
+    mode === 'demo' ? (
+      <DemoChip text="Local files" title="Demo mode: files are stored in this browser only, not on your Linux machine." />
+    ) : compact ? undefined : (
+      <span className="chip ok" title={note}>
+        <span className="dot" aria-hidden />
+        Linux machine
+      </span>
+    );
+  // (The docked sidebar shows the same error itself.)
+  const listErrorBanner = listStatus.kind === 'error' && entries.length === 0 && !showSidebar && (
+    <div className="banner error ed-banner ed-banner-standalone" role="alert">
+      <Icon name="alert" size={18} />
+      <div className="ed-banner-text">
+        <strong>Couldn’t load the file list</strong>
+        <span>{listStatus.message}</span>
+      </div>
+      <div className="ed-banner-actions">
+        <button type="button" className="btn small primary" onClick={retryList}>
+          Retry
+        </button>
+      </div>
+    </div>
+  );
 
   return (
     <div
@@ -700,7 +905,6 @@ export default function EditorApp({ placement, isActive, compact }: AppProps) {
       data-compact={compact}
       data-tight={tight}
       data-active={isActive}
-      onKeyDown={onRootKeyDown}
     >
       <AppHeader
         title={active ? nameOf(active) : 'Code'}
@@ -711,10 +915,10 @@ export default function EditorApp({ placement, isActive, compact }: AppProps) {
               {activeTab?.dirty ? ' • Edited' : ''}
             </span>
           ) : (
-            store.rootName
+            rootName
           )
         }
-        chip={<DemoChip text="Local files" title="Files are stored in this browser only" />}
+        chip={chip}
         actions={
           <>
             <IconButton
@@ -723,7 +927,12 @@ export default function EditorApp({ placement, isActive, compact }: AppProps) {
               pressed={docked ? sidebarOpen : undefined}
               onClick={() => (docked ? setSidebarOpen((v) => !v) : setDialog({ kind: 'browser' }))}
             />
-            <IconButton icon="save" label="Save file" disabled={!activeTab?.dirty} onClick={() => void save()} />
+            <IconButton
+              icon="save"
+              label={activeSaving ? 'Saving…' : 'Save file'}
+              disabled={!activeTab?.dirty || activeSaving}
+              onClick={() => void save()}
+            />
             <IconButton icon="more" label="More actions" onClick={() => setDialog({ kind: 'more' })} />
           </>
         }
@@ -749,10 +958,13 @@ export default function EditorApp({ placement, isActive, compact }: AppProps) {
                       className="ed-tab-main"
                       aria-current={isCurrent ? 'true' : undefined}
                       title={t.path}
-                      onClick={() => activate(t.path)}
+                      onClick={() => {
+                        activate(t.path);
+                        useWorkspace.getState().noteFile(t.path);
+                      }}
                     >
                       <span className="ed-tab-name">{name}</span>
-                      {(nameCounts.get(name) ?? 0) > 1 && <span className="ed-tab-dir">{dir || store.rootName}</span>}
+                      {(nameCounts.get(name) ?? 0) > 1 && <span className="ed-tab-dir">{dir || rootName}</span>}
                       {t.conflict && <Icon name="alert" size={14} className="ed-tab-warn" />}
                       {t.dirty && (
                         <>
@@ -772,6 +984,36 @@ export default function EditorApp({ placement, isActive, compact }: AppProps) {
                 );
               })}
             </nav>
+          )}
+
+          {pendingFocus && (
+            <div className="ed-status" role="status">
+              <span className="ed-spinner" aria-hidden />
+              <span className="ed-status-text">Opening {nameOf(pendingFocus)}…</span>
+            </div>
+          )}
+
+          {openError && (
+            <div className="banner error ed-banner" role="alert">
+              <Icon name="alert" size={18} />
+              <div className="ed-banner-text">
+                <strong>
+                  Couldn’t open{' '}
+                  {openError.paths.length === 1 ? nameOf(openError.paths[0]) : `${openError.paths.length} files`}
+                </strong>
+                <span>{openError.message}</span>
+              </div>
+              <div className="ed-banner-actions">
+                <button type="button" className="btn small ghost" onClick={() => setOpenError(null)}>
+                  Dismiss
+                </button>
+                {openError.retryable && (
+                  <button type="button" className="btn small primary" onClick={() => void retryOpen()}>
+                    Retry
+                  </button>
+                )}
+              </div>
+            </div>
           )}
 
           {activeTab?.conflict?.kind === 'changed' && (
@@ -806,7 +1048,12 @@ export default function EditorApp({ placement, isActive, compact }: AppProps) {
                 <button type="button" className="btn small ghost" onClick={() => closeTab(activeTab.path)}>
                   Close tab
                 </button>
-                <button type="button" className="btn small primary" onClick={() => void save(activeTab.path)}>
+                <button
+                  type="button"
+                  className="btn small primary"
+                  disabled={activeSaving}
+                  onClick={() => void save(activeTab.path)}
+                >
                   Save again
                 </button>
               </div>
@@ -816,14 +1063,19 @@ export default function EditorApp({ placement, isActive, compact }: AppProps) {
             <div className="banner error ed-banner" role="alert">
               <Icon name="alert" size={18} />
               <div className="ed-banner-text">
-                <strong>Couldn't save {nameOf(saveError.path)}</strong>
+                <strong>Couldn’t save {nameOf(saveError.path)}</strong>
                 <span>{saveError.message}</span>
               </div>
               <div className="ed-banner-actions">
                 <button type="button" className="btn small ghost" onClick={() => setSaveError(null)}>
                   Dismiss
                 </button>
-                <button type="button" className="btn small primary" onClick={() => void save(saveError.path)}>
+                <button
+                  type="button"
+                  className="btn small primary"
+                  disabled={activeSaving}
+                  onClick={() => void save(saveError.path)}
+                >
                   Try again
                 </button>
               </div>
@@ -835,9 +1087,10 @@ export default function EditorApp({ placement, isActive, compact }: AppProps) {
           {!active && (
             <div className="ed-empty">
               {!ready ? (
-                <EmptyState icon="code" title="Opening files…" />
+                <EmptyState icon="code" title={listStatus.kind === 'loading' ? 'Loading files…' : 'Opening files…'} />
               ) : (
                 <>
+                  {listErrorBanner}
                   <EmptyState
                     icon="code"
                     title="No file open"
@@ -854,7 +1107,7 @@ export default function EditorApp({ placement, isActive, compact }: AppProps) {
                       </div>
                     }
                   >
-                    Open a file from {store.rootName} or create a new one. {note}.
+                    Open a file from {rootName} or create a new one. {note}.
                   </EmptyState>
                   {recent.length > 0 && (
                     <section className="ed-recent" aria-labelledby="ed-recent-title">
@@ -888,6 +1141,7 @@ export default function EditorApp({ placement, isActive, compact }: AppProps) {
               compact={compact}
               language={LANGUAGE_LABELS[languageIdForPath(active)]}
               dirty={!!activeTab?.dirty}
+              saving={activeSaving}
               onCommand={runCommand}
               onSave={() => void save()}
               onAsk={() => askAgent(active)}
@@ -947,7 +1201,9 @@ export default function EditorApp({ placement, isActive, compact }: AppProps) {
                 <Icon name="sparkle" />
                 <span className="row-main">
                   <span className="row-title">Ask Antigravity about this file</span>
-                  <span className="row-sub">Starts a message in Antigravity (demo replies)</span>
+                  <span className="row-sub">
+                    {mode === 'demo' ? 'Starts a message in Antigravity (demo replies)' : 'Starts a message in Antigravity'}
+                  </span>
                 </span>
               </button>
             </div>
@@ -1007,7 +1263,7 @@ export default function EditorApp({ placement, isActive, compact }: AppProps) {
       {dialog?.kind === 'new' && (
         <PromptSheet
           title="New file"
-          label={`Path inside ${store.rootName}`}
+          label={`Path inside ${rootName}`}
           initial={activeDir ? `${activeDir}/` : ''}
           placeholder="src/new-file.ts"
           confirmLabel="Create"
@@ -1034,14 +1290,20 @@ export default function EditorApp({ placement, isActive, compact }: AppProps) {
           title={`Delete ${nameOf(dialog.path)}?`}
           message={
             <>
-              <span className="mono">{dialog.path}</span> will be removed from this browser&apos;s storage. This can&apos;t
-              be undone.
+              <span className="mono">{dialog.path}</span> {deleteWarning(store.kind)}
               {dirtyPaths.has(dialog.path) ? ' Unsaved changes will be lost too.' : ''}
+              {dialog.error && (
+                <span className="ed-sheet-error" role="alert">
+                  Couldn’t delete it: {dialog.error}
+                </span>
+              )}
             </>
           }
-          confirmLabel="Delete"
+          confirmLabel={dialog.busy ? 'Deleting…' : dialog.error ? 'Try again' : 'Delete'}
           destructive
-          onConfirm={() => void deleteFile(dialog.path)}
+          onConfirm={() => {
+            if (!dialog.busy) void deleteFile(dialog.path);
+          }}
           onCancel={closeDialog}
         />
       )}

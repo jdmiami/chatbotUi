@@ -30,10 +30,12 @@ export function ControlCenter() {
       <div className="cc-scrim" onClick={() => setOverlay(null)} aria-hidden />
       <div className="cc-panel glass" role="dialog" aria-modal="true" aria-label="Control Center" ref={panel}>
         <div className="cc-tile wide" style={{ flexDirection: 'row', alignItems: 'center', minHeight: 0 }}>
-          <Icon name="wifiOff" />
+          <Icon name={connection.mode === 'host' ? 'check' : 'wifiOff'} />
           <div style={{ flex: 1 }}>
             <div className="cc-label">{connection.label}</div>
-            <div className="cc-value">Not connected to an Ubuntu host</div>
+            <div className="cc-value">
+              {connection.mode === 'host' ? 'Connected to your Linux machine' : 'Not connected to your Linux machine'}
+            </div>
           </div>
           <button type="button" className="icon-btn" aria-label="Close Control Center" onClick={() => setOverlay(null)}>
             <Icon name="close" />
@@ -121,9 +123,12 @@ export function ControlCenter() {
           </div>
         </div>
 
-        <button type="button" className="btn ghost block" style={{ gridColumn: '1 / -1' }} onClick={() => launch('settings')}>
-          <Icon name="gear" size={18} /> All settings
+        <button type="button" className="btn ghost" onClick={() => launch('settings')}>
+          <Icon name="gear" size={18} /> Settings
         </button>
+        <a className="btn ghost" href="/?choose=1">
+          Switch workspace
+        </a>
       </div>
     </>
   );

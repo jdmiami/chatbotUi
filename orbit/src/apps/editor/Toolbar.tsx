@@ -70,6 +70,7 @@ export function EditorToolbar({
   compact,
   language,
   dirty,
+  saving,
   onCommand,
   onSave,
   onAsk,
@@ -78,6 +79,8 @@ export function EditorToolbar({
   compact: boolean;
   language: string;
   dirty: boolean;
+  /** A save of this file is in flight (network on the Linux machine). */
+  saving: boolean;
   onCommand: (cmd: ToolbarCommand) => void;
   onSave: () => void;
   onAsk: () => void;
@@ -124,9 +127,11 @@ export function EditorToolbar({
         className={`btn ed-toolbar-save ${dirty ? 'primary' : 'ghost'}`}
         onMouseDown={keepFocus}
         onClick={onSave}
+        disabled={saving}
+        aria-busy={saving || undefined}
       >
-        <Icon name="save" size={18} />
-        Save
+        {saving ? <span className="ed-spinner" aria-hidden /> : <Icon name="save" size={18} />}
+        {saving ? 'Saving…' : 'Save'}
       </button>
     </div>
   );
