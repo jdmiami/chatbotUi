@@ -4,7 +4,8 @@ import { currentUser } from '@/lib/auth';
 import { listMachines } from '@/lib/machines';
 import { machineStatus } from '@/lib/runpod';
 import { logout } from './login/actions';
-import { chooseWorkspace, forgetWorkspace, PREF_COOKIE, WORKSPACES, type WorkspaceId } from './choose/actions';
+import { chooseWorkspace, forgetWorkspace } from './choose/actions';
+import { isWorkspace, PREF_COOKIE, WORKSPACES, type WorkspaceId } from '@/lib/workspaces';
 import MachinePanel from './MachinePanel';
 
 export const dynamic = 'force-dynamic';
@@ -42,8 +43,8 @@ function Icon({ id }: { id: WorkspaceId }) {
 export default async function Home({ searchParams }: { searchParams: Promise<{ choose?: string }> }) {
   if (!(await currentUser())) redirect('/login');
   const { choose } = await searchParams;
-  const pref = (await cookies()).get(PREF_COOKIE)?.value as WorkspaceId | undefined;
-  if (pref && pref in WORKSPACES && !choose) redirect(WORKSPACES[pref]);
+  const pref = (await cookies()).get(PREF_COOKIE)?.value;
+  if (isWorkspace(pref) && !choose) redirect(WORKSPACES[pref]);
 
   const machines = listMachines().map((m) => m.id);
   const options = OPTIONS.filter((o) => (o.needs === 'windows' ? machines.includes('windows') : true));

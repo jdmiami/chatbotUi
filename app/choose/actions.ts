@@ -2,19 +2,12 @@
 
 import { cookies } from 'next/headers';
 import { redirect } from 'next/navigation';
-
-export const WORKSPACES = {
-  orbit: '/orbit',
-  linux: '/desktop/linux',
-  windows: '/desktop/windows',
-} as const;
-export type WorkspaceId = keyof typeof WORKSPACES;
-export const PREF_COOKIE = 'ws_pref';
+import { isWorkspace, PREF_COOKIE, WORKSPACES } from '@/lib/workspaces';
 
 /** Open the chosen workspace; remember it for next sign-in when asked to. */
 export async function chooseWorkspace(form: FormData) {
-  const target = String(form.get('target') ?? '') as WorkspaceId;
-  if (!(target in WORKSPACES)) redirect('/');
+  const target = form.get('target');
+  if (!isWorkspace(target)) redirect('/');
   const store = await cookies();
   if (form.get('remember') === 'on') {
     store.set(PREF_COOKIE, target, {
