@@ -1,4 +1,4 @@
-import { useCallback, useRef } from 'react';
+import { Component, Suspense, useCallback, useRef, type ReactNode } from 'react';
 import { APPS } from '../apps/registry';
 import type { Placement } from '../apps/types';
 import { useShell, type AppId } from '../state/shell';
@@ -76,7 +76,11 @@ export function AppHost() {
             }}
           >
             <div className="app-window-body">
-              <App placement={placement} isActive={isActive} compact={paneWidth < 600} />
+              <AppLoadBoundary name={meta.name}>
+                <Suspense fallback={<AppLoading name={meta.name} />}>
+                  <App placement={placement} isActive={isActive} compact={paneWidth < 600} />
+                </Suspense>
+              </AppLoadBoundary>
             </div>
           </section>
         );
@@ -84,6 +88,35 @@ export function AppHost() {
       {splitActive && <SplitDivider ratio={split.ratio} onChange={(ratio) => setSplit({ ratio })} />}
     </div>
   );
+}
+
+function AppLoading({ name }: { name: string }) {
+  return (
+    <div className="app-loading" role="status">
+      <span className="boot-spinner" aria-hidden /> Opening {name}…
+    </div>
+  );
+}
+
+/** If an app's code can't be downloaded (offline, or Orbit was updated meanwhile), offer a reload. */
+class AppLoadBoundary extends Component<{ name: string; children: ReactNode }, { failed: boolean }> {
+  state = { failed: false };
+
+  static getDerivedStateFromError() {
+    return { failed: true };
+  }
+
+  render() {
+    if (!this.state.failed) return this.props.children;
+    return (
+      <div className="app-loading" role="alert">
+        <p style={{ margin: 0 }}>{this.props.name} couldn&apos;t load. Check your connection, then reload Orbit.</p>
+        <button type="button" className="btn primary" onClick={() => window.location.reload()}>
+          Reload Orbit
+        </button>
+      </div>
+    );
+  }
 }
 
 function SplitDivider({ ratio, onChange }: { ratio: number; onChange: (r: number) => void }) {

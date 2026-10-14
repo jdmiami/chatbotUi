@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { configureServices } from '../services';
 import { checkConnection, setMachinePower, type MachineStatus } from '../services/host/connection';
 import { useApplySettings } from '../hooks/useApplySettings';
+import { preloadApps } from '../apps/registry';
 import { Shell } from './Shell';
 
 type Phase =
@@ -62,7 +63,36 @@ export function Boot() {
     };
   }, [check]);
 
-  if (phase.kind === 'ready') return <Shell />;
+  return phase.kind === 'ready' ? <Ready /> : <BootScreen phase={phase} {...{ busy, setBusy, setPhase, poll, check, enterDemo }} />;
+}
+
+/** The shell, plus a background download of the apps once the first screen is up. */
+function Ready() {
+  useEffect(() => {
+    const idle = (window as { requestIdleCallback?: (cb: () => void) => number }).requestIdleCallback;
+    if (idle) idle(preloadApps);
+    else setTimeout(preloadApps, 1500); // Safari
+  }, []);
+  return <Shell />;
+}
+
+function BootScreen({
+  phase,
+  busy,
+  setBusy,
+  setPhase,
+  poll,
+  check,
+  enterDemo,
+}: {
+  phase: Exclude<Phase, { kind: 'ready' }>;
+  busy: boolean;
+  setBusy: (b: boolean) => void;
+  setPhase: (p: Phase) => void;
+  poll: React.MutableRefObject<ReturnType<typeof setTimeout> | null>;
+  check: () => Promise<void>;
+  enterDemo: (reason: 'machine-off' | 'no-backend' | 'unreachable' | 'chosen') => void;
+}) {
 
   const turnOn = async () => {
     setBusy(true);

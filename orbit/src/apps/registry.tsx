@@ -1,11 +1,20 @@
-import type { ComponentType } from 'react';
+import { lazy, type ComponentType, type LazyExoticComponent } from 'react';
 import type { AppId } from '../state/shell';
 import { Icon, type IconName } from '../ui/Icon';
 import type { AppProps } from './types';
-import TerminalApp from './terminal/TerminalApp';
-import EditorApp from './editor/EditorApp';
-import AgentApp from './agent/AgentApp';
-import SettingsApp from './settings/SettingsApp';
+
+// Each app is its own download (CodeMirror and xterm are large), fetched the first time it opens.
+// preloadApps() fetches them in the background once Orbit has started, so later opens are instant.
+const loaders: Record<AppId, () => Promise<{ default: ComponentType<AppProps> }>> = {
+  terminal: () => import('./terminal/TerminalApp'),
+  editor: () => import('./editor/EditorApp'),
+  agent: () => import('./agent/AgentApp'),
+  settings: () => import('./settings/SettingsApp'),
+};
+
+export function preloadApps() {
+  Object.values(loaders).forEach((load) => void load().catch(() => {}));
+}
 
 export interface AppMeta {
   id: AppId;
@@ -16,18 +25,18 @@ export interface AppMeta {
   /** Icon tile background (gradient) and glyph colour. */
   tile: string;
   glyph: string;
-  component: ComponentType<AppProps>;
+  component: LazyExoticComponent<ComponentType<AppProps>>;
 }
 
 export const APPS: Record<AppId, AppMeta> = {
   terminal: {
     id: 'terminal',
     name: 'Terminal',
-    description: 'Shell on the Ubuntu host (simulated in demo mode)',
+    description: 'Shell on your Linux machine (simulated in demo mode)',
     icon: 'terminal',
     tile: 'linear-gradient(145deg, #1d2333, #0c0f18)',
     glyph: '#7dffb0',
-    component: TerminalApp,
+    component: lazy(loaders.terminal),
   },
   editor: {
     id: 'editor',
@@ -36,7 +45,7 @@ export const APPS: Record<AppId, AppMeta> = {
     icon: 'code',
     tile: 'linear-gradient(145deg, #3a4bff, #1f2a99)',
     glyph: '#ffffff',
-    component: EditorApp,
+    component: lazy(loaders.editor),
   },
   agent: {
     id: 'agent',
@@ -45,7 +54,7 @@ export const APPS: Record<AppId, AppMeta> = {
     icon: 'sparkle',
     tile: 'linear-gradient(145deg, #0fb39b, #0a5c78)',
     glyph: '#fff6c9',
-    component: AgentApp,
+    component: lazy(loaders.agent),
   },
   settings: {
     id: 'settings',
@@ -54,7 +63,7 @@ export const APPS: Record<AppId, AppMeta> = {
     icon: 'gear',
     tile: 'linear-gradient(145deg, #8a93a8, #4b5266)',
     glyph: '#ffffff',
-    component: SettingsApp,
+    component: lazy(loaders.settings),
   },
 };
 

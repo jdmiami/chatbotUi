@@ -1049,3 +1049,16 @@ button.cc-tile[aria-pressed='true'] {
 a.btn {
   text-decoration: none;
 }
+
+/* Shown while an app's code downloads the first time it opens (apps are loaded on demand). */
+.app-loading {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 24px;
+  color: var(--text-2);
+  text-align: center;
+}
