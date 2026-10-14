@@ -1,0 +1,96 @@
+#!/usr/bin/env bash
+# Turns a fresh Ubuntu 24.04 container (e.g. a Runpod CPU pod) into a Linux desktop that the
+# web app can reach:
+#
+#   browser --wss--> gateway :8080 --> guacd :4822 --> xrdp :3389 --> XFCE desktop
+#
+# Only port 8080 needs to be exposed. Everything else listens on localhost.
+#
+# Required env: GATEWAY_SECRET (same value as LINUX_GATEWAY_SECRET in Vercel), DESKTOP_PASSWORD
+# Optional env: DESKTOP_USER (default "desktop"), ALLOWED_ORIGINS, REPO_RAW, PERSIST_DIR
+set -euo pipefail
+
+: "${GATEWAY_SECRET:?GATEWAY_SECRET is required}"
+: "${DESKTOP_PASSWORD:?DESKTOP_PASSWORD is required}"
+DESKTOP_USER="${DESKTOP_USER:-desktop}"
+REPO_RAW="${REPO_RAW:-https://raw.githubusercontent.com/jdmiami/chatbotUi/main}"
+# Home directories live here so they survive pod restarts when it is a volume (Runpod: /workspace).
+PERSIST_DIR="${PERSIST_DIR:-/workspace}"
+NODE_VERSION=22.20.0
+export DEBIAN_FRONTEND=noninteractive
+
+log() { echo "[pod-setup] $*"; }
+
+if [ ! -f /opt/.desktop-installed ]; then
+  log "installing desktop, xrdp and guacd"
+  apt-get update
+  apt-get install -y --no-install-recommends \
+    ca-certificates curl gnupg sudo dbus dbus-x11 xfce4 xfce4-terminal xfce4-taskmanager \
+    mousepad ristretto thunar xrdp xorgxrdp guacd libguac-client-rdp0 \
+    fonts-dejavu fonts-noto-color-emoji locales xz-utils git
+
+  # Firefox from Mozilla's apt repo (Ubuntu's own package is a snap, which can't run here).
+  install -d -m 0755 /etc/apt/keyrings
+  curl -fsSL https://packages.mozilla.org/apt/repo-signing-key.gpg -o /etc/apt/keyrings/packages.mozilla.org.asc
+  echo "deb [signed-by=/etc/apt/keyrings/packages.mozilla.org.asc] https://packages.mozilla.org/apt mozilla main" \
+    > /etc/apt/sources.list.d/mozilla.list
+  printf 'Package: *\nPin: origin packages.mozilla.org\nPin-Priority: 1000\n' > /etc/apt/preferences.d/mozilla
+  apt-get update && apt-get install -y firefox
+
+  locale-gen en_US.UTF-8
+
+  log "installing Node.js ${NODE_VERSION}"
+  arch=$(dpkg --print-architecture | sed 's/amd64/x64/')
+  curl -fsSL "https://nodejs.org/dist/v${NODE_VERSION}/node-v${NODE_VERSION}-linux-${arch}.tar.xz" \
+    | tar -xJ -C /usr/local --strip-components=1
+
+  log "installing the gateway"
+  mkdir -p /opt/gateway/src
+  for f in package.json package-lock.json src/index.js src/server.js src/protocol.js; do
+    curl -fsSL "${REPO_RAW}/gateway/${f}" -o "/opt/gateway/${f}"
+  done
+  (cd /opt/gateway && npm ci --omit=dev --no-audit --no-fund)
+
+  touch /opt/.desktop-installed
+fi
+
+# Desktop user, with its home on the persistent volume when there is one.
+home_root=/home
+[ -d "$PERSIST_DIR" ] && home_root="$PERSIST_DIR/home" && mkdir -p "$home_root"
+if ! id "$DESKTOP_USER" >/dev/null 2>&1; then
+  useradd -m -d "$home_root/$DESKTOP_USER" -s /bin/bash -G sudo "$DESKTOP_USER" 2>/dev/null \
+    || useradd -d "$home_root/$DESKTOP_USER" -s /bin/bash -G sudo "$DESKTOP_USER"
+fi
+echo "${DESKTOP_USER}:${DESKTOP_PASSWORD}" | chpasswd
+user_home=$(getent passwd "$DESKTOP_USER" | cut -d: -f6)
+mkdir -p "$user_home"
+echo "xfce4-session" > "$user_home/.xsession"
+chown -R "$DESKTOP_USER:$DESKTOP_USER" "$user_home"
+
+# Antigravity CLI for the desktop user (installs to ~/.local/bin; skipped if already there).
+if [ ! -x "$user_home/.local/bin/agy" ]; then
+  log "installing Antigravity CLI"
+  sudo -u "$DESKTOP_USER" -H bash -c 'curl -fsSL https://antigravity.google/cli/install.sh | bash' \
+    || log "Antigravity install failed (continuing)"
+fi
+
+log "starting services"
+mkdir -p /run/dbus && (pgrep -x dbus-daemon >/dev/null || dbus-daemon --system --fork || log "dbus failed to start (continuing)")
+# xrdp listens on localhost only: the gateway is the sole way in.
+# Only the first port= line (in [Globals]); the session sections' port=-1 must stay as is.
+sed -i '0,/^port=.*/s//port=tcp:\/\/127.0.0.1:3389/' /etc/xrdp/xrdp.ini
+rm -f /var/run/xrdp/*.pid
+xrdp-sesman
+xrdp
+guacd -b 127.0.0.1 -l 4822
+
+log "starting gateway on :8080"
+export RDP_HOST=127.0.0.1 RDP_PORT=3389 RDP_USERNAME="$DESKTOP_USER" RDP_PASSWORD="$DESKTOP_PASSWORD"
+export RDP_SECURITY="${RDP_SECURITY:-any}" RDP_IGNORE_CERT=true GUACD_HOST=127.0.0.1 GUACD_PORT=4822 PORT=8080
+unset DESKTOP_PASSWORD
+cd /opt/gateway
+while true; do
+  node src/index.js || true
+  log "gateway exited, restarting in 2s"
+  sleep 2
+done
