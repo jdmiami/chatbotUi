@@ -307,7 +307,14 @@ function notice(text, tone) {
 }
 
 function parseResult(stdout) {
-  const lines = stdout.trim().split('\n').reverse();
+  const whole = stdout.trim();
+  try {
+    const obj = JSON.parse(whole);
+    if (obj && typeof obj === 'object' && 'status' in obj) return obj;
+  } catch {
+    /* not a single JSON document; look for the last JSON line */
+  }
+  const lines = whole.split('\n').reverse();
   for (const line of lines) {
     try {
       const obj = JSON.parse(line);

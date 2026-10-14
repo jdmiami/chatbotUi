@@ -21,14 +21,15 @@ import { expandWord, hasGlob, parseCommandLine, type SimpleCommand, type Word } 
 import { absToString, HOME_PATH, TreeSnapshot, VirtualPaths } from './vfs';
 
 /**
- * Phase 1 terminal backend: a small shell simulated entirely in the browser.
+ * Demo-mode terminal backend: a small shell simulated entirely in the browser (used when Orbit
+ * is not connected to the Linux machine; host mode uses PtyBackend instead).
  *
  * - There is no PTY, so this class does its own line editing (cursor keys, history, Tab
  *   completion, Ctrl+C/D/L/U/K/W/Y) and redraws the prompt line with ANSI sequences.
  * - The filesystem is the shared FileStore: the project root appears as ~/<project>.
  * - Like a real shell with "shell integration", it reports the working directory with OSC 7
  *   and each finished command with OSC 133;D, so the UI can show status without knowing it is
- *   talking to a simulation (a Phase 2 PTY running bash/zsh with integration does the same).
+ *   talking to a simulation (a real bash/zsh with shell integration does the same over the PTY).
  *
  * Nothing here talks to a server. The UI must label it as simulated (see `kind`).
  */
@@ -44,7 +45,7 @@ const MAX_HISTORY = 500;
 const OSC_HOST = 'orbit-demo';
 
 export const BANNER =
-  `${style.bold(style.yellow('Orbit simulated shell'))} — commands run in this browser, not on Ubuntu. Type 'help'.\n` +
+  `${style.bold(style.yellow('Orbit simulated shell'))} — commands run in this browser, not on your Linux machine. Type 'help'.\n` +
   `${style.dim('Files: ~/{project} (stored in this browser, shared with the Code app).')}\n\n`;
 
 /** Index of the previous code point boundary (keeps surrogate pairs together). */
@@ -840,7 +841,7 @@ export class SimulatedShell implements TerminalBackend {
       const snap = await this.ctx.snapshot();
       const kind = snap.kindOf(this.paths.locate(this.paths.resolve(name, this.cwd)));
       if (kind === 'file') {
-        io.err(`orbit-sh: ${name}: running programs is ${NOT_AVAILABLE} — scripts run on the real Ubuntu host in Phase 2.\n`);
+        io.err(`orbit-sh: ${name}: running programs is ${NOT_AVAILABLE} — scripts run on your Linux machine when Orbit is connected to it.\n`);
         return 126;
       }
       if (kind === 'dir') {

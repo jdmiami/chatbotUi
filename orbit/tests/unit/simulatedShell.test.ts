@@ -107,7 +107,7 @@ describe('SimulatedShell: session lifecycle', () => {
     const t = await setup();
     expect(t.statuses).toEqual(['connecting', 'connected']);
     expect(t.shell.status).toBe('connected');
-    expect(t.screen()).toContain("Orbit simulated shell — commands run in this browser, not on Ubuntu. Type 'help'.");
+    expect(t.screen()).toContain("Orbit simulated shell — commands run in this browser, not on your Linux machine. Type 'help'.");
     expect(t.cursorLine()).toBe(BARE_PROMPT);
     expect(t.term.buffer.active.cursorX).toBe(PROMPT.length);
     expect(t.shell.kind).toBe('simulated');
@@ -264,9 +264,14 @@ describe('SimulatedShell: commands', () => {
     expect(await t.run('head -n 1 README.md')).toBe('# orbit-demo\r\n');
     expect(await t.run('tail -n 1 notes/todo.md')).toBe('- [ ] Drive the real Antigravity CLI\r\n');
     expect(await t.run('wc -l notes/todo.md')).toBe('5 notes/todo.md\r\n');
+    // Line numbers are 1-based like GNU grep; derive them from the seeded file so a seed edit
+    // doesn't silently break the expectation (render is on line 10 of the current seed).
+    const appLines = (await t.store.read('src/app.py')).split('\n');
+    const lineOf = (needle: string) => appLines.findIndex((l) => l.includes(needle)) + 1;
     const grep = await t.run('grep -n def src/app.py');
-    expect(grep).toContain('9:    def render(self) -> str:');
-    expect(grep).toContain('13:def main() -> None:');
+    expect(grep).toContain(`${lineOf('def render')}:    def render(self) -> str:`);
+    expect(grep).toContain(`${lineOf('def main')}:def main() -> None:`);
+    expect(grep.trim().split('\r\n')).toHaveLength(2);
     expect(await t.run('cat src/app.py | grep -c def')).toBe('2\r\n');
     expect(await t.run('grep -ri todo .')).toContain('notes/todo.md:# TODO');
     expect(await t.run('ls src/*.py')).toContain('src/app.py');
@@ -283,7 +288,7 @@ describe('SimulatedShell: commands', () => {
     const t = await setup();
     const sudo = await t.run('sudo apt update');
     expect(sudo).toContain('sudo: not available in the simulated shell');
-    expect(sudo).toContain('real Ubuntu host in Phase 2');
+    expect(sudo).toContain('runs on your Linux machine when Orbit is connected');
     expect(await t.run('git status')).toContain('not available in the simulated shell');
     expect(await t.run('vim README.md')).toContain('open the Code app');
     expect(await t.run('agy')).toContain("The Antigravity CLI isn't available here; open the Antigravity app (simulated)");
@@ -350,14 +355,36 @@ describe('SimulatedShell: line editing', () => {
     expect(t.term.buffer.active.cursorX).toBe(PROMPT.length + 7);
     await t.type('\x01\x1b[3~\x05\x7f'); // Ctrl+A, Delete, Ctrl+E, Backspace
     expect(t.cursorLine()).toBe(PROMPT + 'cho h');
-    await t.type('\x17'); // Ctrl+W
-    expect(t.cursorLine()).toBe(PROMPT + 'cho ');
+    await t.type('\x17'); // Ctrl+W kills "h" and keeps the space before it (bash unix-word-rubout)
+    // cursorLine() trims trailing blanks, so the kept space shows up as the cursor column.
+    expect(t.cursorLine()).toBe(PROMPT + 'cho');
+    expect(t.term.buffer.active.cursorX).toBe(PROMPT.length + 'cho '.length);
     await t.type('\x19'); // Ctrl+Y yanks it back
     expect(t.cursorLine()).toBe(PROMPT + 'cho h');
+    expect(t.term.buffer.active.cursorX).toBe(PROMPT.length + 'cho h'.length);
     await t.type('\x01\x0b'); // Ctrl+A, Ctrl+K
     expect(t.cursorLine()).toBe(BARE_PROMPT);
     await t.type('abc\x15');
     expect(t.cursorLine()).toBe(BARE_PROMPT);
+  });
+
+  it('Ctrl+W kills whitespace before the cursor plus the word before it, like readline', async () => {
+    const t = await setup();
+    await t.type('echo foo  bar  ');
+    await t.type('\x17');
+    expect(t.cursorLine()).toBe(PROMPT + 'echo foo');
+    expect(t.term.buffer.active.cursorX).toBe(PROMPT.length + 'echo foo  '.length);
+    await t.type('\x17');
+    expect(t.term.buffer.active.cursorX).toBe(PROMPT.length + 'echo '.length);
+    // Ctrl+W in the middle of a word kills only up to the cursor.
+    await t.type('\x15hello world' + LEFT + LEFT + '\x17');
+    expect(t.cursorLine()).toBe(PROMPT + 'hello ld');
+    // Ctrl+Y re-inserts the last kill at the cursor.
+    await t.type('\x19');
+    expect(t.cursorLine()).toBe(PROMPT + 'hello world');
+    // Nothing to kill at the start of the line.
+    await t.type('\x01\x17');
+    expect(t.cursorLine()).toBe(PROMPT + 'hello world');
   });
 
   it('redraws correctly when the input wraps past the terminal width', async () => {

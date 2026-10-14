@@ -751,7 +751,7 @@ const uname: CommandFn = (io) => {
   if (flags.has('a')) {
     io.out(
       `Orbit-Simulated ${HOSTNAME} — a shell simulated in browser JavaScript. There is no Linux kernel here;\n` +
-        `the real Ubuntu host is connected in Phase 2.\n`,
+        `connect Orbit to your Linux machine for a real shell.\n`,
     );
   } else {
     io.out('Orbit-Simulated (no kernel — this shell runs in your browser)\n');
@@ -789,7 +789,7 @@ function help(commands: Record<string, CommandSpec>): CommandFn {
     const stacked = w + maxSummary > sh.cols;
     const b = (s: string) => (io.tty ? style.bold(s) : s);
     let text =
-      `${b('Orbit simulated shell')} — runs in this browser, not on Ubuntu.\n` +
+      `${b('Orbit simulated shell')} — runs in this browser, not on your Linux machine.\n` +
       `Files: ~/${sh.paths.projectName} (stored in this browser, shared with Code).\n\n`;
     for (const [, c] of rows) {
       text += stacked ? `  ${b(c.usage)}\n      ${c.summary}\n` : `  ${b(c.usage.padEnd(w))}${c.summary}\n`;
@@ -797,7 +797,7 @@ function help(commands: Record<string, CommandSpec>): CommandFn {
     text +=
       `\nAlso: | pipes, > and >> redirects, ; && ||, * globs, $HOME.\n` +
       `Keys: Tab completes · ↑/↓ history · Ctrl+C cancels · Ctrl+L clears · Ctrl+U erases the line.\n` +
-      `Not here: sudo, apt, git, python, node, ssh, editors… they run on the real Ubuntu host in Phase 2.\n`;
+      `Not here: sudo, apt, git, python, node, ssh, editors… they run on your Linux machine when Orbit is connected.\n`;
     io.out(text);
     return 0;
   };
@@ -826,7 +826,7 @@ export const AGENT_COMMANDS = new Set(['agy', 'antigravity']);
 
 export function unavailableMessage(cmd: string): string {
   const hint = UNAVAILABLE[cmd];
-  return `${cmd}: ${NOT_AVAILABLE} — this runs on the real Ubuntu host in Phase 2.${hint ? `\n${hint}` : ''}\n`;
+  return `${cmd}: ${NOT_AVAILABLE} — it runs on your Linux machine when Orbit is connected.${hint ? `\n${hint}` : ''}\n`;
 }
 
 export function agentMessage(cmd: string): string {
