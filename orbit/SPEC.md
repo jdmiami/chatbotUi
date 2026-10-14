@@ -11,9 +11,30 @@ The Apple devices stay on iOS/iPadOS. Orbit runs in the browser; Ubuntu runs on 
 
 | Phase | Goal | Status |
 | --- | --- | --- |
-| 1 | Interactive interface prototype on demo services, runnable with no cloud or AI account | **This build** |
-| 2 | Real Ubuntu session: authenticated PTY, real project files, real `agy` runner, shared state across devices | Not started — see [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) |
-| 3 | Reproducible install on a clean Ubuntu LTS host (installer / cloud-init, services, health, backup) | Not started |
+| 1 | Interactive interface prototype on demo services, runnable with no cloud or AI account | Done (still available as **demo mode**) |
+| 2 | Real Ubuntu session: authenticated PTY, real project files, real `agy` runner, shared state across devices | Built — see [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) |
+| 3 | Reproducible install on a clean Ubuntu LTS host (installer / cloud-init, services, health, backup) | Partly: `linux/pod-setup.sh` installs everything on each start of the Runpod machine. Tested on that machine only; not a general-purpose installer |
+
+## How it is reached
+
+Orbit is one of the workspaces behind the site's single sign-in: sign in → choose **Orbit**, **Linux
+desktop** or **Windows PC** (the choice can be remembered). Orbit is served at `/orbit` by the site and
+talks directly to the Linux machine with a short-lived token. If the machine is off, Orbit offers to turn it
+on (when the site has a Runpod API key) or to continue in demo mode.
+
+## Phase 2 requirements (built)
+
+- **Terminal:** a real login shell on the machine, kept alive in tmux so it survives closing the tab and
+  can be resumed from another device; History view with the full scrollback as selectable text.
+- **Code:** real project files under `~/projects` (on saved storage); saving never overwrites a file that
+  changed elsewhere since it was opened (a conflict banner offers reload or overwrite); outside changes
+  are picked up by polling.
+- **Antigravity:** each message runs the real `agy` CLI once (`--print`, JSON output) in the project
+  folder, continuing the same agy conversation; Stop ends the process; sessions and transcripts are stored
+  on the machine and shared by every device; replies render a safe Markdown subset; signed-out agy, skipped
+  tools and failures end the turn with a plain explanation. Never `--dangerously-skip-permissions`.
+- **Honesty:** host mode shows "Linux machine" chips; demo mode keeps its "Demo"/"Simulated" labels.
+  No invented health or resource figures.
 
 ## Users and devices
 
@@ -87,6 +108,7 @@ The Apple devices stay on iOS/iPadOS. Orbit runs in the browser; Ubuntu runs on 
 8. Every simulated surface is labelled; nothing claims a live Ubuntu connection.
 9. Automated unit tests and Playwright interaction tests pass.
 
-## Out of scope for Phase 1
+## Out of scope
 
-Real shell, real files on a server, real `agy` calls, accounts/auth, sync between devices, a remote desktop stream.
+Approval prompts for agy tools (print mode cannot ask; tools are skipped unless allowed), live token-by-token
+agy output, multiple users, and a general installer for machines other than the Runpod pod.

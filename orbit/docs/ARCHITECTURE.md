@@ -78,10 +78,11 @@ Code: `gateway/src/index.js` (enabled by `ORBIT_HOST=1`), `gateway/src/orbit/*.j
 | --- | --- |
 | `GET /healthz` | Liveness, **no auth** |
 | `GET /orbit/api/info` | user, projects root, tmux present, agy version |
-| `GET /orbit/api/files` | file list (max 5,000, `truncated` flag; skips `.git`, `node_modules`, ...) |
-| `GET\|PUT\|DELETE /orbit/api/files/content?path=` | read (2 MB cap, binary refused) / atomic write / delete |
+| `GET /orbit/api/files[?fingerprint=1]` | file list (max 5,000, `truncated` flag; skips `.git`, `node_modules`, ...) plus a cheap fingerprint the Code app polls to notice outside changes |
+| `GET\|PUT\|DELETE /orbit/api/files/content?path=` | read (2 MB cap, binary refused) / atomic write (with the hash it was based on: **409 `changed`** if the file changed since) / delete |
 | `POST /orbit/api/files/rename` | `{from,to}`, fails if target exists |
 | `WS /orbit/pty?session=&cols=&rows=` | terminal; first frame must be `{type:'auth', token}` within 10 s |
+| `GET /orbit/api/terminal/sessions/:id/history` | the last 10,000 lines of the terminal as text (History view) |
 | `DELETE /orbit/api/terminal/sessions/:id` | kill tmux session ("Restart shell") |
 | `GET /orbit/api/agent/capabilities\|projects\|models` | capability matrix, projects, `agy models` |
 | `GET\|POST /orbit/api/agent/sessions[?project=]` | list / create session |
@@ -102,13 +103,19 @@ not 502, because Runpod's proxy replaces 502 responses with its own page.
 - The browser keeps the token **in memory only** (`TokenSource`). It refreshes 2 min before expiry
   or once after a 401. REST sends it as `Authorization: Bearer`. The PTY WebSocket sends it as its
   first message, because browsers can't set WebSocket headers.
-- The host checks signature, algorithm, issuer, audience and expiry on every request and socket.
+- The host checks signature, algorithm, issuer, audience and expiry on every request and socket,
+  requires `exp` and `iat`, and refuses tokens older than 65 min whatever their `exp` says.
   CORS and WebSocket `Origin` are limited to `ALLOWED_ORIGINS`.
-- The desktop path uses a different, stricter ticket: 60 s, single use (`jti`), `aud rdp-gateway`.
+- The desktop path uses a different, stricter ticket: 60 s (and never older than 2 min), single use
+  (`jti`), `aud rdp-gateway`.
 
 ### Terminal persistence (tmux)
 
-Each terminal runs `tmux new-session -A -s orbit-<id> -c ~/projects` inside node-pty. Closing the
+Each terminal runs `tmux -L orbit -f <orbit config> new-session -A -s orbit-<id> -c ~/projects` inside
+node-pty, on its own tmux server so the owner's own tmux settings don't interfere. The config turns the
+status bar off, keeps 10,000 lines of history, and sizes the window to the device that last resized it
+(so an iPhone and an iPad can share a terminal). Because tmux redraws the screen, the browser's own
+scrollback is limited; the **History** view fetches the full scrollback as selectable text. Closing the
 socket kills only the tmux **client**, so the shell keeps running. Reconnecting (`PtyBackend`
 retries with backoff) re-attaches to the same session, from any device. Without tmux the terminal
 falls back to `bash -l`, which does not persist, and the UI says so. The child env drops
@@ -124,13 +131,19 @@ renamed into place.
 ### agy runner and session store
 
 - One turn = one process:
-  `agy --print "<text>" --output-format json --print-timeout 900s [--conversation <id>] [--mode plan|accept-edits] [--model <id>]`.
+  `agy --print=<text> --output-format json --print-timeout 900s [--conversation <id>] [--mode plan|accept-edits] [--model=<id>]`.
+  The `=` forms mean a message that starts with `-` (e.g. `--help`) is always sent as a message,
+  never read as an option (verified with agy 1.3.5). Messages over 100 KB are refused with a clear
+  error (413 `too-large`) rather than hitting the system's argument-length limit. If agy can't be
+  started at all, the turn ends with a notice instead of staying "running".
   It runs in the project folder (the projects root or one of its top-level folders), in its own
   process group, with secrets removed from the env. **Never** `--dangerously-skip-permissions`.
 - The `conversation_id` from the first result is saved on the Orbit session. Follow-ups pass
   `--conversation`.
 - **Stop** sends SIGTERM to the process group, then SIGKILL after 5 s. The turn is cancelled, not
   paused.
+- **Skipped tools:** when agy's result lists `denied_actions` and has no reply, the turn shows which
+  tools were skipped and how to allow them (`permissions.allow`), instead of a blank reply.
 - **Signed out:** if agy prints `Authentication required` or `Please sign in`, the host kills it at
   once and ends the turn with sign-in help (run `agy` once in Orbit Terminal). Otherwise the turn
   would sit waiting for about 60 s. `agy models` reports the same state as HTTP 424
@@ -316,7 +329,8 @@ read/write is auto-allowed, shell commands default to Ask, and Ask is soft-denie
 | `agy models` output is `id<TAB>label` | verified | ran it (1.3.5) |
 | agy auto-updates itself | verified | binary replaced, `update_status.json`, `--version` 1.3.5 |
 | Sign-in token is a file without a keyring | verified here; assumed on pod | this machine; pod not inspected |
-| Host auth, file confinement, tmux reconnect, Stop, signed-out handling, restart recovery | verified (fake agy) | `cd gateway && npm test`: 13/13 pass |
+| Host auth, file confinement, save conflicts, tmux reconnect and shared sizing, history, Stop, signed-out handling, skipped tools, oversize and option-like messages, restart recovery | verified (fake agy) | `cd gateway && npm test`: 21/21 pass |
+| `--print=<text>` / `--model=<id>` forms | verified | real agy 1.3.5: a message starting with `--help` was answered as a message |
 | Runpod v2 pod GET/action and status enum | verified | `api.runpod.io/v2/openapi.json` |
 | xorgxrdp needs Xorg | verified (docs) | xorgxrdp README |
 | GNOME Remote Desktop targets Wayland GNOME | assumed (secondary sources) | GNOME RD README (Mutter API), community reports |
@@ -326,24 +340,24 @@ read/write is auto-allowed, shell commands default to Ask, and Ask is soft-denie
 
 ## 11. Open questions
 
-1. **Empty replies on soft-deny.** With default permissions, any shell step is denied and agy
-   returns `SUCCESS` with an empty `response`, so Orbit shows a blank reply. The host should surface
-   `denied_actions` and stderr. Should we ship scoped `permissions.allow` rules (e.g.
-   `command(git)`) for `desktop`?
+1. **Scoped tool permissions.** Skipped tools are now explained in the transcript. Should we ship
+   scoped `permissions.allow` rules (e.g. `command(git)`) for `desktop` by default? (Currently no:
+   the owner opts in.)
 2. **Switch to stream-json?** This would give live tool steps and text. It needs a timed probe of
    delivery and chunking first.
 3. **Pin agy?** It self-updates, as observed. Set `AGY_CLI_DISABLE_AUTO_UPDATE=true` in the gateway
    env, or accept drift and re-verify the capabilities on each version?
-4. **REPO_RAW = main.** `main` (1bda8c4) does not yet contain `gateway/src/orbit/*`; only
-   `claude/orbit` does. The machine gets Orbit only after the merge. A moving `main` also changes
-   the machine on its next start. Pin a tag or SHA instead?
+4. **REPO_RAW is pinned to a commit** so the machine only changes when its start command is
+   updated on purpose. Updating it is a manual step after each release.
 5. **Default mode and file edits in print mode.** The modes docs say default "pauses for diff
    review"; the headless docs say workspace writes are auto-allowed. Which applies?
 6. **Approvals path.** Print mode can't ask. `remote-control` (a Google-hosted UI) and the Python
    SDK's "interactive approval flows" are possible alternatives. Both are unverified.
-7. **Same-user secret exposure.** Should the gateway run as a separate user from `desktop`?
-8. **Runpod `cost` is 0.0 when EXITED** (per the OpenAPI spec), so "Turn on ($0.00/hour)" may show
-   while the machine is off.
+7. **Same-user secret exposure.** The gateway now runs as `desktop` with a clean environment
+   (`setpriv … env -i`), and PTY/agy children get the secrets removed, but anything running as
+   `desktop` with sudo can still read them. A separate user would close this.
+8. **Runpod `cost` is 0.0 when EXITED** (per the OpenAPI spec). The site hides the price when it
+   is 0 rather than show "$0.00/hour".
 9. **`ALLOWED_ORIGINS` empty** means any origin passes CORS and the WS Origin check (a token is
    still needed). Make it required in production?
 10. **Docs mismatches to watch:** the `--print-timeout` default (`0s` in help vs `5m` in docs); the
