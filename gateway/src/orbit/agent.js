@@ -32,13 +32,13 @@ export const AGY_CAPABILITIES = {
   },
   streamOutput: {
     status: 'unverified',
-    note: '`--output-format stream-json` exists, but its event format has not been verified yet.',
+    note: '`--output-format stream-json` events are verified (init, step_update, result), but not yet whether they arrive live during long turns, so Orbit shows each reply when the turn ends.',
   },
   stop: { status: 'supported', note: 'Stopping ends the running `agy` process. The turn is cancelled, not paused.' },
   pauseResume: { status: 'unsupported', note: 'agy documents no way to pause and later resume an in-flight turn.' },
   approvals: {
-    status: 'unverified',
-    note: 'Whether print mode can surface tool-approval requests to another program is not verified.',
+    status: 'unsupported',
+    note: "In print mode agy can't ask for approval: tools that need it (such as shell commands) are skipped, and Orbit says which. Allow them ahead of time with permissions.allow rules in ~/.gemini/antigravity-cli/settings.json, or run agy in Terminal to approve interactively.",
   },
   modes: { status: 'supported', note: '`--mode plan` or `--mode accept-edits`; default omits the flag.' },
   models: { status: 'supported', note: '`agy models` lists the models your account can use; `--model <id>` selects one.' },
@@ -255,11 +255,12 @@ export class AgentService {
       this.running.delete(sessionId);
       activity.status = result.ok ? 'done' : 'failed';
       broadcast('update', { ...activity });
-      if (result.item) broadcast('item', this.push(sessionId, result.item));
+      const items = result.items ?? (result.item ? [result.item] : []);
+      for (const item of items) broadcast('item', this.push(sessionId, item));
       s.status = result.status;
       s.updatedAt = now();
       if (result.conversationId) s.conversationId = result.conversationId;
-      if (result.item?.kind === 'assistant') s.messageCount += 1;
+      if (items.some((i) => i.kind === 'assistant')) s.messageCount += 1;
       await this.save();
       broadcast('done', { ...s });
     };
@@ -280,12 +281,14 @@ export class AgentService {
       }
       const parsed = parseResult(stdout);
       if (parsed && parsed.status === 'SUCCESS') {
-        return finish({
-          ok: true,
-          status: 'idle',
-          conversationId: parsed.conversation_id,
-          item: { kind: 'assistant', id: id('itm'), at: now(), text: String(parsed.response ?? '').trimEnd() },
-        });
+        const text = String(parsed.response ?? '').trimEnd();
+        const items = [];
+        if (text) items.push({ kind: 'assistant', id: id('itm'), at: now(), text });
+        // Print mode can't ask for approval: agy skips tools that need it and lists them in denied_actions.
+        const denied = deniedNames(parsed.denied_actions);
+        if (denied.length) items.push(notice(deniedText(denied), 'warning'));
+        else if (!text) items.push(notice('Antigravity finished without a reply.', 'info'));
+        return finish({ ok: true, status: 'idle', conversationId: parsed.conversation_id, items });
       }
       const reason = parsed?.response || firstLine(stderr) || `agy exited with ${signal ?? `code ${code}`}`;
       return finish({
@@ -354,6 +357,21 @@ function parseResult(stdout) {
     }
   }
   return null;
+}
+
+function deniedNames(list) {
+  if (!Array.isArray(list)) return [];
+  return [...new Set(list.map((d) => String(d?.display_name || d?.action || '').trim()).filter(Boolean))];
+}
+
+function deniedText(names) {
+  const what = names.join(', ');
+  return (
+    `Antigravity wanted to use ${what}, but it can't ask for your approval from Orbit, so ` +
+    `${names.length === 1 ? 'that step was' : 'those steps were'} skipped. To allow it, add a rule under ` +
+    'permissions.allow in ~/.gemini/antigravity-cli/settings.json on your Linux machine (for example ' +
+    'command(git)), or run agy in Terminal and approve it there.'
+  );
 }
 
 function firstLine(s) {

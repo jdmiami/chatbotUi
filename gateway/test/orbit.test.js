@@ -34,6 +34,8 @@ if [ -e "$(dirname "$0")/signed-out" ]; then
   echo "Authentication required. Please visit the URL to log in:"; echo "  https://accounts.example/auth"; echo "Waiting for authentication (timeout 60s)..."; sleep 60; exit 1
 fi
 case "$prompt" in *slow*) sleep 30 ;; esac
+case "$prompt" in *denied*) printf '{"conversation_id":"conv-d","status":"SUCCESS","response":"","denied_actions":[{"action":"command","display_name":"RunCommand"},{"action":"command","display_name":"RunCommand"}]}\n'; exit 0 ;; esac
+case "$prompt" in *silent*) printf '{"conversation_id":"conv-s","status":"SUCCESS","response":""}\n'; exit 0 ;; esac
 case "$prompt" in *fail*) echo "boom: not signed in" >&2; exit 1 ;; esac
 id="\${conv:-conv-123}"
 printf '{"conversation_id":"%s","status":"SUCCESS","response":"echo: %s (conv %s)\\\\n","duration_seconds":0.1,"num_turns":1}\\n' "$id" "$prompt" "\${conv:-new}"
@@ -211,6 +213,20 @@ test('agent: a signed-out agy ends the turn at once with sign-in help', async ()
   } finally {
     await fs.rm(flag, { force: true });
   }
+});
+
+test('agent: skipped tools are explained instead of a blank reply', async () => {
+  const s = await (await api('/agent/sessions', { method: 'POST', body: JSON.stringify({}) })).json();
+  const denied = await sse(`/agent/sessions/${s.id}/send`, { text: 'list files (denied)' });
+  assert.equal(denied.filter((e) => e.data.kind === 'assistant').length, 0, 'no blank assistant reply');
+  const n = denied.find((e) => e.data.kind === 'notice');
+  assert.match(n.data.text, /wanted to use RunCommand, but it can't ask for your approval/);
+  assert.equal(n.data.tone, 'warning');
+  assert.equal(denied.at(-1).data.status, 'idle');
+  assert.equal(denied.at(-1).data.conversationId, 'conv-d', 'the conversation can still be continued');
+
+  const silent = await sse(`/agent/sessions/${s.id}/send`, { text: 'say nothing (silent)' });
+  assert.match(silent.find((e) => e.data.kind === 'notice').data.text, /finished without a reply/);
 });
 
 test('agent: sessions persist across a service restart', async () => {

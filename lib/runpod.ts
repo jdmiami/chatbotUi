@@ -83,7 +83,8 @@ export async function machineStatus(): Promise<MachineStatus> {
 
   try {
     const pod = (await runpod(`/pods/${encodeURIComponent(id)}`)) as { status?: PodStatus; cost?: number };
-    const cost = typeof pod.cost === 'number' ? pod.cost : null;
+    // Runpod can report 0 for a stopped pod; show no price rather than a misleading "$0.00/hour".
+    const cost = typeof pod.cost === 'number' && pod.cost > 0 ? pod.cost : null;
     switch (pod.status) {
       case 'RUNNING':
         return { state: (await gatewayHealthy()) ? 'on' : 'starting', costPerHour: cost, canControl };

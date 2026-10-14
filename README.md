@@ -45,7 +45,9 @@ Ctrl+Alt+Del and Win keys, on-screen keyboard for phones, fullscreen, audio.
 Orbit's Antigravity app drives the real `agy` CLI on your Linux machine, one `agy --print` call per
 message (it never turns on agy's "skip permissions" mode). agy needs a one-time sign-in on the
 machine: open **Orbit → Terminal**, run `agy`, open the link it prints, sign in with Google, and paste
-the code back. The sign-in is kept on saved storage, so you only do this once.
+the code back. The sign-in is kept on saved storage, so you only do this once. Because Orbit runs agy
+non-interactively, steps that need your approval (such as shell commands) are skipped and Orbit says so;
+see [linux/README.md](linux/README.md#antigravity) to allow some ahead of time.
 
 ## Linux machine settings (Vercel environment variables)
 

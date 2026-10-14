@@ -47,9 +47,16 @@ password prompt UI).
 
 ## Antigravity
 
-Sign in once: in **Orbit → Terminal** (or a terminal on the Linux desktop) run `agy`, open the link it
-prints, sign in with Google, then paste the code back into the terminal. The sign-in is stored in the
-home folder on the network volume.
+Sign in once: in **Orbit → Terminal** run `agy`, open the link it prints, sign in with Google, then
+paste the code back into the terminal. The sign-in is stored as a file in the home folder on the
+network volume (`~/.gemini/antigravity-cli/`), so it survives restarts.
+
+Use Orbit's Terminal for this rather than a terminal on the Linux desktop: a desktop session may hand
+the sign-in to a keyring that Orbit's Antigravity runner can't read.
+
+In Orbit, agy runs non-interactively, so it can't ask before running a shell command. It skips such
+steps and Orbit tells you which. To allow some commands ahead of time, add `permissions.allow` rules
+(for example `command(git)`) to `~/.gemini/antigravity-cli/settings.json`.
 
 ## Cost
 
