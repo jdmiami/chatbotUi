@@ -1,5 +1,6 @@
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
+import crypto from 'node:crypto';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
@@ -133,6 +134,25 @@ test('files: list, read, write, rename, delete', async () => {
 
   assert.equal((await api('/files/content?path=app/util.py', { method: 'DELETE' })).status, 200);
   assert.equal((await api('/files/content?path=app/util.py')).status, 404);
+});
+
+test('files: a save based on an older version does not overwrite a newer one', async () => {
+  const sha = (text) => crypto.createHash('sha256').update(text).digest('hex');
+  await fs.writeFile(path.join(files.root, 'race.txt'), 'v1\n');
+  // Someone else changes the file after the editor read v1.
+  await fs.writeFile(path.join(files.root, 'race.txt'), 'v2 from agy\n');
+  const stale = await api(`/files/content?path=race.txt&base=${sha('v1\n')}`, { method: 'PUT', body: 'my edit\n' });
+  assert.equal(stale.status, 409);
+  assert.equal((await stale.json()).code, 'changed');
+  assert.equal(await fs.readFile(path.join(files.root, 'race.txt'), 'utf8'), 'v2 from agy\n');
+  // Based on the current version: saved.
+  const ok = await api(`/files/content?path=race.txt&base=${sha('v2 from agy\n')}`, { method: 'PUT', body: 'my edit\n' });
+  assert.equal(ok.status, 200);
+  assert.equal(await fs.readFile(path.join(files.root, 'race.txt'), 'utf8'), 'my edit\n');
+  // A file deleted meanwhile is simply written again ("Save again").
+  await fs.rm(path.join(files.root, 'race.txt'));
+  assert.equal((await api(`/files/content?path=race.txt&base=${sha('x')}`, { method: 'PUT', body: 'back\n' })).status, 200);
+  await fs.rm(path.join(files.root, 'race.txt'));
 });
 
 test('files: paths cannot escape the projects folder', async () => {

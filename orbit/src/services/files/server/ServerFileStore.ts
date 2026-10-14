@@ -6,6 +6,13 @@ import { HostError, type HostClient } from '../../host/connection';
  * Changes made elsewhere (terminal, Antigravity, another device) are picked up by polling
  * the file list while the page is visible.
  */
+/** sha256 of the UTF-8 bytes, as the host computes it; null where Web Crypto is unavailable (then no check). */
+async function sha256Hex(text: string): Promise<string | null> {
+  if (!globalThis.crypto?.subtle) return null;
+  const digest = await globalThis.crypto.subtle.digest('SHA-256', new TextEncoder().encode(text));
+  return Array.from(new Uint8Array(digest), (b) => b.toString(16).padStart(2, '0')).join('');
+}
+
 export class ServerFileStore implements FileStore {
   readonly kind = 'server' as const;
   readonly label = 'Saved on your Linux machine';
@@ -21,14 +28,8 @@ export class ServerFileStore implements FileStore {
 
   private toStoreError(err: unknown): never {
     if (err instanceof HostError) {
-      const code =
-        err.code === 'not-found'
-          ? 'not-found'
-          : err.code === 'exists'
-            ? 'exists'
-            : err.code === 'invalid-path'
-              ? 'invalid-path'
-              : 'io';
+      const known = ['not-found', 'exists', 'invalid-path', 'changed', 'binary', 'too-large'] as const;
+      const code = known.find((k) => k === err.code) ?? 'io';
       throw new FileStoreError(err.message, code);
     }
     throw new FileStoreError((err as Error).message ?? 'Unknown error', 'io');
@@ -56,10 +57,12 @@ export class ServerFileStore implements FileStore {
     }
   }
 
-  async write(path: string, content: string): Promise<void> {
+  async write(path: string, content: string, opts: { expected?: string } = {}): Promise<void> {
     const p = normalizePath(path);
+    const base = opts.expected === undefined ? null : await sha256Hex(opts.expected);
     try {
-      const body = await this.host.json<{ updatedAt: number }>(`/files/content?path=${encodeURIComponent(p)}`, {
+      const query = `path=${encodeURIComponent(p)}${base ? `&base=${base}` : ''}`;
+      const body = await this.host.json<{ updatedAt: number }>(`/files/content?${query}`, {
         method: 'PUT',
         headers: { 'content-type': 'text/plain; charset=utf-8' },
         body: content,

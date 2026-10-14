@@ -47,11 +47,15 @@ class FakeServerStore implements FileStore {
     if (!f) throw new FileStoreError(`No such file: ${path}`, 'not-found');
     return f.content;
   }
-  async write(path: string, content: string): Promise<void> {
+  async write(path: string, content: string, opts: { expected?: string } = {}): Promise<void> {
     await Promise.resolve();
     if (this.failWrite > 0) {
       this.failWrite--;
       throw new FileStoreError('Request failed (500)', 'io');
+    }
+    const current = this.files.get(path);
+    if (opts.expected !== undefined && current && current.content !== opts.expected) {
+      throw new FileStoreError('This file changed on your Linux machine since you opened it.', 'changed');
     }
     this.files.set(path, { content, updatedAt: this.clock++ });
     this.emit();
@@ -66,6 +70,10 @@ class FakeServerStore implements FileStore {
   async remove(path: string): Promise<void> {
     if (!this.files.delete(path)) throw new FileStoreError('missing', 'not-found');
     this.emit();
+  }
+  /** A change made elsewhere that the app hasn't been told about yet (between two polls). */
+  sneak(path: string, content: string) {
+    this.files.set(path, { content, updatedAt: this.clock++ });
   }
   /** A change made elsewhere (terminal, Antigravity, another device). */
   external(path: string, content: string | null) {
@@ -200,6 +208,24 @@ describe('EditorApp on the Linux machine (server store)', () => {
     await waitFor(() => expect(toasts()).toContain('Saved README.md on your Linux machine'));
     expect(store.files.get('README.md')!.content).toBe('# Real project\nmore\n');
     await waitFor(() => expect(useWorkspace.getState().summaries.editor).not.toMatch(/unsaved/));
+  });
+
+  it('never overwrites a change made on the machine since the file was opened', async () => {
+    renderEditor();
+    await waitFor(() => expect(within(header()).getByRole('heading', { name: 'README.md' })).toBeTruthy());
+    typeAtEnd('my edit\n');
+    store.sneak('README.md', 'IMPORTANT change from Antigravity\n');
+
+    fireEvent.keyDown(window, { key: 's', metaKey: true });
+    await screen.findByText('This file changed elsewhere');
+    expect(store.files.get('README.md')!.content).toBe('IMPORTANT change from Antigravity\n');
+    expect(toasts().some((t) => /Not saved: README\.md changed on your Linux machine/.test(t))).toBe(true);
+    expect(view().state.doc.toString()).toBe('# Real project\nmy edit\n');
+
+    // Keep mine, then Save: now the owner has seen the other version, so it overwrites.
+    fireEvent.click(screen.getByRole('button', { name: 'Keep mine' }));
+    fireEvent.keyDown(window, { key: 's', metaKey: true });
+    await waitFor(() => expect(store.files.get('README.md')!.content).toBe('# Real project\nmy edit\n'));
   });
 
   it('reloads clean tabs silently and warns on dirty ones; deletion keeps the buffer', async () => {

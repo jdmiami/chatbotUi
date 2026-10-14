@@ -1,6 +1,7 @@
 // Project files for Orbit's Code app. Everything is confined to one root directory:
 // paths are project-relative, ".." and absolute paths are rejected, and symlinks that point
 // outside the root are refused.
+import crypto from 'node:crypto';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 
@@ -112,10 +113,20 @@ export class FileService {
     return { content: buf.toString('utf8'), updatedAt: Math.round(st.mtimeMs) };
   }
 
-  async write(rel, content) {
+  /**
+   * Create or overwrite a file. With `baseHash` (sha256 hex of the content the edit was based on), an
+   * existing file that no longer matches it is left alone (409 'changed'): someone else changed it.
+   */
+  async write(rel, content, baseHash = null) {
     const { abs } = await this.resolve(rel);
     const st = await fs.stat(abs).catch(() => null);
     if (st?.isDirectory()) throw new HttpError(409, 'That path is a folder.', 'exists');
+    if (baseHash && st?.isFile()) {
+      const current = crypto.createHash('sha256').update(await fs.readFile(abs)).digest('hex');
+      if (current !== baseHash) {
+        throw new HttpError(409, 'This file changed on your Linux machine since you opened it.', 'changed');
+      }
+    }
     await fs.mkdir(path.dirname(abs), { recursive: true });
     // Write to a temp file then rename, so a dropped connection never leaves a half-written file.
     const tmp = `${abs}.orbit-tmp-${process.pid}-${Date.now()}`;

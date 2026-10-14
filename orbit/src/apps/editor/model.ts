@@ -274,14 +274,20 @@ export function deleteWarning(kind: FileStore['kind']): string {
 
 /** A readable message for any error thrown by a file store (or anything else). */
 export function errorMessage(err: unknown): string {
+  if (err instanceof FileStoreError && (err.code === 'binary' || err.code === 'too-large')) {
+    return `${err.message} Use Terminal to work with it.`;
+  }
   if (err instanceof FileStoreError) return err.message;
   if (err instanceof Error && err.message) return err.message;
   return 'Something went wrong. Please try again.';
 }
 
-/** Missing files can't be fixed by trying again; everything else (network, I/O, server) can. */
+/** Missing, binary and oversized files can't be fixed by trying again; network, I/O and server errors can. */
 export function isRetryable(err: unknown): boolean {
-  return !(err instanceof FileStoreError && (err.code === 'not-found' || err.code === 'invalid-path'));
+  return !(
+    err instanceof FileStoreError &&
+    (err.code === 'not-found' || err.code === 'invalid-path' || err.code === 'binary' || err.code === 'too-large')
+  );
 }
 
 /* ------------------------------------------------------------------ Summary */

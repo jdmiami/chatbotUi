@@ -386,7 +386,8 @@ export default function EditorApp({ placement, isActive, compact }: AppProps) {
     busyRef.current.add(path);
     syncSaving();
     try {
-      await store.write(path, text);
+      // `expected`: the disk version these edits are based on, so a newer change elsewhere is never overwritten.
+      await store.write(path, text, prevBase === undefined ? {} : { expected: prevBase });
       stampRef.current.delete(path);
       patchTab(path, { conflict: null, dirty: computeDirty(path) });
       setSaveError((e) => (e?.path === path ? null : e));
@@ -395,6 +396,16 @@ export default function EditorApp({ placement, isActive, compact }: AppProps) {
     } catch (err) {
       if (prevBase === undefined) baselineRef.current.delete(path);
       else baselineRef.current.set(path, prevBase);
+      if (err instanceof FileStoreError && err.code === 'changed') {
+        // Changed elsewhere since it was opened: show the newer version and let the owner choose.
+        const disk = await store.read(path).catch(() => null);
+        if (disk !== null) {
+          stampRef.current.delete(path);
+          patchTab(path, { conflict: { kind: 'changed', disk }, dirty: true });
+          toast(`Not saved: ${name} changed on your Linux machine. Choose Reload or Keep mine, then save.`, 'error');
+          return false;
+        }
+      }
       const message = errorMessage(err);
       setSaveError({ path, message });
       toast(`Couldn't save ${name}. ${message}`, 'error');

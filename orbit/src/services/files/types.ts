@@ -20,7 +20,7 @@ export interface FileEntry {
 export class FileStoreError extends Error {
   constructor(
     message: string,
-    readonly code: 'not-found' | 'exists' | 'invalid-path' | 'quota' | 'io',
+    readonly code: 'not-found' | 'exists' | 'invalid-path' | 'quota' | 'io' | 'changed' | 'binary' | 'too-large',
   ) {
     super(message);
     this.name = 'FileStoreError';
@@ -38,8 +38,11 @@ export interface FileStore {
 
   list(): Promise<FileEntry[]>;
   read(path: string): Promise<string>;
-  /** Create or overwrite. */
-  write(path: string, content: string): Promise<void>;
+  /**
+   * Create or overwrite. With `expected` (the content the edit was based on), a file that has since
+   * changed elsewhere is not overwritten: fails with code 'changed'.
+   */
+  write(path: string, content: string, opts?: { expected?: string }): Promise<void>;
   /** Fails with code 'exists' if `to` already exists. */
   rename(from: string, to: string): Promise<void>;
   remove(path: string): Promise<void>;

@@ -40,7 +40,9 @@ export function createOrbitApi({ secret, allowedOrigins, files, agent, log }) {
       if (route === '/files/content') {
         const p = url.searchParams.get('path');
         if (req.method === 'GET') return json(res, 200, await files.read(p));
-        if (req.method === 'PUT') return json(res, 200, await files.write(p, await readBody(req)));
+        if (req.method === 'PUT') {
+          return json(res, 200, await files.write(p, await readBody(req), url.searchParams.get('base')));
+        }
         if (req.method === 'DELETE') {
           await files.remove(p);
           return json(res, 200, { ok: true });

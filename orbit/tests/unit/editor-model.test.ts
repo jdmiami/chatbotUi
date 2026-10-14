@@ -352,6 +352,12 @@ describe('errors', () => {
     expect(isRetryable(new Error('network'))).toBe(true);
     expect(isRetryable(new FileStoreError('gone', 'not-found'))).toBe(false);
     expect(isRetryable(new FileStoreError('bad', 'invalid-path'))).toBe(false);
+    // Binary and oversized files won't open on a retry either (and must not be re-opened after a reload).
+    expect(isRetryable(new FileStoreError('This looks like a binary file.', 'binary'))).toBe(false);
+    expect(isRetryable(new FileStoreError('File is too large', 'too-large'))).toBe(false);
+    expect(errorMessage(new FileStoreError('This looks like a binary file.', 'binary'))).toBe(
+      'This looks like a binary file. Use Terminal to work with it.',
+    );
   });
 });
 
