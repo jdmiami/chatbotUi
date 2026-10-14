@@ -212,6 +212,15 @@ export default function AgentApp({ placement, compact }: AppProps) {
     setDrafts((d) => (text ? { ...d, [sessionId]: text } : without(d, sessionId)));
   }, []);
 
+  const clearStopping = useCallback((sessionId: string) => {
+    setStopping((st) => {
+      if (!st.has(sessionId)) return st;
+      const next = new Set(st);
+      next.delete(sessionId);
+      return next;
+    });
+  }, []);
+
   /* ------------------------------------------------------------------ loading */
 
   const loadProjects = useCallback(async () => {
@@ -312,15 +321,15 @@ export default function AgentApp({ placement, compact }: AppProps) {
   }, [projectId, loadSessions]);
 
   // Runner changes (this page, another app instance, or the other device via polling).
-  useEffect(
-    () =>
-      runner.subscribe(() => {
-        setCaps(runner.capabilities);
-        const pid = projectIdRef.current;
-        if (pid) void loadSessions(pid, true);
-      }),
-    [runner, loadSessions],
-  );
+  useEffect(() => {
+    // The host runner fetches its capability list once; it may have arrived before we subscribed.
+    setCaps(runner.capabilities);
+    return runner.subscribe(() => {
+      setCaps(runner.capabilities);
+      const pid = projectIdRef.current;
+      if (pid) void loadSessions(pid, true);
+    });
+  }, [runner, loadSessions]);
 
   // Relative times ("5 min ago") stay current while visible.
   useEffect(() => {
@@ -345,9 +354,10 @@ export default function AgentApp({ placement, compact }: AppProps) {
   }, [openId, loadTranscript]);
 
   // The model list is needed once a conversation (with its Model picker) is on screen.
+  const modelsCap = caps.models.status;
   useEffect(() => {
-    if (openId && models.status === 'idle') void loadModels();
-  }, [openId, models.status, loadModels]);
+    if (openId && models.status === 'idle' && modelsCap === 'supported') void loadModels();
+  }, [openId, models.status, modelsCap, loadModels]);
 
   // Leaving a conversation stops following it.
   useEffect(() => {
@@ -448,12 +458,7 @@ export default function AgentApp({ placement, compact }: AppProps) {
         finished = true;
         runsRef.current.delete(sessionId);
         syncOwnRuns();
-        setStopping((st) => {
-          if (!st.has(sessionId)) return st;
-          const next = new Set(st);
-          next.delete(sessionId);
-          return next;
-        });
+        clearStopping(sessionId);
       };
       const handle = runner.send(sessionId, text, {
         onItem: (item) => {
@@ -479,7 +484,7 @@ export default function AgentApp({ placement, compact }: AppProps) {
         syncOwnRuns();
       }
     },
-    [runner, applyItem, patchSession, refreshOne, setDraft],
+    [runner, applyItem, patchSession, refreshOne, setDraft, clearStopping],
   );
 
   const stop = useCallback(
@@ -490,30 +495,36 @@ export default function AgentApp({ placement, compact }: AppProps) {
         handle.stop();
         return;
       }
-      if (canStopBySession(runner)) {
-        runner.stopSession(sessionId).catch((err: unknown) => {
-          toast(`Couldn’t stop: ${errorMessage(err)}`, 'error');
-          setStopping((st) => {
-            const next = new Set(st);
-            next.delete(sessionId);
-            return next;
-          });
-        });
+      // A turn this page only follows (started on the other device, or before a reload):
+      // ask the runner to end it by session id. The watch then reports the final state.
+      if (!canStopBySession(runner)) {
+        clearStopping(sessionId);
+        return;
       }
+      runner.stopSession(sessionId).then(
+        (res) => {
+          if (!mounted.current) return;
+          const stopped = (res as { stopped?: boolean } | undefined)?.stopped;
+          if (stopped === false) toast('That turn had already finished.', 'info');
+          // Nothing is following the turn (or it was already over): read the final state now.
+          if (stopped === false || !watchRef.current.has(sessionId)) {
+            void refreshOne(sessionId).finally(() => clearStopping(sessionId));
+          }
+        },
+        (err: unknown) => {
+          if (!mounted.current) return;
+          toast(`Couldn’t stop: ${errorMessage(err)}`, 'error');
+          clearStopping(sessionId);
+        },
+      );
     },
-    [runner, toast],
+    [runner, toast, refreshOne, clearStopping],
   );
 
   // Clear "Stopping…" once the session is no longer running (e.g. a watched turn ended).
   useEffect(() => {
-    if (selected && selected.status !== 'running' && stopping.has(selected.id)) {
-      setStopping((st) => {
-        const next = new Set(st);
-        next.delete(selected.id);
-        return next;
-      });
-    }
-  }, [selected, stopping]);
+    if (selected && selected.status !== 'running' && stopping.has(selected.id)) clearStopping(selected.id);
+  }, [selected, stopping, clearStopping]);
 
   const changeSession = useCallback(
     async (id: string, patch: Partial<Pick<SessionSummary, 'title' | 'model' | 'mode'>>, what: string) => {
