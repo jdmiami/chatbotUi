@@ -33,7 +33,7 @@ export function IconButton({
 /** "Simulated" / "Demo" disclosure chip. Use in every app header while on demo services. */
 export function DemoChip({ text = 'Simulated', title }: { text?: string; title?: string }) {
   return (
-    <span className="chip demo" title={title ?? 'This is demo behaviour, not a real Ubuntu connection.'}>
+    <span className="chip demo" title={title ?? 'This is demo behaviour, not your Linux machine.'}>
       <span className="dot" aria-hidden />
       {text}
     </span>

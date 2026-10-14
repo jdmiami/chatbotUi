@@ -41,7 +41,7 @@ export function IntroSheet() {
     <Sheet title="Welcome to Orbit (demo)" onClose={done}>
       <div className="stack">
         <p style={{ margin: 0 }}>
-          This is the Phase 1 prototype. It is <strong>not connected to an Ubuntu machine</strong> yet.
+          Orbit is in demo mode: it is <strong>not connected to your Linux machine</strong>.
         </p>
         <ul style={{ margin: 0, paddingLeft: 20, display: 'grid', gap: 6 }}>
           <li>

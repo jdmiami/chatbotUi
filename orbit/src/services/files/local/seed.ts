@@ -8,7 +8,7 @@ export const DEMO_PROJECT_FILES: { path: string; content: string }[] = [
     content: `# orbit-demo
 
 This is a **sample project stored in your browser** so you can try the Orbit editor.
-Edits are saved to this browser's local storage. They do not reach any Ubuntu machine
+Edits are saved to this browser's local storage. They do not reach your Linux machine
 and do not sync to your other devices.
 
 - \`src/app.py\` — a tiny Flask-style app
@@ -70,9 +70,9 @@ export function clamp(value: number, min: number, max: number): number {
     path: 'notes/todo.md',
     content: `# TODO
 
-- [ ] Connect Orbit to the real Ubuntu host (Phase 2)
-- [ ] Replace the simulated terminal with a PTY
-- [ ] Drive the real Antigravity CLI
+- [ ] Add a test for src/utils.ts
+- [ ] Tidy up config/settings.json
+- [ ] Ask Antigravity to explain src/app.py
 `,
   },
 ];

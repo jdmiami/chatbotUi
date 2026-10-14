@@ -458,7 +458,7 @@ export default function TerminalApp({ placement, isActive, compact }: AppProps) 
         ? 'Shell ends when you disconnect'
         : 'Linux machine · the shell ends when you disconnect'
     : backend.label;
-  const shellEnded = !pty || /ended/i.test(conn.detail ?? '');
+  const shellEnded = !pty || pty.lastDisconnect === 'shell-exited' || /ended/i.test(conn.detail ?? '');
 
   return (
     <div className="term-root" data-placement={placement} data-compact={compact}>

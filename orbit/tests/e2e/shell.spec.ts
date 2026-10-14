@@ -6,7 +6,7 @@ test.describe('shell', () => {
     await openOrbit(page, { keepIntro: true });
     const sheet = page.getByRole('dialog', { name: /Welcome to Orbit/ });
     await expect(sheet).toBeVisible();
-    await expect(sheet).toContainText('not connected to an Ubuntu machine');
+    await expect(sheet).toContainText('not connected to your Linux machine');
     await expect(sheet).toContainText('does not sync');
     await sheet.getByRole('button', { name: 'Got it' }).click();
     await page.reload();

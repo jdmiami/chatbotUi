@@ -262,7 +262,7 @@ describe('SimulatedShell: commands', () => {
   it('head, tail, wc, grep and pipes', async () => {
     const t = await setup();
     expect(await t.run('head -n 1 README.md')).toBe('# orbit-demo\r\n');
-    expect(await t.run('tail -n 1 notes/todo.md')).toBe('- [ ] Drive the real Antigravity CLI\r\n');
+    expect(await t.run('tail -n 1 notes/todo.md')).toBe('- [ ] Ask Antigravity to explain src/app.py\r\n');
     expect(await t.run('wc -l notes/todo.md')).toBe('5 notes/todo.md\r\n');
     // Line numbers are 1-based like GNU grep; derive them from the seeded file so a seed edit
     // doesn't silently break the expectation (render is on line 10 of the current seed).

@@ -1,4 +1,4 @@
-import type { HostClient } from '../../host/connection';
+import { HostError, type HostClient } from '../../host/connection';
 import type { TerminalBackend, TerminalSize, TerminalStatus } from '../types';
 
 /**
@@ -19,6 +19,8 @@ export class PtyBackend implements TerminalBackend {
   private attempts = 0;
   private retryTimer: ReturnType<typeof setTimeout> | null = null;
   persistent = true;
+  /** Why the last connection ended: the shell itself exited, or the connection was closed. */
+  lastDisconnect: 'shell-exited' | 'closed' | null = null;
 
   constructor(
     private readonly host: HostClient,
@@ -48,6 +50,10 @@ export class PtyBackend implements TerminalBackend {
     const ws = new WebSocket(url.toString());
     this.ws = ws;
     let ready = false;
+    // A socket that opens but never says 'ready' would leave us "connecting" forever: retry instead.
+    const readyTimer = setTimeout(() => {
+      if (!ready && this.ws === ws) ws.close();
+    }, 15_000);
 
     ws.onopen = () => ws.send(JSON.stringify({ type: 'auth', token }));
     ws.onmessage = (ev) => {
@@ -59,7 +65,9 @@ export class PtyBackend implements TerminalBackend {
       }
       if (msg.type === 'ready') {
         ready = true;
+        clearTimeout(readyTimer);
         this.attempts = 0;
+        this.lastDisconnect = null;
         this.persistent = msg.persistent !== false;
         this.setStatus('connected');
         // Make sure the remote PTY matches the current viewport after a reconnect.
@@ -71,10 +79,12 @@ export class PtyBackend implements TerminalBackend {
       } else if (msg.type === 'exit') {
         // The shell itself ended (e.g. `exit` typed, or tmux session killed).
         this.wantOpen = false;
+        this.lastDisconnect = 'shell-exited';
         this.setStatus('disconnected', 'The shell ended.');
       }
     };
     ws.onclose = (ev) => {
+      clearTimeout(readyTimer);
       if (this.ws !== ws) return;
       this.ws = null;
       if (ev.code === 4401) {
@@ -127,12 +137,18 @@ export class PtyBackend implements TerminalBackend {
     const ws = this.ws;
     this.ws = null;
     ws?.close(1000);
+    if (this.lastDisconnect !== 'shell-exited') this.lastDisconnect = 'closed';
     this.setStatus('disconnected');
   }
 
   /** End the tmux session on the machine for good, so the next connect starts a fresh shell. */
   async endSession(): Promise<void> {
-    await this.host.fetch(`/terminal/sessions/${encodeURIComponent(this.session)}`, { method: 'DELETE' });
+    const res = await this.host.fetch(`/terminal/sessions/${encodeURIComponent(this.session)}`, { method: 'DELETE' });
+    // 404 = no such session, which is what we wanted anyway.
+    if (!res.ok && res.status !== 404) {
+      const body = (await res.json().catch(() => ({}))) as { error?: string; code?: string };
+      throw new HostError(body.error ?? `Couldn't end the terminal session (${res.status})`, res.status, body.code);
+    }
   }
 
   private send(msg: unknown) {
