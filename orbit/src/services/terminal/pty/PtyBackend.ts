@@ -21,6 +21,10 @@ export class PtyBackend implements TerminalBackend {
   persistent = true;
   /** Why the last connection ended: the shell itself exited, or the connection was closed. */
   lastDisconnect: 'shell-exited' | 'closed' | null = null;
+  /** Keys typed while reconnecting, sent once the shell is back (capped so a stuck key can't pile up). */
+  private pendingInput = '';
+  private static readonly MAX_PENDING = 4096;
+  private detachFocus: (() => void) | null = null;
 
   constructor(
     private readonly host: HostClient,
@@ -72,6 +76,11 @@ export class PtyBackend implements TerminalBackend {
         this.setStatus('connected');
         // Make sure the remote PTY matches the current viewport after a reconnect.
         this.send({ type: 'resize', cols: this.size.cols, rows: this.size.rows });
+        if (this.pendingInput) {
+          this.send({ type: 'input', data: this.pendingInput });
+          this.pendingInput = '';
+        }
+        this.watchFocus();
       } else if (msg.type === 'output' && msg.data) {
         this.outputListeners.forEach((l) => l(msg.data!));
       } else if (msg.type === 'error') {
@@ -113,7 +122,29 @@ export class PtyBackend implements TerminalBackend {
   }
 
   write(data: string): void {
-    this.send({ type: 'input', data });
+    if (this.ws?.readyState === WebSocket.OPEN) {
+      this.send({ type: 'input', data });
+    } else if (this.wantOpen) {
+      // Reconnecting: keep what was typed instead of silently dropping it.
+      this.pendingInput = (this.pendingInput + data).slice(-PtyBackend.MAX_PENDING);
+    }
+  }
+
+  /**
+   * The same tmux session can be open on the iPhone and the iPad; tmux sizes the window for the most
+   * recently used one. When this device comes back into view, re-send its size so it takes over.
+   */
+  private watchFocus() {
+    if (this.detachFocus || typeof window === 'undefined') return;
+    const nudge = () => {
+      if (document.visibilityState === 'visible') this.send({ type: 'resize', cols: this.size.cols, rows: this.size.rows });
+    };
+    window.addEventListener('focus', nudge);
+    document.addEventListener('visibilitychange', nudge);
+    this.detachFocus = () => {
+      window.removeEventListener('focus', nudge);
+      document.removeEventListener('visibilitychange', nudge);
+    };
   }
 
   resize(size: TerminalSize): void {
@@ -133,6 +164,9 @@ export class PtyBackend implements TerminalBackend {
 
   disconnect(): void {
     this.wantOpen = false;
+    this.pendingInput = '';
+    this.detachFocus?.();
+    this.detachFocus = null;
     if (this.retryTimer) clearTimeout(this.retryTimer);
     const ws = this.ws;
     this.ws = null;

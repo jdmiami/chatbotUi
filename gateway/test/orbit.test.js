@@ -5,6 +5,8 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import WebSocket from 'ws';
+import { execFile } from 'node:child_process';
+import { promisify } from 'node:util';
 import { SignJWT } from 'jose';
 import { createGateway, loadConfig } from '../src/server.js';
 import { FileService } from '../src/orbit/files.js';
@@ -12,6 +14,7 @@ import { AgentService } from '../src/orbit/agent.js';
 import { createOrbitApi } from '../src/orbit/http.js';
 import { hasTmux, killTerminalSession } from '../src/orbit/pty.js';
 
+const run = promisify(execFile);
 const SECRET = 'o'.repeat(40);
 const ORIGIN = 'https://site.example';
 let tmp, server, base, files, agent;
@@ -312,6 +315,40 @@ const until = async (cond, ms = 8000) => {
     await new Promise((r) => setTimeout(r, 50));
   }
 };
+
+test('terminal: the device that reports its size last sets the shared window size', async (t) => {
+  if (!(await hasTmux())) return t.skip('tmux not installed');
+  const open = async (cols, rows) => {
+    const ws = new WebSocket(`${base.replace('http', 'ws')}/orbit/pty?session=t2&cols=${cols}&rows=${rows}`, { origin: ORIGIN });
+    const out = [];
+    ws.on('message', (d) => out.push(JSON.parse(d.toString())));
+    await new Promise((r) => ws.on('open', r));
+    ws.send(JSON.stringify({ type: 'auth', token: await token() }));
+    await until(() => out.some((m) => m.type === 'ready'));
+    return ws;
+  };
+  const width = async () =>
+    Number((await run('tmux', ['-L', 'orbit', 'display', '-p', '-t', 'orbit-t2', '#{window_width}'])).stdout.trim());
+  const waitWidth = async (want) => {
+    let w = 0;
+    for (let i = 0; i < 60 && w !== want; i++) {
+      await new Promise((r) => setTimeout(r, 50));
+      w = await width();
+    }
+    return w;
+  };
+  const phone = await open(47, 20);
+  const ipad = await open(120, 30);
+  phone.send(JSON.stringify({ type: 'input', data: 'echo typed-on-phone\n' }));
+  phone.send(JSON.stringify({ type: 'resize', cols: 47, rows: 20 }));
+  assert.equal(await waitWidth(47), 47, 'the phone took over while it was being used');
+  // The iPad comes back into view and re-sends its size.
+  ipad.send(JSON.stringify({ type: 'resize', cols: 120, rows: 30 }));
+  assert.equal(await waitWidth(120), 120, 'the iPad takes over when it reports its size');
+  phone.close();
+  ipad.close();
+  await killTerminalSession('t2');
+});
 
 test('terminal: auth required, real shell, survives reconnect via tmux', async (t) => {
   // without auth the socket is closed

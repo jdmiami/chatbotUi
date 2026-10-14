@@ -91,8 +91,21 @@ export function handlePtySocket(ws, url, { secret, cwd, log }) {
     }
     if (!term) return;
     if (msg.type === 'input' && typeof msg.data === 'string') term.write(msg.data);
-    else if (msg.type === 'resize') term.resize(clamp(msg.cols, 10, 500, 80), clamp(msg.rows, 4, 200, 24));
+    else if (msg.type === 'resize') {
+      const cols = clamp(msg.cols, 10, 500, 80);
+      const rows = clamp(msg.rows, 4, 200, 24);
+      term.resize(cols, rows);
+      // The same session may be open on several devices: the one that just reported its size (it is
+      // the one being looked at) sets the window size, so it never shows another device's smaller box.
+      if (tmuxTarget) {
+        run('tmux', ['-L', TMUX_SOCKET, 'resize-window', '-t', tmuxTarget, '-x', String(cols), '-y', String(rows)]).catch(
+          () => {},
+        );
+      }
+    }
   });
+
+  let tmuxTarget = null;
 
   ws.on('close', () => {
     clearTimeout(authTimer);
@@ -128,6 +141,7 @@ export function handlePtySocket(ws, url, { secret, cwd, log }) {
       send({ type: 'exit', code: exitCode });
       ws.close(1000);
     });
+    if (persistent) tmuxTarget = `orbit-${session}`;
     send({ type: 'ready', session, persistent });
     return p;
   }
