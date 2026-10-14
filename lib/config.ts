@@ -29,10 +29,4 @@ export const config = {
   get sessionHours() {
     return Number(process.env.SESSION_HOURS || 12);
   },
-  get gatewayUrl() {
-    return required('GATEWAY_URL');
-  },
-  get gatewaySecret() {
-    return secret('GATEWAY_SECRET');
-  },
 };
