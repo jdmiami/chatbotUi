@@ -4,7 +4,7 @@
  * Phase 1: `LocalFileStore` (services/files/local) keeps a demo project in this browser's
  * localStorage. It does NOT sync between devices.
  * Phase 2: a `ServerFileStore` will call an authenticated file API rooted at a project directory
- * on the Ubuntu host.
+ * on the Linux machine.
  *
  * Paths are POSIX-style and relative to the project root, e.g. "src/main.py".
  * Directories are implicit (derived from file paths), like a git tree.
@@ -28,7 +28,7 @@ export class FileStoreError extends Error {
 }
 
 export interface FileStore {
-  /** 'browser-local' = this browser only; 'server' = files on the Ubuntu host. */
+  /** 'browser-local' = this browser only; 'server' = files on the Linux machine. */
   readonly kind: 'browser-local' | 'server';
   readonly label: string;
   /** Display name of the project root, e.g. "orbit-demo". */

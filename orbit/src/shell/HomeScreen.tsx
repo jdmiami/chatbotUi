@@ -25,7 +25,7 @@ export function HomeScreen({ hidden }: { hidden: boolean }) {
           type="button"
           className={`chip ${connection.mode === 'host' ? 'ok' : 'demo'}`}
           onClick={() => setShowConnection(true)}
-          aria-label={`${connection.label}. ${connection.mode === 'host' ? 'Connected.' : 'Not connected to Ubuntu.'} Show details.`}
+          aria-label={`${connection.label}. ${connection.mode === 'host' ? 'Connected.' : 'Not connected to your Linux machine.'} Show details.`}
         >
           <span className="dot" aria-hidden />
           {connection.label}

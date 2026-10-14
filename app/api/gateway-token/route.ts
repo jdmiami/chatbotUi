@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { SignJWT } from 'jose';
 import { currentUser } from '@/lib/auth';
 import { gatewayFor } from '@/lib/machines';
+import { sameOrigin } from '@/lib/request';
 
 export const dynamic = 'force-dynamic';
 
@@ -12,10 +13,7 @@ export async function POST(request: Request) {
   if (!user) return Response.json({ error: 'Unauthorized' }, { status: 401 });
 
   // CSRF defence on top of the SameSite=Strict cookie.
-  const origin = request.headers.get('origin');
-  if (origin && new URL(origin).host !== request.headers.get('host')) {
-    return Response.json({ error: 'Forbidden' }, { status: 403 });
-  }
+  if (!sameOrigin(request)) return Response.json({ error: 'Forbidden' }, { status: 403 });
 
   const machine = new URL(request.url).searchParams.get('machine') ?? '';
   const gateway = gatewayFor(machine);

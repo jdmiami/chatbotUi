@@ -13,9 +13,9 @@ export default function LoginForm({ needsCode }: { needsCode: boolean }) {
           <rect x="2" y="3" width="20" height="14" rx="2" stroke="currentColor" strokeWidth="2" />
           <path d="M8 21h8M12 17v4" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
         </svg>
-        <h1>Remote Desktop</h1>
+        <h1>My Workspace</h1>
       </div>
-      <p className="muted">Sign in to connect to your PC.</p>
+      <p className="muted">Sign in to open your workspace.</p>
 
       <label>
         Username

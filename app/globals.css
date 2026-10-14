@@ -25,6 +25,11 @@ button, a.button {
   border: 0;
   border-radius: 8px;
   padding: 9px 14px;
+  min-height: 44px; /* comfortable touch target; links and buttons line up */
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  text-decoration: none;
   background: var(--accent);
   color: #fff;
   cursor: pointer;
@@ -111,6 +116,7 @@ label { display: block; font-size: 13px; color: var(--muted); }
   z-index: 10;
 }
 .toolbar .handle {
+  min-height: 28px; /* a slim pull tab over the remote screen */
   padding: 2px 16px;
   font-size: 10px;
   border-radius: 0 0 8px 8px;
@@ -160,7 +166,7 @@ label { display: block; font-size: 13px; color: var(--muted); }
 .machine:hover { background: #1c2230; border-color: var(--accent); }
 .machine svg { color: var(--accent); flex: none; }
 .machine .chevron { margin-left: auto; color: var(--muted); font-size: 22px; line-height: 1; }
-a.button { display: inline-block; text-decoration: none; }
+a.button { text-decoration: none; }
 .toolbar .tools a.button { padding: 6px 10px; font-size: 13px; }
 
 /* Workspace chooser */
@@ -171,6 +177,7 @@ a.button { display: inline-block; text-decoration: none; }
 .choice {
   display: flex;
   align-items: center;
+  justify-content: flex-start;
   gap: 14px;
   width: 100%;
   min-height: 72px;

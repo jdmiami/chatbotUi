@@ -58,6 +58,8 @@ function useShortcuts() {
     const onKey = (e: KeyboardEvent) => {
       const s = useShell.getState();
       if (e.key === 'Escape' && s.overlay) {
+        // A sheet open on top (e.g. "Close app?") handles its own Escape first.
+        if (document.querySelector('.sheet')) return;
         s.setOverlay(null);
         return;
       }

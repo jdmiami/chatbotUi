@@ -97,6 +97,36 @@ export default function RemoteDesktop({
       const client = new Guacamole.Client(tunnel);
       clientRef.current = client;
 
+      // The client doesn't surface tunnel failures (machine off, gateway down), so listen to the
+      // tunnel itself, and give up after a while instead of showing "Connecting…" forever.
+      const unreachable = () =>
+        machine.os === 'linux'
+          ? `Could not reach ${machine.name}. It may be off or still starting — turn it on from the workspace page, then reconnect.`
+          : `Could not reach ${machine.name}. Is it on, and is its gateway running?`;
+      let connected = false;
+      let failed = false; // the first reason wins (an error is followed by a "closed" state)
+      const fail = (text: string) => {
+        if (disposed || connected || failed) return;
+        failed = true;
+        setMessage(text);
+        setPhase('error');
+      };
+      tunnel.onerror = (status) =>
+        fail([0x0200, 0x0202, 0x0207].includes(status.code) ? unreachable() : describeError(status, machine.name));
+      tunnel.onstatechange = (state) => {
+        if (state === Guacamole.Tunnel.State.CLOSED) fail(unreachable());
+      };
+      const giveUp = setTimeout(() => {
+        if (connected || disposed) return;
+        fail(unreachable());
+        client.disconnect();
+      }, 25_000);
+      teardown.push(() => {
+        clearTimeout(giveUp);
+        tunnel.onerror = null;
+        tunnel.onstatechange = null;
+      });
+
       const display = client.getDisplay();
       const displayEl = display.getElement();
       displayEl.classList.add('guac-display');
@@ -216,6 +246,8 @@ export default function RemoteDesktop({
       client.onstatechange = (state) => {
         if (disposed) return;
         if (state === 3) {
+          connected = true;
+          clearTimeout(giveUp);
           setPhase('connected');
           setToolbarOpen(false);
           fit();
@@ -294,21 +326,19 @@ export default function RemoteDesktop({
                 {message}
               </p>
             )}
-            {phase !== 'connecting' && (
-              <div className="row">
-                <button onClick={() => setAttempt((n) => n + 1)}>Reconnect</button>
-                {canSwitch && (
-                  <a className="button secondary" href="/?choose=1">
-                    Switch workspace
-                  </a>
-                )}
-                <form action={logout}>
-                  <button type="submit" className="secondary">
-                    Sign out
-                  </button>
-                </form>
-              </div>
-            )}
+            <div className="row">
+              {phase !== 'connecting' && <button onClick={() => setAttempt((n) => n + 1)}>Reconnect</button>}
+              {canSwitch && (
+                <a className="button secondary" href="/?choose=1">
+                  Switch workspace
+                </a>
+              )}
+              <form action={logout}>
+                <button type="submit" className="secondary">
+                  Sign out
+                </button>
+              </form>
+            </div>
           </div>
         </div>
       )}

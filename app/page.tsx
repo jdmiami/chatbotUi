@@ -86,7 +86,7 @@ export default async function Home({ searchParams }: { searchParams: Promise<{ c
             )}
           </div>
           <label className="remember">
-            <input type="checkbox" name="remember" defaultChecked={Boolean(pref)} />
+            <input key={pref ?? 'none'} type="checkbox" name="remember" defaultChecked={Boolean(pref)} />
             Remember my choice and open it when I sign in
           </label>
         </form>
