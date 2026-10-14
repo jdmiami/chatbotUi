@@ -506,6 +506,9 @@
   color: var(--text-2);
   overflow-wrap: anywhere;
 }
+.st-code-nb {
+  white-space: nowrap;
+}
 
 /* ---------------------------------------------------------------- Narrow pages (phone portrait, split panes) */
 

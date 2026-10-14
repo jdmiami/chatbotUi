@@ -37,6 +37,7 @@
   min-height: 0;
   background: var(--surface);
   border-right: 1px solid var(--border);
+  container: ag-side / inline-size;
 }
 .ag-root[data-compact='true'] .ag-sidebar {
   width: 100%;
@@ -57,6 +58,21 @@
 .ag-new {
   flex: none;
   padding: 0 14px;
+}
+/* Narrow sidebar (iPad portrait, phone landscape): an icon-only New keeps the project name readable. */
+@container ag-side (max-width: 320px) {
+  .ag-new {
+    width: var(--tap);
+    padding: 0;
+  }
+  .ag-new-text {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    white-space: nowrap;
+  }
 }
 .ag-side-note {
   padding: 0 var(--space-3) var(--space-2);
@@ -241,8 +257,25 @@
   pointer-events: none;
   color: var(--text-3);
 }
+/* Stacked: a small label above the value, so the value gets the full width of the box. */
+.ag-pick-stacked .ag-pick-label {
+  position: absolute;
+  top: 5px;
+  left: 11px;
+  padding: 0;
+  font-size: 11px;
+  line-height: 1;
+  letter-spacing: 0.2px;
+  pointer-events: none;
+}
+.ag-pick-stacked select {
+  padding: 13px 28px 0 10px;
+}
 .ag-pick-placeholder {
   gap: var(--space-2);
+}
+.ag-pick-stacked.ag-pick-placeholder {
+  padding: 16px 10px 0;
 }
 .ag-pick-placeholder .ag-skel {
   height: 12px;
@@ -387,6 +420,8 @@
   background: var(--surface-3);
   color: var(--text);
   overflow-wrap: anywhere;
+  -webkit-box-decoration-break: clone;
+  box-decoration-break: clone;
 }
 .ag-wrap {
   word-break: break-all;
@@ -715,13 +750,28 @@
 }
 
 .ag-runbar {
-  display: flex;
-  flex-wrap: wrap;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-areas:
+    'text btns'
+    'notes notes';
   align-items: center;
+  gap: var(--space-1) var(--space-2);
+}
+.ag-runbar-btns {
+  grid-area: btns;
+  display: flex;
   gap: var(--space-2);
 }
+.ag-runbar-notes {
+  grid-area: notes;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
 .ag-runbar-text {
-  flex: 1 1 150px;
+  grid-area: text;
   display: flex;
   align-items: center;
   gap: var(--space-2);
@@ -839,17 +889,38 @@
 
 /* Short screens (iPhone landscape): options sit beside the message box to save height. */
 @media (max-height: 500px) {
+  .ag-sidebar {
+    width: clamp(240px, 30%, 320px);
+  }
+  .ag-composer {
+    gap: 6px;
+    padding-top: 6px;
+    padding-bottom: 6px;
+  }
   .ag-composer-main {
     flex-direction: row;
     flex-wrap: wrap;
     align-items: flex-end;
   }
   .ag-opts {
-    flex: 1 1 260px;
+    flex: 1 1 280px;
     max-width: 340px;
   }
   .ag-input-row {
-    flex: 999 1 240px;
+    flex: 999 1 180px;
+  }
+  /* The capability notes sit under the status text, beside the buttons, to save a row. */
+  .ag-runbar {
+    grid-template-areas:
+      'text btns'
+      'notes btns';
+    row-gap: 0;
+  }
+  .ag-runbar:has(.ag-runbar-notes) .ag-runbar-text {
+    align-self: end;
+  }
+  .ag-runbar-notes {
+    align-self: start;
   }
   .ag-transcript-inner {
     padding-top: var(--space-3);

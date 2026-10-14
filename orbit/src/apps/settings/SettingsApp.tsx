@@ -117,11 +117,11 @@ function spokenKeys(keys: string): string {
     .join(' ');
 }
 
-/** Render `code` spans in capability notes. */
+/** Render `code` spans in capability notes. Short spans never break inside (e.g. at the "--" of a flag). */
 function withCode(text: string): ReactNode[] {
   return text.split('`').map((part, i) =>
     i % 2 === 1 ? (
-      <code key={i} className="st-code">
+      <code key={i} className={part.length <= 20 ? 'st-code st-code-nb' : 'st-code'}>
         {part}
       </code>
     ) : (
@@ -858,7 +858,7 @@ function AboutSection() {
       </div>
 
       <h3 className="list-title st-heading st-subheading">
-        What’s real right now ({host ? 'connected' : 'demo mode'})
+        {host ? 'What’s real right now (connected)' : 'Real or simulated right now (demo mode)'}
       </h3>
       <ul className="list st-ul">
         {parts.map((p) => (

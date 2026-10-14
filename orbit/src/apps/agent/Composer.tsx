@@ -70,7 +70,8 @@ export function ModelOptions({ models, current, note }: { models: ModelsState; c
   ));
   return (
     <>
-      <option value="">Default (agy decides)</option>
+      {/* The flag is omitted, so agy uses its own default model. */}
+      <option value="">Default</option>
       {models.status === 'loading' && (
         <option value="__loading" disabled>
           Loading models…
@@ -221,41 +222,47 @@ export function Composer({
             <span className="ag-spinner" aria-hidden />
             {stopping ? 'Stopping…' : demo ? 'Working… (simulated)' : 'Antigravity is working…'}
           </span>
-          {pauseCap === 'unsupported' && (
-            <button type="button" className="btn ghost ag-runbtn" disabled aria-describedby={pauseNoteId}>
-              <Icon name="pause" size={16} />
-              Pause
-            </button>
-          )}
-          {stopCap !== 'unverified' && (
-            <button
-              type="button"
-              className="btn danger ag-runbtn"
-              onClick={onStop}
-              disabled={stopCap !== 'supported' || !canStop || stopping}
-              aria-describedby={stopCap !== 'supported' || !canStop ? stopNoteId : undefined}
-            >
-              <Icon name="stop" size={16} />
-              {stopping ? 'Stopping' : 'Stop'}
-            </button>
+          <div className="ag-runbar-btns">
+            {pauseCap === 'unsupported' && (
+              <button type="button" className="btn ghost ag-runbtn" disabled aria-describedby={pauseNoteId}>
+                <Icon name="pause" size={16} />
+                Pause
+              </button>
+            )}
+            {stopCap !== 'unverified' && (
+              <button
+                type="button"
+                className="btn danger ag-runbtn"
+                onClick={onStop}
+                disabled={stopCap !== 'supported' || !canStop || stopping}
+                aria-describedby={stopCap !== 'supported' || !canStop ? stopNoteId : undefined}
+              >
+                <Icon name="stop" size={16} />
+                {stopping ? 'Stopping' : 'Stop'}
+              </button>
+            )}
+          </div>
+          {(pauseCap === 'unsupported' || stopCap === 'unsupported' || (stopCap === 'supported' && !canStop)) && (
+            <div className="ag-runbar-notes">
+              {pauseCap === 'unsupported' && (
+                <p className="ag-capnote" id={pauseNoteId}>
+                  <InlineText text={`Pause isn’t available: ${caps.pauseResume.note}`} />
+                </p>
+              )}
+              {stopCap === 'unsupported' && (
+                <p className="ag-capnote" id={stopNoteId}>
+                  <InlineText text={`Stop isn’t available: ${caps.stop.note}`} />
+                </p>
+              )}
+              {stopCap === 'supported' && !canStop && (
+                <p className="ag-capnote" id={stopNoteId}>
+                  This turn was started elsewhere (another device, or before this page reloaded). Stop it from there,
+                  or wait for it to finish.
+                </p>
+              )}
+            </div>
           )}
         </div>
-      )}
-      {running && pauseCap === 'unsupported' && (
-        <p className="ag-capnote" id={pauseNoteId}>
-          <InlineText text={`Pause isn’t available: ${caps.pauseResume.note}`} />
-        </p>
-      )}
-      {running && stopCap === 'unsupported' && (
-        <p className="ag-capnote" id={stopNoteId}>
-          <InlineText text={`Stop isn’t available: ${caps.stop.note}`} />
-        </p>
-      )}
-      {running && stopCap === 'supported' && !canStop && (
-        <p className="ag-capnote" id={stopNoteId}>
-          This turn was started elsewhere (another device, or before this page reloaded). Stop it from there, or
-          wait for it to finish.
-        </p>
       )}
 
       <div className="ag-composer-main">
@@ -264,6 +271,7 @@ export function Composer({
             {showModes && (
               <Picker
                 label="Mode"
+                className="ag-pick-stacked"
                 value={session.mode}
                 onChange={(v) => onMode(v as RunnerMode)}
                 disabled={caps.modes.status !== 'supported'}
@@ -279,6 +287,7 @@ export function Composer({
             {showModels && (
               <Picker
                 label="Model"
+                className="ag-pick-stacked"
                 value={session.model ?? ''}
                 onChange={onModel}
                 disabled={caps.models.status !== 'supported'}
@@ -298,7 +307,7 @@ export function Composer({
             value={draft}
             onChange={(e) => onDraft(e.target.value)}
             onKeyDown={onKeyDown}
-            placeholder={demo ? 'Message (simulated reply)' : 'Message Antigravity'}
+            placeholder={demo ? 'Message (simulated)' : 'Message Antigravity'}
             aria-label="Message"
             aria-describedby={blockedNote ? blockedId : undefined}
             disabled={!!blockedNote}

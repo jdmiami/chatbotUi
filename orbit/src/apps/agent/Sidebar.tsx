@@ -146,7 +146,7 @@ export function Sidebar({
         aria-label="New session"
       >
         <Icon name="plus" size={18} strokeWidth={2.4} />
-        New
+        <span className="ag-new-text">New</span>
       </button>
     );
 
@@ -154,7 +154,7 @@ export function Sidebar({
     <aside className="ag-sidebar" aria-label="Projects and sessions">
       <div className="ag-side-head">
         {projects.status === 'ready' && projects.data.length > 0 ? (
-          <Picker label="Project" value={projectId ?? ''} onChange={onProject} className="ag-project">
+          <Picker label="Project" value={projectId ?? ''} onChange={onProject} className="ag-project ag-pick-stacked">
             {projects.data.map((p) => (
               <option key={p.id} value={p.id}>
                 {p.name}
@@ -162,7 +162,7 @@ export function Sidebar({
             ))}
           </Picker>
         ) : (
-          <div className="ag-pick ag-project ag-pick-placeholder" aria-hidden>
+          <div className="ag-pick ag-project ag-pick-stacked ag-pick-placeholder" aria-hidden>
             <span className="ag-pick-label">Project</span>
             {projects.status === 'loading' && <span className="ag-skel ag-skel-sm" style={{ width: '50%' }} />}
           </div>
@@ -217,7 +217,7 @@ export function Sidebar({
           </ul>
         )}
       </div>
-      {demo && <p className="ag-side-foot">Sample sessions, saved in this browser only.</p>}
+      {demo && <p className="ag-side-foot">Sample sessions, kept in this browser.</p>}
     </aside>
   );
 }
