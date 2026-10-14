@@ -277,8 +277,9 @@ export default function SettingsApp({ isActive }: AppProps) {
                 {host ? (
                   <>
                     <p className="st-text">
-                      <strong>On your Linux machine:</strong> project files, terminal sessions and Antigravity
-                      sessions. They live on the machine’s saved storage, so your iPhone and iPad see the same ones.
+                      <strong>On your Linux machine:</strong> project files and Antigravity sessions live on the
+                      machine’s saved storage, so your iPhone and iPad see the same ones. Terminal sessions keep
+                      running while the machine is on; turning it off ends them.
                     </p>
                     <p className="st-text">
                       <strong>In this browser:</strong> preferences such as theme, text size and terminal options.

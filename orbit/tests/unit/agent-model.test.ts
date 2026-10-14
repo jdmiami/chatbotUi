@@ -7,6 +7,7 @@ import {
   isSignInError,
   mergeItem,
   paragraphs,
+  parseBlocks,
   parseInline,
   parseMessage,
   statusLabel,
@@ -182,5 +183,37 @@ describe('titleFromText', () => {
     expect(titleFromText('  Explain\nthis   file ')).toBe('Explain this file');
     expect(titleFromText('x'.repeat(80))).toHaveLength(46);
     expect(titleFromText('   ')).toBe('New session');
+  });
+});
+
+describe('Markdown subset in replies', () => {
+  it('splits headings, lists, quotes, rules and paragraphs', () => {
+    const blocks = parseBlocks(
+      ['## Narrative Plan', 'Intro line', 'second line', '', '- **Premise**: one', '- two', '  continued', '', '1. first', '2) second', '> quoted', '---', 'End'].join('\n'),
+    );
+    expect(blocks).toEqual([
+      { kind: 'h', level: 2, text: 'Narrative Plan' },
+      { kind: 'p', text: 'Intro line\nsecond line' },
+      { kind: 'list', ordered: false, start: 1, items: ['**Premise**: one', 'two continued'] },
+      { kind: 'list', ordered: true, start: 1, items: ['first', 'second'] },
+      { kind: 'quote', text: 'quoted' },
+      { kind: 'hr' },
+      { kind: 'p', text: 'End' },
+    ]);
+  });
+
+  it('finds bold, italic, code and https links, but leaves snake_case and maths alone', () => {
+    expect(parseInline('**Bold** and *italic* and `x*y` and [docs](https://example.com/a)')).toEqual([
+      { kind: 'strong', text: 'Bold' },
+      { kind: 'text', text: ' and ' },
+      { kind: 'em', text: 'italic' },
+      { kind: 'text', text: ' and ' },
+      { kind: 'code', text: 'x*y' },
+      { kind: 'text', text: ' and ' },
+      { kind: 'link', text: 'docs', href: 'https://example.com/a' },
+    ]);
+    expect(parseInline('my_var_name and 2 * 3 * 4')).toEqual([{ kind: 'text', text: 'my_var_name and 2 * 3 * 4' }]);
+    // Only http(s) links are links: no javascript: or data: URLs.
+    expect(parseInline('[x](javascript:alert(1))').every((p) => p.kind === 'text')).toBe(true);
   });
 });

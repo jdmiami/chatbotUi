@@ -139,6 +139,21 @@ test('files: list, read, write, rename, delete', async () => {
   assert.equal((await api('/files/content?path=app/util.py')).status, 404);
 });
 
+test('files: a cheap fingerprint tells clients whether anything changed', async () => {
+  const fp = async () => (await (await api('/files?fingerprint=1')).json()).fingerprint;
+  const full = await (await api('/files')).json();
+  const first = await fp();
+  assert.match(first, /^[0-9a-f]{40}$/);
+  assert.equal(full.fingerprint, first, 'the full listing carries the same fingerprint');
+  assert.equal(await fp(), first, 'stable while nothing changes');
+  await fs.mkdir(path.join(files.root, 'build'), { recursive: true });
+  await fs.writeFile(path.join(files.root, 'build', 'notes.md'), 'hand-written\n');
+  assert.notEqual(await fp(), first, 'changes when a file is added');
+  const listed = await (await api('/files')).json();
+  assert.ok(listed.files.some((f) => f.path === 'build/notes.md'), 'build/ is listed');
+  await fs.rm(path.join(files.root, 'build'), { recursive: true });
+});
+
 test('files: a save based on an older version does not overwrite a newer one', async () => {
   const sha = (text) => crypto.createHash('sha256').update(text).digest('hex');
   await fs.writeFile(path.join(files.root, 'race.txt'), 'v1\n');

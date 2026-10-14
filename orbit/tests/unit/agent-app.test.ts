@@ -342,24 +342,39 @@ describe('AgentApp in demo mode (DemoRunner)', () => {
     expect(within(sheet).getByText('Live streaming of replies')).toBeTruthy();
   });
 
-  it('compose intent: drafts into the most recent session of the first project', async () => {
+  it('compose intent: drafts into the conversation that is open (e.g. Code + Chat side by side)', async () => {
     renderAgent();
     await screen.findAllByText('Simulated reply');
     fireEvent.click(sessionButton(/^Plan: add a \/health endpoint/));
     act(() => useWorkspace.getState().sendIntent({ app: 'agent', type: 'compose', text: 'Explain this selection' }));
     await waitFor(() => expect(composer().value).toBe('Explain this selection'));
-    expect(within(header()).getByRole('heading', { name: 'Explain the project layout' })).toBeTruthy();
+    expect(within(header()).getByRole('heading', { name: /Plan: add a \/health endpoint/ })).toBeTruthy();
     expect(useWorkspace.getState().intent).toBeNull();
     await waitFor(() => expect(document.activeElement).toBe(composer()));
   });
 
-  it('compose intent creates a session when the first project has none', async () => {
+  it('compose intent with nothing open: latest session of the file’s project', async () => {
+    renderAgent();
+    await screen.findAllByText('Simulated reply');
+    act(() =>
+      useWorkspace.getState().sendIntent({ app: 'agent', type: 'compose', text: 'About `src/app.py`: ', path: 'src/app.py' }),
+    );
+    await waitFor(() => expect(composer().value).toBe('About `src/app.py`: '));
+    expect(within(header()).getByRole('heading', { name: 'Explain the project layout' })).toBeTruthy();
+  });
+
+  it('compose intent never creates an empty session: it offers New session, pre-filled', async () => {
     for (const s of await runner.listSessions('orbit-demo')) await runner.deleteSession(s.id);
     renderAgent();
-    act(() => useWorkspace.getState().sendIntent({ app: 'agent', type: 'compose', text: 'Write a README' }));
-    await waitFor(() => expect(within(header()).getByRole('heading', { name: 'Write a README' })).toBeTruthy());
-    expect(composer().value).toBe('Write a README');
-    expect((await runner.listSessions('orbit-demo')).map((s) => s.title)).toEqual(['Write a README']);
+    act(() =>
+      useWorkspace.getState().sendIntent({ app: 'agent', type: 'compose', text: 'About `README.md`: ', path: 'README.md' }),
+    );
+    const sheet = await screen.findByRole('dialog', { name: 'New session' });
+    expect((within(sheet).getByRole('textbox', { name: /title/i }) as HTMLInputElement).value).toBe('README.md');
+    expect(await runner.listSessions('orbit-demo')).toEqual([]);
+    fireEvent.click(within(sheet).getByRole('button', { name: 'Create session' }));
+    await waitFor(() => expect(within(header()).getByRole('heading', { name: 'README.md' })).toBeTruthy());
+    expect(composer().value).toBe('About `README.md`: ');
   });
 
   it('open-session intent switches project and opens it; unknown ids are forgotten', async () => {

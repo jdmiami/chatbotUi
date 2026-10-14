@@ -608,7 +608,7 @@ export default function EditorApp({ placement, isActive, compact }: AppProps) {
   function askAgent(path: string) {
     const fromSheet = dialog !== null;
     setDialog(null);
-    useWorkspace.getState().sendIntent({ app: 'agent', type: 'compose', text: `About \`${path}\`: ` });
+    useWorkspace.getState().sendIntent({ app: 'agent', type: 'compose', text: `About \`${path}\`: `, path });
     // In Code + Chat split view this just focuses the chat pane; otherwise it switches to Antigravity.
     // A closing sheet hands focus back to the button that opened it (inside Code), which would make
     // Code the focused pane again, so switch only after that has happened.

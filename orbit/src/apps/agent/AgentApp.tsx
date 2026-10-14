@@ -50,7 +50,7 @@ interface SendError {
 
 type Dialog =
   | { kind: 'caps' }
-  | { kind: 'new' }
+  | { kind: 'new'; projectId?: string; title?: string }
   | { kind: 'info'; session: SessionSummary }
   | { kind: 'rename'; session: SessionSummary }
   | { kind: 'delete'; session: SessionSummary }
@@ -163,6 +163,10 @@ export default function AgentApp({ placement, compact }: AppProps) {
   const showChat = compact ? view === 'chat' && !!selected : true;
   /** The session whose conversation is on screen (watches follow only this one). */
   const openId = selected && showChat ? selected.id : null;
+  const openIdRef = useRef<string | null>(null);
+  openIdRef.current = openId;
+  /** Text waiting for the session the New session sheet is about to create (from "Ask Antigravity"). */
+  const pendingDraftRef = useRef<string | null>(null);
   const projectList = useMemo(() => (projects.status === 'ready' ? projects.data : []), [projects]);
   const projectsRef = useRef(projectList);
   projectsRef.current = projectList;
@@ -549,6 +553,9 @@ export default function AgentApp({ placement, compact }: AppProps) {
       setDialog(null);
       if (v.projectId !== projectIdRef.current) setProjectId(v.projectId);
       patchSession(s);
+      const pending = pendingDraftRef.current;
+      pendingDraftRef.current = null;
+      if (pending) setDrafts((d) => ({ ...d, [s.id]: pending }));
       openSession(s);
       setFocusSignal((n) => n + 1);
     },
@@ -625,26 +632,37 @@ export default function AgentApp({ placement, compact }: AppProps) {
           if (s.projectId !== projectIdRef.current) setProjectId(s.projectId);
           openSession(s);
         } else if (intent.type === 'compose') {
-          // Most recent session of the first project; start one if there is none.
-          const list = await runner.listProjects();
-          const first = list[0];
-          if (!first) throw new Error('No project found for Antigravity.');
-          const existing = (await runner.listSessions(first.id)).sort(byUpdated)[0];
-          const target =
-            existing ??
-            (runner.capabilities.newConversation.status === 'supported'
-              ? await runner.createSession(first.id, { title: titleFromText(intent.text) })
-              : null);
-          if (!target) throw new Error('New sessions aren’t available.');
+          const addDraft = (id: string) =>
+            setDrafts((d) => {
+              const cur = d[id]?.trim() ? d[id] : '';
+              return { ...d, [id]: cur ? `${cur}\n\n${intent.text}` : intent.text };
+            });
+          // 1. A conversation is open (e.g. Code + Chat side by side): ask there.
+          const open = openIdRef.current;
+          if (open) {
+            addDraft(open);
+            setFocusSignal((n) => n + 1);
+            return;
+          }
+          // 2. Otherwise the project folder the file is in (or the projects root), its latest session.
+          const list = (await runner.listProjects()).filter((p) => !p.missing);
+          const top = intent.path?.includes('/') ? intent.path.slice(0, intent.path.indexOf('/')) : null;
+          const project = list.find((p) => p.id === top) ?? list.find((p) => p.id === '.') ?? list[0];
+          if (!project) throw new Error('No project found for Antigravity.');
+          const existing = (await runner.listSessions(project.id)).sort(byUpdated)[0];
           if (!mounted.current) return;
-          if (first.id !== projectIdRef.current) setProjectId(first.id);
-          setDrafts((d) => {
-            const cur = d[target.id]?.trim() ? d[target.id] : '';
-            return { ...d, [target.id]: cur ? `${cur}\n\n${intent.text}` : intent.text };
-          });
-          if (!existing) patchSession(target);
-          openSession(target);
-          setFocusSignal((n) => n + 1);
+          if (project.id !== projectIdRef.current) setProjectId(project.id);
+          if (existing) {
+            addDraft(existing.id);
+            openSession(existing);
+            setFocusSignal((n) => n + 1);
+            return;
+          }
+          // 3. No session there yet: offer a new one (nothing is created until the owner confirms).
+          if (runner.capabilities.newConversation.status !== 'supported') throw new Error('New sessions aren’t available.');
+          pendingDraftRef.current = intent.text;
+          const name = intent.path ? intent.path.slice(intent.path.lastIndexOf('/') + 1) : titleFromText(intent.text);
+          setDialog({ kind: 'new', projectId: project.id, title: name });
         }
       } catch (err) {
         toast(errorMessage(err), 'error');
@@ -913,7 +931,8 @@ export default function AgentApp({ placement, compact }: AppProps) {
       {dialog?.kind === 'new' && (
         <NewSessionSheet
           projects={projectList}
-          initialProjectId={projectId}
+          initialProjectId={dialog.projectId ?? projectId}
+          initialTitle={dialog.title}
           caps={caps}
           models={models}
           modelsNote={modelsNote}

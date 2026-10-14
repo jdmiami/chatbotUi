@@ -44,6 +44,8 @@ export interface Project {
   name: string;
   /** Path on the host (Phase 2) or a demo label. */
   path: string;
+  /** The folder was renamed or deleted; its sessions are kept so they can be read or deleted. */
+  missing?: boolean;
 }
 
 export type SessionStatus = 'idle' | 'running' | 'stopped' | 'error';

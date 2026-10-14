@@ -218,6 +218,7 @@ export interface NewSessionValues {
 export function NewSessionSheet({
   projects,
   initialProjectId,
+  initialTitle,
   caps,
   models,
   modelsNote,
@@ -229,6 +230,7 @@ export function NewSessionSheet({
 }: {
   projects: Project[];
   initialProjectId: string | null;
+  initialTitle?: string;
   caps: RunnerCapabilities;
   models: ModelsState;
   modelsNote?: string;
@@ -240,7 +242,7 @@ export function NewSessionSheet({
 }) {
   const titleId = useId();
   const errId = useId();
-  const [title, setTitle] = useState('');
+  const [title, setTitle] = useState(initialTitle ?? '');
   const [projectId, setProjectId] = useState(initialProjectId ?? projects[0]?.id ?? '');
   const [mode, setMode] = useState<RunnerMode>('default');
   const [model, setModel] = useState('');

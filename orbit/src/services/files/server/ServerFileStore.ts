@@ -15,13 +15,14 @@ async function sha256Hex(text: string): Promise<string | null> {
 
 export class ServerFileStore implements FileStore {
   readonly kind = 'server' as const;
-  readonly label = 'Saved on your Linux machine';
+  readonly label = 'Saved on your Linux machine (.git, node_modules and Python virtualenv folders are not listed)';
   rootName = 'projects';
   /** The host lists at most 5000 files; true when this listing was cut off. */
   truncated = false;
 
   private listeners = new Set<() => void>();
   private snapshot = new Map<string, number>(); // path -> updatedAt
+  private fingerprint: string | null = null;
   private timer: ReturnType<typeof setInterval> | null = null;
 
   constructor(private readonly host: HostClient) {}
@@ -37,8 +38,11 @@ export class ServerFileStore implements FileStore {
 
   async list(): Promise<FileEntry[]> {
     try {
-      const body = await this.host.json<{ root: string; files: FileEntry[]; truncated?: boolean }>('/files');
+      const body = await this.host.json<{ root: string; files: FileEntry[]; truncated?: boolean; fingerprint?: string }>(
+        '/files',
+      );
       this.rootName = body.root;
+      this.fingerprint = body.fingerprint ?? null;
       this.truncated = Boolean(body.truncated);
       this.remember(body.files);
       return body.files;
@@ -123,7 +127,11 @@ export class ServerFileStore implements FileStore {
   private async poll() {
     if (typeof document !== 'undefined' && document.visibilityState !== 'visible') return;
     try {
-      const body = await this.host.json<{ files: FileEntry[] }>('/files');
+      // Cheap check first (about 100 bytes); download the listing only when something changed.
+      const { fingerprint } = await this.host.json<{ fingerprint?: string }>('/files?fingerprint=1');
+      if (fingerprint && fingerprint === this.fingerprint) return;
+      const body = await this.host.json<{ files: FileEntry[]; fingerprint?: string }>('/files');
+      this.fingerprint = body.fingerprint ?? null;
       const changed =
         body.files.length !== this.snapshot.size || body.files.some((f) => this.snapshot.get(f.path) !== f.updatedAt);
       this.remember(body.files);

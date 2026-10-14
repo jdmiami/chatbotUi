@@ -14,7 +14,17 @@ import type {
 /* ------------------------------------------------------------------ message formatting */
 
 export type Segment = { kind: 'text'; text: string } | { kind: 'code'; lang: string; code: string };
-export type InlinePart = { kind: 'text' | 'code'; text: string };
+export type InlinePart =
+  | { kind: 'text' | 'code' | 'strong' | 'em'; text: string }
+  | { kind: 'link'; text: string; href: string };
+
+/** Prose blocks: the Markdown that agy replies use most. Rendered as React elements, never as HTML. */
+export type Block =
+  | { kind: 'p'; text: string }
+  | { kind: 'h'; level: number; text: string }
+  | { kind: 'list'; ordered: boolean; start: number; items: string[] }
+  | { kind: 'quote'; text: string }
+  | { kind: 'hr' };
 
 const FENCE_OPEN = /^ {0,3}(`{3,}|~{3,})\s*([^\s`]*)[^`]*$/;
 
@@ -54,18 +64,109 @@ export function paragraphs(text: string): string[] {
   return text.split(/\n[ \t]*\n+/).map((p) => p.replace(/^\n+|\n+$/g, '')).filter((p) => p.trim() !== '');
 }
 
-/** `inline code` spans within a paragraph. */
+const HEADING = /^ {0,3}(#{1,6})\s+(.*?)\s*#*\s*$/;
+const RULE = /^ {0,3}([-*_])(?:\s*\1){2,}\s*$/;
+const ITEM = /^( {0,6})([-*+]|(\d{1,9})[.)])\s+(.*)$/;
+const QUOTE = /^ {0,3}>\s?(.*)$/;
+
+/** Split prose into paragraphs, headings, lists, quotes and rules (a small, safe Markdown subset). */
+export function parseBlocks(text: string): Block[] {
+  const out: Block[] = [];
+  let para: string[] = [];
+  let quote: string[] = [];
+  let list: Extract<Block, { kind: 'list' }> | null = null;
+  const flushPara = () => {
+    const t = para.join('\n').trim();
+    if (t) out.push({ kind: 'p', text: t });
+    para = [];
+  };
+  const flushQuote = () => {
+    const t = quote.join('\n').trim();
+    if (t) out.push({ kind: 'quote', text: t });
+    quote = [];
+  };
+  const flushList = () => {
+    if (list) out.push(list);
+    list = null;
+  };
+  const flushAll = () => {
+    flushPara();
+    flushQuote();
+    flushList();
+  };
+  for (const line of text.replace(/\r\n?/g, '\n').split('\n')) {
+    if (!line.trim()) {
+      flushPara();
+      flushQuote();
+      continue; // a blank line inside a list keeps the list going
+    }
+    let m: RegExpExecArray | null;
+    if ((m = HEADING.exec(line))) {
+      flushAll();
+      out.push({ kind: 'h', level: m[1].length, text: m[2] });
+    } else if (RULE.test(line)) {
+      flushAll();
+      out.push({ kind: 'hr' });
+    } else if ((m = ITEM.exec(line))) {
+      flushPara();
+      flushQuote();
+      const ordered = m[3] !== undefined;
+      if (!list || list.ordered !== ordered) {
+        flushList();
+        list = { kind: 'list', ordered, start: ordered ? Number(m[3]) : 1, items: [] };
+      }
+      list.items.push(m[4]);
+    } else if ((m = QUOTE.exec(line))) {
+      flushPara();
+      flushList();
+      quote.push(m[1]);
+    } else if (list && /^\s{2,}\S/.test(line)) {
+      // Indented continuation of the last list item.
+      list.items[list.items.length - 1] += ` ${line.trim()}`;
+    } else {
+      flushQuote();
+      flushList();
+      para.push(line);
+    }
+  }
+  flushAll();
+  return out;
+}
+
+// **bold**, __bold__, [text](https://…), *italic*, _italic_ (not inside words such as snake_case).
+const EMPHASIS =
+  /\*\*(?!\s)([^*\n]+?)\*\*|__(?!\s)([^_\n]+?)__|\[([^\]\n]+)\]\((https?:\/\/[^\s)]+)\)|(^|[^\w*])\*(?![\s*])([^*\n]+?)\*(?![\w*])|(^|[^\w_])_(?![\s_])([^_\n]+?)_(?![\w_])/g;
+
+function parseEmphasis(text: string): InlinePart[] {
+  const out: InlinePart[] = [];
+  let last = 0;
+  let m: RegExpExecArray | null;
+  EMPHASIS.lastIndex = 0;
+  while ((m = EMPHASIS.exec(text))) {
+    const prefix = m[5] ?? m[7] ?? '';
+    const start = m.index + prefix.length;
+    if (start > last) out.push({ kind: 'text', text: text.slice(last, start) });
+    if (m[1] !== undefined || m[2] !== undefined) out.push({ kind: 'strong', text: (m[1] ?? m[2])! });
+    else if (m[3] !== undefined) out.push({ kind: 'link', text: m[3], href: m[4] });
+    else out.push({ kind: 'em', text: (m[6] ?? m[8])! });
+    last = m.index + m[0].length;
+  }
+  if (last < text.length) out.push({ kind: 'text', text: text.slice(last) });
+  return out;
+}
+
+/** `inline code` spans, **bold**, *italic* and https links within a paragraph. */
 export function parseInline(text: string): InlinePart[] {
   const parts: InlinePart[] = [];
   const re = /`([^`\n]+)`/g;
   let last = 0;
   let m: RegExpExecArray | null;
   while ((m = re.exec(text))) {
-    if (m.index > last) parts.push({ kind: 'text', text: text.slice(last, m.index) });
+    if (m.index > last) parts.push(...parseEmphasis(text.slice(last, m.index)));
     parts.push({ kind: 'code', text: m[1] });
     last = m.index + m[0].length;
   }
-  if (last < text.length) parts.push({ kind: 'text', text: text.slice(last) });
+  if (last < text.length) parts.push(...parseEmphasis(text.slice(last)));
   return parts;
 }
 

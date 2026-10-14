@@ -1,6 +1,7 @@
 // HTTP API for Orbit (mounted at /orbit/api on the gateway). Every route requires a valid
 // Orbit token (Authorization: Bearer ...). Responses are JSON; a turn's progress is streamed
 // as Server-Sent Events.
+import crypto from 'node:crypto';
 import os from 'node:os';
 import { applyCors, bearer, verifyOrbitToken } from './auth.js';
 import { HttpError } from './files.js';
@@ -35,7 +36,14 @@ export function createOrbitApi({ secret, allowedOrigins, files, agent, log }) {
       // ---- files
       if (route === '/files' && req.method === 'GET') {
         const { files: list, truncated } = await files.list();
-        return json(res, 200, { root: rootName(files.root), files: list, truncated });
+        // A short fingerprint of the listing lets Code check for changes without downloading it all.
+        const fingerprint = crypto
+          .createHash('sha1')
+          .update(list.map((f) => `${f.path}\0${f.size}\0${f.updatedAt}`).join('\n'))
+          .update(String(truncated))
+          .digest('hex');
+        if (url.searchParams.get('fingerprint') === '1') return json(res, 200, { fingerprint });
+        return json(res, 200, { root: rootName(files.root), files: list, truncated, fingerprint });
       }
       if (route === '/files/content') {
         const p = url.searchParams.get('path');

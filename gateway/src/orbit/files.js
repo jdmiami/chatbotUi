@@ -5,7 +5,9 @@ import crypto from 'node:crypto';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 
-const SKIP_DIRS = new Set(['.git', 'node_modules', '.cache', '__pycache__', '.venv', 'venv', 'dist', 'build', '.next']);
+// Only version-control and dependency folders are left out (they can hold tens of thousands of files).
+// Build output such as dist/ or build/ is listed: people do keep hand-written files there.
+export const SKIP_DIRS = new Set(['.git', 'node_modules', '__pycache__', '.venv', 'venv']);
 const MAX_FILES = 5000;
 const MAX_READ_BYTES = 2 * 1024 * 1024;
 

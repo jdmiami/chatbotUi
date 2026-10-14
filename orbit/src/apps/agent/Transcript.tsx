@@ -2,25 +2,77 @@ import { memo, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, typ
 import type { TranscriptItem } from '../../services/runner/types';
 import { Icon } from '../../ui/Icon';
 import { relativeTime } from '../../ui/format';
-import { isSignInError, paragraphs, parseInline, parseMessage } from './model';
+import { isSignInError, parseBlocks, parseInline, parseMessage, type Block } from './model';
 
 type CopyFn = (text: string, what: string) => void;
 
-/** Inline text with `code` spans. */
+/** Inline text: `code`, **bold**, *italic* and https links. Built from elements, never from HTML. */
 export function InlineText({ text }: { text: string }) {
   return (
     <>
-      {parseInline(text).map((part, i) =>
-        part.kind === 'code' ? (
-          <code key={i} className="ag-inline-code">
-            {part.text}
-          </code>
-        ) : (
-          <span key={i}>{part.text}</span>
-        ),
-      )}
+      {parseInline(text).map((part, i) => {
+        switch (part.kind) {
+          case 'code':
+            return (
+              <code key={i} className="ag-inline-code">
+                {part.text}
+              </code>
+            );
+          case 'strong':
+            return <strong key={i}>{part.text}</strong>;
+          case 'em':
+            return <em key={i}>{part.text}</em>;
+          case 'link':
+            return (
+              <a key={i} className="ag-link" href={part.href} target="_blank" rel="noopener noreferrer nofollow" title={part.href}>
+                {part.text}
+              </a>
+            );
+          default:
+            return <span key={i}>{part.text}</span>;
+        }
+      })}
     </>
   );
+}
+
+function ProseBlock({ block }: { block: Block }) {
+  switch (block.kind) {
+    case 'h':
+      return (
+        <p className={`ag-h ag-h${Math.min(block.level, 3)}`}>
+          <InlineText text={block.text} />
+        </p>
+      );
+    case 'list': {
+      const items = block.items.map((item, i) => (
+        <li key={i}>
+          <InlineText text={item} />
+        </li>
+      ));
+      return block.ordered ? (
+        <ol className="ag-list" start={block.start}>
+          {items}
+        </ol>
+      ) : (
+        <ul className="ag-list">{items}</ul>
+      );
+    }
+    case 'quote':
+      return (
+        <blockquote className="ag-quote">
+          <InlineText text={block.text} />
+        </blockquote>
+      );
+    case 'hr':
+      return <hr className="ag-hr" />;
+    default:
+      return (
+        <p className="ag-p">
+          <InlineText text={block.text} />
+        </p>
+      );
+  }
 }
 
 function CodeBlock({ lang, code, onCopy }: { lang: string; code: string; onCopy: CopyFn }) {
@@ -42,7 +94,7 @@ function CodeBlock({ lang, code, onCopy }: { lang: string; code: string; onCopy:
   );
 }
 
-/** A message body: prose paragraphs (with inline code) and fenced code blocks. No markdown library. */
+/** A message body: fenced code blocks plus a safe Markdown subset for prose. No markdown library. */
 export function MessageBody({ text, onCopy }: { text: string; onCopy: CopyFn }) {
   const segments = useMemo(() => parseMessage(text), [text]);
   return (
@@ -51,11 +103,7 @@ export function MessageBody({ text, onCopy }: { text: string; onCopy: CopyFn }) 
         seg.kind === 'code' ? (
           <CodeBlock key={i} lang={seg.lang} code={seg.code} onCopy={onCopy} />
         ) : (
-          paragraphs(seg.text).map((p, j) => (
-            <p key={`${i}-${j}`} className="ag-p">
-              <InlineText text={p} />
-            </p>
-          ))
+          parseBlocks(seg.text).map((block, j) => <ProseBlock key={`${i}-${j}`} block={block} />)
         ),
       )}
     </div>
