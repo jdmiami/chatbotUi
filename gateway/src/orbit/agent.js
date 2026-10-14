@@ -17,9 +17,12 @@ const MODES = new Set(['default', 'plan', 'accept-edits']);
 const now = () => Date.now();
 const id = (p) => `${p}_${crypto.randomBytes(8).toString('hex')}`;
 
-// What agy prints when it has no saved sign-in (verified against agy 1.3.4): `agy models` exits 1 with
-// "Please sign in to view available models", and `agy --print` prints a Google sign-in link and waits.
-const SIGNED_OUT = /Authentication required|Please sign in/i;
+// What agy prints when it has no saved sign-in (verified against agy 1.3.4/1.3.5): `agy models` exits 1 with
+// "Please sign in to view available models", and `agy --print` prints "Authentication required. Please visit
+// the URL to log in:" plus a Google sign-in link and waits. Match those exact prompts only: a real reply can
+// mention signing in.
+const SIGNED_OUT_MODELS = /Please sign in to view available models/i;
+const SIGNED_OUT_PRINT = /Authentication required\.\s*Please visit the URL to log in/i;
 export const SIGN_IN_HINT =
   'Antigravity is not signed in on your Linux machine yet. Open Terminal, run `agy`, and follow the sign-in link once. Then try again.';
 
@@ -93,12 +96,32 @@ export class AgentService {
         projects.push({ id: e.name, name: e.name, path: path.join(this.projectsDir, e.name) });
       }
     }
+    // Sessions whose folder was renamed or deleted stay reachable, so they can be read or deleted.
+    const known = new Set(projects.map((p) => p.id));
+    for (const sess of Object.values(this.data.sessions)) {
+      if (!known.has(sess.projectId)) {
+        known.add(sess.projectId);
+        projects.push({
+          id: sess.projectId,
+          name: `${sess.projectId} (folder missing)`,
+          path: path.join(this.projectsDir, sess.projectId),
+          missing: true,
+        });
+      }
+    }
     return projects;
   }
 
   async projectPath(projectId) {
     const p = (await this.listProjects()).find((x) => x.id === projectId);
     if (!p) throw new HttpError(404, 'Unknown project.', 'not-found');
+    if (p.missing) {
+      throw new HttpError(
+        409,
+        `The folder "${projectId}" is no longer in your projects folder (renamed or deleted). Recreate it, or start a new session in another project.`,
+        'project-missing',
+      );
+    }
     return p.path;
   }
 
@@ -165,6 +188,8 @@ export class AgentService {
   }
 
   push(sessionId, item) {
+    // A session deleted while its turn was running stays deleted (no orphan transcript).
+    if (!this.data.sessions[sessionId]) return item;
     (this.data.transcripts[sessionId] ??= []).push(item);
     return item;
   }
@@ -180,7 +205,9 @@ export class AgentService {
         .map(([mid, label]) => ({ id: mid.trim(), label: label.trim() }));
     } catch (err) {
       const output = `${err.stdout ?? ''}\n${err.stderr ?? ''}`;
-      if (SIGNED_OUT.test(output)) throw new HttpError(424, SIGN_IN_HINT, 'agy-signed-out');
+      if (SIGNED_OUT_MODELS.test(output) || SIGNED_OUT_PRINT.test(output)) {
+        throw new HttpError(424, SIGN_IN_HINT, 'agy-signed-out');
+      }
       // 424, not 502: Runpod's proxy replaces 502 responses with its own "waiting for service" page.
       throw new HttpError(424, `Could not list models: ${firstLine(err.stderr || err.message)}`, 'agy');
     }
@@ -237,7 +264,10 @@ export class AgentService {
     let stderr = '';
     // Without a saved sign-in, agy prints a sign-in link and waits; nobody can answer it here, so end the turn.
     const checkSignIn = () => {
-      if (!job.signedOut && SIGNED_OUT.test(stdout.slice(0, 4000) + stderr)) {
+      // With --output-format json a working agy prints only the JSON result, so a reply is never inspected.
+      const head = stdout.trimStart();
+      const prompt = `${head.startsWith('{') ? '' : head.slice(0, 4000)}\n${stderr}`;
+      if (!job.signedOut && SIGNED_OUT_PRINT.test(prompt)) {
         job.signedOut = true;
         killGroup(child, 'SIGTERM');
       }
@@ -251,9 +281,16 @@ export class AgentService {
       checkSignIn();
     });
 
+    const startedAt = now();
     const finish = async (result) => {
       this.running.delete(sessionId);
       activity.status = result.ok ? 'done' : 'failed';
+      const secs = Math.max(1, Math.round((now() - startedAt) / 1000));
+      activity.title = result.ok
+        ? `Antigravity worked for ${secs} s`
+        : result.status === 'stopped'
+          ? 'Stopped'
+          : 'Antigravity did not finish';
       broadcast('update', { ...activity });
       const items = result.items ?? (result.item ? [result.item] : []);
       for (const item of items) broadcast('item', this.push(sessionId, item));
@@ -261,6 +298,11 @@ export class AgentService {
       s.updatedAt = now();
       if (result.conversationId) s.conversationId = result.conversationId;
       if (items.some((i) => i.kind === 'assistant')) s.messageCount += 1;
+      if (!this.data.sessions[sessionId]) {
+        // Deleted during the turn: tell any watchers it ended, but store nothing.
+        broadcast('done', { ...s });
+        return;
+      }
       await this.save();
       broadcast('done', { ...s });
     };

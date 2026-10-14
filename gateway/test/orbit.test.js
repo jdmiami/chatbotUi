@@ -35,6 +35,7 @@ if [ -e "$(dirname "$0")/signed-out" ]; then
 fi
 case "$prompt" in *slow*) sleep 30 ;; esac
 case "$prompt" in *denied*) printf '{"conversation_id":"conv-d","status":"SUCCESS","response":"","denied_actions":[{"action":"command","display_name":"RunCommand"},{"action":"command","display_name":"RunCommand"}]}\n'; exit 0 ;; esac
+case "$prompt" in *signin-talk*) printf '{"conversation_id":"conv-t","status":"SUCCESS","response":"To use the API, Please sign in first. Authentication required. Please visit the URL to log in: https://example.com"}\n'; exit 0 ;; esac
 case "$prompt" in *silent*) printf '{"conversation_id":"conv-s","status":"SUCCESS","response":""}\n'; exit 0 ;; esac
 case "$prompt" in *fail*) echo "boom: not signed in" >&2; exit 1 ;; esac
 id="\${conv:-conv-123}"
@@ -229,6 +230,48 @@ test('agent: skipped tools are explained instead of a blank reply', async () => 
   assert.match(silent.find((e) => e.data.kind === 'notice').data.text, /finished without a reply/);
 });
 
+test('agent: a reply that talks about signing in is delivered, not mistaken for a signed-out agy', async () => {
+  const s = await (await api('/agent/sessions', { method: 'POST', body: JSON.stringify({}) })).json();
+  const events = await sse(`/agent/sessions/${s.id}/send`, { text: 'how do I log in? (signin-talk)' });
+  const reply = events.find((e) => e.data.kind === 'assistant');
+  assert.ok(reply, 'the reply is shown');
+  assert.match(reply.data.text, /Please sign in first/);
+  assert.equal(events.at(-1).data.status, 'idle');
+  assert.equal(events.at(-1).data.conversationId, 'conv-t');
+});
+
+test('agent: finished turns say so; a session deleted mid-turn leaves nothing behind', async () => {
+  const s = await (await api('/agent/sessions', { method: 'POST', body: JSON.stringify({}) })).json();
+  const done = await sse(`/agent/sessions/${s.id}/send`, { text: 'hello' });
+  const finished = done.filter((e) => e.event === 'update').at(-1);
+  assert.match(finished.data.title, /^Antigravity worked for \d+ s$/);
+
+  const pending = sse(`/agent/sessions/${s.id}/send`, { text: 'be slow' });
+  await new Promise((r) => setTimeout(r, 400));
+  assert.equal((await api(`/agent/sessions/${s.id}`, { method: 'DELETE' })).status, 200);
+  const events = await pending;
+  assert.equal(events.at(-1).event, 'done', 'watchers are told the turn ended');
+  await new Promise((r) => setTimeout(r, 100));
+  const stored = JSON.parse(await fs.readFile(agent.dataFile, 'utf8'));
+  assert.equal(stored.sessions[s.id], undefined);
+  assert.equal(stored.transcripts[s.id], undefined, 'no orphan transcript');
+});
+
+test('agent: sessions of a renamed or deleted folder stay reachable, with a clear error on send', async () => {
+  const dir = path.join(files.root, 'gone');
+  await fs.mkdir(dir, { recursive: true });
+  const s = await (await api('/agent/sessions', { method: 'POST', body: JSON.stringify({ projectId: 'gone' }) })).json();
+  await fs.rm(dir, { recursive: true });
+  const projects = await (await api('/agent/projects')).json();
+  const gone = projects.find((p) => p.id === 'gone');
+  assert.ok(gone && gone.missing, 'listed as missing');
+  assert.match(gone.name, /folder missing/);
+  const events = await sse(`/agent/sessions/${s.id}/send`, { text: 'hi' });
+  assert.equal(events[0].event, 'error');
+  assert.match(events[0].data.message, /no longer in your projects folder/);
+  assert.equal((await api(`/agent/sessions/${s.id}`, { method: 'DELETE' })).status, 200);
+});
+
 test('agent: sessions persist across a service restart', async () => {
   const again = new AgentService({ dataFile: agent.dataFile, projectsDir: agent.projectsDir, agyPath: agent.agy });
   await again.init();
@@ -274,5 +317,7 @@ test('terminal: auth required, real shell, survives reconnect via tmux', async (
   await until(() => b.out.some((m) => m.type === 'ready'));
   b.ws.send(JSON.stringify({ type: 'input', data: 'echo "again-$ORBIT_MARK"\n' }));
   await until(() => b.text().includes('again-kept-42'));
+  // Orbit's tmux config keeps tmux out of the alternate screen, so the browser terminal keeps scrollback.
+  assert.ok(!b.text().includes('\x1b[?1049h'), 'tmux must not switch to the alternate screen');
   b.ws.close();
 });

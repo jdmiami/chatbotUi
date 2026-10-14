@@ -6,10 +6,36 @@
 //   client -> server: {type:'auth', token} first, then {type:'input', data} | {type:'resize', cols, rows}
 //   server -> client: {type:'ready', session, persistent} | {type:'output', data} | {type:'exit', code} | {type:'error', message}
 import { execFile } from 'node:child_process';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import { promisify } from 'node:util';
 import { verifyOrbitToken } from './auth.js';
 
 const run = promisify(execFile);
+
+// Orbit's terminals run in their own tmux server (socket "orbit") with this config:
+// - no alternate screen, so the browser terminal (xterm.js) keeps the scrollback and touch/wheel
+//   scrolling works (in the alternate screen xterm.js turns a wheel into arrow keys = old commands);
+// - no status bar (Orbit's header already names the session; a phone has few rows to spare);
+// - the most recently used device decides the window size.
+const TMUX_SOCKET = 'orbit';
+const TMUX_CONF = `set -ga terminal-overrides ',xterm*:smcup@:rmcup@'
+set -g history-limit 10000
+set -g status off
+set -g window-size latest
+setw -g aggressive-resize on
+set -g escape-time 10
+`;
+let tmuxConfPath = null;
+function tmuxConf() {
+  if (!tmuxConfPath) {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'orbit-tmux-'));
+    tmuxConfPath = path.join(dir, 'tmux.conf');
+    fs.writeFileSync(tmuxConfPath, TMUX_CONF, { mode: 0o600 });
+  }
+  return tmuxConfPath;
+}
 
 let ptyModule;
 async function loadPty() {
@@ -90,7 +116,7 @@ export function handlePtySocket(ws, url, { secret, cwd, log }) {
     const rows = clamp(url.searchParams.get('rows'), 4, 200, 24);
     const persistent = await hasTmux();
     const [file, args] = persistent
-      ? ['tmux', ['new-session', '-A', '-s', `orbit-${session}`, '-c', cwd]]
+      ? ['tmux', ['-L', TMUX_SOCKET, '-f', tmuxConf(), 'new-session', '-A', '-s', `orbit-${session}`, '-c', cwd]]
       : [process.env.SHELL || '/bin/bash', ['-l']];
     const env = { ...process.env, TERM: 'xterm-256color', COLORTERM: 'truecolor', LANG: process.env.LANG || 'C.UTF-8' };
     // Never leak the gateway's own secrets into the user's shell.
@@ -111,7 +137,7 @@ export function handlePtySocket(ws, url, { secret, cwd, log }) {
 export async function killTerminalSession(session) {
   if (!SESSION_RE.test(session)) return;
   try {
-    await run('tmux', ['kill-session', '-t', `orbit-${session}`]);
+    await run('tmux', ['-L', TMUX_SOCKET, 'kill-session', '-t', `orbit-${session}`]);
   } catch {
     /* not running */
   }
