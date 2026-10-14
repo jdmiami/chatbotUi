@@ -10,6 +10,8 @@ export class ServerFileStore implements FileStore {
   readonly kind = 'server' as const;
   readonly label = 'Saved on your Linux machine';
   rootName = 'projects';
+  /** The host lists at most 5000 files; true when this listing was cut off. */
+  truncated = false;
 
   private listeners = new Set<() => void>();
   private snapshot = new Map<string, number>(); // path -> updatedAt
@@ -34,8 +36,9 @@ export class ServerFileStore implements FileStore {
 
   async list(): Promise<FileEntry[]> {
     try {
-      const body = await this.host.json<{ root: string; files: FileEntry[] }>('/files');
+      const body = await this.host.json<{ root: string; files: FileEntry[]; truncated?: boolean }>('/files');
       this.rootName = body.root;
+      this.truncated = Boolean(body.truncated);
       this.remember(body.files);
       return body.files;
     } catch (err) {
@@ -78,6 +81,10 @@ export class ServerFileStore implements FileStore {
     } catch (err) {
       return this.toStoreError(err);
     }
+    // Keep the poll snapshot current so the next poll doesn't report this change a second time.
+    const at = this.snapshot.get(normalizePath(from)) ?? Date.now();
+    this.snapshot.delete(normalizePath(from));
+    this.snapshot.set(normalizePath(to), at);
     this.emit();
   }
 
@@ -87,6 +94,7 @@ export class ServerFileStore implements FileStore {
     } catch (err) {
       return this.toStoreError(err);
     }
+    this.snapshot.delete(normalizePath(path));
     this.emit();
   }
 

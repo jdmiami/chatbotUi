@@ -782,7 +782,8 @@ button.row:hover {
 .toasts {
   position: absolute;
   left: 50%;
-  top: calc(var(--safe-top) + 12px);
+  /* below the 52px app header, so toasts never cover header buttons */
+  top: calc(var(--safe-top) + 60px);
   transform: translateX(-50%);
   z-index: 90;
   display: flex;

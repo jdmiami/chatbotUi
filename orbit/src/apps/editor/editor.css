@@ -631,3 +631,10 @@
   font-size: var(--fs-sm);
   overflow-wrap: anywhere;
 }
+
+/* Visible focus inside scrolling strips: the global outer ring would be clipped by overflow. */
+.ed-tabs :focus-visible,
+.ed-tree :focus-visible,
+.ed-toolbar :focus-visible {
+  box-shadow: inset 0 0 0 2px var(--accent);
+}

@@ -349,10 +349,15 @@ export default function TerminalApp({ placement, isActive, compact }: AppProps) 
         await p.endSession();
       } catch (err) {
         setRestarting(false);
-        setConn({ status: 'error', detail: `Couldn't restart the shell: ${messageOf(err)}` });
+        setConn({
+          status: 'error',
+          detail: `Couldn't end the old shell (${messageOf(err)}). It may still be running; Re-attach keeps using it.`,
+        });
         return;
       }
     }
+    // The old shell is gone: from here on a failure is a plain connection problem.
+    setRetryKind('connect');
     termRef.current?.reset();
     setCwd(null);
     setRestarting(false);
@@ -443,7 +448,17 @@ export default function TerminalApp({ placement, isActive, compact }: AppProps) 
       <HostChip status={restarting ? 'connecting' : status} />
     );
 
-  const subtitle = pty && !persistent ? 'Linux machine · the shell ends when you disconnect' : backend.label;
+  // Phones: the chip already says "Linux machine", so keep the subtitle short enough to fit.
+  const subtitle = pty
+    ? persistent
+      ? compact
+        ? `Runs in tmux session “${pty.session}”`
+        : backend.label
+      : compact
+        ? 'Shell ends when you disconnect'
+        : 'Linux machine · the shell ends when you disconnect'
+    : backend.label;
+  const shellEnded = !pty || /ended/i.test(conn.detail ?? '');
 
   return (
     <div className="term-root" data-placement={placement} data-compact={compact}>
@@ -521,15 +536,15 @@ export default function TerminalApp({ placement, isActive, compact }: AppProps) 
                 <Icon name="wifiOff" size={22} />
               </div>
               <div className="term-panel-main">
-                <h2 className="term-panel-title">Session ended</h2>
+                <h2 className="term-panel-title">{shellEnded ? 'Session ended' : 'Disconnected'}</h2>
                 <p className="term-panel-text">
-                  {pty
-                    ? `${conn.detail ? conn.detail + ' ' : ''}${
-                        persistent
-                          ? 'Your tmux session may still be running; Reconnect re-attaches to it (or starts a new shell if it ended).'
-                          : 'Reconnect starts a new shell on your Linux machine.'
-                      }`
-                    : 'The simulated shell exited. Reconnect starts a fresh one; files you saved are kept.'}
+                  {!pty
+                    ? 'The simulated shell exited. Reconnect starts a fresh one; files you saved are kept.'
+                    : shellEnded
+                      ? `The shell on your Linux machine ended (for example after “exit”). Reconnect starts a new one${persistent ? ` in tmux session “${pty.session}”` : ''}.`
+                      : persistent
+                        ? 'Your tmux session may still be running; Reconnect re-attaches to it (or starts a new shell if it ended).'
+                        : 'Reconnect starts a new shell on your Linux machine.'}
                 </p>
               </div>
               <button type="button" className="btn primary term-panel-btn" onClick={() => void reconnect()}>
@@ -545,7 +560,9 @@ export default function TerminalApp({ placement, isActive, compact }: AppProps) 
                 <Icon name="alert" size={22} />
               </div>
               <div className="term-panel-main">
-                <h2 className="term-panel-title">{pty ? "Can't reach the shell" : 'Terminal problem'}</h2>
+                <h2 className="term-panel-title">
+                  {retryKind === 'restart' ? "Couldn't restart the shell" : pty ? "Can't reach the shell" : 'Terminal problem'}
+                </h2>
                 <p className="term-panel-text">{conn.detail || 'Something went wrong with the terminal connection.'}</p>
               </div>
               <div className="term-panel-actions">
@@ -556,6 +573,11 @@ export default function TerminalApp({ placement, isActive, compact }: AppProps) 
                 {retryKind === 'restart' && (
                   <button type="button" className="btn ghost term-panel-btn" onClick={() => void reconnect()}>
                     Re-attach instead
+                  </button>
+                )}
+                {pty && retryKind === 'connect' && /reload/i.test(conn.detail ?? '') && (
+                  <button type="button" className="btn ghost term-panel-btn" onClick={() => window.location.reload()}>
+                    Reload Orbit
                   </button>
                 )}
               </div>

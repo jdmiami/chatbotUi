@@ -182,6 +182,33 @@ describe('LocalFileStore', () => {
     expect(listener).toHaveBeenCalledTimes(3);
   });
 
+  it('notifies every subscriber (editor and terminal) independently', async () => {
+    const store = new LocalFileStore(new MemoryStorage());
+    const editor = vi.fn();
+    const terminal = vi.fn();
+    const stopEditor = store.subscribe(editor);
+    store.subscribe(terminal);
+    await store.write('shared.txt', 'a');
+    expect(editor).toHaveBeenCalledTimes(1);
+    expect(terminal).toHaveBeenCalledTimes(1);
+    stopEditor();
+    await store.write('shared.txt', 'b');
+    expect(editor).toHaveBeenCalledTimes(1);
+    expect(terminal).toHaveBeenCalledTimes(2);
+  });
+
+  it('bumps updatedAt on write and rename (the editor uses it to spot external changes)', async () => {
+    const store = new LocalFileStore(new MemoryStorage());
+    const t0 = Date.now();
+    await store.write('stamp.txt', 'x');
+    const first = (await store.list()).find((e) => e.path === 'stamp.txt')!;
+    expect(first.updatedAt).toBeGreaterThanOrEqual(t0);
+    await store.rename('stamp.txt', 'stamp2.txt');
+    const renamed = (await store.list()).find((e) => e.path === 'stamp2.txt')!;
+    expect(renamed.updatedAt).toBeGreaterThanOrEqual(first.updatedAt);
+    expect(await store.read('stamp2.txt')).toBe('x');
+  });
+
   it('reloads and notifies when another browser tab changes the same key', async () => {
     const storage = new MemoryStorage();
     const store = new LocalFileStore(storage);

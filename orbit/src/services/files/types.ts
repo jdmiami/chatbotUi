@@ -33,6 +33,8 @@ export interface FileStore {
   readonly label: string;
   /** Display name of the project root, e.g. "orbit-demo". */
   readonly rootName: string;
+  /** True when the last list() hit the server's file limit, so some files are not shown. */
+  readonly truncated?: boolean;
 
   list(): Promise<FileEntry[]>;
   read(path: string): Promise<string>;
