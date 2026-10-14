@@ -5,7 +5,7 @@ import crypto from 'node:crypto';
 import os from 'node:os';
 import { applyCors, bearer, verifyOrbitToken } from './auth.js';
 import { HttpError } from './files.js';
-import { killTerminalSession, hasTmux } from './pty.js';
+import { killTerminalSession, hasTmux, terminalHistory } from './pty.js';
 import { AGY_CAPABILITIES } from './agent.js';
 
 const MAX_BODY = 5 * 1024 * 1024;
@@ -63,6 +63,11 @@ export function createOrbitApi({ secret, allowedOrigins, files, agent, log }) {
       }
 
       // ---- terminal
+      if ((match = m(/^\/terminal\/sessions\/([\w-]{1,32})\/history$/)) && req.method === 'GET') {
+        const text = await terminalHistory(match[1]);
+        if (text === null) throw new HttpError(404, 'That terminal session is not running.', 'not-found');
+        return json(res, 200, { text });
+      }
       if ((match = m(/^\/terminal\/sessions\/([\w-]{1,32})$/)) && req.method === 'DELETE') {
         await killTerminalSession(match[1]);
         return json(res, 200, { ok: true });

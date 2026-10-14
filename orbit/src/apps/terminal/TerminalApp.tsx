@@ -1,6 +1,7 @@
 import {
   useCallback,
   useEffect,
+  useLayoutEffect,
   useRef,
   useState,
   type MouseEvent as ReactMouseEvent,
@@ -138,7 +139,10 @@ export default function TerminalApp({ placement, isActive, compact }: AppProps) 
   const [conn, setConn] = useState<Conn>({ status: 'connecting' });
   const [ctrlArmed, setCtrlArmed] = useState(false);
   const [kbFocused, setKbFocused] = useState(false);
-  const [sheet, setSheet] = useState<null | 'more' | 'restart'>(null);
+  const [sheet, setSheet] = useState<null | 'more' | 'restart' | 'history'>(null);
+  const [history, setHistory] = useState<{ status: 'loading' } | { status: 'ready'; text: string } | { status: 'error'; message: string }>({
+    status: 'loading',
+  });
   const [cwd, setCwd] = useState<string | null>(null);
   const [commandTick, setCommandTick] = useState(0);
   const [persistent, setPersistent] = useState(true);
@@ -431,6 +435,23 @@ export default function TerminalApp({ placement, isActive, compact }: AppProps) 
     setSheet(null);
   };
 
+  /** Earlier output as selectable text: tmux's full scrollback on the machine, or the simulated shell's buffer. */
+  const openHistory = () => {
+    setSheet('history');
+    if (pty) {
+      setHistory({ status: 'loading' });
+      pty.history().then(
+        (text) => setHistory({ status: 'ready', text }),
+        (err: unknown) => setHistory({ status: 'error', message: messageOf(err) }),
+      );
+      return;
+    }
+    const buf = termRef.current?.buffer.active;
+    const lines: string[] = [];
+    if (buf) for (let i = 0; i < buf.length; i++) lines.push(buf.getLine(i)?.translateToString(true) ?? '');
+    setHistory({ status: 'ready', text: lines.join('\n').replace(/\s+$/, '') + '\n' });
+  };
+
   const selectAll = () => {
     termRef.current?.selectAll();
     setSheet(null);
@@ -485,6 +506,7 @@ export default function TerminalApp({ placement, isActive, compact }: AppProps) 
               onMouseDown={keepFocus}
               onClick={toggleKeyboard}
             />
+            {!compact && <IconButton icon="history" label="Show history" onClick={openHistory} />}
             <IconButton icon="more" label="More terminal options" onClick={() => setSheet('more')} />
           </>
         }
@@ -655,6 +677,13 @@ export default function TerminalApp({ placement, isActive, compact }: AppProps) 
             </div>
 
             <div className="list">
+              <button type="button" className="row" onClick={openHistory}>
+                <Icon name="history" size={20} />
+                <span className="row-main">
+                  <span className="row-title">Show history</span>
+                  <span className="row-sub">Scroll back, select and copy earlier output</span>
+                </span>
+              </button>
               <button type="button" className="row" onClick={clearScreen}>
                 <Icon name="text" size={20} />
                 <span className="row-main">
@@ -713,6 +742,48 @@ export default function TerminalApp({ placement, isActive, compact }: AppProps) 
         </Sheet>
       )}
 
+      {sheet === 'history' && (
+        <Sheet
+          title="Terminal history"
+          onClose={() => setSheet(null)}
+          footer={
+            <div className="term-history-actions">
+              <button
+                type="button"
+                className="btn ghost"
+                disabled={history.status !== 'ready'}
+                onClick={() => {
+                  if (history.status !== 'ready') return;
+                  void writeClipboard(history.text).then((ok) =>
+                    toast(ok ? 'History copied' : "Couldn't copy: the browser blocked clipboard access.", ok ? 'success' : 'error'),
+                  );
+                }}
+              >
+                <Icon name="copy" size={18} /> Copy all
+              </button>
+              <button type="button" className="btn primary" onClick={() => setSheet(null)}>
+                Done
+              </button>
+            </div>
+          }
+        >
+          {history.status === 'loading' && (
+            <p className="muted" role="status">
+              Loading history…
+            </p>
+          )}
+          {history.status === 'error' && (
+            <p role="alert">
+              Couldn&apos;t load the history: {history.message}{' '}
+              <button type="button" className="btn ghost small" onClick={openHistory}>
+                Retry
+              </button>
+            </p>
+          )}
+          {history.status === 'ready' && <HistoryText text={history.text} />}
+        </Sheet>
+      )}
+
       {sheet === 'restart' && (
         <ConfirmSheet
           title="Restart shell?"
@@ -742,5 +813,19 @@ function HostChip({ status }: { status: TerminalStatus }) {
       <span className="dot" aria-hidden />
       {m.text}
     </span>
+  );
+}
+
+/** Selectable, scrollable text (long-press to select on iPhone), scrolled to the newest output. */
+function HistoryText({ text }: { text: string }) {
+  const ref = useRef<HTMLPreElement>(null);
+  useLayoutEffect(() => {
+    const el = ref.current;
+    if (el) el.scrollTop = el.scrollHeight;
+  }, [text]);
+  return (
+    <pre ref={ref} className="term-history" tabIndex={0} aria-label="Terminal history">
+      {text.trim() ? text : 'No output yet.'}
+    </pre>
   );
 }

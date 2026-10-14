@@ -389,6 +389,13 @@ test('terminal: auth required, real shell, survives reconnect via tmux', async (
   await until(() => b.out.some((m) => m.type === 'ready'));
   b.ws.send(JSON.stringify({ type: 'input', data: 'echo "again-$ORBIT_MARK"\n' }));
   await until(() => b.text().includes('again-kept-42'));
+  // The whole scrollback is available as text (for the History view), even output from before the reconnect.
+  b.ws.send(JSON.stringify({ type: 'input', data: 'seq 1 400 | sed s/^/line-/\n' }));
+  await until(() => b.text().includes('line-400'));
+  const hist = await (await api('/terminal/sessions/t1/history')).json();
+  assert.match(hist.text, /marker-42/);
+  assert.match(hist.text, /line-1\n[\s\S]*line-400/);
+  assert.equal((await api('/terminal/sessions/nope/history')).status, 404);
   // Orbit's tmux config keeps tmux out of the alternate screen, so the browser terminal keeps scrollback.
   assert.ok(!b.text().includes('\x1b[?1049h'), 'tmux must not switch to the alternate screen');
   b.ws.close();

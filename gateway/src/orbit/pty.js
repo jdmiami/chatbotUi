@@ -147,6 +147,24 @@ export function handlePtySocket(ws, url, { secret, cwd, log }) {
   }
 }
 
+/**
+ * The session's full scrollback as plain text (tmux keeps it on the machine, so it survives
+ * reconnects). null when there is no such session.
+ */
+export async function terminalHistory(session, lines = 10000) {
+  if (!SESSION_RE.test(session)) return null;
+  try {
+    const { stdout } = await run(
+      'tmux',
+      ['-L', TMUX_SOCKET, 'capture-pane', '-p', '-J', '-S', `-${lines}`, '-t', `orbit-${session}`],
+      { maxBuffer: 8 * 1024 * 1024 },
+    );
+    return stdout.replace(/\s+$/, '') + '\n';
+  } catch {
+    return null;
+  }
+}
+
 /** End a tmux session for good ("Restart shell"). */
 export async function killTerminalSession(session) {
   if (!SESSION_RE.test(session)) return;

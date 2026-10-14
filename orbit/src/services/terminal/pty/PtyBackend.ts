@@ -175,6 +175,12 @@ export class PtyBackend implements TerminalBackend {
     this.setStatus('disconnected');
   }
 
+  /** The session's whole scrollback as plain text, kept by tmux on the machine (survives reconnects). */
+  async history(): Promise<string> {
+    const body = await this.host.json<{ text: string }>(`/terminal/sessions/${encodeURIComponent(this.session)}/history`);
+    return body.text;
+  }
+
   /** End the tmux session on the machine for good, so the next connect starts a fresh shell. */
   async endSession(): Promise<void> {
     const res = await this.host.fetch(`/terminal/sessions/${encodeURIComponent(this.session)}`, { method: 'DELETE' });
