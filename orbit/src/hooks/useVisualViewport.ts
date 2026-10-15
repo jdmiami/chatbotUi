@@ -37,6 +37,16 @@ export function useVisualViewport() {
       });
     };
 
+    // iOS may scroll even overflow:hidden boxes to reveal a focused input under the keyboard,
+    // which leaves part of the app shifted out of view. Those boxes never scroll on purpose,
+    // so put them straight back.
+    const unshift = (e: Event) => {
+      const el = e.target;
+      if (!(el instanceof HTMLElement) || el.scrollTop === 0) return;
+      if (getComputedStyle(el).overflowY === 'hidden') el.scrollTop = 0;
+    };
+    document.addEventListener('scroll', unshift, true);
+
     update();
     vv?.addEventListener('resize', update);
     vv?.addEventListener('scroll', update);
@@ -46,6 +56,7 @@ export function useVisualViewport() {
     document.addEventListener('focusout', update);
     return () => {
       cancelAnimationFrame(frame);
+      document.removeEventListener('scroll', unshift, true);
       vv?.removeEventListener('resize', update);
       vv?.removeEventListener('scroll', update);
       window.removeEventListener('resize', update);

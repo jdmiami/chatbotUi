@@ -31,6 +31,7 @@ import {
   withAlpha,
   type TouchKey,
 } from './termKeys';
+import { lastLink, linkLabel } from './links';
 import './terminal.css';
 
 /**
@@ -148,6 +149,11 @@ export default function TerminalApp({ placement, isActive, compact }: AppProps) 
   const [persistent, setPersistent] = useState(true);
   const [slow, setSlow] = useState(false);
   const [restarting, setRestarting] = useState(false);
+  /** The newest web address printed in the terminal (e.g. a sign-in link), for the "Open link" bar. */
+  const [link, setLink] = useState<string | null>(null);
+  const dismissedLink = useRef<string | null>(null);
+  const linkTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const outputTail = useRef('');
   /** What the error panel's Retry repeats. */
   const [retryKind, setRetryKind] = useState<'connect' | 'restart'>('connect');
 
@@ -175,7 +181,10 @@ export default function TerminalApp({ placement, isActive, compact }: AppProps) 
     if (host.clientWidth < 24 || host.clientHeight < 24) return;
     const dims = fit.proposeDimensions();
     if (!dims || !(dims.cols >= 2) || !(dims.rows >= 1)) return;
+    const prevRows = term.rows;
     fit.fit();
+    // Fewer rows (e.g. the on-screen keyboard opened): keep the newest line and the prompt in view.
+    if (term.rows !== prevRows) term.scrollToBottom();
     const last = lastSize.current;
     if (!last || last.cols !== term.cols || last.rows !== term.rows) {
       lastSize.current = { cols: term.cols, rows: term.rows };
@@ -193,6 +202,41 @@ export default function TerminalApp({ placement, isActive, compact }: AppProps) 
     const term = termRef.current;
     return lastSize.current ?? { cols: term?.cols ?? 80, rows: term?.rows ?? 24 };
   }, [fitNow]);
+
+  /**
+   * Look for a web address in recent output. On the Linux machine this reads tmux's copy of the
+   * screen, where an address that wrapped across lines is already joined back together.
+   */
+  const findLink = useCallback(async () => {
+    const term = termRef.current;
+    if (!term) return;
+    let text = '';
+    const p = asPty(backend);
+    if (p) {
+      try {
+        text = await p.history();
+      } catch {
+        return;
+      }
+    } else {
+      const buf = term.buffer.active;
+      const lines: string[] = [];
+      for (let i = 0; i < buf.length; i++) {
+        const line = buf.getLine(i);
+        if (!line) continue;
+        const s = line.translateToString(true);
+        if (line.isWrapped && lines.length) lines[lines.length - 1] += s;
+        else lines.push(s);
+      }
+      text = lines.join('\n');
+    }
+    // Only recent output: an address from long ago (still in tmux's history) isn't what you want.
+    const recent = text.replace(/\s+$/, '').split('\n').slice(-60).join('\n');
+    const url = lastLink(recent, termRef.current?.cols ?? 0);
+    if (url && url !== dismissedLink.current) setLink(url);
+  }, [backend]);
+  const findLinkRef = useRef(findLink);
+  findLinkRef.current = findLink;
 
   // ------------------------------------------------------------------ xterm + backend lifecycle
   useEffect(() => {
@@ -230,7 +274,40 @@ export default function TerminalApp({ placement, isActive, compact }: AppProps) 
         return true;
       }),
     ];
-    const offOutput = backend.onOutput((d) => term.write(d));
+    const offOutput = backend.onOutput((d) => {
+      term.write(d);
+      // An address may arrive split across chunks; keep a little of the previous one.
+      const seen = outputTail.current + d;
+      outputTail.current = seen.slice(-16);
+      if (/https?:|:\/\//.test(seen)) {
+        clearTimeout(linkTimer.current);
+        linkTimer.current = setTimeout(() => void findLinkRef.current(), 600);
+      }
+    });
+
+    // Pinch with two fingers to change the text size (one finger still scrolls).
+    let pinch: { d0: number; f0: number } | null = null;
+    const spread = (t: TouchList) => Math.hypot(t[0].clientX - t[1].clientX, t[0].clientY - t[1].clientY);
+    const onPinchStart = (e: TouchEvent) => {
+      if (e.touches.length !== 2) return;
+      pinch = { d0: spread(e.touches) || 1, f0: clampFontSize(useShell.getState().settings.terminalFontSize) };
+      e.preventDefault();
+      e.stopPropagation();
+    };
+    const onPinchMove = (e: TouchEvent) => {
+      if (!pinch || e.touches.length !== 2) return;
+      e.preventDefault();
+      e.stopPropagation();
+      const next = clampFontSize(Math.round(pinch.f0 * (spread(e.touches) / pinch.d0)));
+      if (next !== useShell.getState().settings.terminalFontSize) useShell.getState().updateSettings({ terminalFontSize: next });
+    };
+    const onPinchEnd = (e: TouchEvent) => {
+      if (e.touches.length < 2) pinch = null;
+    };
+    host.addEventListener('touchstart', onPinchStart, { capture: true, passive: false });
+    host.addEventListener('touchmove', onPinchMove, { capture: true, passive: false });
+    host.addEventListener('touchend', onPinchEnd, true);
+    host.addEventListener('touchcancel', onPinchEnd, true);
     const offStatus = backend.onStatus((status, detail) => {
       setConn({ status, detail });
       const p = asPty(backend);
@@ -256,6 +333,11 @@ export default function TerminalApp({ placement, isActive, compact }: AppProps) 
 
     return () => {
       cancelAnimationFrame(fitFrame.current);
+      clearTimeout(linkTimer.current);
+      host.removeEventListener('touchstart', onPinchStart, true);
+      host.removeEventListener('touchmove', onPinchMove, true);
+      host.removeEventListener('touchend', onPinchEnd, true);
+      host.removeEventListener('touchcancel', onPinchEnd, true);
       ro.disconnect();
       ta?.removeEventListener('focus', onFocus);
       ta?.removeEventListener('blur', onBlur);
@@ -606,6 +688,46 @@ export default function TerminalApp({ placement, isActive, compact }: AppProps) 
             </div>
           )}
         </div>
+
+        {link && (
+          <div className="term-link" role="status" aria-label="Link printed in the terminal">
+            <Icon name="link" size={18} />
+            <span className="term-link-url" title={link}>
+              {linkLabel(link)}
+            </span>
+            <a className="btn primary" href={link} target="_blank" rel="noopener noreferrer">
+              <Icon name="external" size={16} />
+              Open
+            </a>
+            <button
+              type="button"
+              className="btn ghost"
+              aria-label="Copy link"
+              onPointerDown={keepFocus}
+              onMouseDown={keepFocus}
+              onClick={() =>
+                void navigator.clipboard
+                  ?.writeText(link)
+                  .then(() => toast('Link copied.'), () => toast("Couldn't copy the link. Open it instead.", 'error'))
+              }
+            >
+              <Icon name="copy" size={16} />
+            </button>
+            <button
+              type="button"
+              className="btn ghost"
+              aria-label="Hide link"
+              onPointerDown={keepFocus}
+              onMouseDown={keepFocus}
+              onClick={() => {
+                dismissedLink.current = link;
+                setLink(null);
+              }}
+            >
+              <Icon name="close" size={16} />
+            </button>
+          </div>
+        )}
 
         {showKeys && (
           <div className="term-keys" role="toolbar" aria-label="Terminal keys">
