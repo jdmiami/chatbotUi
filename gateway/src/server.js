@@ -10,6 +10,7 @@ import http from 'node:http';
 import net from 'node:net';
 import crypto from 'node:crypto';
 import { StringDecoder } from 'node:string_decoder';
+import { originAllowed, parseOrigins } from './origins.js';
 import { WebSocketServer } from 'ws';
 import { jwtVerify } from 'jose';
 import { encodeInstruction, InstructionParser } from './protocol.js';
@@ -27,10 +28,7 @@ export function loadConfig(env = process.env) {
   return {
     port: Number(env.PORT || 8080),
     secret: new TextEncoder().encode(env.GATEWAY_SECRET),
-    allowedOrigins: (env.ALLOWED_ORIGINS || '')
-      .split(',')
-      .map((s) => s.trim())
-      .filter(Boolean),
+    allowedOrigins: parseOrigins(env.ALLOWED_ORIGINS),
     guacd: { host: env.GUACD_HOST || '127.0.0.1', port: Number(env.GUACD_PORT || 4822) },
     rdp: {
       hostname: env.RDP_HOST,
@@ -174,7 +172,7 @@ export function createGateway(config, log = console, orbit = null) {
     };
 
     const origin = req.headers.origin || '';
-    if (config.allowedOrigins.length && !config.allowedOrigins.includes(origin)) {
+    if (!originAllowed(origin, config.allowedOrigins)) {
       return reject(403, 'Forbidden');
     }
 

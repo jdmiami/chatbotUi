@@ -29,7 +29,7 @@ sessions and the agy sign-in survive stopping the machine. Then create a CPU pod
 | Start command | `bash -c "apt-get update && apt-get install -y curl ca-certificates && curl -fsSL https://raw.githubusercontent.com/jdmiami/chatbotUi/main/linux/pod-setup.sh \| bash"` |
 | Env `GATEWAY_SECRET` | `npm run gen-secret` (same value as `LINUX_GATEWAY_SECRET` in Vercel) |
 | Env `DESKTOP_PASSWORD` | the password for the `desktop` user's desktop sign-in |
-| Env `ALLOWED_ORIGINS` | your Vercel URL(s), comma separated, e.g. `https://your-app.vercel.app` |
+| Env `ALLOWED_ORIGINS` | your Vercel URL(s), comma separated, e.g. `https://your-app.vercel.app,https://your-app-*-your-team.vercel.app`. A `*` stands for one part of the address (letters, digits, dashes), so the second entry covers each deployment's and branch's own Vercel address. |
 
 The first boot installs everything (a few minutes); later boots take about a minute. Then set these
 in Vercel and redeploy:

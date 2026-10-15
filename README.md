@@ -145,5 +145,5 @@ cd gateway && npm install && npm test
 | --- | --- |
 | *Could not reach your PC* | Gateway/tunnel not running, wrong `RDP_HOST`, PC asleep, or Remote Desktop off. `docker compose logs gateway` |
 | *Windows rejected the username or password* | Fix `RDP_USERNAME`/`RDP_PASSWORD`/`RDP_DOMAIN`; try `RDP_SECURITY=nla` |
-| Connection drops instantly | `ALLOWED_ORIGINS` doesn't match your Vercel URL exactly, or `GATEWAY_SECRET` differs between Vercel and the gateway |
+| Connection drops instantly | `ALLOWED_ORIGINS` doesn't match your Vercel URL (exact, or a `*` pattern), or `GATEWAY_SECRET` differs between Vercel and the gateway |
 | Wrong characters when typing | Set `RDP_KEYBOARD_LAYOUT` |

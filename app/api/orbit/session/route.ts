@@ -17,9 +17,12 @@ export async function POST(request: Request) {
   if (!sameOrigin(request)) return Response.json({ error: 'Forbidden' }, { status: 403 });
 
   const machine = await machineStatus();
+  // The site's main address (Vercel sets this), so Orbit can point there if this address is refused.
+  const prod = process.env.VERCEL_PROJECT_PRODUCTION_URL;
+  const mainUrl = prod ? `https://${prod}` : null;
   const base = podHttpBase();
   const secret = process.env.LINUX_GATEWAY_SECRET;
-  if (!base || !secret) return Response.json({ machine, hostUrl: null, token: null }, { headers: { 'cache-control': 'no-store' } });
+  if (!base || !secret) return Response.json({ machine, mainUrl, hostUrl: null, token: null }, { headers: { 'cache-control': 'no-store' } });
 
   const ttlSeconds = 60 * 60;
   const token = await new SignJWT({ scope: 'orbit' })
@@ -32,7 +35,7 @@ export async function POST(request: Request) {
     .sign(new TextEncoder().encode(secret));
 
   return Response.json(
-    { machine, hostUrl: base, token, expiresIn: ttlSeconds },
+    { machine, mainUrl, hostUrl: base, token, expiresIn: ttlSeconds },
     { headers: { 'cache-control': 'no-store' } },
   );
 }

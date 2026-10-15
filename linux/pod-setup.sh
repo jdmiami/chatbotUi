@@ -51,12 +51,16 @@ if [ ! -f /opt/.desktop-installed ]; then
     | tar -xJ -C /usr/local --strip-components=1
 
   log "installing the gateway and Orbit host"
-  mkdir -p /opt/gateway/src/orbit
-  for f in package.json package-lock.json src/index.js src/server.js src/protocol.js \
-    src/orbit/auth.js src/orbit/files.js src/orbit/pty.js src/orbit/agent.js src/orbit/http.js src/orbit/seed.js; do
+  mkdir -p /opt/gateway/src/orbit /opt/gateway/bin
+  for f in package.json package-lock.json src/index.js src/server.js src/protocol.js src/origins.js \
+    src/orbit/auth.js src/orbit/files.js src/orbit/pty.js src/orbit/agent.js src/orbit/http.js src/orbit/seed.js \
+    bin/workspace-secrets.mjs; do
     curl -fsSL "${REPO_RAW}/gateway/${f}" -o "/opt/gateway/${f}"
   done
   (cd /opt/gateway && npm ci --omit=dev --no-audit --no-fund)
+  # Lets the owner make new passwords/secrets in a terminal on this machine (see README).
+  chmod 755 /opt/gateway/bin/workspace-secrets.mjs
+  ln -sf /opt/gateway/bin/workspace-secrets.mjs /usr/local/bin/workspace-secrets
   node -e "require('/opt/gateway/node_modules/node-pty')" && log "node-pty ok" || log "WARNING: node-pty failed to load (Orbit terminal unavailable)"
 
   touch /opt/.desktop-installed
