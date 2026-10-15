@@ -2,8 +2,8 @@ import type { Metadata, Viewport } from 'next';
 import './globals.css';
 
 export const metadata: Metadata = {
-  title: 'Remote Desktop',
-  description: 'Use your Windows PC from any browser.',
+  title: 'My Workspace',
+  description: 'Your Linux machine, Orbit and Windows PC from any browser.',
   robots: { index: false, follow: false },
 };
 

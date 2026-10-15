@@ -1,10 +1,15 @@
 #!/usr/bin/env bash
-# Turns a fresh Ubuntu 24.04 container (e.g. a Runpod CPU pod) into a Linux desktop that the
-# web app can reach:
+# Turns a fresh Ubuntu 24.04 container (e.g. a Runpod CPU pod) into the Linux machine behind the
+# web app. One service on port 8080 (the gateway, running as the desktop user) serves both:
 #
-#   browser --wss--> gateway :8080 --> guacd :4822 --> xrdp :3389 --> XFCE desktop
+#   Linux desktop:  browser --wss--> gateway :8080 --> guacd :4822 --> xrdp :3389 --> XFCE
+#   Orbit:          browser --https/wss--> gateway :8080 /orbit/api, /orbit/pty
+#                   (real terminal in tmux, project files in ~/projects, Antigravity CLI)
 #
-# Only port 8080 needs to be exposed. Everything else listens on localhost.
+# Only port 8080 needs to be exposed. Everything else listens on localhost. Every Orbit and desktop
+# request needs a short-lived token signed with GATEWAY_SECRET by the signed-in web app.
+# With a network volume at /workspace, the desktop user's home (projects, Orbit sessions,
+# Antigravity sign-in) survives restarts; system packages reinstall on each fresh start.
 #
 # Required env: GATEWAY_SECRET (same value as LINUX_GATEWAY_SECRET in Vercel), DESKTOP_PASSWORD
 # Optional env: DESKTOP_USER (default "desktop"), ALLOWED_ORIGINS, REPO_RAW, PERSIST_DIR
@@ -27,7 +32,8 @@ if [ ! -f /opt/.desktop-installed ]; then
   apt-get install -y --no-install-recommends \
     ca-certificates curl gnupg sudo dbus dbus-x11 xfce4 xfce4-terminal xfce4-taskmanager \
     mousepad ristretto thunar xrdp xorgxrdp guacd libguac-client-rdp0 \
-    fonts-dejavu fonts-noto-color-emoji locales xz-utils git
+    fonts-dejavu fonts-noto-color-emoji locales xz-utils git \
+    tmux build-essential python3 less nano vim-tiny unzip ripgrep
 
   # Firefox from Mozilla's apt repo (Ubuntu's own package is a snap, which can't run here).
   install -d -m 0755 /etc/apt/keyrings
@@ -44,12 +50,14 @@ if [ ! -f /opt/.desktop-installed ]; then
   curl -fsSL "https://nodejs.org/dist/v${NODE_VERSION}/node-v${NODE_VERSION}-linux-${arch}.tar.xz" \
     | tar -xJ -C /usr/local --strip-components=1
 
-  log "installing the gateway"
-  mkdir -p /opt/gateway/src
-  for f in package.json package-lock.json src/index.js src/server.js src/protocol.js; do
+  log "installing the gateway and Orbit host"
+  mkdir -p /opt/gateway/src/orbit
+  for f in package.json package-lock.json src/index.js src/server.js src/protocol.js \
+    src/orbit/auth.js src/orbit/files.js src/orbit/pty.js src/orbit/agent.js src/orbit/http.js src/orbit/seed.js; do
     curl -fsSL "${REPO_RAW}/gateway/${f}" -o "/opt/gateway/${f}"
   done
   (cd /opt/gateway && npm ci --omit=dev --no-audit --no-fund)
+  node -e "require('/opt/gateway/node_modules/node-pty')" && log "node-pty ok" || log "WARNING: node-pty failed to load (Orbit terminal unavailable)"
 
   touch /opt/.desktop-installed
 fi
@@ -62,10 +70,19 @@ if ! id "$DESKTOP_USER" >/dev/null 2>&1; then
     || useradd -d "$home_root/$DESKTOP_USER" -s /bin/bash -G sudo "$DESKTOP_USER"
 fi
 echo "${DESKTOP_USER}:${DESKTOP_PASSWORD}" | chpasswd
+# Orbit's login is the gate to this machine, so sudo doesn't ask for the desktop password again.
+echo "${DESKTOP_USER} ALL=(ALL) NOPASSWD:ALL" > /etc/sudoers.d/orbit-desktop && chmod 0440 /etc/sudoers.d/orbit-desktop
 user_home=$(getent passwd "$DESKTOP_USER" | cut -d: -f6)
 mkdir -p "$user_home"
 echo "xfce4-session" > "$user_home/.xsession"
-chown -R "$DESKTOP_USER:$DESKTOP_USER" "$user_home"
+mkdir -p "$user_home/projects"
+# Fix ownership only when needed (a full chown of a big home on every boot is slow).
+if [ "$(stat -c %U "$user_home")" != "$DESKTOP_USER" ] || [ "$(stat -c %U "$user_home/projects")" != "$DESKTOP_USER" ]; then
+  chown -R "$DESKTOP_USER:$DESKTOP_USER" "$user_home"
+fi
+# Silences Ubuntu's "To run a command as administrator..." banner in every new terminal.
+touch "$user_home/.sudo_as_admin_successful"
+chown "$DESKTOP_USER:$DESKTOP_USER" "$user_home/.xsession" "$user_home/.sudo_as_admin_successful"
 
 # Antigravity CLI for the desktop user (installs to ~/.local/bin; skipped if already there).
 if [ ! -x "$user_home/.local/bin/agy" ]; then
@@ -84,13 +101,22 @@ xrdp-sesman
 xrdp
 guacd -b 127.0.0.1 -l 4822
 
-log "starting gateway on :8080"
-export RDP_HOST=127.0.0.1 RDP_PORT=3389 RDP_USERNAME="$DESKTOP_USER" RDP_PASSWORD="$DESKTOP_PASSWORD"
-export RDP_SECURITY="${RDP_SECURITY:-any}" RDP_IGNORE_CERT=true GUACD_HOST=127.0.0.1 GUACD_PORT=4822 PORT=8080
+log "starting gateway + Orbit host on :8080 (as $DESKTOP_USER)"
+# Run as the desktop user so Orbit's terminal, files and Antigravity act as that user.
+gateway_env=(
+  "HOME=$user_home" "USER=$DESKTOP_USER" "SHELL=/bin/bash" "LANG=en_US.UTF-8"
+  "PATH=$user_home/.local/bin:/usr/local/bin:/usr/bin:/bin"
+  "GATEWAY_SECRET=$GATEWAY_SECRET" "ALLOWED_ORIGINS=${ALLOWED_ORIGINS:-}"
+  "RDP_HOST=127.0.0.1" "RDP_PORT=3389" "RDP_USERNAME=$DESKTOP_USER" "RDP_PASSWORD=$DESKTOP_PASSWORD"
+  "RDP_SECURITY=${RDP_SECURITY:-any}" "RDP_IGNORE_CERT=true" "GUACD_HOST=127.0.0.1" "GUACD_PORT=4822" "PORT=8080"
+  "ORBIT_HOST=1" "ORBIT_PROJECTS_DIR=$user_home/projects" "AGY_PATH=$user_home/.local/bin/agy"
+)
 unset DESKTOP_PASSWORD
 cd /opt/gateway
 while true; do
-  node src/index.js || true
+  # setpriv execs in place (no root parent process), so the secrets in gateway_env never sit in a
+  # process command line that any user on the machine could read with ps.
+  setpriv --reuid="$DESKTOP_USER" --regid="$DESKTOP_USER" --init-groups env -i "${gateway_env[@]}" node src/index.js || true
   log "gateway exited, restarting in 2s"
   sleep 2
 done

@@ -4,12 +4,13 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
-    "build": "next build",
+    "build": "node scripts/build-orbit.mjs && next build",
     "start": "next start",
     "lint": "tsc --noEmit",
     "hash-password": "node scripts/hash-password.mjs",
     "setup-2fa": "node scripts/setup-2fa.mjs",
-    "gen-secret": "node -e \"console.log(require('crypto').randomBytes(48).toString('base64url'))\""
+    "gen-secret": "node -e \"console.log(require('crypto').randomBytes(48).toString('base64url'))\"",
+    "build:orbit": "node scripts/build-orbit.mjs"
   },
   "engines": {
     "node": ">=20"

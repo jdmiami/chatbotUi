@@ -43,7 +43,7 @@ export async function login(_prev: LoginState, form: FormData): Promise<LoginSta
     path: '/',
     maxAge: sessionMaxAgeSeconds(),
   });
-  redirect('/desktop');
+  redirect('/');
 }
 
 export async function logout() {

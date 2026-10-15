@@ -13,6 +13,7 @@ import { StringDecoder } from 'node:string_decoder';
 import { WebSocketServer } from 'ws';
 import { jwtVerify } from 'jose';
 import { encodeInstruction, InstructionParser } from './protocol.js';
+import { handlePtySocket } from './orbit/pty.js';
 
 export function loadConfig(env = process.env) {
   const required = ['GATEWAY_SECRET', 'RDP_HOST'];
@@ -141,15 +142,23 @@ function connectToGuacd(config, display) {
   });
 }
 
-export function createGateway(config, log = console) {
+/**
+ * @param orbit optional Orbit host: { api(req,res,url), pty: { cwd } }. When present the same port
+ *   also serves Orbit's authenticated API (/orbit/api/*) and terminal WebSocket (/orbit/pty).
+ */
+export function createGateway(config, log = console, orbit = null) {
   const server = http.createServer((req, res) => {
     if (req.url === '/healthz') {
       res.writeHead(200, { 'content-type': 'text/plain' });
       return res.end('ok');
     }
+    const url = new URL(req.url, 'http://gateway.local');
+    if (orbit && url.pathname.startsWith('/orbit/api')) return orbit.api(req, res, url);
     res.writeHead(404);
     res.end();
   });
+
+  const orbitWss = orbit ? new WebSocketServer({ noServer: true, maxPayload: 1024 * 1024 }) : null;
 
   const wss = new WebSocketServer({
     noServer: true,
@@ -170,6 +179,12 @@ export function createGateway(config, log = console) {
     }
 
     const url = new URL(req.url, 'http://gateway.local');
+    if (orbit && url.pathname === '/orbit/pty') {
+      // Auth happens on the first message (browsers can't set headers on WebSockets).
+      return orbitWss.handleUpgrade(req, socket, head, (ws) =>
+        handlePtySocket(ws, url, { secret: config.secret, cwd: orbit.pty.cwd, log }),
+      );
+    }
     const token = url.searchParams.get('token');
     if (!token) return reject(401, 'Unauthorized');
 
@@ -179,6 +194,8 @@ export function createGateway(config, log = console) {
         algorithms: ['HS256'],
         audience: 'rdp-gateway',
         issuer: 'rdp-web',
+        requiredClaims: ['exp', 'iat'],
+        maxTokenAge: '2m',
       }));
     } catch {
       return reject(401, 'Unauthorized');

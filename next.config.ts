@@ -10,6 +10,10 @@ const securityHeaders = [
 
 const nextConfig: NextConfig = {
   poweredByHeader: false,
+  // Orbit is a static single-page app built into public/orbit (scripts/build-orbit.mjs).
+  async rewrites() {
+    return [{ source: '/orbit', destination: '/orbit/index.html' }];
+  },
   async headers() {
     return [{ source: '/:path*', headers: securityHeaders }];
   },

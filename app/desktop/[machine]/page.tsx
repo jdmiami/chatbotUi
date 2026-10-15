@@ -10,5 +10,5 @@ export default async function DesktopPage({ params }: { params: Promise<{ machin
   if (!(await currentUser())) redirect('/login');
   const machine = getMachine((await params).machine);
   if (!machine) notFound();
-  return <RemoteDesktop machine={machine} canSwitch={listMachines().length > 1} logout={logout} />;
+  return <RemoteDesktop machine={machine} canSwitch logout={logout} />;
 }

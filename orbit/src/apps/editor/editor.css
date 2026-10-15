@@ -1,0 +1,640 @@
+/* Code app. Every class is prefixed "ed-"; colours come from tokens.css. */
+
+.ed-root {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+}
+
+.ed-main {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  /* iPhone landscape has side insets (notch / Dynamic Island). */
+  padding-left: var(--safe-left);
+  padding-right: var(--safe-right);
+}
+.ed-root[data-placement='split-left'] .ed-main {
+  padding-right: 0;
+}
+.ed-root[data-placement='split-right'] .ed-main {
+  padding-left: 0;
+}
+
+/* ---------------------------------------------------------------- Sidebar / file browser */
+
+.ed-sidebar {
+  flex: none;
+  width: clamp(220px, 30%, 300px);
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+  background: var(--surface);
+  border-right: 1px solid var(--border);
+}
+
+.ed-browser {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.ed-browser-head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-2) var(--space-1) var(--space-3);
+  color: var(--text-2);
+}
+.ed-browser[data-variant='sheet'] .ed-browser-head {
+  padding: 0 0 var(--space-1);
+}
+.ed-browser-root {
+  flex: 1;
+  min-width: 0;
+  font-weight: 650;
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.btn.ed-browser-new {
+  flex: none;
+  min-height: var(--tap);
+  padding: 0 12px;
+}
+.ed-browser-note {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-2);
+  margin: var(--space-1) var(--space-3) var(--space-2);
+  padding: var(--space-2) 10px;
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  color: var(--text-2);
+  font-size: var(--fs-xs);
+  line-height: 1.35;
+}
+.ed-browser-note svg {
+  flex: none;
+  margin-top: 1px;
+}
+.ed-browser[data-variant='sheet'] .ed-browser-note {
+  margin: var(--space-1) 0 var(--space-2);
+}
+.ed-browser-empty {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin: var(--space-3);
+  font-size: var(--fs-sm);
+}
+.ed-browser[data-variant='sheet'] .ed-browser-empty {
+  margin: var(--space-3) 0;
+}
+.ed-browser-count {
+  margin: 0 var(--space-3) var(--space-1);
+  font-size: var(--fs-xs);
+}
+.ed-browser[data-variant='sheet'] .ed-browser-count {
+  margin: 0 0 var(--space-1);
+}
+.btn.ed-browser-more {
+  align-self: center;
+  min-height: var(--tap);
+  margin: 0 var(--space-3) var(--space-3);
+}
+
+/* Filter box */
+.ed-filter {
+  position: relative;
+  display: flex;
+  align-items: center;
+  margin: 0 var(--space-3) var(--space-2);
+}
+.ed-browser[data-variant='sheet'] .ed-filter {
+  margin: 0 0 var(--space-2);
+}
+.ed-filter-icon {
+  position: absolute;
+  left: 10px;
+  color: var(--text-3);
+  pointer-events: none;
+}
+.ed-filter-input {
+  flex: 1;
+  min-width: 0;
+  min-height: var(--tap);
+  padding: 0 4px 0 36px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border-strong);
+  background: var(--surface-2);
+  color: var(--text);
+  font-size: var(--fs-sm);
+  -webkit-appearance: none;
+  appearance: none;
+}
+.ed-filter-input::placeholder {
+  color: var(--text-3);
+}
+.ed-filter-input::-webkit-search-cancel-button {
+  display: none; /* we show our own 44px clear button */
+}
+.ed-filter-input:focus-visible {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+@media (pointer: coarse) {
+  .ed-filter-input {
+    font-size: max(16px, var(--fs-md)); /* no zoom-on-focus in iOS Safari */
+  }
+}
+.ed-filter-clear.icon-btn {
+  flex: none;
+  margin-left: 2px;
+  color: var(--text-2);
+}
+
+/* List errors (with Retry) */
+.ed-browser-error {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-2);
+  margin: var(--space-2) var(--space-3);
+  padding: var(--space-3);
+  border-radius: var(--radius-md);
+  background: var(--danger-soft);
+  border: 1px solid color-mix(in srgb, var(--danger) 35%, transparent);
+  color: var(--text);
+  font-size: var(--fs-sm);
+}
+.ed-browser[data-variant='sheet'] .ed-browser-error {
+  margin: var(--space-2) 0;
+}
+.ed-browser-error p {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.ed-browser-error .btn {
+  min-height: var(--tap);
+}
+.ed-browser-error-inline {
+  flex-direction: row;
+  align-items: center;
+  flex-wrap: wrap;
+}
+.ed-browser-error-inline p {
+  flex: 1 1 160px;
+}
+.ed-tree-dir {
+  font-family: var(--font-mono);
+}
+
+/* Small busy spinner (opening / saving / loading over the network) */
+.ed-spinner {
+  flex: none;
+  display: inline-block;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  border: 2px solid var(--border-strong);
+  border-top-color: var(--accent);
+  animation: ed-spin 0.9s linear infinite;
+}
+@keyframes ed-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .ed-spinner {
+    animation-duration: 3s;
+  }
+}
+:root[data-reduce-motion='true'] .ed-spinner {
+  animation-duration: 3s;
+}
+
+.ed-tree {
+  list-style: none;
+  margin: 0;
+  padding: 0 var(--space-1) var(--space-3);
+}
+.ed-browser[data-variant='sheet'] .ed-tree {
+  padding: 0;
+}
+.ed-tree > li {
+  /* Long trees (hundreds of files on the Linux machine): skip work for rows off screen. */
+  content-visibility: auto;
+  contain-intrinsic-size: auto var(--tap);
+}
+.ed-tree-item {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+}
+.ed-tree-row {
+  flex: 1;
+  min-width: 0;
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: var(--tap);
+  padding-top: 4px;
+  padding-bottom: 4px;
+  padding-right: var(--space-2);
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text);
+  text-align: left;
+  font-size: var(--fs-sm);
+  cursor: pointer;
+}
+.ed-tree-row:hover {
+  background: var(--surface-3);
+}
+.ed-tree-folder {
+  color: var(--text-2);
+  font-weight: 600;
+}
+.ed-tree-file[aria-current='true'] {
+  background: var(--accent-soft);
+}
+.ed-tree-file[aria-current='true'] .ed-tree-label {
+  font-weight: 650;
+}
+.ed-tree-chevron,
+.ed-tree-chevron-space {
+  flex: none;
+  width: 16px;
+  color: var(--text-3);
+}
+.ed-tree-row > svg {
+  flex: none;
+}
+.ed-tree-text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+.ed-tree-name {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+.ed-tree-label,
+.ed-tree-folder .ed-tree-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+.ed-tree-meta {
+  font-size: var(--fs-xs);
+  color: var(--text-3);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ed-tree-more {
+  color: var(--text-3);
+}
+
+/* ---------------------------------------------------------------- Editor pane */
+
+.ed-pane {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--code-bg);
+  container-type: inline-size;
+  container-name: ed-pane;
+}
+
+.ed-tabs {
+  flex: none;
+  display: flex;
+  overflow-x: auto;
+  overflow-y: hidden;
+  overscroll-behavior-x: contain;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: thin;
+  background: var(--surface-2);
+  border-bottom: 1px solid var(--border);
+}
+.ed-root[data-tight='true'] .ed-tabs {
+  display: none; /* phone landscape with the keyboard up: give the lines the room */
+}
+.ed-tab {
+  position: relative;
+  flex: none;
+  display: flex;
+  align-items: center;
+  max-width: 260px;
+  border-right: 1px solid var(--border);
+}
+.ed-tab[data-active='true'] {
+  background: var(--code-bg);
+}
+.ed-tab[data-active='true']::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 0;
+  height: 2px;
+  background: var(--accent);
+}
+.ed-tab-main {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  min-height: var(--tap);
+  padding: 0 0 0 14px;
+  border: 0;
+  background: transparent;
+  color: var(--text-2);
+  font-size: var(--fs-sm);
+  cursor: pointer;
+  white-space: nowrap;
+}
+.ed-tab[data-active='true'] .ed-tab-main {
+  color: var(--text);
+  font-weight: 650;
+}
+.ed-tab-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+  max-width: 160px;
+}
+.ed-tab-dir {
+  font-size: var(--fs-xs);
+  color: var(--text-3);
+  font-weight: 400;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 80px;
+}
+.ed-tab-warn {
+  flex: none;
+  color: var(--warning);
+}
+.ed-tab-close.icon-btn {
+  color: var(--text-3);
+  border-radius: var(--radius-sm);
+}
+.ed-dot {
+  flex: none;
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--accent);
+}
+
+.ed-banner {
+  flex: none;
+  flex-wrap: wrap;
+  align-items: center;
+  margin: var(--space-2) var(--space-2) 0;
+  color: var(--text);
+}
+.ed-banner-text {
+  flex: 1 1 220px;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.ed-banner-text span {
+  color: var(--text-2);
+}
+.ed-banner-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin-left: auto;
+}
+.ed-banner-actions .btn {
+  min-height: var(--tap);
+}
+.ed-banner-standalone {
+  flex: none;
+  width: 100%;
+  max-width: 560px;
+  margin: var(--space-4) auto 0;
+}
+
+/* "Opening app.py…" while a file loads (slow over the network) */
+.ed-status {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: 36px;
+  padding: 0 var(--space-3);
+  border-bottom: 1px solid var(--border);
+  background: var(--surface-2);
+  color: var(--text-2);
+  font-size: var(--fs-sm);
+}
+.ed-status-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* CodeMirror host */
+.ed-cm {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  position: relative;
+}
+.ed-cm[hidden] {
+  display: none;
+}
+.ed-cm .cm-editor {
+  flex: 1;
+  min-height: 0;
+  font-size: calc(14px * var(--text-scale));
+}
+.ed-cm .cm-editor.cm-focused {
+  outline: none;
+}
+.ed-cm .cm-gutters {
+  user-select: none;
+  -webkit-user-select: none;
+}
+/* Touch: >= 16px so iOS doesn't zoom when the editor or the search fields get focus. */
+@media (pointer: coarse) {
+  .ed-cm .cm-editor {
+    font-size: max(16px, calc(15px * var(--text-scale)));
+  }
+  .ed-cm .cm-panel.cm-search {
+    padding: 8px 10px;
+  }
+  .ed-cm .cm-panel.cm-search input.cm-textfield {
+    font-size: 16px;
+    min-height: 40px;
+    padding: 4px 8px;
+  }
+  .ed-cm .cm-panel.cm-search button.cm-button {
+    font-size: 14px;
+    min-height: 40px;
+    padding: 0 12px;
+  }
+  .ed-cm .cm-panel.cm-search label {
+    font-size: 14px;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    min-height: 40px;
+  }
+  .ed-cm .cm-panel.cm-search input[type='checkbox'] {
+    width: 20px;
+    height: 20px;
+  }
+  .ed-cm .cm-panel.cm-search button[name='close'] {
+    width: var(--tap);
+    height: var(--tap);
+    font-size: 22px;
+    top: 2px;
+    right: 2px;
+  }
+}
+
+/* Touch helpers toolbar (bottom of the pane, so it stays above the on-screen keyboard). */
+.ed-toolbar {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 4px 6px;
+  border-top: 1px solid var(--border);
+  background: var(--surface-2);
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.ed-toolbar::-webkit-scrollbar {
+  display: none;
+}
+.ed-toolbar-sep {
+  flex: none;
+  width: 1px;
+  height: 24px;
+  margin: 0 4px;
+  background: var(--border-strong);
+}
+.ed-toolbar-status {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: 0 var(--space-2);
+  font-size: var(--fs-xs);
+  color: var(--text-3);
+  white-space: nowrap;
+  min-width: 0;
+}
+.ed-toolbar-lang {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+/* Narrow editor pane (phone landscape with the sidebar, split view): keep Ln/Col, drop the language. */
+@container ed-pane (max-width: 640px) {
+  .ed-toolbar-lang {
+    display: none;
+  }
+}
+.ed-toolbar-save {
+  flex: none;
+  padding: 0 14px;
+}
+.ed-toolbar-save:disabled {
+  opacity: 0.75;
+}
+
+/* Empty state */
+.ed-empty {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  display: flex;
+  flex-direction: column;
+  padding: 0 var(--space-4) var(--space-4);
+  background: var(--bg);
+}
+.ed-empty > .state {
+  flex: none;
+  padding-top: var(--space-6);
+}
+.ed-empty-actions {
+  justify-content: center;
+}
+.ed-recent {
+  width: 100%;
+  max-width: 560px;
+  margin: 0 auto;
+}
+
+/* Sheets */
+.ed-root .list .row:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+.ed-root .list .row:disabled:hover {
+  background: transparent;
+}
+.ed-row-danger {
+  color: var(--danger) !important;
+}
+.ed-toggle-row {
+  cursor: pointer;
+}
+.ed-more-note {
+  display: block;
+  padding: 0 4px;
+  line-height: 1.6;
+}
+.ed-more-note svg {
+  vertical-align: -2px;
+}
+.ed-sheet-error {
+  display: block;
+  margin-top: var(--space-3);
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-sm);
+  background: var(--danger-soft);
+  color: var(--text);
+  overflow-wrap: anywhere;
+}
+.ed-sheet-path {
+  margin: 0;
+  font-size: var(--fs-sm);
+  overflow-wrap: anywhere;
+}
+
+/* Visible focus inside scrolling strips: the global outer ring would be clipped by overflow. */
+.ed-tabs :focus-visible,
+.ed-tree :focus-visible,
+.ed-toolbar :focus-visible {
+  box-shadow: inset 0 0 0 2px var(--accent);
+}
