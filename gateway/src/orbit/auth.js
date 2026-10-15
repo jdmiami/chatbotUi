@@ -1,6 +1,7 @@
 // Auth for the Orbit host API. Every request must carry a short-lived token minted by the
 // signed-in web app (POST /api/orbit/session), signed with the same secret as the gateway.
 import { jwtVerify } from 'jose';
+import { originAllowed } from '../origins.js';
 
 export async function verifyOrbitToken(token, secret) {
   if (!token) throw Object.assign(new Error('Missing token'), { status: 401 });
@@ -28,7 +29,7 @@ export function bearer(req) {
 export function applyCors(req, res, allowedOrigins) {
   const origin = req.headers.origin;
   if (!origin) return true; // non-browser clients (curl, health checks)
-  if (allowedOrigins.length && !allowedOrigins.includes(origin)) return false;
+  if (!originAllowed(origin, allowedOrigins)) return false;
   res.setHeader('Access-Control-Allow-Origin', origin);
   res.setHeader('Vary', 'Origin');
   res.setHeader('Access-Control-Allow-Headers', 'Authorization, Content-Type');

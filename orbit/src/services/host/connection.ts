@@ -26,7 +26,7 @@ export interface HostSession {
 export type ConnectionCheck =
   | { kind: 'no-backend' } // static preview / local dev: demo only
   | { kind: 'signed-out' }
-  | { kind: 'machine'; machine: MachineStatus; session: HostSession | null; reachable: boolean };
+  | { kind: 'machine'; machine: MachineStatus; session: HostSession | null; reachable: boolean; mainUrl: string | null };
 
 const SESSION_URL = '/api/orbit/session';
 const MACHINE_URL = '/api/machine';
@@ -48,6 +48,7 @@ export async function checkConnection(): Promise<ConnectionCheck> {
   if (!res.ok || !ct.includes('json')) return { kind: 'no-backend' };
   const body = (await res.json()) as {
     machine: MachineStatus;
+    mainUrl?: string | null;
     hostUrl: string | null;
     token: string | null;
     expiresIn?: number;
@@ -57,7 +58,7 @@ export async function checkConnection(): Promise<ConnectionCheck> {
       ? { hostUrl: body.hostUrl, token: body.token, expiresAt: Date.now() + (body.expiresIn ?? 3600) * 1000 }
       : null;
   const reachable = session ? await hostReachable(session) : false;
-  return { kind: 'machine', machine: body.machine, session, reachable };
+  return { kind: 'machine', machine: body.machine, session, reachable, mainUrl: body.mainUrl ?? null };
 }
 
 async function hostReachable(session: HostSession): Promise<boolean> {

@@ -11,6 +11,7 @@ type Phase =
   | { kind: 'off'; machine: MachineStatus }
   | { kind: 'starting'; machine: MachineStatus; since: number }
   | { kind: 'unreachable'; machine: MachineStatus }
+  | { kind: 'blocked'; machine: MachineStatus; mainUrl: string | null }
   | { kind: 'problem'; message: string; machine?: MachineStatus };
 
 /**
@@ -23,6 +24,7 @@ export function Boot() {
   const [busy, setBusy] = useState(false);
   const poll = useRef<ReturnType<typeof setTimeout> | null>(null);
   const settled = useRef(false);
+  const onButUnreachable = useRef(0);
 
   const stopPolling = () => {
     if (poll.current) clearTimeout(poll.current);
@@ -53,7 +55,7 @@ export function Boot() {
       window.location.href = '/login';
       return;
     }
-    const { machine, session, reachable } = result;
+    const { machine, session, reachable, mainUrl } = result;
     if (reachable && session) {
       settled.current = true;
       configureServices('host', { session });
@@ -67,6 +69,19 @@ export function Boot() {
       setPhase({ kind: 'unreachable', machine });
       poll.current = setTimeout(() => void check(), 15000);
       return;
+    }
+    if (machine.state === 'on' && session) {
+      // The site can reach the machine but this page can't: usually this address isn't one the
+      // machine accepts, or a network/content blocker is in the way. Waiting won't fix that, so
+      // after a few tries say so (and keep checking quietly).
+      onButUnreachable.current += 1;
+      if (onButUnreachable.current >= 3) {
+        setPhase({ kind: 'blocked', machine, mainUrl });
+        poll.current = setTimeout(() => void check(), 15000);
+        return;
+      }
+    } else {
+      onButUnreachable.current = 0;
     }
     if (machine.state === 'starting' || machine.state === 'on') {
       setPhase((p) => ({ kind: 'starting', machine, since: p.kind === 'starting' ? p.since : Date.now() }));
@@ -178,6 +193,32 @@ function BootScreen({
             )}
             <button type="button" className="btn ghost block" onClick={() => enterDemo('unreachable')}>
               Use demo mode while waiting
+            </button>
+          </>
+        )}
+        {phase.kind === 'blocked' && (
+          <>
+            <p role="alert">Your Linux machine is on, but this page can&apos;t connect to it.</p>
+            {phase.mainUrl && phase.mainUrl !== window.location.origin ? (
+              <>
+                <p className="muted">
+                  You opened Orbit at a different address from your main one. Open it from your main address
+                  instead.
+                </p>
+                <a className="btn primary block" href={`${phase.mainUrl}/orbit`}>
+                  Open {phase.mainUrl.replace(/^https:\/\//, '')}
+                </a>
+              </>
+            ) : (
+              <p className="muted">
+                A network filter, VPN or content blocker may be stopping it. This screen keeps checking by itself.
+              </p>
+            )}
+            <button type="button" className="btn ghost block" onClick={() => void check()}>
+              Try again
+            </button>
+            <button type="button" className="btn ghost block" onClick={() => enterDemo('unreachable')}>
+              Use demo mode
             </button>
           </>
         )}
