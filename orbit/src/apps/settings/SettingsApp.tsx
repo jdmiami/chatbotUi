@@ -680,6 +680,9 @@ function AppearanceSection() {
 function TerminalSection() {
   const size = useShell((s) => s.settings.terminalFontSize);
   const keys = useShell((s) => s.settings.terminalKeys);
+  const typingBoxPref = useShell((s) => s.settings.terminalTypingBox);
+  const { isPhone } = useLayout();
+  const typingBox = typingBoxPref ?? (isPhone && (window.matchMedia?.('(pointer: coarse)').matches ?? false));
   const updateSettings = useShell((s) => s.updateSettings);
   const labelId = useId();
   const setSize = (n: number) => updateSettings({ terminalFontSize: Math.min(TERM_MAX, Math.max(TERM_MIN, n)) });
@@ -726,6 +729,16 @@ function TerminalSection() {
             <span className="st-sub">Esc, Tab, Ctrl, arrows and common symbols above the on-screen keyboard.</span>
           </span>
           <Toggle checked={keys} label="Show the touch key row" onChange={(v) => updateSettings({ terminalKeys: v })} />
+        </label>
+        <label className="row st-row st-click">
+          <span className="st-main">
+            <span className="st-label">Typing box</span>
+            <span className="st-sub">
+              Type in a box above the keys and send with Return. You always see what you type. Off: type straight
+              into the terminal. On by default on phones.
+            </span>
+          </span>
+          <Toggle checked={typingBox} label="Use the typing box" onChange={(v) => updateSettings({ terminalTypingBox: v })} />
         </label>
       </div>
     </Section>

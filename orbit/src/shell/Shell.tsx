@@ -2,6 +2,7 @@ import { useEffect } from 'react';
 import { useShell, type AppId } from '../state/shell';
 import { useLayout } from '../state/viewport';
 import { useVisualViewport } from '../hooks/useVisualViewport';
+import { useLayoutReport } from '../hooks/useLayoutReport';
 import { useApplySettings } from '../hooks/useApplySettings';
 import { HomeScreen } from './HomeScreen';
 import { Dock } from './Dock';
@@ -17,6 +18,7 @@ import { IntroSheet } from './IntroSheet';
  */
 export function Shell() {
   useVisualViewport();
+  useLayoutReport();
   useApplySettings();
   const { activeApp, overlay, settings } = useShell();
   const layout = useLayout();

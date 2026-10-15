@@ -18,6 +18,11 @@ export interface Settings {
   terminalFontSize: number;
   /** Show the touch key row above the keyboard in Terminal. */
   terminalKeys: boolean;
+  /**
+   * Type into a visible text box above the keys (sent on Return) instead of straight into the
+   * terminal. Unset = on for phones, off elsewhere.
+   */
+  terminalTypingBox?: boolean;
   /** Seen the first-run "what is simulated" sheet. */
   introSeen: boolean;
 }
