@@ -411,5 +411,10 @@ test('terminal: auth required, real shell, survives reconnect via tmux', async (
   assert.equal((await api('/terminal/sessions/nope/history')).status, 404);
   // Orbit's tmux config keeps tmux out of the alternate screen, so the browser terminal keeps scrollback.
   assert.ok(!b.text().includes('\x1b[?1049h'), 'tmux must not switch to the alternate screen');
+  // Hyperlinks (OSC 8) pass through tmux: CLIs like agy send their full sign-in link this way,
+  // and Orbit's "Open link" bar uses it even when the text on screen is cut off.
+  b.ws.send(JSON.stringify({ type: 'input', data: "printf '\\033]8;;https://example.com/full?x=1\\033\\\\link\\033]8;;\\033\\\\\\n'\n" }));
+  await until(() => b.text().includes('\x1b]8;'));
+  assert.ok(b.text().includes('https://example.com/full?x=1'));
   b.ws.close();
 });

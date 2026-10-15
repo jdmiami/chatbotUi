@@ -35,7 +35,7 @@ import {
   withAlpha,
   type TouchKey,
 } from './termKeys';
-import { lastLink, linkLabel } from './links';
+import { lastLink, linkLabel, webLink } from './links';
 import './terminal.css';
 
 /**
@@ -172,6 +172,8 @@ export default function TerminalApp({ placement, isActive, compact }: AppProps) 
   /** The newest web address printed in the terminal (e.g. a sign-in link), for the "Open link" bar. */
   const [link, setLink] = useState<string | null>(null);
   const dismissedLink = useRef<string | null>(null);
+  /** The newest address a program sent as a hidden full link (OSC 8), even if cut off on screen. */
+  const oscLink = useRef<string | null>(null);
   const linkTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const outputTail = useRef('');
   /** What the error panel's Retry repeats. */
@@ -252,7 +254,10 @@ export default function TerminalApp({ placement, isActive, compact }: AppProps) 
     }
     // Only recent output: an address from long ago (still in tmux's history) isn't what you want.
     const recent = text.replace(/\s+$/, '').split('\n').slice(-60).join('\n');
-    const url = lastLink(recent, termRef.current?.cols ?? 0);
+    let url = lastLink(recent, termRef.current?.cols ?? 0);
+    // A program's hidden full link wins over the (possibly cut-off) text on screen.
+    const osc = oscLink.current;
+    if (osc && (!url || osc.startsWith(url) || recent.includes(osc.slice(0, 40)))) url = osc;
     if (url && url !== dismissedLink.current) setLink(url);
   }, [backend]);
   const findLinkRef = useRef(findLink);
@@ -270,6 +275,12 @@ export default function TerminalApp({ placement, isActive, compact }: AppProps) 
       cursorBlink: true,
       macOptionIsMeta: true,
       theme: readTheme(),
+      // Tapping/clicking an underlined link a program printed (OSC 8) opens it directly.
+      linkHandler: {
+        activate: (_e, uri) => {
+          if (webLink(uri)) window.open(uri, '_blank', 'noopener,noreferrer');
+        },
+      },
     });
     const fit = new FitAddon();
     term.loadAddon(fit);
@@ -287,6 +298,16 @@ export default function TerminalApp({ placement, isActive, compact }: AppProps) 
         const p = parseOsc7(d);
         if (p) setCwd(p);
         return true;
+      }),
+      // OSC 8 = hyperlink. Programs such as agy send the full address this way even when the text
+      // on screen is cut off, so the Open link bar uses it. Returning false lets xterm draw the link.
+      term.parser.registerOscHandler(8, (d) => {
+        const uri = webLink(d.slice(d.indexOf(';') + 1));
+        if (uri) {
+          oscLink.current = uri;
+          if (uri !== dismissedLink.current) setLink(uri);
+        }
+        return false;
       }),
       // OSC 133;D = "command finished" (shell integration).
       term.parser.registerOscHandler(133, (d) => {
@@ -594,7 +615,8 @@ export default function TerminalApp({ placement, isActive, compact }: AppProps) 
       ArrowRight: 'right',
     };
     let seq: string | null = null;
-    if (e.ctrlKey && !e.metaKey && !e.altKey && e.key.length === 1) seq = ctrlTransform(e.key);
+    if (e.shiftKey && (e.key === 'ArrowUp' || e.key === 'ArrowDown')) seq = keySequence(e.key === 'ArrowUp' ? 'shiftUp' : 'shiftDown');
+    else if (e.ctrlKey && !e.metaKey && !e.altKey && e.key.length === 1) seq = ctrlTransform(e.key);
     else if (e.key === 'Tab') seq = '\t';
     else if (e.key === 'Escape') seq = '\x1b';
     else if (empty && e.key === 'Backspace') seq = '\x7f';

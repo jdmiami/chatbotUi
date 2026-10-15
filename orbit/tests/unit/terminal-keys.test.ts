@@ -22,6 +22,8 @@ describe('touch key row', () => {
       '↑',
       '↓',
       '→',
+      '⇧↑',
+      '⇧↓',
       '|',
       '~',
       '/',
@@ -43,6 +45,8 @@ describe('touch key row', () => {
     expect(keySequence('down')).toBe('\x1b[B');
     expect(keySequence('right')).toBe('\x1b[C');
     expect(keySequence('left')).toBe('\x1b[D');
+    expect(keySequence('shiftUp')).toBe('\x1b[1;2A');
+    expect(keySequence('shiftDown')).toBe('\x1b[1;2B');
     expect(keySequence('pipe')).toBe('|');
     expect(keySequence('tilde')).toBe('~');
     expect(keySequence('slash')).toBe('/');
