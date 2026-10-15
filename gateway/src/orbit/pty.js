@@ -21,6 +21,7 @@ const run = promisify(execFile);
 // - the most recently used device decides the window size.
 const TMUX_SOCKET = 'orbit';
 const TMUX_CONF = `set -ga terminal-overrides ',xterm*:smcup@:rmcup@'
+set -as terminal-features ',*:hyperlinks'
 set -g history-limit 10000
 set -g status off
 set -g window-size latest

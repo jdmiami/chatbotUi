@@ -14,6 +14,8 @@ export type TouchKeyId =
   | 'up'
   | 'down'
   | 'right'
+  | 'shiftUp'
+  | 'shiftDown'
   | 'pipe'
   | 'tilde'
   | 'slash'
@@ -41,6 +43,9 @@ export const TOUCH_KEYS: readonly TouchKey[] = [
   { id: 'up', label: '↑', ariaLabel: 'Arrow up', kind: 'send' },
   { id: 'down', label: '↓', ariaLabel: 'Arrow down', kind: 'send' },
   { id: 'right', label: '→', ariaLabel: 'Arrow right', kind: 'send' },
+  // Many full-screen programs (agy's scrolling panels, editors) scroll with Shift+arrows.
+  { id: 'shiftUp', label: '⇧↑', ariaLabel: 'Shift + arrow up', kind: 'send' },
+  { id: 'shiftDown', label: '⇧↓', ariaLabel: 'Shift + arrow down', kind: 'send' },
   { id: 'pipe', label: '|', ariaLabel: 'Pipe', kind: 'send' },
   { id: 'tilde', label: '~', ariaLabel: 'Tilde', kind: 'send' },
   { id: 'slash', label: '/', ariaLabel: 'Slash', kind: 'send' },
@@ -55,6 +60,8 @@ const ARROWS: Partial<Record<TouchKeyId, string>> = { up: 'A', down: 'B', right:
 const LITERALS: Partial<Record<TouchKeyId, string>> = {
   esc: '\x1b',
   tab: '\t',
+  shiftUp: '\x1b[1;2A',
+  shiftDown: '\x1b[1;2B',
   pipe: '|',
   tilde: '~',
   slash: '/',

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { lastLink, linkLabel } from '../../src/apps/terminal/links';
+import { lastLink, linkLabel, webLink } from '../../src/apps/terminal/links';
 
 describe('lastLink', () => {
   it('finds the newest address', () => {
@@ -23,6 +23,16 @@ describe('lastLink', () => {
   it('ignores non-web schemes and returns null when there is nothing', () => {
     expect(lastLink('javascript:alert(1) file:///etc/passwd')).toBeNull();
     expect(lastLink('no links here')).toBeNull();
+  });
+});
+
+describe('webLink', () => {
+  it('keeps a full http(s) address exactly, refuses other schemes', () => {
+    const u = 'https://accounts.google.com/o/oauth2/auth?a=1&redirect_uri=https%3A%2F%2Fx.example%2Fcb)';
+    expect(webLink(u)).toBe(u);
+    expect(webLink('javascript:alert(1)')).toBeNull();
+    expect(webLink('file:///etc/passwd')).toBeNull();
+    expect(webLink('not a url')).toBeNull();
   });
 });
 

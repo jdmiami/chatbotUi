@@ -82,6 +82,48 @@
   min-width: 40px;
 }
 
+/* Typing box: what you type is always visible, right above the keys / keyboard. */
+.term-compose {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px calc(var(--safe-right) + 8px) 6px calc(var(--safe-left) + 8px);
+  background: var(--surface);
+  border-top: 1px solid var(--border);
+}
+.term-compose-input {
+  flex: 1;
+  min-width: 0;
+  height: 40px;
+  padding: 0 14px;
+  border-radius: 20px;
+  border: 1px solid var(--border);
+  background: var(--term-bg);
+  color: var(--term-fg);
+  font-family: var(--font-mono);
+  font-size: 16px; /* below 16px iOS zooms the page on focus */
+}
+.term-compose-input:focus {
+  outline: 2px solid var(--accent);
+  outline-offset: -1px;
+}
+.term-compose-send {
+  flex: none;
+  width: 40px;
+  height: 40px;
+  border: 0;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  background: var(--accent);
+  color: #fff;
+}
+.term-compose-send:disabled,
+.term-compose-input:disabled {
+  opacity: 0.5;
+}
+
 /* "Open link" bar: appears when a web address is printed (e.g. a sign-in link). */
 .term-link {
   flex: none;
@@ -391,7 +433,9 @@
   font-family: var(--font-mono);
   font-size: 13px;
   line-height: 1.4;
-  white-space: pre;
+  /* Wrap long lines so a phone can select and read them without sideways scrolling. */
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
   -webkit-user-select: text;
   user-select: text;
 }

@@ -4,6 +4,8 @@ import {
   useLayoutEffect,
   useRef,
   useState,
+  type FormEvent,
+  type KeyboardEvent as ReactKeyboardEvent,
   type MouseEvent as ReactMouseEvent,
   type PointerEvent as ReactPointerEvent,
 } from 'react';
@@ -19,19 +21,21 @@ import type { SimulatedShell } from '../../services/terminal/simulated/Simulated
 import type { PtyBackend } from '../../services/terminal/pty/PtyBackend';
 import { useShell } from '../../state/shell';
 import { useWorkspace } from '../../state/workspace';
+import { useLayout } from '../../state/viewport';
 import {
   FONT_MAX,
   FONT_MIN,
   TOUCH_KEYS,
   applyStickyCtrl,
   clampFontSize,
+  ctrlTransform,
   keySequence,
   parseOsc7,
   terminalSummary,
   withAlpha,
   type TouchKey,
 } from './termKeys';
-import { lastLink, linkLabel } from './links';
+import { lastLink, linkLabel, webLink } from './links';
 import './terminal.css';
 
 /**
@@ -118,6 +122,22 @@ const keepFocus = (e: ReactPointerEvent | ReactMouseEvent) => e.preventDefault()
 export default function TerminalApp({ placement, isActive, compact }: AppProps) {
   const fontSize = useShell((s) => clampFontSize(s.settings.terminalFontSize));
   const showKeys = useShell((s) => s.settings.terminalKeys);
+  const typingBoxPref = useShell((s) => s.settings.terminalTypingBox);
+  const [coarse] = useState(() => window.matchMedia?.('(pointer: coarse)').matches ?? false);
+  /** Type into a visible box above the keys (phones by default) instead of straight into xterm. */
+  const { isPhone } = useLayout();
+  const typingBox = typingBoxPref ?? (isPhone && coarse);
+  const typingBoxRef = useRef(typingBox);
+  typingBoxRef.current = typingBox;
+  const composeRef = useRef<HTMLInputElement>(null);
+  const [draft, setDraftState] = useState('');
+  const draftRef = useRef('');
+  const setDraft = useCallback((v: string) => {
+    draftRef.current = v;
+    setDraftState(v);
+  }, []);
+  /** The shell is asking for a password: the typing box hides what is typed. */
+  const [secretPrompt, setSecretPrompt] = useState(false);
   const accent = useShell((s) => s.settings.accent);
   const themePref = useShell((s) => s.settings.theme);
   const updateSettings = useShell((s) => s.updateSettings);
@@ -152,6 +172,8 @@ export default function TerminalApp({ placement, isActive, compact }: AppProps) 
   /** The newest web address printed in the terminal (e.g. a sign-in link), for the "Open link" bar. */
   const [link, setLink] = useState<string | null>(null);
   const dismissedLink = useRef<string | null>(null);
+  /** The newest address a program sent as a hidden full link (OSC 8), even if cut off on screen. */
+  const oscLink = useRef<string | null>(null);
   const linkTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const outputTail = useRef('');
   /** What the error panel's Retry repeats. */
@@ -232,7 +254,10 @@ export default function TerminalApp({ placement, isActive, compact }: AppProps) 
     }
     // Only recent output: an address from long ago (still in tmux's history) isn't what you want.
     const recent = text.replace(/\s+$/, '').split('\n').slice(-60).join('\n');
-    const url = lastLink(recent, termRef.current?.cols ?? 0);
+    let url = lastLink(recent, termRef.current?.cols ?? 0);
+    // A program's hidden full link wins over the (possibly cut-off) text on screen.
+    const osc = oscLink.current;
+    if (osc && (!url || osc.startsWith(url) || recent.includes(osc.slice(0, 40)))) url = osc;
     if (url && url !== dismissedLink.current) setLink(url);
   }, [backend]);
   const findLinkRef = useRef(findLink);
@@ -250,6 +275,12 @@ export default function TerminalApp({ placement, isActive, compact }: AppProps) 
       cursorBlink: true,
       macOptionIsMeta: true,
       theme: readTheme(),
+      // Tapping/clicking an underlined link a program printed (OSC 8) opens it directly.
+      linkHandler: {
+        activate: (_e, uri) => {
+          if (webLink(uri)) window.open(uri, '_blank', 'noopener,noreferrer');
+        },
+      },
     });
     const fit = new FitAddon();
     term.loadAddon(fit);
@@ -268,14 +299,32 @@ export default function TerminalApp({ placement, isActive, compact }: AppProps) 
         if (p) setCwd(p);
         return true;
       }),
+      // OSC 8 = hyperlink. Programs such as agy send the full address this way even when the text
+      // on screen is cut off, so the Open link bar uses it. Returning false lets xterm draw the link.
+      term.parser.registerOscHandler(8, (d) => {
+        const uri = webLink(d.slice(d.indexOf(';') + 1));
+        if (uri) {
+          oscLink.current = uri;
+          if (uri !== dismissedLink.current) setLink(uri);
+        }
+        return false;
+      }),
       // OSC 133;D = "command finished" (shell integration).
       term.parser.registerOscHandler(133, (d) => {
         if (d.startsWith('D')) setCommandTick((n) => n + 1);
         return true;
       }),
     ];
+    let secretTimer: ReturnType<typeof setTimeout> | undefined;
     const offOutput = backend.onOutput((d) => {
       term.write(d);
+      // Is the line the cursor is on a password prompt? (sudo, ssh, passwd, gpg…)
+      clearTimeout(secretTimer);
+      secretTimer = setTimeout(() => {
+        const b = term.buffer.active;
+        const line = b.getLine(b.baseY + b.cursorY)?.translateToString(true) ?? '';
+        setSecretPrompt(/(password|passphrase|passcode|\bpin)\b[^:\n]*:\s*$/i.test(line));
+      }, 150);
       // An address may arrive split across chunks; keep a little of the previous one.
       const seen = outputTail.current + d;
       outputTail.current = seen.slice(-16);
@@ -287,14 +336,20 @@ export default function TerminalApp({ placement, isActive, compact }: AppProps) 
 
     // Pinch with two fingers to change the text size (one finger still scrolls).
     let pinch: { d0: number; f0: number } | null = null;
+    let tap: { x: number; y: number; at: number } | null = null;
     const spread = (t: TouchList) => Math.hypot(t[0].clientX - t[1].clientX, t[0].clientY - t[1].clientY);
     const onPinchStart = (e: TouchEvent) => {
+      tap = e.touches.length === 1 ? { x: e.touches[0].clientX, y: e.touches[0].clientY, at: Date.now() } : null;
       if (e.touches.length !== 2) return;
       pinch = { d0: spread(e.touches) || 1, f0: clampFontSize(useShell.getState().settings.terminalFontSize) };
       e.preventDefault();
       e.stopPropagation();
     };
     const onPinchMove = (e: TouchEvent) => {
+      if (tap && e.touches.length === 1) {
+        const t = e.touches[0];
+        if (Math.hypot(t.clientX - tap.x, t.clientY - tap.y) > 10) tap = null; // a swipe scrolls
+      }
       if (!pinch || e.touches.length !== 2) return;
       e.preventDefault();
       e.stopPropagation();
@@ -303,6 +358,13 @@ export default function TerminalApp({ placement, isActive, compact }: AppProps) 
     };
     const onPinchEnd = (e: TouchEvent) => {
       if (e.touches.length < 2) pinch = null;
+      // A plain tap on the terminal puts you in the typing box (and keeps xterm's own hidden
+      // input, which the phone can't keep in view, out of the way).
+      if (e.type === 'touchend' && tap && e.touches.length === 0 && Date.now() - tap.at < 500 && typingBoxRef.current) {
+        e.preventDefault();
+        composeRef.current?.focus();
+      }
+      if (e.touches.length === 0) tap = null;
     };
     host.addEventListener('touchstart', onPinchStart, { capture: true, passive: false });
     host.addEventListener('touchmove', onPinchMove, { capture: true, passive: false });
@@ -334,6 +396,7 @@ export default function TerminalApp({ placement, isActive, compact }: AppProps) 
     return () => {
       cancelAnimationFrame(fitFrame.current);
       clearTimeout(linkTimer.current);
+      clearTimeout(secretTimer);
       host.removeEventListener('touchstart', onPinchStart, true);
       host.removeEventListener('touchmove', onPinchMove, true);
       host.removeEventListener('touchend', onPinchEnd, true);
@@ -459,7 +522,10 @@ export default function TerminalApp({ placement, isActive, compact }: AppProps) 
   const copy = async () => {
     const text = termRef.current?.getSelection() ?? '';
     if (!text) {
-      toast('Nothing selected. Use More → Select all, or drag across the text first.');
+      // Touch screens can't drag-select in the terminal: open the text view, where the phone's
+      // own selection (long-press, drag the handles) and Copy all / Copy screen work.
+      if (coarse || compact) openHistory();
+      else toast('Nothing selected. Drag across the text first, or use More → Show history.');
       return;
     }
     const ok = await writeClipboard(text);
@@ -484,11 +550,22 @@ export default function TerminalApp({ placement, isActive, compact }: AppProps) 
       return;
     }
     setCtrl(false); // a paste is never a Ctrl chord
+    if (typingBoxRef.current) {
+      // Into the typing box, so it can be checked before it runs.
+      setDraft(draftRef.current + text);
+      composeRef.current?.focus();
+      return;
+    }
     termRef.current?.paste(text); // honours bracketed paste; arrives through onData
     termRef.current?.scrollToBottom();
   };
 
   const toggleKeyboard = () => {
+    if (typingBoxRef.current) {
+      if (kbFocused) composeRef.current?.blur();
+      else composeRef.current?.focus();
+      return;
+    }
     const term = termRef.current;
     if (!term) return;
     if (kbFocused) term.blur();
@@ -505,8 +582,49 @@ export default function TerminalApp({ placement, isActive, compact }: AppProps) 
       return;
     }
     const term = termRef.current;
+    flushDraft(); // anything half-typed goes first, so the order is what you typed
     sendInput(keySequence(k.id, { appCursor: term?.modes.applicationCursorKeysMode }));
     term?.scrollToBottom();
+  };
+
+  /** Send the typing box's text as typed so far (no Return). */
+  function flushDraft() {
+    const v = draftRef.current;
+    if (!v) return;
+    setDraft('');
+    sendInput(v);
+  }
+
+  const submitDraft = (e: FormEvent) => {
+    e.preventDefault();
+    const v = draftRef.current;
+    setDraft('');
+    sendInput(`${v}\r`); // an empty box still sends Return ("press Enter to continue")
+    termRef.current?.scrollToBottom();
+  };
+
+  /** Keys with no text of their own, from a hardware keyboard or the phone's Delete key. */
+  const onComposeKey = (e: ReactKeyboardEvent<HTMLInputElement>) => {
+    if (e.nativeEvent.isComposing) return;
+    const empty = draftRef.current === '';
+    const appCursor = termRef.current?.modes.applicationCursorKeysMode;
+    const arrows: Record<string, 'up' | 'down' | 'left' | 'right'> = {
+      ArrowUp: 'up',
+      ArrowDown: 'down',
+      ArrowLeft: 'left',
+      ArrowRight: 'right',
+    };
+    let seq: string | null = null;
+    if (e.shiftKey && (e.key === 'ArrowUp' || e.key === 'ArrowDown')) seq = keySequence(e.key === 'ArrowUp' ? 'shiftUp' : 'shiftDown');
+    else if (e.ctrlKey && !e.metaKey && !e.altKey && e.key.length === 1) seq = ctrlTransform(e.key);
+    else if (e.key === 'Tab') seq = '\t';
+    else if (e.key === 'Escape') seq = '\x1b';
+    else if (empty && e.key === 'Backspace') seq = '\x7f';
+    else if (empty && arrows[e.key]) seq = keySequence(arrows[e.key], { appCursor });
+    if (seq === null) return;
+    e.preventDefault();
+    flushDraft();
+    sendInput(seq);
   };
 
   const changeFont = (delta: number) => updateSettings({ terminalFontSize: clampFontSize(fontSize + delta) });
@@ -532,6 +650,16 @@ export default function TerminalApp({ placement, isActive, compact }: AppProps) 
     const lines: string[] = [];
     if (buf) for (let i = 0; i < buf.length; i++) lines.push(buf.getLine(i)?.translateToString(true) ?? '');
     setHistory({ status: 'ready', text: lines.join('\n').replace(/\s+$/, '') + '\n' });
+  };
+
+  /** What is on the terminal screen right now, as text. */
+  const screenText = () => {
+    const term = termRef.current;
+    if (!term) return '';
+    const b = term.buffer.active;
+    const lines: string[] = [];
+    for (let i = b.viewportY; i < b.viewportY + term.rows; i++) lines.push(b.getLine(i)?.translateToString(true) ?? '');
+    return lines.join('\n').replace(/\s+$/, '') + '\n';
   };
 
   const selectAll = () => {
@@ -750,6 +878,39 @@ export default function TerminalApp({ placement, isActive, compact }: AppProps) 
             ))}
           </div>
         )}
+
+        {typingBox && (
+          <form className="term-compose" onSubmit={submitDraft}>
+            <input
+              ref={composeRef}
+              className="term-compose-input"
+              type={secretPrompt ? 'password' : 'text'}
+              value={draft}
+              onChange={(e) => setDraft(e.target.value)}
+              onKeyDown={onComposeKey}
+              onFocus={() => setKbFocused(true)}
+              onBlur={() => setKbFocused(false)}
+              placeholder={secretPrompt ? 'Password (hidden), then Return' : 'Type here, then Return'}
+              aria-label={secretPrompt ? 'Password for the terminal (hidden)' : 'Type into the terminal'}
+              autoCapitalize="off"
+              autoCorrect="off"
+              autoComplete="off"
+              spellCheck={false}
+              enterKeyHint="send"
+              disabled={!inputEnabled}
+            />
+            <button
+              type="submit"
+              className="term-compose-send"
+              aria-label={draft ? 'Send' : 'Send Return'}
+              disabled={!inputEnabled}
+              onPointerDown={keepFocus}
+              onMouseDown={keepFocus}
+            >
+              <Icon name="send" size={18} />
+            </button>
+          </form>
+        )}
       </div>
 
       {sheet === 'more' && (
@@ -794,6 +955,17 @@ export default function TerminalApp({ placement, isActive, compact }: AppProps) 
                   checked={showKeys}
                   onChange={(v) => updateSettings({ terminalKeys: v })}
                   label="Show touch key row"
+                />
+              </div>
+              <div className="row">
+                <div className="row-main">
+                  <span className="row-title">Typing box</span>
+                  <span className="row-sub">Type above the keys, then Return. Off: type straight into the terminal.</span>
+                </div>
+                <Toggle
+                  checked={typingBox}
+                  onChange={(v) => updateSettings({ terminalTypingBox: v })}
+                  label="Use the typing box"
                 />
               </div>
             </div>
@@ -866,7 +1038,7 @@ export default function TerminalApp({ placement, isActive, compact }: AppProps) 
 
       {sheet === 'history' && (
         <Sheet
-          title="Terminal history"
+          title="Select and copy"
           onClose={() => setSheet(null)}
           footer={
             <div className="term-history-actions">
@@ -882,6 +1054,17 @@ export default function TerminalApp({ placement, isActive, compact }: AppProps) 
                 }}
               >
                 <Icon name="copy" size={18} /> Copy all
+              </button>
+              <button
+                type="button"
+                className="btn ghost"
+                onClick={() =>
+                  void writeClipboard(screenText()).then((ok) =>
+                    toast(ok ? 'Screen copied' : "Couldn't copy: the browser blocked clipboard access.", ok ? 'success' : 'error'),
+                  )
+                }
+              >
+                Copy screen
               </button>
               <button type="button" className="btn primary" onClick={() => setSheet(null)}>
                 Done

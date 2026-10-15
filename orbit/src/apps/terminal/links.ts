@@ -42,6 +42,16 @@ export function lastLink(text: string, cols = 0): string | null {
   return null;
 }
 
+/** The address itself if it is a usable http(s) link (e.g. from an OSC 8 hyperlink), else null. */
+export function webLink(uri: string): string | null {
+  try {
+    const u = new URL(uri);
+    return (u.protocol === 'https:' || u.protocol === 'http:') && u.hostname ? uri : null;
+  } catch {
+    return null;
+  }
+}
+
 /** Short form for display: host and the start of the path. */
 export function linkLabel(url: string): string {
   try {
