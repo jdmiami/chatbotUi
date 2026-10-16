@@ -68,6 +68,59 @@
   border: 1px solid var(--border); background: var(--surface); color: var(--text); font: inherit; font-size: 16px; padding: 10px 12px;
 }
 .ai-send { flex: none; }
+/* Chat / Create */
+.ai-tabs { flex: none; display: flex; justify-content: center; padding: var(--space-2) var(--space-3) 0; }
+.ai-tabs .segmented { width: 100%; max-width: 360px; }
+.ai-tabs .segmented button { flex: 1; }
+.ai-layout[hidden] { display: none; }
+
+.ai-create {
+  flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain;
+  padding: var(--space-3) var(--space-3) calc(var(--space-4) + var(--safe-bottom));
+  display: flex; flex-direction: column; gap: var(--space-3);
+}
+.ai-create > * { width: 100%; max-width: 760px; margin-inline: auto; }
+.ai-create-form {
+  display: flex; flex-direction: column; gap: var(--space-2); padding: var(--space-3);
+  border-radius: var(--radius-md); background: var(--surface); border: 1px solid var(--border);
+}
+.ai-create-form textarea {
+  width: 100%; resize: none; min-height: 88px; border-radius: var(--radius-md); border: 1px solid var(--border);
+  background: var(--surface-2); color: var(--text); font: inherit; font-size: 16px; padding: 10px 12px;
+}
+.ai-create-form > .segmented { display: flex; }
+.ai-create-form > .segmented button { flex: 1; }
+.ai-create-options { display: flex; flex-wrap: wrap; gap: var(--space-2); }
+.ai-create-photo { display: flex; align-items: center; gap: var(--space-2); }
+.ai-create-photo img { width: 56px; height: 56px; object-fit: cover; border-radius: var(--radius-sm); flex: none; }
+.ai-create-photo .ai-muted { flex: 1; }
+.ai-make { width: 100%; }
+.ai-jobs { list-style: none; padding: 0; display: flex; flex-direction: column; gap: var(--space-2); }
+.ai-job {
+  display: flex; align-items: center; gap: var(--space-2); padding: var(--space-2) var(--space-2) var(--space-2) var(--space-3);
+  border-radius: var(--radius-md); background: var(--surface); border: 1px solid var(--border);
+}
+.ai-job-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 6px; }
+.ai-gallery.ai-gallery { max-width: 1100px; }
+.ai-gallery { list-style: none; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: var(--space-2); }
+@media (min-width: 700px) { .ai-gallery { grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); } }
+.ai-tile {
+  position: relative; display: block; width: 100%; aspect-ratio: 1; padding: 0; border: 0; cursor: pointer;
+  border-radius: var(--radius-md); overflow: hidden; background: var(--surface-3);
+}
+.ai-tile img, .ai-tile video { display: block; width: 100%; height: 100%; object-fit: cover; pointer-events: none; }
+.ai-tile-badge {
+  position: absolute; left: 6px; bottom: 6px; display: inline-flex; align-items: center; gap: 4px;
+  padding: 2px 8px; border-radius: 999px; background: rgba(0, 0, 0, 0.6); color: #fff; font-size: var(--fs-xs);
+}
+.ai-viewer { display: flex; flex-direction: column; gap: var(--space-3); }
+.ai-viewer img, .ai-viewer video {
+  display: block; width: 100%; max-height: 62dvh; object-fit: contain; border-radius: var(--radius-md); background: #000;
+}
+.ai-viewer-prompt { margin: 0; color: var(--text-2); white-space: pre-wrap; overflow-wrap: anywhere; }
+.ai-viewer-actions { display: flex; flex-wrap: wrap; gap: var(--space-2); }
+.ai-viewer-actions .btn { flex: 1 1 auto; text-decoration: none; }
+
 /* Short screens (iPhone sideways): picker and message box share one row so the chat keeps the room. */
 @media (max-height: 520px) {
   .ai-composer { flex-direction: row; align-items: flex-end; }
@@ -80,6 +133,6 @@
 }
 /* Touch screens: every control at least 44px tall. */
 @media (pointer: coarse) {
-  .ai-msg-actions .btn, .ai-model select, .ai-think summary { min-height: var(--tap); }
+  .ai-msg-actions .btn, .ai-model select, .ai-think summary, .ai-root .segmented button { min-height: var(--tap); }
 }
 @media (prefers-reduced-motion: reduce) { .ai-dot { animation: none !important; } .ai-bar span { transition: none; } }

@@ -7,6 +7,7 @@
 // sets its own HttpOnly cookie and from then on tells Open WebUI who the user is with a trusted
 // header (which it always strips from incoming requests, so nobody can forge it).
 import crypto from 'node:crypto';
+import fs from 'node:fs';
 import http from 'node:http';
 import net from 'node:net';
 import { signJwt, verifyJwt } from './jwt.js';
@@ -53,6 +54,22 @@ function withoutCookie(header, name) {
   return kept.length ? kept.join('; ') : undefined;
 }
 
+function readBody(req, max) {
+  return new Promise((resolve, reject) => {
+    const chunks = [];
+    let size = 0;
+    req.on('data', (c) => {
+      size += c.length;
+      if (size > max) {
+        reject(Object.assign(new Error('The request is too large.'), { status: 413 }));
+        req.destroy();
+      } else chunks.push(c);
+    });
+    req.on('end', () => resolve(Buffer.concat(chunks).toString('utf8')));
+    req.on('error', reject);
+  });
+}
+
 const bearer = (req) => {
   const h = req.headers.authorization || '';
   return h.startsWith('Bearer ') ? h.slice(7) : null;
@@ -68,6 +85,8 @@ const bearer = (req) => {
  *   trustedEmailHeader, trustedNameHeader
  *   activity()              called whenever someone uses the AI (keeps the machine on)
  *   status()                async () => object for /_orbit/status
+ *   studio                  image/video maker (studio.js), optional
+ *   studioKey               key Open WebUI uses for the studio from inside the machine (loopback only)
  */
 export function createGate(cfg, log = console) {
   const secret = cfg.secret;
@@ -80,6 +99,8 @@ export function createGate(cfg, log = console) {
   const webui = new URL(cfg.webui);
   const ollama = new URL(cfg.ollama);
   const activity = cfg.activity || (() => {});
+  const studio = cfg.studio || null;
+  const studioKey = cfg.studioKey ? Buffer.from(cfg.studioKey) : null;
 
   const apiToken = (req) => {
     try {
@@ -96,6 +117,25 @@ export function createGate(cfg, log = console) {
     }
   };
 
+  // Open WebUI (same machine) calling the studio with the per-boot key.
+  const internal = (req) => {
+    const key = req.headers['x-studio-key'] || bearer(req);
+    if (!studioKey || !key) return false;
+    const given = Buffer.from(String(key));
+    const addr = req.socket.remoteAddress || '';
+    const loopback = addr === '127.0.0.1' || addr === '::1' || addr === '::ffff:127.0.0.1';
+    return loopback && given.length === studioKey.length && crypto.timingSafeEqual(given, studioKey);
+  };
+  // Links to results for <img>/<video> tags, which can't send a bearer token.
+  const fileToken = (id) => signJwt({ sub: id, aud: 'orbit-ai-file' }, secret, { expiresIn: 12 * 3600 });
+  const fileTokenOk = (token, id) => {
+    try {
+      return verifyJwt(token, secret, { audience: 'orbit-ai-file' }).sub === id;
+    } catch {
+      return false;
+    }
+  };
+
   function cors(req, res) {
     const origin = req.headers.origin;
     if (!origin) return true;
@@ -103,7 +143,7 @@ export function createGate(cfg, log = console) {
     res.setHeader('Access-Control-Allow-Origin', origin);
     res.setHeader('Vary', 'Origin');
     res.setHeader('Access-Control-Allow-Headers', 'Authorization, Content-Type');
-    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, DELETE, OPTIONS');
     res.setHeader('Access-Control-Max-Age', '600');
     return true;
   }
@@ -198,6 +238,13 @@ export function createGate(cfg, log = console) {
       }
     }
 
+    // ---- image and video maker
+    if (studio && (path === '/v1/images/generations' || path === '/_orbit/studio' || path.startsWith('/_orbit/studio/'))) {
+      if (!cors(req, res)) return send(res, 403, { error: 'Origin not allowed' });
+      if (req.method === 'OPTIONS') return send(res, 204, '');
+      return handleStudio(req, res, url, path);
+    }
+
     // ---- OpenAI-compatible API (Ollama) for Orbit's chat and the coding agent
     if (path === '/v1' || path.startsWith('/v1/')) {
       if (!cors(req, res)) return send(res, 403, { error: { message: 'Origin not allowed' } });
@@ -225,6 +272,100 @@ export function createGate(cfg, log = console) {
     if (req.method !== 'GET' && req.method !== 'HEAD') activity();
     return proxy(req, res, webui, req.url, user);
   });
+
+  async function handleStudio(req, res, url, path) {
+    const fileMatch = /^\/_orbit\/studio\/file\/([A-Za-z0-9_-]+)$/.exec(path);
+    const viaApi = Boolean(apiToken(req));
+    const signedIn = viaApi || Boolean(session(req)) || internal(req);
+    if (fileMatch && req.method === 'GET') {
+      if (!signedIn && !fileTokenOk(url.searchParams.get('t'), fileMatch[1])) return send(res, 401, { error: 'Unauthorized' });
+      return sendFile(req, res, await studio.file(fileMatch[1]), url.searchParams.has('download'));
+    }
+    if (!signedIn) return send(res, 401, { error: { message: 'Unauthorized' } });
+    activity();
+    // Results carry a link; API callers (Orbit) get one that works in <img>/<video> tags.
+    const withUrl = (it) => (it ? { ...it, url: `/_orbit/studio/file/${it.id}${viaApi ? `?t=${fileToken(it.id)}` : ''}` } : it);
+    const withJobUrl = (j) => (j ? { ...j, item: withUrl(j.item) } : j);
+    try {
+      if (path === '/v1/images/generations' && req.method === 'POST') return await openaiImage(req, res);
+      if (path === '/_orbit/studio' && req.method === 'GET') return send(res, 200, await studio.state());
+      if (path === '/_orbit/studio/items' && req.method === 'GET') return send(res, 200, { items: (await studio.items()).map(withUrl) });
+      if (path === '/_orbit/studio/jobs' && req.method === 'POST') {
+        const body = JSON.parse((await readBody(req, 30 * 1024 * 1024)) || '{}');
+        return send(res, 200, withJobUrl(await studio.createJob(body)));
+      }
+      const jobMatch = /^\/_orbit\/studio\/jobs\/([A-Za-z0-9_-]+)(\/cancel)?$/.exec(path);
+      if (jobMatch && req.method === 'GET' && !jobMatch[2]) {
+        const j = studio.job(jobMatch[1]);
+        return j ? send(res, 200, withJobUrl(j)) : send(res, 404, { error: 'No such job' });
+      }
+      if (jobMatch && req.method === 'POST' && jobMatch[2]) {
+        const j = await studio.cancel(jobMatch[1]);
+        return j ? send(res, 200, withJobUrl(j)) : send(res, 404, { error: 'No such job' });
+      }
+      const itemMatch = /^\/_orbit\/studio\/items\/([A-Za-z0-9_-]+)$/.exec(path);
+      if (itemMatch && req.method === 'DELETE') return send(res, (await studio.remove(itemMatch[1])) ? 200 : 404, { ok: true });
+      return send(res, 404, { error: 'Not found' });
+    } catch (err) {
+      const code = err.status || (err instanceof SyntaxError ? 400 : 500);
+      return send(res, code, { error: err.message, blocked: Boolean(err.blocked) });
+    }
+  }
+
+  // OpenAI-style image endpoint, so Open WebUI's built-in image button uses the image maker.
+  async function openaiImage(req, res) {
+    let body;
+    try {
+      body = JSON.parse((await readBody(req, 1024 * 1024)) || '{}');
+    } catch {
+      return send(res, 400, { error: { message: 'Invalid JSON' } });
+    }
+    const [w, h] = String(body.size || '').split('x').map(Number);
+    const size = w && h ? (w > h * 1.2 ? 'landscape' : h > w * 1.2 ? 'portrait' : 'square') : 'square';
+    let job;
+    try {
+      job = await studio.createJob({ kind: 'image', prompt: body.prompt, size });
+    } catch (err) {
+      return send(res, err.status || 500, { error: { message: err.message } });
+    }
+    const deadline = Date.now() + 15 * 60_000;
+    while ((job.status === 'queued' || job.status === 'running') && Date.now() < deadline) {
+      await new Promise((r) => setTimeout(r, 1000));
+      job = studio.job(job.id) || job;
+    }
+    if (job.status !== 'done') return send(res, 500, { error: { message: job.error || 'The image took too long.' } });
+    const file = await studio.file(job.item?.id ?? job.id);
+    if (!file) return send(res, 500, { error: { message: 'The picture went missing.' } });
+    const b64 = (await fs.promises.readFile(file.path)).toString('base64');
+    return send(res, 200, { created: Math.floor(Date.now() / 1000), data: [{ b64_json: b64, revised_prompt: job.prompt }] });
+  }
+
+  // Send a result file; supports Range requests (iPhone/iPad Safari needs them to play video).
+  function sendFile(req, res, file, download) {
+    if (!file) return send(res, 404, { error: 'Not found' });
+    const headers = {
+      'content-type': file.type,
+      'accept-ranges': 'bytes',
+      'cache-control': 'private, max-age=86400',
+      'content-disposition': `${download ? 'attachment' : 'inline'}; filename="${file.name}"`,
+    };
+    const range = /^bytes=(\d*)-(\d*)$/.exec(req.headers.range || '');
+    let start = 0;
+    let end = file.size - 1;
+    if (range) {
+      start = range[1] ? Number(range[1]) : Math.max(0, file.size - Number(range[2]));
+      end = range[1] && range[2] ? Math.min(Number(range[2]), file.size - 1) : file.size - 1;
+      if (start > end || start >= file.size) {
+        res.writeHead(416, { 'content-range': `bytes */${file.size}` });
+        return res.end();
+      }
+      res.writeHead(206, { ...headers, 'content-range': `bytes ${start}-${end}/${file.size}`, 'content-length': end - start + 1 });
+    } else {
+      res.writeHead(200, { ...headers, 'content-length': file.size });
+    }
+    if (req.method === 'HEAD') return res.end();
+    fs.createReadStream(file.path, { start, end }).pipe(res);
+  }
 
   // WebSockets (Open WebUI's live updates). Same cookie rule; piped as raw bytes once upgraded.
   server.on('upgrade', (req, socket, head) => {

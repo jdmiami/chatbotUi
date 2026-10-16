@@ -4,6 +4,7 @@
 #
 #   browser --https--> gate :8080 --> Open WebUI 127.0.0.1:8081 --> Ollama 127.0.0.1:11434 (GPU)
 #   Orbit / coding agent --> gate :8080 /v1 --> Ollama
+#   images and videos     --> gate :8080 /_orbit/studio --> ComfyUI 127.0.0.1:8188 (ai/studio.sh)
 #
 # Only port 8080 (the gate) is exposed. The gate signs people in with tokens from the web app
 # (GATEWAY_SECRET, the same secret as the Linux machine) and stops the pod after IDLE_MINUTES unused.
@@ -33,10 +34,15 @@ if [ ! -x "$NODE_DIR/bin/node" ]; then
 fi
 
 log "fetching the gate"
-rm -rf /opt/gate && mkdir -p /opt/gate/src
-for f in package.json src/index.js src/gate.js src/jwt.js src/machine.js; do
+rm -rf /opt/gate && mkdir -p /opt/gate/src /opt/gate/openwebui
+for f in package.json src/index.js src/gate.js src/jwt.js src/machine.js src/studio.js src/workflows.js src/openwebui.js openwebui/studio_pipe.py; do
   curl -fsSL "${REPO_RAW}/ai/gate/${f}" -o "/opt/gate/${f}"
 done
+curl -fsSL "${REPO_RAW}/ai/studio.sh" -o /opt/gate/studio.sh
+
+# A key for Open WebUI to reach the image/video maker through the gate (new on every start).
+STUDIO_KEY=$(od -An -tx1 -N24 /dev/urandom | tr -d ' \n')
+STUDIO_DIR="$P/studio"
 
 public_url="https://${RUNPOD_POD_ID:-localhost}-8080.proxy.runpod.net"
 
@@ -58,8 +64,16 @@ log "starting Open WebUI and Ollama"
     ENABLE_WEB_SEARCH=true WEB_SEARCH_ENGINE=duckduckgo WEB_SEARCH_RESULT_COUNT=5 \
     ENABLE_CODE_INTERPRETER=true \
     DEFAULT_MODELS="$CHAT_MODEL" \
+    ENABLE_IMAGE_GENERATION=true IMAGE_GENERATION_ENGINE=openai \
+    IMAGES_OPENAI_API_BASE_URL=http://127.0.0.1:8080/v1 IMAGES_OPENAI_API_KEY="$STUDIO_KEY" \
+    IMAGE_GENERATION_MODEL=qwen-image-2.1 IMAGE_SIZE=1328x1328 \
+    ORBIT_STUDIO_KEY="$STUDIO_KEY" \
     bash start.sh
 ) 2>&1 | sed -u 's/^/[webui] /' &
+
+# Image and video maker (ComfyUI). Installs once onto the volume, then runs on 127.0.0.1:8188.
+log "starting the image and video maker"
+(env -u GATEWAY_SECRET -u RUNPOD_API_KEY STUDIO_DIR="$STUDIO_DIR" PERSIST_DIR="$P" bash /opt/gate/studio.sh) 2>&1 | sed -u 's/^/[studio] /' &
 
 log "starting the gate on :8080"
 cd /opt/gate
@@ -67,6 +81,7 @@ while true; do
   env PORT=8080 OLLAMA_URL=http://127.0.0.1:11434 WEBUI_URL=http://127.0.0.1:8081 \
     SITE_URL="${SITE_URL:-}" ALLOWED_ORIGINS="${ALLOWED_ORIGINS:-}" IDLE_MINUTES="${IDLE_MINUTES:-30}" \
     DEFAULT_MODELS="$DEFAULT_MODELS" AI_USER_EMAIL="${AI_USER_EMAIL:-owner@orbit.local}" \
+    STUDIO_DIR="$STUDIO_DIR" STUDIO_KEY="$STUDIO_KEY" \
     "$NODE_DIR/bin/node" src/index.js || true
   log "gate exited, restarting in 2s"
   sleep 2

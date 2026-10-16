@@ -1,6 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
+import AiSpeed, { type AiTier } from '../AiSpeed';
 
 type State = 'unconfigured' | 'off' | 'starting' | 'downloading' | 'on' | 'error';
 interface Status {
@@ -12,6 +13,8 @@ interface Status {
   idle?: { limitMinutes: number; idleMinutes: number } | null;
   url?: string;
   consoleUrl?: string;
+  tier?: string | null;
+  tiers?: AiTier[];
 }
 
 const STEPS: { key: string; label: string }[] = [
@@ -39,6 +42,8 @@ export default function AiLauncher({ target, next }: { target: 'chat' | 'code'; 
   const [error, setError] = useState<string | null>(null);
   const [opening, setOpening] = useState(false);
   const [codeNote, setCodeNote] = useState<string | null>(null);
+  const [speed, setSpeed] = useState<string | null>(null);
+  const [switching, setSwitching] = useState(false);
   const started = useRef(false);
   const leaving = useRef(false);
 
@@ -77,14 +82,21 @@ export default function AiLauncher({ target, next }: { target: 'chat' | 'code'; 
     if (target === 'chat' && s.state === 'on') void go();
   }, [go, target]);
 
-  const start = useCallback(async () => {
+  const start = useCallback(async (tier?: string) => {
     setError(null);
     try {
-      setStatus(await post('/api/ai', { action: 'start' }));
+      setStatus(await post('/api/ai', { action: 'start', tier }));
     } catch (err) {
       setError((err as Error).message);
     }
   }, []);
+
+  const switchTo = async (tier: string) => {
+    setSwitching(true);
+    leaving.current = false;
+    await start(tier);
+    setSwitching(false);
+  };
 
   // First look: turn the machine on if it's off. Coding opens right away (the editor doesn't need
   // the model to load; the agent uses it once the AI machine is up).
@@ -119,7 +131,12 @@ export default function AiLauncher({ target, next }: { target: 'chat' | 'code'; 
   };
 
   const idx = stepIndex(status, opening);
-  const cost = status?.costPerHour != null ? `$${status.costPerHour.toFixed(2)}/hour while on` : '$0.59/hour while on';
+  const tiers = status?.tiers ?? [];
+  const current = tiers.find((t) => t.id === status?.tier) ?? tiers[0];
+  const chosen = speed ?? current?.id ?? 'standard';
+  const cost =
+    (current ? `${current.label} (${current.gpuName}): ` : '') +
+    (status?.costPerHour != null ? `$${status.costPerHour.toFixed(2)}/hour while on` : `$${(current?.pricePerHour ?? 0.59).toFixed(2)}/hour while on`);
   const title = target === 'chat' ? 'AI playground' : 'Coding with your own AI';
 
   return (
@@ -170,8 +187,16 @@ export default function AiLauncher({ target, next }: { target: 'chat' | 'code'; 
                     : ''}
             </p>
             <p className="muted small">
-              {cost}. It turns itself off after {status?.idle?.limitMinutes ?? 30} minutes unused; your chats and models are kept.
+              {cost}. It turns itself off after {status?.idle?.limitMinutes ?? current?.idleMinutes ?? 30} minutes unused; your chats and models are kept.
             </p>
+            <AiSpeed tiers={tiers} value={chosen} onChange={setSpeed} disabled={switching} />
+            {current && chosen !== current.id && (
+              <div className="row">
+                <button type="button" onClick={() => void switchTo(chosen)} disabled={switching}>
+                  {switching ? 'Switching…' : `Switch to ${tiers.find((t) => t.id === chosen)?.label} (restarts, about 3 min)`}
+                </button>
+              </div>
+            )}
           </>
         )}
 
@@ -195,7 +220,7 @@ export default function AiLauncher({ target, next }: { target: 'chat' | 'code'; 
             </button>
           )}
           {(status?.state === 'error' || error) && (
-            <button type="button" onClick={() => void start()}>
+            <button type="button" onClick={() => void start(chosen)}>
               Try again
             </button>
           )}

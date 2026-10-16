@@ -32,6 +32,21 @@ export interface AiStatus {
   /** Direct address of the AI machine (sign-in still goes through the site) and its Runpod page. */
   url?: string;
   consoleUrl?: string;
+  /** Speed the machine is on (or was last on), and the speeds to choose from. */
+  tier?: string | null;
+  tiers?: AiTier[];
+}
+
+/** A speed choice: which GPU the AI machine runs on, what it costs, when it turns itself off. */
+export interface AiTier {
+  id: string;
+  label: string;
+  gpu: string;
+  gpuName: string;
+  pricePerHour: number;
+  idleMinutes: number;
+  /** Plain-words speed compared to Standard. */
+  speed: string;
 }
 
 interface Pod {
@@ -41,6 +56,7 @@ interface Pod {
   cost?: number;
   createdAt?: string;
   env?: Record<string, string>;
+  gpu?: { id?: string } | null;
 }
 
 const env = () => ({
@@ -53,6 +69,24 @@ const env = () => ({
   models: process.env.AI_MODELS || 'qwen3.8:27b,qwen3.6:35b,qwen3.8-obliterated:27b=hf.co/OBLITERATUS/Qwen3.8-27B-OBLITERATED:Q6_K|like=qwen3.8:27b|temperature=0|repeat_penalty=1.15',
   secret: process.env.LINUX_GATEWAY_SECRET || '',
 });
+
+/**
+ * Speeds to choose from. Both default GPUs are in the volume's data center (a pod can only use a
+ * network volume in its own data center). Override with AI_TIERS (JSON array of AiTier).
+ */
+export function aiTiers(): AiTier[] {
+  try {
+    const custom = JSON.parse(process.env.AI_TIERS || 'null');
+    if (Array.isArray(custom) && custom.length) return custom as AiTier[];
+  } catch {
+    /* fall back to the defaults */
+  }
+  return [
+    { id: 'standard', label: 'Standard', gpu: env().gpuTypes[0] || 'NVIDIA A40', gpuName: 'A40 48 GB', pricePerHour: 0.59, idleMinutes: Number(env().idleMinutes) || 30, speed: 'normal speed' },
+    { id: 'turbo', label: 'Turbo', gpu: 'NVIDIA H100 80GB HBM3', gpuName: 'H100 80 GB', pricePerHour: 3.99, idleMinutes: 10, speed: 'about 4–6× faster' },
+  ];
+}
+const tierOf = (pod: Pod | null) => (pod?.gpu?.id ? (aiTiers().find((t) => t.gpu === pod.gpu!.id) ?? null) : null);
 
 /**
  * Set up when the site can manage the machine (Runpod key + volume), or at least knows a fixed
@@ -100,18 +134,19 @@ export async function findAiPod(): Promise<Pod | null> {
   return pods[0] ?? null;
 }
 
-async function createAiPod(): Promise<Pod> {
+async function createAiPod(tier: AiTier): Promise<Pod> {
   const e = env();
   const origins = process.env.LINUX_ALLOWED_ORIGINS || [siteUrl(), 'https://chatbot-ui-62nj-*-jdmiamis-projects.vercel.app'].filter(Boolean).join(',');
   let lastError: Error | null = null;
-  for (const gpu of e.gpuTypes) {
+  for (const gpu of [tier.gpu]) {
     try {
       return (await runpod('/pods', {
         method: 'POST',
         body: JSON.stringify({
           name: e.name,
           cloud: 'SECURE',
-          gpu: { id: gpu, count: 1, minCudaVersion: '12.4' },
+          // 12.8+: the image/video maker uses a CUDA 12.8 build of PyTorch.
+          gpu: { id: gpu, count: 1, minCudaVersion: '12.8' },
           dataCenterIds: [e.dataCenter],
           image: e.image,
           disk: 40,
@@ -124,7 +159,7 @@ async function createAiPod(): Promise<Pod> {
             REPO_RAW: repoRaw(),
             SITE_URL: siteUrl(),
             ALLOWED_ORIGINS: origins,
-            IDLE_MINUTES: e.idleMinutes,
+            IDLE_MINUTES: String(tier.idleMinutes),
             DEFAULT_MODELS: e.models,
           },
         }),
@@ -140,21 +175,58 @@ async function createAiPod(): Promise<Pod> {
 const noCapacity = (msg: string) =>
   /not enough|no (gpu|longer|instances?)|insufficient|capacity|unavailable|not available|free gpu/i.test(msg);
 
-const NO_GPU =
-  'No GPU is free for your AI machine right now: Runpod is out of them in its data center. This usually clears within the hour; try again in a few minutes.';
+const noGpu = (tier: AiTier, others: AiTier[]) =>
+  `No ${tier.label} GPU (${tier.gpuName}) is free right now: Runpod is out of them in its data center. ` +
+  (others.length ? `Try ${others.map((t) => t.label).join(' or ')}, or try again in a few minutes.` : 'This usually clears within the hour; try again in a few minutes.');
 
-/** Turn the AI machine on: start it, create it, or replace it when its host has no free GPU. */
-export async function startAi(): Promise<void> {
+/** Create a pod for `tier`, with a clear message when that GPU is sold out. */
+async function createOrExplain(tier: AiTier) {
+  try {
+    return await createAiPod(tier);
+  } catch (err) {
+    if (noCapacity((err as Error).message)) throw new Error(noGpu(tier, aiTiers().filter((t) => t.id !== tier.id)));
+    throw err;
+  }
+}
+
+async function waitStopped(podId: string, ms = 45_000) {
+  const until = Date.now() + ms;
+  while (Date.now() < until) {
+    const p = (await runpod(`/pods/${encodeURIComponent(podId)}`).catch(() => null)) as Pod | null;
+    if (!p || p.status === 'EXITED' || p.status === 'TERMINATED') return;
+    await new Promise((r) => setTimeout(r, 3000));
+  }
+}
+
+/**
+ * Turn the AI machine on at the chosen speed (default: the speed it was last on). Starts it,
+ * creates it, moves it to the other speed's GPU, or replaces it when its host has no free GPU.
+ * Models, chats and creations are on the network volume, so a new pod picks up where the old left off.
+ */
+export async function startAi(tierId?: string): Promise<void> {
   if (!process.env.RUNPOD_API_KEY) throw new Error('Add RUNPOD_API_KEY in Vercel so the site can turn the AI machine on.');
+  const tiers = aiTiers();
   const pod = await findAiPod();
+  const tier = tiers.find((t) => t.id === tierId) ?? tierOf(pod) ?? tiers[0];
   if (!pod) {
-    await createAiPod();
+    await createOrExplain(tier);
+    return;
+  }
+  const current = tierOf(pod);
+  if (current && current.gpu !== tier.gpu) {
+    // Another speed: stop this machine, start one on the other GPU, then remove the old one.
+    if (pod.status !== 'EXITED') {
+      await runpod(`/pods/${encodeURIComponent(pod.id)}/action`, { method: 'POST', body: JSON.stringify({ action: 'stop' }) }).catch(() => {});
+      await waitStopped(pod.id);
+    }
+    await createOrExplain(tier);
+    await runpod(`/pods/${encodeURIComponent(pod.id)}`, { method: 'DELETE' }).catch(() => {});
     return;
   }
   if (pod.status === 'RUNNING' || pod.status === 'STARTING' || pod.status === 'PROVISIONING') return;
   // Run the same code version and default models as this deployment: update a stopped machine
   // before starting it.
-  const want: Record<string, string> = { DEFAULT_MODELS: env().models };
+  const want: Record<string, string> = { DEFAULT_MODELS: env().models, IDLE_MINUTES: String(tier.idleMinutes) };
   if (process.env.VERCEL_GIT_COMMIT_SHA) want.REPO_RAW = repoRaw();
   if (pod.env && Object.entries(want).some(([k, v]) => pod.env![k] !== v)) {
     await runpod(`/pods/${encodeURIComponent(pod.id)}`, {
@@ -168,12 +240,7 @@ export async function startAi(): Promise<void> {
     if (!noCapacity((err as Error).message) && pod.status !== 'ERROR') throw err;
     // Everything worth keeping is on the network volume, so a fresh pod picks up where it left off.
     // If no GPU is free anywhere in the volume's data center either, keep the old pod and say so.
-    try {
-      await createAiPod();
-    } catch (createErr) {
-      if (noCapacity((createErr as Error).message)) throw new Error(NO_GPU);
-      throw createErr;
-    }
+    await createOrExplain(tier);
     await runpod(`/pods/${encodeURIComponent(pod.id)}`, { method: 'DELETE' }).catch(() => {});
   }
 }
@@ -217,18 +284,19 @@ export async function aiStatus(user: string): Promise<AiStatus & { podId?: strin
   } catch (err) {
     return { state: 'error', costPerHour: null, detail: (err as Error).message };
   }
-  if (!pod) return { state: 'off', costPerHour: null };
+  const speeds = { tiers: aiTiers(), tier: tierOf(pod)?.id ?? null };
+  if (!pod) return { state: 'off', costPerHour: null, ...speeds };
   const cost = typeof pod.cost === 'number' && pod.cost > 0 ? pod.cost : null;
   switch (pod.status) {
     case 'EXITED':
-      return { state: 'off', costPerHour: null, podId: pod.id };
+      return { state: 'off', costPerHour: null, podId: pod.id, ...speeds };
     case 'PROVISIONING':
     case 'STARTING':
-      return { state: 'starting', costPerHour: cost, podId: pod.id };
+      return { state: 'starting', costPerHour: cost, podId: pod.id, ...speeds };
     case 'RUNNING':
       break;
     default:
-      return { state: 'error', costPerHour: cost, podId: pod.id, detail: `Runpod reports status ${pod.status ?? 'unknown'}.` };
+      return { state: 'error', costPerHour: cost, podId: pod.id, detail: `Runpod reports status ${pod.status ?? 'unknown'}.`, ...speeds };
   }
   try {
     const res = await fetch(`${aiBase(pod.id)}/_orbit/status`, {
@@ -236,7 +304,7 @@ export async function aiStatus(user: string): Promise<AiStatus & { podId?: strin
       cache: 'no-store',
       signal: AbortSignal.timeout(5000),
     });
-    if (!res.ok) return { state: 'starting', costPerHour: cost, podId: pod.id };
+    if (!res.ok) return { state: 'starting', costPerHour: cost, podId: pod.id, ...speeds };
     const g = (await res.json()) as GateStatus;
     // Usable as soon as one model is there; later downloads show as progress.
     const state: AiState = !g.ready ? 'starting' : g.models.length ? 'on' : 'downloading';
@@ -247,8 +315,9 @@ export async function aiStatus(user: string): Promise<AiStatus & { podId?: strin
       pulling: g.pulling,
       models: g.models.map((m) => m.name),
       idle: g.idle ? { limitMinutes: g.idle.limitMinutes, idleMinutes: g.idle.idleMinutes } : null,
+      ...speeds,
     };
   } catch {
-    return { state: 'starting', costPerHour: cost, podId: pod.id };
+    return { state: 'starting', costPerHour: cost, podId: pod.id, ...speeds };
   }
 }

@@ -245,3 +245,16 @@ a.button { text-decoration: none; }
 .choice-ai-note { font-size: 12px; color: #c4b5fd; }
 .ai-links .button { font-size: 14px; }
 .ai-direct a { color: var(--muted); }
+
+/* AI machine speed choice */
+.ai-speed { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 8px; }
+.ai-speed button {
+  display: flex; flex-direction: column; align-items: flex-start; gap: 2px; text-align: left;
+  min-height: 44px; padding: 10px 12px; border-radius: 12px; background: transparent;
+  border: 1px solid var(--border); color: var(--text); font-weight: 400;
+}
+.ai-speed button:hover { background: #1c2230; }
+.ai-speed button.on { border-color: var(--accent); background: rgba(37, 99, 235, 0.15); }
+.ai-speed strong { font-size: 15px; }
+.ai-speed span { font-size: 13px; color: var(--muted); }
+.ai-speed .ai-speed-gpu { font-size: 12px; }

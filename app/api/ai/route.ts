@@ -20,18 +20,18 @@ export async function GET() {
   return Response.json(await statusWithLinks(user), { headers: noStore });
 }
 
-/** Turn the AI machine on or off: { "action": "start" | "stop" }. */
+/** Turn the AI machine on or off: { "action": "start" | "stop", "tier"?: "standard" | "turbo" }. */
 export async function POST(request: Request) {
   const user = await currentUser();
   if (!user) return Response.json({ error: 'Unauthorized' }, { status: 401 });
   if (!sameOrigin(request)) return Response.json({ error: 'Forbidden' }, { status: 403 });
-  const { action } = (await request.json().catch(() => ({}))) as { action?: string };
+  const { action, tier } = (await request.json().catch(() => ({}))) as { action?: string; tier?: string };
   if (action !== 'start' && action !== 'stop') {
     return Response.json({ error: 'action must be "start" or "stop"' }, { status: 400 });
   }
   if (!aiConfigured()) return Response.json({ error: 'The AI machine is not set up in Vercel yet.' }, { status: 501 });
   try {
-    await (action === 'start' ? startAi() : stopAi());
+    await (action === 'start' ? startAi(typeof tier === 'string' ? tier : undefined) : stopAi());
   } catch (err) {
     return Response.json({ error: (err as Error).message }, { status: 502 });
   }
