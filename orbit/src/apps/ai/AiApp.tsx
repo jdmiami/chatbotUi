@@ -268,7 +268,7 @@ export default function AiApp({ isActive, compact, placement }: AppProps) {
           <span className="ai-status">
             <span className={`ai-dot ai-dot-${machine.state}`} aria-hidden />
             Your AI machine: {STATE_TEXT[machine.state]}
-            {machine.state === 'on' && machine.idle ? ` · off after ${machine.idle.limitMinutes} min unused` : ''}
+            {machine.state === 'on' && machine.idle && !compact ? ` · turns off after ${machine.idle.limitMinutes} min unused` : ''}
           </span>
         }
         leading={compact ? <IconButton icon="sidebar" label="Chats" onClick={() => setListOpen(true)} /> : undefined}
