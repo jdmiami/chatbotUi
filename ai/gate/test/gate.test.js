@@ -123,7 +123,7 @@ test('signed in: proxied to Open WebUI with the trusted identity; forged headers
   assert.equal(await res.text(), 'webui /api/models?x=1');
   const h = seen.find((s) => s.to === 'webui').headers;
   assert.equal(h['x-orbit-email'], 'owner@orbit.local');
-  assert.equal(h['x-orbit-name'], 'jd');
+  assert.equal(h['x-orbit-name'], 'Owner');
   assert.equal(h.cookie, 'token=webui-own');
   assert.equal(h['x-forwarded-proto'], 'https');
 });

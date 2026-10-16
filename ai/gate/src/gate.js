@@ -127,7 +127,7 @@ export function createGate(cfg, log = console) {
     out['x-forwarded-for'] = req.socket.remoteAddress || '';
     if (user) {
       out[emailHeader] = cfg.userEmail;
-      out[nameHeader] = user.sub || cfg.userName || 'Owner';
+      out[nameHeader] = cfg.userName || 'Owner';
     }
     return out;
   }

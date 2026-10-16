@@ -37,6 +37,7 @@ interface Pod {
   status?: PodStatus;
   cost?: number;
   createdAt?: string;
+  env?: Record<string, string>;
 }
 
 const env = () => ({
@@ -50,9 +51,23 @@ const env = () => ({
   secret: process.env.LINUX_GATEWAY_SECRET || '',
 });
 
+/**
+ * Set up when the site can manage the machine (Runpod key + volume), or at least knows a fixed
+ * machine (AI_POD_ID) it can use whenever that machine is on.
+ */
 export function aiConfigured() {
   const e = env();
-  return Boolean(process.env.RUNPOD_API_KEY && e.volumeId && e.secret.length >= 32);
+  if (e.secret.length < 32) return false;
+  return Boolean((process.env.RUNPOD_API_KEY && e.volumeId) || process.env.AI_POD_ID);
+}
+
+async function gateUp(podId: string) {
+  try {
+    const res = await fetch(`${aiBase(podId)}/healthz`, { cache: 'no-store', signal: AbortSignal.timeout(4000) });
+    return res.ok;
+  } catch {
+    return false;
+  }
 }
 
 export const aiBase = (podId: string) => `https://${podId}-8080.proxy.runpod.net`;
@@ -70,6 +85,11 @@ function siteUrl() {
 
 /** The newest live pod with the AI machine's name, or null. */
 export async function findAiPod(): Promise<Pod | null> {
+  const fixed = process.env.AI_POD_ID;
+  if (fixed && !process.env.RUNPOD_API_KEY) {
+    // No Runpod key: we can't see or change its power state, only whether it answers.
+    return { id: fixed, name: env().name, status: (await gateUp(fixed)) ? 'RUNNING' : 'EXITED' };
+  }
   const body = (await runpod('/pods')) as { pods?: Pod[] } | Pod[];
   const pods = (Array.isArray(body) ? body : (body.pods ?? [])).filter((p) => p.name === env().name && p.status !== 'TERMINATED');
   pods.sort((a, b) => String(b.createdAt ?? '').localeCompare(String(a.createdAt ?? '')));
@@ -117,12 +137,21 @@ const noCapacity = (msg: string) => /not enough|no (gpu|longer)|insufficient|cap
 
 /** Turn the AI machine on: start it, create it, or replace it when its host has no free GPU. */
 export async function startAi(): Promise<void> {
+  if (!process.env.RUNPOD_API_KEY) throw new Error('Add RUNPOD_API_KEY in Vercel so the site can turn the AI machine on.');
   const pod = await findAiPod();
   if (!pod) {
     await createAiPod();
     return;
   }
   if (pod.status === 'RUNNING' || pod.status === 'STARTING' || pod.status === 'PROVISIONING') return;
+  // Run the same code version as this deployment: point a stopped machine at it before starting.
+  const want = repoRaw();
+  if (process.env.VERCEL_GIT_COMMIT_SHA && pod.env?.REPO_RAW && pod.env.REPO_RAW !== want) {
+    await runpod(`/pods/${encodeURIComponent(pod.id)}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ env: { ...pod.env, REPO_RAW: want } }),
+    }).catch(() => {});
+  }
   try {
     await runpod(`/pods/${encodeURIComponent(pod.id)}/action`, { method: 'POST', body: JSON.stringify({ action: 'start' }) });
   } catch (err) {
@@ -134,6 +163,7 @@ export async function startAi(): Promise<void> {
 }
 
 export async function stopAi(): Promise<void> {
+  if (!process.env.RUNPOD_API_KEY) throw new Error('Add RUNPOD_API_KEY in Vercel so the site can turn the AI machine off.');
   const pod = await findAiPod();
   if (pod && pod.status !== 'EXITED') {
     await runpod(`/pods/${encodeURIComponent(pod.id)}/action`, { method: 'POST', body: JSON.stringify({ action: 'stop' }) });

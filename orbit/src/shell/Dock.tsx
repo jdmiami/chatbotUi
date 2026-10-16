@@ -3,7 +3,7 @@ import { useShell, type AppId } from '../state/shell';
 import { useLayout } from '../state/viewport';
 import { Icon } from '../ui/Icon';
 
-const DOCK_APPS: AppId[] = ['terminal', 'editor', 'agent'];
+const DOCK_APPS: AppId[] = ['terminal', 'editor', 'agent', 'ai'];
 
 /**
  * Persistent floating dock. Visible on the home screen and inside apps (it is the visible

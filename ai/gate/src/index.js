@@ -54,6 +54,8 @@ async function status() {
     defaultModels: models.wanted,
     uptimeMinutes: Math.round((Date.now() - startedAt) / 60000),
     idle: idle.state(),
+    // Runpod gives each pod a key scoped to itself; without it the machine can't turn itself off.
+    canStopSelf: Boolean(env.RUNPOD_POD_ID && env.RUNPOD_API_KEY),
   };
 }
 
