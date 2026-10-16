@@ -137,7 +137,11 @@ async function createAiPod(): Promise<Pod> {
 }
 
 /** Runpod says there's no GPU left on the stopped pod's own machine (it can only resume there). */
-const noCapacity = (msg: string) => /not enough|no (gpu|longer)|insufficient|capacity|unavailable|free gpu/i.test(msg);
+const noCapacity = (msg: string) =>
+  /not enough|no (gpu|longer|instances?)|insufficient|capacity|unavailable|not available|free gpu/i.test(msg);
+
+const NO_GPU =
+  'No GPU is free for your AI machine right now: Runpod is out of them in its data center. This usually clears within the hour; try again in a few minutes.';
 
 /** Turn the AI machine on: start it, create it, or replace it when its host has no free GPU. */
 export async function startAi(): Promise<void> {
@@ -163,7 +167,13 @@ export async function startAi(): Promise<void> {
   } catch (err) {
     if (!noCapacity((err as Error).message) && pod.status !== 'ERROR') throw err;
     // Everything worth keeping is on the network volume, so a fresh pod picks up where it left off.
-    await createAiPod();
+    // If no GPU is free anywhere in the volume's data center either, keep the old pod and say so.
+    try {
+      await createAiPod();
+    } catch (createErr) {
+      if (noCapacity((createErr as Error).message)) throw new Error(NO_GPU);
+      throw createErr;
+    }
     await runpod(`/pods/${encodeURIComponent(pod.id)}`, { method: 'DELETE' }).catch(() => {});
   }
 }
