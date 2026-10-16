@@ -10,13 +10,29 @@ import MachinePanel from './MachinePanel';
 
 export const dynamic = 'force-dynamic';
 
-const OPTIONS: { id: WorkspaceId; name: string; detail: string; needs: 'linux' | 'windows' }[] = [
+const OPTIONS: { id: WorkspaceId; name: string; detail: string; needs: 'linux' | 'windows' | 'ai' }[] = [
   { id: 'orbit', name: 'Orbit', detail: 'iPhone & iPad workspace: Terminal, Code and Antigravity', needs: 'linux' },
+  { id: 'ai', name: 'AI playground', detail: 'Chat with your own open models: documents, web search, voice, code', needs: 'ai' },
+  { id: 'code', name: 'Code with AI', detail: 'VS Code in the browser with an AI agent on your own model', needs: 'linux' },
   { id: 'linux', name: 'Linux desktop', detail: 'The full Ubuntu desktop', needs: 'linux' },
   { id: 'windows', name: 'Windows PC', detail: 'Your own computer at home', needs: 'windows' },
 ];
 
 function Icon({ id }: { id: WorkspaceId }) {
+  if (id === 'ai')
+    return (
+      <svg width="30" height="30" viewBox="0 0 24 24" aria-hidden>
+        <path d="M12 3l2.2 5.3L20 10.5l-5.8 2.2L12 18l-2.2-5.3L4 10.5l5.8-2.2z" fill="currentColor" />
+        <circle cx="19" cy="19" r="2" fill="currentColor" />
+      </svg>
+    );
+  if (id === 'code')
+    return (
+      <svg width="30" height="30" viewBox="0 0 24 24" fill="none" aria-hidden>
+        <path d="M8 7l-5 5 5 5M16 7l5 5-5 5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+        <path d="M13.5 4.5l-3 15" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+      </svg>
+    );
   if (id === 'windows')
     return (
       <svg width="30" height="30" viewBox="0 0 24 24" aria-hidden>
@@ -67,6 +83,7 @@ export default async function Home({ searchParams }: { searchParams: Promise<{ c
                     <span className="choice-name">{o.name}</span>
                     <span className="choice-detail">{o.detail}</span>
                     {o.needs === 'linux' && <span className="choice-needs">Needs the Linux machine on</span>}
+                    {o.needs === 'ai' && <span className="choice-ai-note">Turns on its own GPU machine ($0.59/hour, off when unused)</span>}
                   </span>
                   <span className="chevron" aria-hidden>
                     ›

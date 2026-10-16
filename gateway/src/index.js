@@ -30,7 +30,26 @@ if (/^(1|true|yes)$/i.test(process.env.ORBIT_HOST || '')) {
   log.info(`[orbit] host enabled: projects at ${projectsDir}`);
 }
 
-const server = createGateway(config, log, orbit);
+// The web app's address: the first plain (non-wildcard) allowed origin, unless SITE_URL says otherwise.
+const siteUrl = (process.env.SITE_URL || config.allowedOriginsRaw.find((o) => !o.includes('*')) || '').replace(/\/$/, '');
+
+// Coding workspace (VS Code in the browser at /code/) when code-server runs on this machine.
+let code = null;
+if (process.env.CODE_SERVER_URL) {
+  const { createCodeProxy } = await import('./code.js');
+  code = createCodeProxy({ secret: config.secret, upstream: process.env.CODE_SERVER_URL, siteUrl, log });
+  log.info(`[code] VS Code at /code/ -> ${process.env.CODE_SERVER_URL}`);
+}
+
+// Local model endpoint for the coding agent (127.0.0.1 only): forwards to the AI machine.
+if (process.env.AI_LOCAL_PORT && siteUrl) {
+  const { createLocalAiProxy } = await import('./ai-local.js');
+  createLocalAiProxy({ secret: config.secret, siteUrl, log }).listen(Number(process.env.AI_LOCAL_PORT), '127.0.0.1', () =>
+    log.info(`[ai-local] model endpoint on 127.0.0.1:${process.env.AI_LOCAL_PORT}/v1 (via ${siteUrl})`),
+  );
+}
+
+const server = createGateway(config, log, orbit, code);
 
 server.listen(config.port, () => {
   console.log(`[gateway] listening on :${config.port}, guacd at ${config.guacd.host}:${config.guacd.port}`);

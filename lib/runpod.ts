@@ -38,7 +38,7 @@ export function podHttpBase(): string | null {
   return `https://${id}-8080.proxy.runpod.net`;
 }
 
-async function runpod(path: string, init?: RequestInit) {
+export async function runpod(path: string, init?: RequestInit) {
   const key = process.env.RUNPOD_API_KEY;
   if (!key) throw new Error('RUNPOD_API_KEY is not set');
   const res = await fetch(`${API}${path}`, {

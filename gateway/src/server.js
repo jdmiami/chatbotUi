@@ -29,6 +29,7 @@ export function loadConfig(env = process.env) {
     port: Number(env.PORT || 8080),
     secret: new TextEncoder().encode(env.GATEWAY_SECRET),
     allowedOrigins: parseOrigins(env.ALLOWED_ORIGINS),
+    allowedOriginsRaw: String(env.ALLOWED_ORIGINS || '').split(',').map((s) => s.trim()).filter(Boolean),
     guacd: { host: env.GUACD_HOST || '127.0.0.1', port: Number(env.GUACD_PORT || 4822) },
     rdp: {
       hostname: env.RDP_HOST,
@@ -143,8 +144,9 @@ function connectToGuacd(config, display) {
 /**
  * @param orbit optional Orbit host: { api(req,res,url), pty: { cwd } }. When present the same port
  *   also serves Orbit's authenticated API (/orbit/api/*) and terminal WebSocket (/orbit/pty).
+ * @param code optional coding workspace proxy (./code.js): VS Code in the browser at /code/.
  */
-export function createGateway(config, log = console, orbit = null) {
+export function createGateway(config, log = console, orbit = null, code = null) {
   const server = http.createServer((req, res) => {
     if (req.url === '/healthz') {
       res.writeHead(200, { 'content-type': 'text/plain' });
@@ -152,6 +154,7 @@ export function createGateway(config, log = console, orbit = null) {
     }
     const url = new URL(req.url, 'http://gateway.local');
     if (orbit && url.pathname.startsWith('/orbit/api')) return orbit.api(req, res, url);
+    if (code && /^\/code(\/|$)/.test(url.pathname)) return code.handle(req, res, url);
     res.writeHead(404);
     res.end();
   });
@@ -170,6 +173,10 @@ export function createGateway(config, log = console, orbit = null) {
       socket.write(`HTTP/1.1 ${code} ${msg}\r\nConnection: close\r\n\r\n`);
       socket.destroy();
     };
+
+    // VS Code's own sockets come from the machine's address (not the web app): its proxy checks
+    // the sign-in cookie instead.
+    if (code && (await code.upgrade(req, socket, head))) return;
 
     const origin = req.headers.origin || '';
     if (!originAllowed(origin, config.allowedOrigins)) {
