@@ -10,6 +10,8 @@ interface Status {
   pulling?: { model: string; percent: number } | null;
   models?: string[];
   idle?: { limitMinutes: number; idleMinutes: number } | null;
+  url?: string;
+  consoleUrl?: string;
 }
 
 const STEPS: { key: string; label: string }[] = [
@@ -206,6 +208,21 @@ export default function AiLauncher({ target, next }: { target: 'chat' | 'code'; 
             Workspaces
           </a>
         </div>
+        {(status?.url || status?.consoleUrl) && (
+          <p className="muted small ai-direct">
+            {status.url && (
+              <a href={status.url} target="_blank" rel="noopener">
+                Direct link to the AI machine ↗
+              </a>
+            )}
+            {status.url && status.consoleUrl && ' · '}
+            {status.consoleUrl && (
+              <a href={status.consoleUrl} target="_blank" rel="noopener">
+                Runpod page ↗
+              </a>
+            )}
+          </p>
+        )}
       </div>
     </main>
   );

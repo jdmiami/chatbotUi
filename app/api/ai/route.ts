@@ -1,17 +1,23 @@
 import { currentUser } from '@/lib/auth';
 import { sameOrigin } from '@/lib/request';
-import { aiConfigured, aiStatus, startAi, stopAi } from '@/lib/ai';
+import { aiBase, aiConfigured, aiConsole, aiStatus, startAi, stopAi } from '@/lib/ai';
 
 export const dynamic = 'force-dynamic';
 
 const noStore = { 'cache-control': 'no-store' };
 
+/** Status plus the machine's direct address and its Runpod page (the pod id isn't a secret: the
+ * address still needs a sign-in from this site). */
+async function statusWithLinks(user: string) {
+  const { podId, ...status } = await aiStatus(user);
+  return podId ? { ...status, url: aiBase(podId), consoleUrl: aiConsole(podId) } : status;
+}
+
 /** AI machine status: off / starting / downloading / on, cost per hour, model download progress. */
 export async function GET() {
   const user = await currentUser();
   if (!user) return Response.json({ error: 'Unauthorized' }, { status: 401 });
-  const { podId: _podId, ...status } = await aiStatus(user);
-  return Response.json(status, { headers: noStore });
+  return Response.json(await statusWithLinks(user), { headers: noStore });
 }
 
 /** Turn the AI machine on or off: { "action": "start" | "stop" }. */
@@ -29,6 +35,5 @@ export async function POST(request: Request) {
   } catch (err) {
     return Response.json({ error: (err as Error).message }, { status: 502 });
   }
-  const { podId: _podId, ...status } = await aiStatus(user);
-  return Response.json(status, { headers: noStore });
+  return Response.json(await statusWithLinks(user), { headers: noStore });
 }

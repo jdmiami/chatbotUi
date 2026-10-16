@@ -7,6 +7,7 @@ import { logout } from './login/actions';
 import { chooseWorkspace, forgetWorkspace } from './choose/actions';
 import { isWorkspace, PREF_COOKIE, WORKSPACES, type WorkspaceId } from '@/lib/workspaces';
 import MachinePanel from './MachinePanel';
+import AiPanel from './AiPanel';
 
 export const dynamic = 'force-dynamic';
 
@@ -109,6 +110,7 @@ export default async function Home({ searchParams }: { searchParams: Promise<{ c
         </form>
 
         <MachinePanel initial={status} />
+        <AiPanel />
 
         <div className="row footer-row">
           {pref && (
