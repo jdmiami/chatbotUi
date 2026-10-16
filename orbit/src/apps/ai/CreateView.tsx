@@ -157,7 +157,7 @@ export function CreateView({ ai, machineOn, isActive }: { ai: LocalAi; machineOn
     if (!studio) return 'Checking the image and video maker…';
     if (!maker?.downloaded) return `The ${kind} maker is downloading (first start only): ${maker?.percent ?? 0}%.`;
     if (!studio.running) return studio.setup.startsWith('error') ? `The maker had a problem: ${studio.setup.slice(6).trim()}` : 'The image and video maker is starting…';
-    return kind === 'image' ? 'Images take about 30 seconds.' : 'Videos with sound take a few minutes.';
+    return kind === 'image' ? 'Images take under a minute.' : 'Videos with sound take a few minutes.';
   })();
 
   return (

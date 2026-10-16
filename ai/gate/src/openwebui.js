@@ -5,7 +5,7 @@ import fs from 'node:fs/promises';
 
 const FUNCTION_ID = 'studio';
 
-export async function installStudioFunction({ webui, email, name = 'Owner', codePath, fetchImpl = fetch, log = console }) {
+export async function installStudioFunction({ webui, email, name = 'Owner', codePath, studioKey, fetchImpl = fetch, log = console }) {
   const content = await fs.readFile(codePath, 'utf8');
   const signin = await fetchImpl(`${webui}/api/v1/auths/signin`, {
     method: 'POST',
@@ -30,5 +30,26 @@ export async function installStudioFunction({ webui, email, name = 'Owner', code
   }
   const now = await (await api(`/id/${FUNCTION_ID}`)).json();
   if (!now.is_active) await api(`/id/${FUNCTION_ID}/toggle`, { method: 'POST' });
+
+  // The chat box's image button: point it at the image maker (the key changes on every start).
+  if (studioKey) {
+    const images = (p, init = {}) => fetchImpl(`${webui}/api/v1/images${p}`, { ...init, headers });
+    const cfg = await (await images('/config')).json().catch(() => null);
+    if (cfg) {
+      const r = await images('/config/update', {
+        method: 'POST',
+        body: JSON.stringify({
+          ...cfg,
+          ENABLE_IMAGE_GENERATION: true,
+          IMAGE_GENERATION_ENGINE: 'openai',
+          IMAGE_GENERATION_MODEL: 'qwen-image-2.1',
+          IMAGE_SIZE: '1328x1328',
+          IMAGES_OPENAI_API_BASE_URL: 'http://127.0.0.1:8080/v1',
+          IMAGES_OPENAI_API_KEY: studioKey,
+        }),
+      });
+      if (!r.ok) log.warn?.(`[gate] Open WebUI image settings: ${r.status} ${(await r.text()).slice(0, 200)}`);
+    }
+  }
   log.info?.('[gate] playground image/video makers installed');
 }

@@ -98,7 +98,13 @@ if (studio) {
     for (let i = 0; i < 120; i++) {
       if (await webuiUp()) {
         try {
-          await installStudioFunction({ webui: WEBUI, email: env.AI_USER_EMAIL || 'owner@orbit.local', name: env.AI_USER_NAME || 'Owner', codePath });
+          await installStudioFunction({
+            webui: WEBUI,
+            email: env.AI_USER_EMAIL || 'owner@orbit.local',
+            name: env.AI_USER_NAME || 'Owner',
+            codePath,
+            studioKey: env.STUDIO_KEY,
+          });
           return;
         } catch (err) {
           console.warn(`[gate] ${err.message}`);
