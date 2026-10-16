@@ -142,8 +142,8 @@ if [ ! -f "$user_home/.config/kilo/kilo.jsonc" ]; then
       "name": "My AI machine",
       "options": { "baseURL": "http://127.0.0.1:8090/v1", "apiKey": "local" },
       "models": {
-        "${CODE_MODEL}": { "name": "Qwen 3.6 35B (coding)", "tool_call": true, "limit": { "context": 32768, "output": 8192 } },
-        "qwen3.8:27b": { "name": "Qwen 3.8 27B (general, vision)", "tool_call": true, "attachment": true, "limit": { "context": 32768, "output": 8192 } }
+        "${CODE_MODEL}": { "name": "Qwen 3.6 35B (coding)", "tool_call": true, "limit": { "context": 65536, "output": 8192 } },
+        "qwen3.8:27b": { "name": "Qwen 3.8 27B (general, vision)", "tool_call": true, "attachment": true, "limit": { "context": 65536, "output": 8192 } }
       }
     }
   },
@@ -151,6 +151,10 @@ if [ ! -f "$user_home/.config/kilo/kilo.jsonc" ]; then
 }
 JSON
   chown "$DESKTOP_USER:$DESKTOP_USER" "$user_home/.config/kilo/kilo.jsonc"
+fi
+# Configs written by an earlier version of this script: the AI machine now gives models 64K tokens.
+if grep -q 'uses your own model on the AI machine' "$user_home/.config/kilo/kilo.jsonc" 2>/dev/null; then
+  sed -i 's/"context": 32768/"context": 65536/g' "$user_home/.config/kilo/kilo.jsonc"
 fi
 if [ -f /opt/kilo-code.vsix ] && ! ls -d "$cs_data/extensions/kilocode.kilo-code-${KILO_VERSION}"* >/dev/null 2>&1; then
   as_user /opt/code-server/bin/code-server --user-data-dir "$cs_data" --install-extension /opt/kilo-code.vsix \
