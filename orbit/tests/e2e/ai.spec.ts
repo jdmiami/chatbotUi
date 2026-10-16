@@ -21,12 +21,30 @@ function sse(text: string) {
   );
 }
 
-async function mockAi(page: Page, initial: 'off' | 'on') {
+const TIERS = [
+  { id: 'standard', label: 'Standard', gpuName: 'A40 48 GB', pricePerHour: 0.59, idleMinutes: 30, speed: 'normal speed' },
+  { id: 'turbo', label: 'Turbo', gpuName: 'H100 80 GB', pricePerHour: 3.99, idleMinutes: 10, speed: 'about 4–6× faster' },
+];
+
+async function mockAi(page: Page, initial: 'off' | 'on', powerCalls: Record<string, unknown>[] = []) {
   let state: string = initial;
+  let tier = 'standard';
   await page.route('**/api/ai', async (route) => {
-    if (route.request().method() === 'POST') state = 'on';
+    if (route.request().method() === 'POST') {
+      const body = route.request().postDataJSON() as { tier?: string };
+      powerCalls.push(body);
+      state = 'on';
+      tier = body.tier ?? tier;
+    }
     await route.fulfill({
-      json: { state, costPerHour: state === 'on' ? 0.59 : null, models: state === 'on' ? MODELS : [], idle: state === 'on' ? { limitMinutes: 30, idleMinutes: 0 } : null },
+      json: {
+        state,
+        costPerHour: state === 'on' ? TIERS.find((t) => t.id === tier)!.pricePerHour : null,
+        models: state === 'on' ? MODELS : [],
+        idle: state === 'on' ? { limitMinutes: 30, idleMinutes: 0 } : null,
+        tier,
+        tiers: TIERS,
+      },
     });
   });
   await page.route('**/api/ai/token', (route) =>
@@ -65,16 +83,21 @@ async function expectTappable(page: Page, min = 44) {
 }
 
 test.describe('AI app', () => {
-  test('off: turn-on banner fits the screen and turns the machine on', async ({ page }) => {
-    await mockAi(page, 'off');
+  test('off: turn-on banner fits the screen and turns the machine on at the chosen speed', async ({ page }) => {
+    const powerCalls: Record<string, unknown>[] = [];
+    await mockAi(page, 'off', powerCalls);
     const errors = await openOrbit(page);
     await openAi(page);
     const banner = page.getByRole('status').filter({ hasText: 'Your AI machine is off' });
     await expect(banner).toBeVisible();
     await expectNoHorizontalOverflow(page);
     await expectTappable(page);
+    await page.getByRole('group', { name: 'Speed' }).getByRole('button', { name: /Turbo/ }).click();
+    await expect(banner).toContainText('$3.99/h');
+    await expect(banner).toContainText('10 minutes unused');
     await page.getByRole('button', { name: 'Turn on' }).click();
-    await expect(page.getByText('Your AI machine: Ready')).toBeVisible();
+    await expect(page.getByText('Your AI machine: Ready · Turbo')).toBeVisible();
+    expect(powerCalls[0]).toMatchObject({ action: 'start', tier: 'turbo' });
     await expect(banner).toHaveCount(0);
     expect(errors).toEqual([]);
   });

@@ -15,6 +15,17 @@ export interface AiMachineStatus {
   pulling?: { model: string; percent: number } | null;
   models?: string[];
   idle?: { limitMinutes: number; idleMinutes: number } | null;
+  tier?: string | null;
+  tiers?: AiTier[];
+}
+
+export interface AiTier {
+  id: string;
+  label: string;
+  gpuName: string;
+  pricePerHour: number;
+  idleMinutes: number;
+  speed: string;
 }
 
 export type StudioKind = 'image' | 'video';
@@ -150,8 +161,8 @@ export class LocalAi {
     return siteJson<AiMachineStatus>('/api/ai');
   }
 
-  power(action: 'start' | 'stop'): Promise<AiMachineStatus> {
-    return siteJson<AiMachineStatus>('/api/ai', { method: 'POST', body: JSON.stringify({ action }) });
+  power(action: 'start' | 'stop', tier?: string): Promise<AiMachineStatus> {
+    return siteJson<AiMachineStatus>('/api/ai', { method: 'POST', body: JSON.stringify({ action, tier }) });
   }
 
   /** Address + token of the AI machine; null while it isn't ready. */

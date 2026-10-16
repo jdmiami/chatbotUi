@@ -125,10 +125,11 @@ export default function AiApp({ isActive, compact, placement }: AppProps) {
 
   const model = chat?.model || store.model || models[0] || '';
 
-  const power = async (action: 'start' | 'stop') => {
+  const [speed, setSpeed] = useState<string | null>(null);
+  const power = async (action: 'start' | 'stop', tier?: string) => {
     setPowering(true);
     try {
-      setStatus(await ai.power(action));
+      setStatus(await ai.power(action, tier));
     } catch (err) {
       toast((err as Error).message, 'error');
     } finally {
@@ -274,8 +275,11 @@ export default function AiApp({ isActive, compact, placement }: AppProps) {
     </nav>
   );
 
-  const machine = status ?? { state: 'off' as const, costPerHour: null };
-  const cost = machine.costPerHour != null ? `$${machine.costPerHour.toFixed(2)}/h` : '$0.59/h';
+  const machine: AiMachineStatus = status ?? { state: 'off', costPerHour: null };
+  const tiers = machine.tiers ?? [];
+  const currentTier = tiers.find((t) => t.id === machine.tier) ?? tiers[0];
+  const chosenTier = tiers.find((t) => t.id === speed) ?? currentTier;
+  const cost = machine.costPerHour != null ? `$${machine.costPerHour.toFixed(2)}/h` : `$${(chosenTier?.pricePerHour ?? 0.59).toFixed(2)}/h`;
 
   return (
     <div className="ag-root ai-root" data-placement={placement}>
@@ -285,6 +289,7 @@ export default function AiApp({ isActive, compact, placement }: AppProps) {
           <span className="ai-status">
             <span className={`ai-dot ai-dot-${machine.state}`} aria-hidden />
             Your AI machine: {STATE_TEXT[machine.state]}
+            {currentTier && tiers.length > 1 && machine.state !== 'off' ? ` · ${currentTier.label}` : ''}
             {machine.state === 'on' && machine.idle && !compact ? ` · turns off after ${machine.idle.limitMinutes} min unused` : ''}
           </span>
         }
@@ -322,10 +327,18 @@ export default function AiApp({ isActive, compact, placement }: AppProps) {
           {machine.state === 'off' && (
             <>
               <p>
-                Your AI machine is off. Turning it on takes 2–4 minutes and costs {cost} while on; it turns itself off after
-                30 minutes unused.
+                Your AI machine is off. Turning it on takes 2–4 minutes and costs {cost} while on; it turns itself off after{' '}
+                {chosenTier?.idleMinutes ?? 30} minutes unused.
               </p>
-              <button type="button" className="btn primary" onClick={() => void power('start')} disabled={powering}>
+              {tiers.length > 1 && (
+                <Segmented
+                  label="Speed"
+                  value={chosenTier?.id ?? tiers[0].id}
+                  onChange={setSpeed}
+                  options={tiers.map((t) => ({ value: t.id, label: `${t.label} · $${t.pricePerHour.toFixed(2)}/h` }))}
+                />
+              )}
+              <button type="button" className="btn primary" onClick={() => void power('start', chosenTier?.id)} disabled={powering}>
                 {powering ? 'Turning on…' : 'Turn on'}
               </button>
             </>
