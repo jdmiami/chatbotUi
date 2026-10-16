@@ -91,6 +91,9 @@ on (when the site has a Runpod API key) or to continue in demo mode.
   picker, visible "thinking", copy/again, chats kept in this browser (newest 60).
 - Header links to the full playground (`/ai`: documents, web search, voice, images) and to VS Code with the
   coding agent (`/code`).
+- **Create** tab: images (Qwen-Image 2.1) and videos with sound (LTX-2.3), optionally starting from a
+  photo; shape and length options; progress; a gallery stored on the AI machine (shared by all devices)
+  with a full-size viewer, save, reuse prompt, "make it move" and delete.
 - iPhone and iPad, both orientations: chat list as a sheet on narrow screens and a sidebar on wide ones; 44px
   touch targets; wide code scrolls inside its block; on short screens (iPhone sideways) the model picker and
   message box share one row. Covered by `tests/e2e/ai.spec.ts`.

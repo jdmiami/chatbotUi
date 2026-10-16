@@ -6,6 +6,7 @@ you use it.
 ```
 browser ── https ──> gate :8080 ──> Open WebUI 127.0.0.1:8081 ──> Ollama 127.0.0.1:11434 (GPU)
 Orbit AI app / coding agent ──> gate :8080 /v1 ──> Ollama (OpenAI-compatible API)
+images & videos (playground, Orbit) ──> gate :8080 /_orbit/studio ──> ComfyUI 127.0.0.1:8188 (GPU)
 ```
 
 - **Playground**: [Open WebUI](https://github.com/open-webui/open-webui) (chat, documents, web search,
@@ -17,6 +18,17 @@ Orbit AI app / coding agent ──> gate :8080 /v1 ──> Ollama (OpenAI-compat
   Downloaded once to the network volume; add more from the playground's admin settings, or in `AI_MODELS`
   (`name=source|param=value` installs an outside model under a friendly name with its own settings;
   `|like=<library model>` gives it that model's chat format, so tools such as web search and code work).
+- **Image and video maker** (`studio.sh`, `gate/src/studio.js`, `gate/src/workflows.js`): ComfyUI
+  (pinned v0.41.2, core nodes only, no add-ons) with a CUDA build of PyTorch, installed once on the
+  volume and never exposed. Images: [Qwen-Image 2.1 Uncensored](https://hf.co/abenzerps/Qwen-Image-2.1-Uncensored-Quantized)
+  (fp8). Videos with sound, from text or from a photo: LTX-2.3 [10Eros](https://hf.co/TenStrip/LTX2.3-10Eros)
+  (fp8 checkpoint, abliterated Gemma text encoder, cond-safe distilled LoRA, 2x upscaler), two passes
+  like the official template. About 60 GB of models, downloaded by the gate on first start (resumable).
+  - In the playground: **Image maker** and **Video maker** in the model list (a pipe installed by the
+    gate) and the built-in image button (`/v1/images/generations` on the gate).
+  - In Orbit: the AI app's **Create** tab, with a gallery kept on the volume.
+  - One content rule, applied by the gate to every request: no sexual content involving minors.
+  - Chat models are unloaded from the GPU before a job; ComfyUI frees the GPU 3 minutes after the last one.
 - **Gate** (`gate/`, Node, no dependencies): the only exposed port.
   - `/_orbit/login?token=…` swaps a 90-second, single-use token from the site for an HttpOnly cookie,
     then tells Open WebUI who you are with a trusted header it always strips from incoming requests.
@@ -30,7 +42,7 @@ Orbit AI app / coding agent ──> gate :8080 /v1 ──> Ollama (OpenAI-compat
 
 ## Set up
 
-1. Create a network volume (50 GB is enough for the two default models) in a data center that has
+1. Create a network volume (150 GB: chat models plus the image and video maker) in a data center that has
    the GPU you want (default: `CA-MTL-1`, NVIDIA A40 48 GB, about $0.59/hour while on).
 2. In Vercel set `AI_VOLUME_ID` (and `RUNPOD_API_KEY`, `LINUX_GATEWAY_SECRET`, already used by the
    Linux machine). Optional settings are in `.env.example`.
