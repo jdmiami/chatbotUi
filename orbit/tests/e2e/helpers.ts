@@ -5,7 +5,8 @@ export async function openOrbit(page: Page, opts: { keepIntro?: boolean } = {}) 
   const errors: string[] = [];
   page.on('pageerror', (e) => errors.push(e.message));
   page.on('console', (m) => {
-    if (m.type() === 'error') errors.push(`console: ${m.text()}`);
+    // The static preview has no web app: Orbit's sign-in check gets a 404 and falls back to demo mode.
+    if (m.type() === 'error' && !m.text().includes('404 (Not Found)')) errors.push(`console: ${m.text()}`);
   });
   await page.goto('/');
   if (!opts.keepIntro) {
