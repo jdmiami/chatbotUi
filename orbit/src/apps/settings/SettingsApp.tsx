@@ -29,7 +29,7 @@ const VERSION = '0.2';
 const TEXT_MIN = 0.9;
 const TEXT_MAX = 1.3;
 const TEXT_STEP = 0.05;
-const TERM_MIN = 11;
+const TERM_MIN = 5;
 const TERM_MAX = 22;
 
 const THEMES: { value: ThemePref; label: string }[] = [
@@ -681,6 +681,7 @@ function TerminalSection() {
   const size = useShell((s) => s.settings.terminalFontSize);
   const keys = useShell((s) => s.settings.terminalKeys);
   const typingBoxPref = useShell((s) => s.settings.terminalTypingBox);
+  const columns = useShell((s) => s.settings.terminalColumns) || 0;
   const { isPhone } = useLayout();
   const typingBox = typingBoxPref ?? (isPhone && (window.matchMedia?.('(pointer: coarse)').matches ?? false));
   const updateSettings = useShell((s) => s.updateSettings);
@@ -740,6 +741,26 @@ function TerminalSection() {
           </span>
           <Toggle checked={typingBox} label="Use the typing box" onChange={(v) => updateSettings({ terminalTypingBox: v })} />
         </label>
+        <div className="row st-row">
+          <span className="st-main">
+            <span className="st-label">Width</span>
+            <span className="st-sub">
+              Fit the screen, or a fixed number of columns (as many programs expect). Wider than the screen: swipe
+              sideways to see the rest, pinch or tap Fit width to zoom out.
+            </span>
+          </span>
+          <Segmented
+            label="Terminal width"
+            value={columns ? String(columns) : 'fit'}
+            options={[
+              { value: 'fit', label: 'Fit' },
+              { value: '80', label: '80' },
+              { value: '100', label: '100' },
+              { value: '120', label: '120' },
+            ]}
+            onChange={(v) => updateSettings({ terminalColumns: v === 'fit' ? 0 : Number(v) })}
+          />
+        </div>
       </div>
     </Section>
   );

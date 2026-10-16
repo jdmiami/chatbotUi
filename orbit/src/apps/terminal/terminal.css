@@ -492,3 +492,46 @@
   justify-content: flex-end;
   padding: var(--space-3, 12px) var(--space-4, 16px);
 }
+
+/* Wide terminal (fixed columns): the terminal may be wider than the screen; swipe sideways to pan. */
+.term-root[data-wide='true'] .term-host .xterm {
+  width: max-content;
+  min-width: 100%;
+}
+.term-panbar {
+  position: absolute;
+  z-index: 3;
+  left: calc(var(--safe-left) + 10px);
+  right: calc(var(--safe-right) + 10px);
+  bottom: 3px;
+  height: 3px;
+  border-radius: 2px;
+  background: rgb(255 255 255 / 0.12);
+  pointer-events: none;
+}
+.term-panbar span {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  border-radius: 2px;
+  background: var(--accent);
+}
+.term-fitwidth {
+  position: absolute;
+  z-index: 4;
+  left: calc(var(--safe-left) + 10px);
+  bottom: 12px;
+  min-height: 36px;
+  padding: 0 12px;
+  border: 1px solid var(--border);
+  border-radius: 18px;
+  background: var(--surface);
+  color: var(--text);
+  font-weight: 600;
+  font-size: var(--fs-sm);
+  box-shadow: var(--shadow-2);
+}
+.term-width-row {
+  flex-wrap: wrap;
+  row-gap: 8px;
+}

@@ -13,7 +13,7 @@ import { Terminal, type ITheme } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import '@xterm/xterm/css/xterm.css';
 import type { AppProps } from '../types';
-import { AppHeader, ConfirmSheet, DemoChip, IconButton, Sheet, Toggle } from '../../ui/components';
+import { AppHeader, ConfirmSheet, DemoChip, IconButton, Segmented, Sheet, Toggle } from '../../ui/components';
 import { Icon } from '../../ui/Icon';
 import { connection, createTerminalBackend } from '../../services';
 import type { TerminalBackend, TerminalSize, TerminalStatus } from '../../services/terminal/types';
@@ -124,6 +124,12 @@ export default function TerminalApp({ placement, isActive, compact }: AppProps) 
   const fontSize = useShell((s) => clampFontSize(s.settings.terminalFontSize));
   const showKeys = useShell((s) => s.settings.terminalKeys);
   const typingBoxPref = useShell((s) => s.settings.terminalTypingBox);
+  /** Fixed width in columns (0 = fit the screen). Wider than the screen → swipe sideways to pan. */
+  const fixedCols = useShell((s) => s.settings.terminalColumns) || 0;
+  const fixedColsRef = useRef(fixedCols);
+  fixedColsRef.current = fixedCols;
+  /** Where the visible part of a wide terminal is: left edge and width, as fractions of the whole. */
+  const [panView, setPanView] = useState<{ left: number; width: number } | null>(null);
   const [coarse] = useState(() => window.matchMedia?.('(pointer: coarse)').matches ?? false);
   /** Type into a visible box above the keys (phones by default) instead of straight into xterm. */
   const { isPhone } = useLayout();
@@ -191,6 +197,7 @@ export default function TerminalApp({ placement, isActive, compact }: AppProps) 
       const r = applyStickyCtrl(data, ctrlRef.current);
       if (r.armed !== ctrlRef.current) setCtrl(r.armed);
       if (r.data) backend.write(r.data);
+      followCursorUntil.current = performance.now() + 800;
     },
     [backend, setCtrl],
   );
@@ -205,7 +212,15 @@ export default function TerminalApp({ placement, isActive, compact }: AppProps) 
     const dims = fit.proposeDimensions();
     if (!dims || !(dims.cols >= 2) || !(dims.rows >= 1)) return;
     const prevRows = term.rows;
-    fit.fit();
+    const fixed = fixedColsRef.current;
+    if (fixed) {
+      // Fixed width: rows still fit the screen; the columns may run past it (pan sideways).
+      if (term.cols !== fixed || term.rows !== dims.rows) term.resize(fixed, dims.rows);
+    } else {
+      fit.fit();
+      host.scrollLeft = 0;
+    }
+    requestAnimationFrame(() => updatePanRef.current());
     // Fewer rows (e.g. the on-screen keyboard opened): keep the newest line and the prompt in view.
     if (term.rows !== prevRows) term.scrollToBottom();
     const last = lastSize.current;
@@ -225,6 +240,62 @@ export default function TerminalApp({ placement, isActive, compact }: AppProps) 
     const term = termRef.current;
     return lastSize.current ?? { cols: term?.cols ?? 80, rows: term?.rows ?? 24 };
   }, [fitNow]);
+
+  /** Recompute the sideways position bar (shown only when the terminal is wider than the screen). */
+  const updatePan = useCallback(() => {
+    const host = hostRef.current;
+    if (!host || host.scrollWidth <= host.clientWidth + 2) {
+      setPanView((v) => (v ? null : v));
+      return;
+    }
+    const left = host.scrollLeft / host.scrollWidth;
+    const width = host.clientWidth / host.scrollWidth;
+    setPanView((v) => (v && Math.abs(v.left - left) < 0.002 && Math.abs(v.width - width) < 0.002 ? v : { left, width }));
+  }, []);
+  const updatePanRef = useRef(updatePan);
+  updatePanRef.current = updatePan;
+
+  /** Sideways pan for a wide terminal; false when everything already fits. */
+  const panBy = useCallback(
+    (dx: number) => {
+      const host = hostRef.current;
+      if (!host || host.scrollWidth <= host.clientWidth + 2) return false;
+      host.scrollLeft -= dx;
+      updatePan();
+      return true;
+    },
+    [updatePan],
+  );
+  const panByRef = useRef(panBy);
+  panByRef.current = panBy;
+  const keepCursorInViewRef = useRef<() => void>(() => {});
+
+  /** After you type, keep the cursor in view in a wide terminal (not during program redraws). */
+  const followCursorUntil = useRef(0);
+  const keepCursorInView = useCallback(() => {
+    const host = hostRef.current;
+    const term = termRef.current;
+    const screen = host?.querySelector<HTMLElement>('.xterm-screen');
+    if (!host || !term || !screen || host.scrollWidth <= host.clientWidth + 2) return;
+    const cell = screen.clientWidth / term.cols;
+    const x = term.buffer.active.cursorX * cell;
+    if (x < host.scrollLeft + cell) host.scrollLeft = Math.max(0, x - 3 * cell);
+    else if (x > host.scrollLeft + host.clientWidth - 3 * cell) host.scrollLeft = x - host.clientWidth + 6 * cell;
+    else return;
+    updatePan();
+  }, [updatePan]);
+
+  keepCursorInViewRef.current = keepCursorInView;
+
+  /** Zoom a wide terminal out until its whole width fits the screen. */
+  const fitWidth = () => {
+    const host = hostRef.current;
+    const screen = host?.querySelector<HTMLElement>('.xterm-screen');
+    if (!host || !screen || !screen.clientWidth) return;
+    const next = clampFontSize(Math.floor((fontSize * (host.clientWidth - 14)) / screen.clientWidth));
+    updateSettings({ terminalFontSize: next });
+    host.scrollLeft = 0;
+  };
 
   /** The shell's history view is showing (after swiping back); offers "↓ Latest". */
   const [scrolledBack, setScrolledBack] = useState(false);
@@ -319,6 +390,9 @@ export default function TerminalApp({ placement, isActive, compact }: AppProps) 
 
     const disposables = [
       term.onData((d) => sendInput(d)),
+      term.onCursorMove(() => {
+        if (performance.now() < followCursorUntil.current) keepCursorInViewRef.current();
+      }),
       // OSC 7 = "current directory" (simulated shell, zsh, vte-enabled bash).
       term.parser.registerOscHandler(7, (d) => {
         const p = parseOsc7(d);
@@ -373,6 +447,7 @@ export default function TerminalApp({ placement, isActive, compact }: AppProps) 
         if (next !== useShell.getState().settings.terminalFontSize) useShell.getState().updateSettings({ terminalFontSize: next });
       },
       longPress: () => openHistoryRef.current(),
+      pan: (dx) => panByRef.current(dx),
       tap: () => {
         // In the typing box mode a tap puts you in the box (and keeps xterm's own hidden input,
         // which the phone can't keep in view, out of the way).
@@ -428,6 +503,11 @@ export default function TerminalApp({ placement, isActive, compact }: AppProps) 
       setTimeout(() => term.dispose(), 100);
     };
   }, [backend, fitNow, scheduleFit, sendInput]);
+
+  // Width setting changed: resize the terminal (and the machine's window) to it.
+  useEffect(() => {
+    scheduleFit();
+  }, [fixedCols, scheduleFit]);
 
   // Live font size from Settings / the More sheet.
   useEffect(() => {
@@ -705,7 +785,7 @@ export default function TerminalApp({ placement, isActive, compact }: AppProps) 
   const shellEnded = !pty || pty.lastDisconnect === 'shell-exited' || /ended/i.test(conn.detail ?? '');
 
   return (
-    <div className="term-root" data-placement={placement} data-compact={compact} data-phone={isPhone}>
+    <div className="term-root" data-placement={placement} data-compact={compact} data-phone={isPhone} data-wide={fixedCols > 0}>
       <AppHeader
         title="Terminal"
         subtitle={subtitle}
@@ -777,6 +857,23 @@ export default function TerminalApp({ placement, isActive, compact }: AppProps) 
                 <Icon name="close" size={16} />
               </button>
             </div>
+          )}
+
+          {panView && (
+            <>
+              <div className="term-panbar" aria-hidden>
+                <span style={{ left: `${panView.left * 100}%`, width: `${panView.width * 100}%` }} />
+              </div>
+              <button
+                type="button"
+                className="term-fitwidth"
+                onPointerDown={keepFocus}
+                onMouseDown={keepFocus}
+                onClick={fitWidth}
+              >
+                Fit width
+              </button>
+            </>
           )}
 
           {scrolledBack && (
@@ -1004,6 +1101,27 @@ export default function TerminalApp({ placement, isActive, compact }: AppProps) 
                   checked={typingBox}
                   onChange={(v) => updateSettings({ terminalTypingBox: v })}
                   label="Use the typing box"
+                />
+              </div>
+              <div className="row term-width-row">
+                <div className="row-main">
+                  <span className="row-title">Width</span>
+                  <span className="row-sub">
+                    Fit the screen, or a fixed number of columns: swipe sideways to see the rest, pinch or Fit width to
+                    zoom out.
+                  </span>
+                </div>
+                <Segmented
+                  label="Terminal width"
+                  value={fixedCols ? String(fixedCols) : 'fit'}
+                  options={[
+                    { value: 'fit', label: 'Fit' },
+                    { value: '80', label: '80' },
+                    { value: '100', label: '100' },
+                    { value: '120', label: '120' },
+                    { value: '160', label: '160' },
+                  ]}
+                  onChange={(v) => updateSettings({ terminalColumns: v === 'fit' ? 0 : Number(v) })}
                 />
               </div>
             </div>

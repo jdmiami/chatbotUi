@@ -17,6 +17,8 @@ export interface TouchGestureHandlers {
   longPress: () => void;
   /** Return true when the tap was handled (then the browser's own click is suppressed). */
   tap: () => boolean;
+  /** Sideways pan by dx px (finger movement); return false when there is nothing to pan. */
+  pan?: (dx: number) => boolean;
 }
 
 /** Converts finger movement (px) into whole lines, keeping the remainder for the next move. */
@@ -50,6 +52,7 @@ export function attachTouchGestures(el: HTMLElement, h: TouchGestureHandlers): (
   type Mode = 'idle' | 'pending' | 'scroll' | 'horizontal' | 'pinch' | 'long';
   let mode: Mode = 'idle';
   let startX = 0;
+  let lastX = 0;
   let startY = 0;
   let startAt = 0;
   let lastY = 0;
@@ -80,7 +83,7 @@ export function attachTouchGestures(el: HTMLElement, h: TouchGestureHandlers): (
     if (e.touches.length !== 1) return;
     const t = e.touches[0];
     mode = 'pending';
-    startX = t.clientX;
+    startX = lastX = t.clientX;
     startY = lastY = t.clientY;
     // Event timestamps (when the finger moved), not handling time: a busy page must not make a
     // quick flick look like a slow drag.
@@ -112,6 +115,12 @@ export function attachTouchGestures(el: HTMLElement, h: TouchGestureHandlers): (
     }
     if (mode === 'long') {
       swallow(e);
+      return;
+    }
+    if (mode === 'horizontal') {
+      const dx = t.clientX - lastX;
+      lastX = t.clientX;
+      if (h.pan?.(dx)) swallow(e);
       return;
     }
     if (mode !== 'scroll') return;
