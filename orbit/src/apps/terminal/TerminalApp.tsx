@@ -36,6 +36,7 @@ import {
   type TouchKey,
 } from './termKeys';
 import { lastLink, linkLabel, webLink } from './links';
+import { attachTouchGestures } from './touchGestures';
 import './terminal.css';
 
 /**
@@ -225,6 +226,31 @@ export default function TerminalApp({ placement, isActive, compact }: AppProps) 
     return lastSize.current ?? { cols: term?.cols ?? 80, rows: term?.rows ?? 24 };
   }, [fitNow]);
 
+  /** The shell's history view is showing (after swiping back); offers "↓ Latest". */
+  const [scrolledBack, setScrolledBack] = useState(false);
+  const pendingScroll = useRef(0);
+  const scrollTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  /** Swipe scrolling, batched to one message every ~40 ms. */
+  const scrollBy = useCallback(
+    (lines: number) => {
+      pendingScroll.current += lines;
+      if (scrollTimer.current) return;
+      scrollTimer.current = setTimeout(() => {
+        scrollTimer.current = undefined;
+        const n = pendingScroll.current;
+        pendingScroll.current = 0;
+        if (!n) return;
+        const p = asPty(backend);
+        if (p) p.scroll(n);
+        else termRef.current?.scrollLines(n); // simulated shell: xterm's own scrollback
+      }, 40);
+    },
+    [backend],
+  );
+  const scrollByRef = useRef(scrollBy);
+  scrollByRef.current = scrollBy;
+  const openHistoryRef = useRef<() => void>(() => {});
+
   /**
    * Look for a web address in recent output. On the Linux machine this reads tmux's copy of the
    * screen, where an address that wrapped across lines is already joined back together.
@@ -334,48 +360,34 @@ export default function TerminalApp({ placement, isActive, compact }: AppProps) 
       }
     });
 
-    // Pinch with two fingers to change the text size (one finger still scrolls).
-    let pinch: { d0: number; f0: number } | null = null;
-    let tap: { x: number; y: number; at: number } | null = null;
-    const spread = (t: TouchList) => Math.hypot(t[0].clientX - t[1].clientX, t[0].clientY - t[1].clientY);
-    const onPinchStart = (e: TouchEvent) => {
-      tap = e.touches.length === 1 ? { x: e.touches[0].clientX, y: e.touches[0].clientY, at: Date.now() } : null;
-      if (e.touches.length !== 2) return;
-      pinch = { d0: spread(e.touches) || 1, f0: clampFontSize(useShell.getState().settings.terminalFontSize) };
-      e.preventDefault();
-      e.stopPropagation();
-    };
-    const onPinchMove = (e: TouchEvent) => {
-      if (tap && e.touches.length === 1) {
-        const t = e.touches[0];
-        if (Math.hypot(t.clientX - tap.x, t.clientY - tap.y) > 10) tap = null; // a swipe scrolls
-      }
-      if (!pinch || e.touches.length !== 2) return;
-      e.preventDefault();
-      e.stopPropagation();
-      const next = clampFontSize(Math.round(pinch.f0 * (spread(e.touches) / pinch.d0)));
-      if (next !== useShell.getState().settings.terminalFontSize) useShell.getState().updateSettings({ terminalFontSize: next });
-    };
-    const onPinchEnd = (e: TouchEvent) => {
-      if (e.touches.length < 2) pinch = null;
-      // A plain tap on the terminal puts you in the typing box (and keeps xterm's own hidden
-      // input, which the phone can't keep in view, out of the way).
-      if (e.type === 'touchend' && tap && e.touches.length === 0 && Date.now() - tap.at < 500 && typingBoxRef.current) {
-        e.preventDefault();
+    // Touch: swipe to scroll (with momentum), pinch for text size, long-press to select and copy,
+    // tap to type. See touchGestures.ts.
+    let pinchFont = 0;
+    const detachGestures = attachTouchGestures(host, {
+      lineHeight: () => (host.clientHeight > 0 && term.rows > 0 ? host.clientHeight / term.rows : 18),
+      scroll: (lines) => scrollByRef.current(lines),
+      pinch: (scale, phase) => {
+        if (phase === 'start') pinchFont = clampFontSize(useShell.getState().settings.terminalFontSize);
+        if (phase !== 'move') return;
+        const next = clampFontSize(Math.round(pinchFont * scale));
+        if (next !== useShell.getState().settings.terminalFontSize) useShell.getState().updateSettings({ terminalFontSize: next });
+      },
+      longPress: () => openHistoryRef.current(),
+      tap: () => {
+        // In the typing box mode a tap puts you in the box (and keeps xterm's own hidden input,
+        // which the phone can't keep in view, out of the way).
+        if (!typingBoxRef.current) return false;
         composeRef.current?.focus();
-      }
-      if (e.touches.length === 0) tap = null;
-    };
-    host.addEventListener('touchstart', onPinchStart, { capture: true, passive: false });
-    host.addEventListener('touchmove', onPinchMove, { capture: true, passive: false });
-    host.addEventListener('touchend', onPinchEnd, true);
-    host.addEventListener('touchcancel', onPinchEnd, true);
+        return true;
+      },
+    });
     const offStatus = backend.onStatus((status, detail) => {
       setConn({ status, detail });
       const p = asPty(backend);
       if (status === 'connected' && p) setPersistent(p.persistent);
     });
 
+    const offScrollback = asPty(backend)?.onScrollback((active) => setScrolledBack(active)) ?? (() => {});
     const ta = term.textarea;
     const onFocus = () => setKbFocused(true);
     const onBlur = () => setKbFocused(false);
@@ -397,10 +409,9 @@ export default function TerminalApp({ placement, isActive, compact }: AppProps) 
       cancelAnimationFrame(fitFrame.current);
       clearTimeout(linkTimer.current);
       clearTimeout(secretTimer);
-      host.removeEventListener('touchstart', onPinchStart, true);
-      host.removeEventListener('touchmove', onPinchMove, true);
-      host.removeEventListener('touchend', onPinchEnd, true);
-      host.removeEventListener('touchcancel', onPinchEnd, true);
+      detachGestures();
+      offScrollback();
+      clearTimeout(scrollTimer.current);
       ro.disconnect();
       ta?.removeEventListener('focus', onFocus);
       ta?.removeEventListener('blur', onBlur);
@@ -652,6 +663,8 @@ export default function TerminalApp({ placement, isActive, compact }: AppProps) 
     setHistory({ status: 'ready', text: lines.join('\n').replace(/\s+$/, '') + '\n' });
   };
 
+  openHistoryRef.current = openHistory;
+
   /** What is on the terminal screen right now, as text. */
   const screenText = () => {
     const term = termRef.current;
@@ -692,7 +705,7 @@ export default function TerminalApp({ placement, isActive, compact }: AppProps) 
   const shellEnded = !pty || pty.lastDisconnect === 'shell-exited' || /ended/i.test(conn.detail ?? '');
 
   return (
-    <div className="term-root" data-placement={placement} data-compact={compact}>
+    <div className="term-root" data-placement={placement} data-compact={compact} data-phone={isPhone}>
       <AppHeader
         title="Terminal"
         subtitle={subtitle}
@@ -725,6 +738,58 @@ export default function TerminalApp({ placement, isActive, compact }: AppProps) 
       <div className="term-body">
         <div className="term-screen">
           <div className="term-host" ref={hostRef} />
+
+          {link && (
+            <div className="term-link" role="status" aria-label="Link printed in the terminal">
+              <Icon name="link" size={18} />
+              <span className="term-link-url" title={link}>
+                {linkLabel(link)}
+              </span>
+              <a className="btn primary" href={link} target="_blank" rel="noopener noreferrer">
+                <Icon name="external" size={16} />
+                Open
+              </a>
+              <button
+                type="button"
+                className="btn ghost"
+                aria-label="Copy link"
+                onPointerDown={keepFocus}
+                onMouseDown={keepFocus}
+                onClick={() =>
+                  void navigator.clipboard
+                    ?.writeText(link)
+                    .then(() => toast('Link copied.'), () => toast("Couldn't copy the link. Open it instead.", 'error'))
+                }
+              >
+                <Icon name="copy" size={16} />
+              </button>
+              <button
+                type="button"
+                className="btn ghost"
+                aria-label="Hide link"
+                onPointerDown={keepFocus}
+                onMouseDown={keepFocus}
+                onClick={() => {
+                  dismissedLink.current = link;
+                  setLink(null);
+                }}
+              >
+                <Icon name="close" size={16} />
+              </button>
+            </div>
+          )}
+
+          {scrolledBack && (
+            <button
+              type="button"
+              className="term-latest"
+              onPointerDown={keepFocus}
+              onMouseDown={keepFocus}
+              onClick={() => asPty(backend)?.scrollToLatest()}
+            >
+              <Icon name="down" size={16} /> Latest
+            </button>
+          )}
 
           {restarting ? (
             <div className="term-overlay" role="status">
@@ -817,45 +882,6 @@ export default function TerminalApp({ placement, isActive, compact }: AppProps) 
           )}
         </div>
 
-        {link && (
-          <div className="term-link" role="status" aria-label="Link printed in the terminal">
-            <Icon name="link" size={18} />
-            <span className="term-link-url" title={link}>
-              {linkLabel(link)}
-            </span>
-            <a className="btn primary" href={link} target="_blank" rel="noopener noreferrer">
-              <Icon name="external" size={16} />
-              Open
-            </a>
-            <button
-              type="button"
-              className="btn ghost"
-              aria-label="Copy link"
-              onPointerDown={keepFocus}
-              onMouseDown={keepFocus}
-              onClick={() =>
-                void navigator.clipboard
-                  ?.writeText(link)
-                  .then(() => toast('Link copied.'), () => toast("Couldn't copy the link. Open it instead.", 'error'))
-              }
-            >
-              <Icon name="copy" size={16} />
-            </button>
-            <button
-              type="button"
-              className="btn ghost"
-              aria-label="Hide link"
-              onPointerDown={keepFocus}
-              onMouseDown={keepFocus}
-              onClick={() => {
-                dismissedLink.current = link;
-                setLink(null);
-              }}
-            >
-              <Icon name="close" size={16} />
-            </button>
-          </div>
-        )}
 
         {showKeys && (
           <div className="term-keys" role="toolbar" aria-label="Terminal keys">
@@ -909,6 +935,18 @@ export default function TerminalApp({ placement, isActive, compact }: AppProps) 
             >
               <Icon name="send" size={18} />
             </button>
+            {kbFocused && (
+              <button
+                type="button"
+                className="term-compose-hide"
+                aria-label="Hide keyboard"
+                onPointerDown={keepFocus}
+                onMouseDown={keepFocus}
+                onClick={() => composeRef.current?.blur()}
+              >
+                <Icon name="keyboard" size={18} />
+              </button>
+            )}
           </form>
         )}
       </div>

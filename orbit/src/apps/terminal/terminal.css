@@ -66,6 +66,10 @@
   padding-top: calc(var(--safe-top) + 2px);
   padding-bottom: 2px;
 }
+/* On a phone, while typing, the terminal gets the header's rows too (hide-keyboard sits by the box). */
+.shell[data-keyboard='true'] .term-root[data-phone='true'] .app-header {
+  display: none;
+}
 .shell[data-keyboard='true'] .term-root[data-compact='true'] .app-header .subtitle {
   display: none;
 }
@@ -124,18 +128,61 @@
   opacity: 0.5;
 }
 
-/* "Open link" bar: appears when a web address is printed (e.g. a sign-in link). */
+/* "Open link" bar: floats over the top of the terminal when a web address is printed (e.g. a
+   sign-in link), so it doesn't take rows away from the terminal. */
 .term-link {
-  flex: none;
+  position: absolute;
+  z-index: 4;
+  top: 6px;
+  left: calc(var(--safe-left) + 6px);
+  right: calc(var(--safe-right) + 6px);
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 6px calc(var(--safe-right) + 8px) 6px calc(var(--safe-left) + 12px);
+  padding: 4px 4px 4px 12px;
+  border-radius: 14px;
   background: var(--surface);
-  border-top: 1px solid var(--border);
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow-2);
   color: var(--text);
   font-size: var(--fs-sm);
   min-width: 0;
+}
+/* Shown while the shell's history view is up (after swiping back). */
+.term-latest {
+  position: absolute;
+  z-index: 4;
+  right: calc(var(--safe-right) + 10px);
+  bottom: 10px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 40px;
+  padding: 0 14px;
+  border: 0;
+  border-radius: 20px;
+  background: var(--accent);
+  color: #fff;
+  font-weight: 600;
+  box-shadow: var(--shadow-2);
+}
+/* Gestures belong to the terminal: no text-selection callouts or magnifier on long-press. */
+.term-host {
+  -webkit-touch-callout: none;
+  -webkit-user-select: none;
+  user-select: none;
+  touch-action: none;
+}
+.term-compose-hide {
+  flex: none;
+  width: 36px;
+  height: 40px;
+  border: 0;
+  border-radius: 10px;
+  display: grid;
+  place-items: center;
+  background: transparent;
+  color: var(--text-2);
 }
 .term-link-url {
   flex: 1;

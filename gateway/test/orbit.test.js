@@ -418,3 +418,43 @@ test('terminal: auth required, real shell, survives reconnect via tmux', async (
   assert.ok(b.text().includes('https://example.com/full?x=1'));
   b.ws.close();
 });
+
+test('terminal: swipe scrolling goes to tmux history in the shell and to full-screen programs', async (t) => {
+  if (!(await hasTmux())) return t.skip('tmux not installed');
+  const c = (() => {
+    const ws = new WebSocket(`${base.replace('http', 'ws')}/orbit/pty?session=t3&cols=60&rows=12`, { origin: ORIGIN });
+    const out = [];
+    ws.on('message', (d) => out.push(JSON.parse(d.toString())));
+    return { ws, out, text: () => out.filter((m) => m.type === 'output').map((m) => m.data).join('') };
+  })();
+  await new Promise((r) => c.ws.on('open', r));
+  c.ws.send(JSON.stringify({ type: 'auth', token: await token() }));
+  await until(() => c.out.some((m) => m.type === 'ready'));
+  c.ws.send(JSON.stringify({ type: 'input', data: 'clear; seq 1 200 | sed s/^/row-/\n' }));
+  await until(() => c.text().includes('row-200'));
+
+  // Shell: swipe back = tmux history view; typing returns to the live screen and runs the command.
+  c.ws.send(JSON.stringify({ type: 'scroll', lines: -50 }));
+  await until(() => c.out.some((m) => m.type === 'scrollback' && m.active === true));
+  c.ws.send(JSON.stringify({ type: 'input', data: 'echo back-$((1+1))\n' }));
+  await until(() => c.out.some((m) => m.type === 'scrollback' && m.active === false));
+  await until(() => c.text().includes('back-2'));
+
+  // "↓ Latest" leaves the history view.
+  const n = c.out.length;
+  c.ws.send(JSON.stringify({ type: 'scroll', lines: -20 }));
+  await until(() => c.out.slice(n).some((m) => m.type === 'scrollback' && m.active === true));
+  c.ws.send(JSON.stringify({ type: 'scroll', to: 'bottom' }));
+  await until(() => c.out.slice(n).some((m) => m.type === 'scrollback' && m.active === false));
+
+  // Full-screen program (less): a swipe scrolls the program, not tmux's history.
+  c.ws.send(JSON.stringify({ type: 'input', data: 'seq 1 300 | sed s/^/pg-/ | less\n' }));
+  await until(() => c.text().includes('pg-1'));
+  await new Promise((r) => setTimeout(r, 400));
+  const m = c.out.length;
+  c.ws.send(JSON.stringify({ type: 'scroll', lines: 30 }));
+  await until(() => c.text().includes('pg-35'));
+  assert.ok(!c.out.slice(m).some((x) => x.type === 'scrollback' && x.active), 'less is scrolled, not tmux history');
+  c.ws.send(JSON.stringify({ type: 'input', data: 'q' }));
+  c.ws.close();
+});

@@ -25,6 +25,7 @@ export class PtyBackend implements TerminalBackend {
   private pendingInput = '';
   private static readonly MAX_PENDING = 4096;
   private detachFocus: (() => void) | null = null;
+  private readonly scrollbackListeners = new Set<(active: boolean) => void>();
 
   constructor(
     private readonly host: HostClient,
@@ -61,7 +62,7 @@ export class PtyBackend implements TerminalBackend {
 
     ws.onopen = () => ws.send(JSON.stringify({ type: 'auth', token }));
     ws.onmessage = (ev) => {
-      let msg: { type: string; data?: string; message?: string; persistent?: boolean; code?: number };
+      let msg: { type: string; data?: string; message?: string; persistent?: boolean; code?: number; active?: boolean };
       try {
         msg = JSON.parse(typeof ev.data === 'string' ? ev.data : '');
       } catch {
@@ -83,6 +84,8 @@ export class PtyBackend implements TerminalBackend {
         this.watchFocus();
       } else if (msg.type === 'output' && msg.data) {
         this.outputListeners.forEach((l) => l(msg.data!));
+      } else if (msg.type === 'scrollback') {
+        this.scrollbackListeners.forEach((l) => l(!!msg.active));
       } else if (msg.type === 'error') {
         this.setStatus('error', msg.message);
       } else if (msg.type === 'exit') {
@@ -173,6 +176,25 @@ export class PtyBackend implements TerminalBackend {
     ws?.close(1000);
     if (this.lastDisconnect !== 'shell-exited') this.lastDisconnect = 'closed';
     this.setStatus('disconnected');
+  }
+
+  /**
+   * Scroll by touch (lines < 0 = back). The machine decides what that means for what's on screen:
+   * the shell's history, or the keys/mouse wheel the running full-screen program scrolls with.
+   */
+  scroll(lines: number): void {
+    if (lines) this.send({ type: 'scroll', lines: Math.round(lines) });
+  }
+
+  /** Leave the shell's history view and show the live screen. */
+  scrollToLatest(): void {
+    this.send({ type: 'scroll', to: 'bottom' });
+  }
+
+  /** Whether the shell's history view is showing (after scrolling back). */
+  onScrollback(listener: (active: boolean) => void): () => void {
+    this.scrollbackListeners.add(listener);
+    return () => this.scrollbackListeners.delete(listener);
   }
 
   /** The session's whole scrollback as plain text, kept by tmux on the machine (survives reconnects). */
