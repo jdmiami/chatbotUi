@@ -3,10 +3,11 @@ import type { AppProps } from '../types';
 import { useShell } from '../../state/shell';
 import { useWorkspace } from '../../state/workspace';
 import { Icon } from '../../ui/Icon';
-import { AppHeader, ConfirmSheet, EmptyState, IconButton, Sheet } from '../../ui/components';
+import { AppHeader, ConfirmSheet, EmptyState, IconButton, Segmented, Sheet } from '../../ui/components';
 import { MessageBody } from '../agent/Transcript';
 import { AiError, getLocalAi, type AiMachineStatus, type ChatMessage } from '../../services/ai/LocalAi';
 import { loadChats, saveChats, newChat, titleFrom, type AiChat, type AiChatStore } from './chats';
+import { CreateView } from './CreateView';
 import '../agent/agent.css';
 import './ai.css';
 
@@ -58,6 +59,13 @@ export default function AiApp({ isActive, compact, placement }: AppProps) {
   const [listOpen, setListOpen] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
   const [powering, setPowering] = useState(false);
+  const [mode, setMode] = useState<'chat' | 'create'>(() => {
+    try {
+      return sessionStorage.getItem('orbit:ai:mode') === 'create' ? 'create' : 'chat';
+    } catch {
+      return 'chat';
+    }
+  });
   const abort = useRef<AbortController | null>(null);
   const scroller = useRef<HTMLDivElement>(null);
   const input = useRef<HTMLTextAreaElement>(null);
@@ -280,15 +288,34 @@ export default function AiApp({ isActive, compact, placement }: AppProps) {
             {machine.state === 'on' && machine.idle && !compact ? ` · turns off after ${machine.idle.limitMinutes} min unused` : ''}
           </span>
         }
-        leading={compact ? <IconButton icon="sidebar" label="Chats" onClick={() => setListOpen(true)} /> : undefined}
+        leading={compact && mode === 'chat' ? <IconButton icon="sidebar" label="Chats" onClick={() => setListOpen(true)} /> : undefined}
         actions={
           <>
-            <IconButton icon="plus" label="New chat" onClick={startChat} disabled={busy} />
+            {mode === 'chat' && <IconButton icon="plus" label="New chat" onClick={startChat} disabled={busy} />}
             <IconButton icon="external" label="Open the full AI playground" onClick={() => window.open('/ai', '_blank', 'noopener')} />
             <IconButton icon="code" label="Code with AI (VS Code)" onClick={() => window.open('/code', '_blank', 'noopener')} />
           </>
         }
       />
+
+      <div className="ai-tabs">
+        <Segmented
+          label="Chat or create"
+          value={mode}
+          onChange={(m) => {
+            setMode(m);
+            try {
+              sessionStorage.setItem('orbit:ai:mode', m);
+            } catch {
+              /* private mode */
+            }
+          }}
+          options={[
+            { value: 'chat', label: 'Chat' },
+            { value: 'create', label: 'Create' },
+          ]}
+        />
+      </div>
 
       {machine.state !== 'on' && (
         <div className={`ai-banner ai-banner-${machine.state}`} role="status">
@@ -331,7 +358,9 @@ export default function AiApp({ isActive, compact, placement }: AppProps) {
         </div>
       )}
 
-      <div className="ag-layout ai-layout">
+      {mode === 'create' && <CreateView ai={ai} machineOn={ready} isActive={isActive} />}
+
+      <div className="ag-layout ai-layout" hidden={mode !== 'chat'}>
         {!compact && <aside className="ai-side">{list}</aside>}
         <section className="ai-main" aria-label={chat?.title ?? 'New chat'}>
           <div className="ai-scroll" ref={scroller} onScroll={onScroll}>
@@ -410,7 +439,7 @@ export default function AiApp({ isActive, compact, placement }: AppProps) {
         </section>
       </div>
 
-      {compact && listOpen && (
+      {compact && listOpen && mode === 'chat' && (
         <Sheet title="Chats" onClose={() => setListOpen(false)}>
           {list}
         </Sheet>

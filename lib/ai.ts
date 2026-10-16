@@ -111,7 +111,8 @@ async function createAiPod(): Promise<Pod> {
         body: JSON.stringify({
           name: e.name,
           cloud: 'SECURE',
-          gpu: { id: gpu, count: 1, minCudaVersion: '12.4' },
+          // 12.8+: the image/video maker uses a CUDA 12.8 build of PyTorch.
+          gpu: { id: gpu, count: 1, minCudaVersion: '12.8' },
           dataCenterIds: [e.dataCenter],
           image: e.image,
           disk: 40,

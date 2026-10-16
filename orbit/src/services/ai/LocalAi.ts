@@ -17,6 +17,57 @@ export interface AiMachineStatus {
   idle?: { limitMinutes: number; idleMinutes: number } | null;
 }
 
+export type StudioKind = 'image' | 'video';
+
+export interface StudioItem {
+  id: string;
+  kind: StudioKind;
+  prompt: string;
+  width?: number;
+  height?: number;
+  seconds?: number;
+  fromImage?: boolean;
+  createdAt: string;
+  /** Absolute link to the file (works in <img>/<video> tags for 12 hours). */
+  url: string;
+}
+
+export interface StudioJob {
+  id: string;
+  kind: StudioKind;
+  prompt: string;
+  status: 'queued' | 'running' | 'done' | 'error' | 'stopped';
+  progress: number;
+  error: string | null;
+  createdAt: string;
+  item: StudioItem | null;
+}
+
+export interface StudioMaker {
+  ready: boolean;
+  downloaded: boolean;
+  percent: number;
+}
+
+export interface StudioState {
+  setup: string;
+  running: boolean;
+  image: StudioMaker;
+  video: StudioMaker;
+  downloading: { name: string; percent: number } | null;
+  downloadError: string | null;
+  jobs: StudioJob[];
+}
+
+export interface StudioRequest {
+  kind: StudioKind;
+  prompt: string;
+  size?: string;
+  seconds?: number;
+  /** Starting picture for a video, as a data URL. */
+  image?: string;
+}
+
 export interface ChatMessage {
   role: 'system' | 'user' | 'assistant';
   content: string;
@@ -136,6 +187,51 @@ export class LocalAi {
     if (!res.ok) throw new AiError(`Models: ${res.status}`, res.status);
     const body = (await res.json()) as { data?: { id: string }[] };
     return (body.data ?? []).map((m) => m.id).sort();
+  }
+
+  // ---- image and video maker
+
+  private async studioCall<T>(path: string, init: RequestInit = {}): Promise<T> {
+    const res = await this.call(path, { ...init, headers: { 'content-type': 'application/json', ...(init.headers ?? {}) } });
+    const body = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      const msg = typeof body.error === 'string' ? body.error : body.error?.message;
+      throw new AiError(msg || `The AI machine answered ${res.status}.`, res.status);
+    }
+    return body as T;
+  }
+
+  private absolute<T extends { url?: string } | null>(item: T): T {
+    if (!item || !this.grant || !item.url || /^https?:/.test(item.url)) return item;
+    return { ...item, url: this.grant.url + item.url };
+  }
+  private absoluteJob(job: StudioJob): StudioJob {
+    return { ...job, item: this.absolute(job.item) };
+  }
+
+  studioState(): Promise<StudioState> {
+    return this.studioCall<StudioState>('/_orbit/studio').then((s) => ({ ...s, jobs: s.jobs.map((j) => this.absoluteJob(j)) }));
+  }
+
+  async studioItems(): Promise<StudioItem[]> {
+    const r = await this.studioCall<{ items: StudioItem[] }>('/_orbit/studio/items');
+    return r.items.map((i) => this.absolute(i));
+  }
+
+  async createStudioJob(req: StudioRequest): Promise<StudioJob> {
+    return this.absoluteJob(await this.studioCall<StudioJob>('/_orbit/studio/jobs', { method: 'POST', body: JSON.stringify(req) }));
+  }
+
+  async studioJob(id: string): Promise<StudioJob> {
+    return this.absoluteJob(await this.studioCall<StudioJob>(`/_orbit/studio/jobs/${encodeURIComponent(id)}`));
+  }
+
+  async cancelStudioJob(id: string): Promise<void> {
+    await this.studioCall(`/_orbit/studio/jobs/${encodeURIComponent(id)}/cancel`, { method: 'POST', body: '{}' });
+  }
+
+  async deleteStudioItem(id: string): Promise<void> {
+    await this.studioCall(`/_orbit/studio/items/${encodeURIComponent(id)}`, { method: 'DELETE' });
   }
 
   /** Stream one reply. Resolves when the model is done (or the signal aborts). */
