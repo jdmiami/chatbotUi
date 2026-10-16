@@ -146,6 +146,7 @@ test('model API: needs a bearer token, checks the origin, streams through withou
   assert.equal(await res.text(), 'data: one\n\ndata: two\n\n');
   const h = seen.find((s) => s.to === 'ollama').headers;
   assert.equal(h.authorization, undefined);
+  assert.equal(h.origin, undefined, 'Ollama would refuse a browser origin');
   assert.ok(activity > before, 'API use counts as activity');
 });
 

@@ -204,7 +204,11 @@ export function createGate(cfg, log = console) {
       if (req.method === 'OPTIONS') return send(res, 204, '');
       if (!apiToken(req)) return send(res, 401, { error: { message: 'Unauthorized' } });
       activity();
-      delete req.headers.authorization; // Ollama doesn't need it
+      // Ollama doesn't need the token, and refuses browser origins it doesn't know: the origin was
+      // checked above, so it isn't passed on.
+      delete req.headers.authorization;
+      delete req.headers.origin;
+      delete req.headers.referer;
       return proxy(req, res, ollama, req.url, null);
     }
 
