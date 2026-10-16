@@ -18,7 +18,7 @@ REPO_RAW="${REPO_RAW:-https://raw.githubusercontent.com/jdmiami/chatbotUi/main}"
 P="${PERSIST_DIR:-/workspace}"
 NODE_VERSION=22.20.0
 NODE_DIR="$P/opt/node-v${NODE_VERSION}"
-DEFAULT_MODELS="${DEFAULT_MODELS:-qwen3.8:27b,qwen3.6:35b,qwen3.8-obliterated:27b=hf.co/OBLITERATUS/Qwen3.8-27B-OBLITERATED:Q6_K|temperature=0|repeat_penalty=1.15}"
+DEFAULT_MODELS="${DEFAULT_MODELS:-qwen3.8:27b,qwen3.6:35b,qwen3.8-obliterated:27b=hf.co/OBLITERATUS/Qwen3.8-27B-OBLITERATED:Q6_K|like=qwen3.8:27b|temperature=0|repeat_penalty=1.15}"
 CHAT_MODEL="${CHAT_MODEL:-${DEFAULT_MODELS%%,*}}"
 
 log() { echo "[ai-setup] $*"; }

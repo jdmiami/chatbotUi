@@ -263,6 +263,12 @@ test('model specs: plain names, and friendly names for outside models with their
     source: 'hf.co/Org/Repo:Q6_K',
     parameters: { temperature: 0, repeat_penalty: 1.15, stop: 'END' },
   });
+  assert.deepEqual(parseModelSpec('free:27b=hf.co/Org/Repo:Q6_K|like=qwen3.8:27b|temperature=0'), {
+    name: 'free:27b',
+    source: 'hf.co/Org/Repo:Q6_K',
+    parameters: { temperature: 0 },
+    like: 'qwen3.8:27b',
+  });
 });
 
 test('model keeper: an outside model is pulled, given its friendly name and settings, and its long name removed', async () => {
@@ -295,4 +301,45 @@ test('model keeper: an outside model is pulled, given its friendly name and sett
   assert.deepEqual(create.body, { model: 'free:27b', from: 'hf.co/Org/Repo:Q6_K', parameters: { temperature: 0 }, stream: false });
   assert.ok(calls.some((c) => c.path === '/api/delete' && c.body.model === 'hf.co/Org/Repo:Q6_K'));
   assert.ok(have.has('free:27b') && !have.has('hf.co/Org/Repo:Q6_K'));
+});
+
+test('model keeper: like= gives an outside model the chat format of a library model, so it can use tools', async () => {
+  const have = new Set(['qwen3.8:27b']);
+  const calls = [];
+  const fetchImpl = async (url, init = {}) => {
+    const body = init.body ? JSON.parse(init.body) : {};
+    calls.push({ path: new URL(url).pathname, body });
+    if (url.endsWith('/api/tags')) return new Response(JSON.stringify({ models: [...have].map((name) => ({ name })) }));
+    if (url.endsWith('/api/pull')) {
+      have.add(body.model);
+      return new Response(new ReadableStream({ start(c) { c.enqueue(new TextEncoder().encode('{"status":"success"}\n')); c.close(); } }));
+    }
+    if (url.endsWith('/api/show')) {
+      return new Response(JSON.stringify({ template: '{{ .Prompt }}', modelfile: 'FROM /x\nTEMPLATE {{ .Prompt }}\nRENDERER qwen3.8\nPARSER qwen3.5\nPARAMETER top_k 20\n' }));
+    }
+    if (url.endsWith('/api/create')) {
+      have.add(body.model);
+      return new Response('{"status":"success"}');
+    }
+    if (url.endsWith('/api/delete')) {
+      have.delete(body.model);
+      return new Response('');
+    }
+    return new Response('', { status: 404 });
+  };
+  const k = createModelKeeper({ ollama: 'http://o', wanted: ['qwen3.8:27b', 'free:27b=hf.co/Org/Repo:Q6_K|like=qwen3.8:27b|temperature=0'], fetchImpl });
+  k.start();
+  for (let i = 0; i < 100 && !have.has('free:27b'); i++) await new Promise((r) => setTimeout(r, 5));
+  await new Promise((r) => setTimeout(r, 20));
+  const create = calls.find((c) => c.path === '/api/create');
+  assert.deepEqual(create.body, {
+    model: 'free:27b',
+    from: 'hf.co/Org/Repo:Q6_K',
+    template: '{{ .Prompt }}',
+    renderer: 'qwen3.8',
+    parser: 'qwen3.5',
+    parameters: { temperature: 0 },
+    stream: false,
+  });
+  assert.ok(have.has('qwen3.8:27b'), 'the library model is kept');
 });

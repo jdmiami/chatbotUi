@@ -9,7 +9,9 @@ export async function ollamaJson(base, path, init) {
 /**
  * One default model. Either an Ollama library name ("qwen3.8:27b"), or a friendly name for a model
  * from elsewhere with its own settings:
- *   "qwen3.8-obliterated:27b=hf.co/OBLITERATUS/Qwen3.8-27B-OBLITERATED:Q6_K|temperature=0|repeat_penalty=1.15"
+ *   "qwen3.8-obliterated:27b=hf.co/OBLITERATUS/Qwen3.8-27B-OBLITERATED:Q6_K|like=qwen3.8:27b|temperature=0"
+ * like= borrows the chat format of a library model of the same family. Downloaded files come with a
+ * plain format that can't use tools (web search, code), so Open WebUI would refuse them.
  */
 export function parseModelSpec(spec) {
   const [main, ...opts] = spec.split('|').map((s) => s.trim());
@@ -17,13 +19,16 @@ export function parseModelSpec(spec) {
   const name = eq > 0 ? main.slice(0, eq).trim() : main;
   const source = eq > 0 ? main.slice(eq + 1).trim() : main;
   const parameters = {};
+  let like;
   for (const o of opts) {
     const i = o.indexOf('=');
     if (i <= 0) continue;
+    const key = o.slice(0, i).trim();
     const v = o.slice(i + 1).trim();
-    parameters[o.slice(0, i).trim()] = v !== '' && Number.isFinite(Number(v)) ? Number(v) : v;
+    if (key === 'like') like = v;
+    else parameters[key] = v !== '' && Number.isFinite(Number(v)) ? Number(v) : v;
   }
-  return { name, source, parameters };
+  return like ? { name, source, parameters, like } : { name, source, parameters };
 }
 
 /**
@@ -84,14 +89,33 @@ export function createModelKeeper({ ollama, wanted: specs, retryMs = 60_000, fet
 
   // A model from elsewhere gets its friendly name and settings, then the long source name is
   // removed from the list (the files stay, the friendly name uses them).
-  async function install({ name, source, parameters }) {
+  // The chat format (template, renderer, parser) of a library model, for like=.
+  async function chatFormat(model) {
+    const res = await fetchImpl(`${ollama}/api/show`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ model }),
+    });
+    if (!res.ok) throw new Error(`show ${model}: ${res.status}`);
+    const d = await res.json();
+    const line = (k) => (d.modelfile || '').match(new RegExp(`^${k} (\\S+)`, 'm'))?.[1];
+    const format = {};
+    if (d.template) format.template = d.template;
+    if (line('RENDERER')) format.renderer = line('RENDERER');
+    if (line('PARSER')) format.parser = line('PARSER');
+    return format;
+  }
+
+  async function install({ name, source, parameters, like }) {
+    if (like) await pull(like); // no-op when it's already there
     await pull(source);
     if (source === name) return;
     current = { model: name, completed: 0, total: 0, status: 'setting up' };
+    const format = like ? await chatFormat(like) : {};
     const res = await fetchImpl(`${ollama}/api/create`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ model: name, from: source, parameters, stream: false }),
+      body: JSON.stringify({ model: name, from: source, ...format, parameters, stream: false }),
     });
     if (!res.ok) throw new Error(`create ${name}: ${res.status} ${(await res.text().catch(() => '')).slice(0, 200)}`);
     await fetchImpl(`${ollama}/api/delete`, {
