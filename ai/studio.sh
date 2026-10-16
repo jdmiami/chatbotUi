@@ -21,7 +21,13 @@ install() {
   state installing
   if [ ! -x "$S/venv/bin/python" ]; then
     log "creating the Python environment"
-    python3 -m venv "$S/venv" || return 1
+    python3 -m venv "$S/venv" || python3 -m venv --without-pip "$S/venv" || return 1
+  fi
+  # Some base images ship Python without pip's bundled installer: bootstrap it.
+  if ! "$S/venv/bin/python" -m pip --version >/dev/null 2>&1; then
+    log "installing pip"
+    "$S/venv/bin/python" -m ensurepip --upgrade >/dev/null 2>&1 ||
+      curl -fsSL https://bootstrap.pypa.io/get-pip.py | "$S/venv/bin/python" - -q || return 1
   fi
   if [ ! -d "$S/ComfyUI/.git" ]; then
     log "downloading ComfyUI $COMFY_VERSION"
@@ -39,10 +45,10 @@ install() {
   if [ "$(cat "$S/venv/.installed" 2>/dev/null)" != "$STAMP" ]; then
     log "installing PyTorch and ComfyUI's packages (first start only, a few minutes)"
     export PIP_CACHE_DIR="$S/pip-cache"
-    "$S/venv/bin/pip" install -q --upgrade pip || return 1
+    "$S/venv/bin/python" -m pip install -q --upgrade pip || return 1
     # shellcheck disable=SC2086
-    "$S/venv/bin/pip" install -q $TORCH --index-url "$TORCH_INDEX" || return 1
-    "$S/venv/bin/pip" install -q -r "$S/ComfyUI/requirements.txt" || return 1
+    "$S/venv/bin/python" -m pip install -q $TORCH --index-url "$TORCH_INDEX" || return 1
+    "$S/venv/bin/python" -m pip install -q -r "$S/ComfyUI/requirements.txt" || return 1
     echo "$STAMP" > "$S/venv/.installed"
   fi
 }
