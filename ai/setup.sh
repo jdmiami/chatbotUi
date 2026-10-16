@@ -48,7 +48,7 @@ log "starting Open WebUI and Ollama"
     PORT=8081 HOST=127.0.0.1 \
     DATA_DIR="$P/open-webui/data" \
     WEBUI_SECRET_KEY_FILE="$P/open-webui/.webui_secret_key" \
-    OLLAMA_MODELS="$P/ollama/models" OLLAMA_KEEP_ALIVE=10m OLLAMA_CONTEXT_LENGTH=32768 \
+    OLLAMA_MODELS="$P/ollama/models" OLLAMA_KEEP_ALIVE=10m OLLAMA_CONTEXT_LENGTH=65536 \
     OLLAMA_FLASH_ATTENTION=1 OLLAMA_MAX_LOADED_MODELS=1 \
     WEBUI_NAME="AI Playground" WEBUI_URL="$public_url" CORS_ALLOW_ORIGIN="$public_url" \
     WEBUI_SESSION_COOKIE_SECURE=true \
