@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 import { persist, createJSONStorage } from 'zustand/middleware';
 
-export type AppId = 'terminal' | 'editor' | 'agent' | 'settings';
+export type AppId = 'terminal' | 'editor' | 'agent' | 'ai' | 'settings';
 export type Overlay = null | 'switcher' | 'control-center';
 export type ThemePref = 'system' | 'dark' | 'light';
 export type AccentId = 'indigo' | 'teal' | 'amber' | 'rose' | 'sky';
@@ -156,4 +156,4 @@ export const useShell = create<ShellState>()(
   ),
 );
 
-export const APP_ORDER: AppId[] = ['terminal', 'editor', 'agent', 'settings'];
+export const APP_ORDER: AppId[] = ['terminal', 'editor', 'agent', 'ai', 'settings'];

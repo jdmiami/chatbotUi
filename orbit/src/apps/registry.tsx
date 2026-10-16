@@ -9,6 +9,7 @@ const loaders: Record<AppId, () => Promise<{ default: ComponentType<AppProps> }>
   terminal: () => import('./terminal/TerminalApp'),
   editor: () => import('./editor/EditorApp'),
   agent: () => import('./agent/AgentApp'),
+  ai: () => import('./ai/AiApp'),
   settings: () => import('./settings/SettingsApp'),
 };
 
@@ -55,6 +56,15 @@ export const APPS: Record<AppId, AppMeta> = {
     tile: 'linear-gradient(145deg, #0fb39b, #0a5c78)',
     glyph: '#fff6c9',
     component: lazy(loaders.agent),
+  },
+  ai: {
+    id: 'ai',
+    name: 'AI',
+    description: 'Chat with your own open models on your GPU machine',
+    icon: 'bolt',
+    tile: 'linear-gradient(145deg, #8b5cf6, #2563eb 60%, #06b6d4)',
+    glyph: '#ffffff',
+    component: lazy(loaders.ai),
   },
   settings: {
     id: 'settings',

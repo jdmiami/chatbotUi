@@ -1,0 +1,15 @@
+{
+  "name": "orbit-ai-gate",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Front door of the AI machine: sign-in hand-off, Open WebUI proxy, model API, idle shutdown",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node src/index.js",
+    "test": "node --test --test-force-exit test/*.test.js"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

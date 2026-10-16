@@ -1,6 +1,8 @@
 // Where each workspace lives on this site, and the cookie that remembers the user's choice.
 export const WORKSPACES = {
   orbit: '/orbit',
+  ai: '/ai',
+  code: '/code',
   linux: '/desktop/linux',
   windows: '/desktop/windows',
 } as const;

@@ -5,6 +5,9 @@
 #   Linux desktop:  browser --wss--> gateway :8080 --> guacd :4822 --> xrdp :3389 --> XFCE
 #   Orbit:          browser --https/wss--> gateway :8080 /orbit/api, /orbit/pty
 #                   (real terminal in tmux, project files in ~/projects, Antigravity CLI)
+#   Coding:         browser --https/wss--> gateway :8080 /code/ --> code-server 127.0.0.1:8443
+#                   (VS Code with the Kilo Code agent, using the AI machine's model through
+#                    the gateway's local endpoint 127.0.0.1:8090/v1)
 #
 # Only port 8080 needs to be exposed. Everything else listens on localhost. Every Orbit and desktop
 # request needs a short-lived token signed with GATEWAY_SECRET by the signed-in web app.
@@ -22,6 +25,9 @@ REPO_RAW="${REPO_RAW:-https://raw.githubusercontent.com/jdmiami/chatbotUi/main}"
 # Home directories live here so they survive pod restarts when it is a volume (Runpod: /workspace).
 PERSIST_DIR="${PERSIST_DIR:-/workspace}"
 NODE_VERSION=22.20.0
+CODE_SERVER_VERSION=4.141.0
+KILO_VERSION=7.8.12
+CODE_MODEL="${CODE_MODEL:-qwen3.6:35b}"
 export DEBIAN_FRONTEND=noninteractive
 
 log() { echo "[pod-setup] $*"; }
@@ -53,7 +59,7 @@ if [ ! -f /opt/.desktop-installed ]; then
   log "installing the gateway and Orbit host"
   mkdir -p /opt/gateway/src/orbit /opt/gateway/bin
   for f in package.json package-lock.json src/index.js src/server.js src/protocol.js src/origins.js \
-    src/orbit/auth.js src/orbit/files.js src/orbit/pty.js src/orbit/agent.js src/orbit/http.js src/orbit/seed.js \
+    src/code.js src/ai-local.js src/orbit/auth.js src/orbit/files.js src/orbit/pty.js src/orbit/agent.js src/orbit/http.js src/orbit/seed.js \
     bin/workspace-secrets.mjs; do
     curl -fsSL "${REPO_RAW}/gateway/${f}" -o "/opt/gateway/${f}"
   done
@@ -62,6 +68,13 @@ if [ ! -f /opt/.desktop-installed ]; then
   chmod 755 /opt/gateway/bin/workspace-secrets.mjs
   ln -sf /opt/gateway/bin/workspace-secrets.mjs /usr/local/bin/workspace-secrets
   node -e "require('/opt/gateway/node_modules/node-pty')" && log "node-pty ok" || log "WARNING: node-pty failed to load (Orbit terminal unavailable)"
+
+  log "installing VS Code (code-server ${CODE_SERVER_VERSION}) and the Kilo Code agent"
+  curl -fsSL "https://github.com/coder/code-server/releases/download/v${CODE_SERVER_VERSION}/code-server-${CODE_SERVER_VERSION}-linux-amd64.tar.gz" \
+    | tar -xz -C /opt && ln -sfn "/opt/code-server-${CODE_SERVER_VERSION}-linux-amd64" /opt/code-server
+  curl -fsSL -o /opt/kilo-code.vsix \
+    "https://open-vsx.org/api/kilocode/kilo-code/linux-x64/${KILO_VERSION}/file/kilocode.kilo-code-${KILO_VERSION}@linux-x64.vsix" \
+    || log "Kilo Code download failed (continuing)"
 
   touch /opt/.desktop-installed
 fi
@@ -95,6 +108,55 @@ if [ ! -x "$user_home/.local/bin/agy" ]; then
     || log "Antigravity install failed (continuing)"
 fi
 
+# VS Code for the desktop user: settings, extensions and the agent's config live in the home
+# directory (on the volume), and are only written when missing so your own changes stay.
+cs_data="$user_home/.local/share/code-server"
+as_user() { sudo -u "$DESKTOP_USER" -H "$@"; }
+as_user mkdir -p "$cs_data/User" "$user_home/.config/kilo"
+if [ ! -f "$cs_data/User/settings.json" ]; then
+  cat > "$cs_data/User/settings.json" <<'JSON'
+{
+  "workbench.colorTheme": "Default Dark Modern",
+  "workbench.startupEditor": "none",
+  "window.menuBarVisibility": "compact",
+  "editor.fontSize": 14,
+  "editor.minimap.enabled": false,
+  "files.autoSave": "afterDelay",
+  "terminal.integrated.defaultProfile.linux": "bash",
+  "security.workspace.trust.enabled": false,
+  "telemetry.telemetryLevel": "off"
+}
+JSON
+  chown "$DESKTOP_USER:$DESKTOP_USER" "$cs_data/User/settings.json"
+fi
+if [ ! -f "$user_home/.config/kilo/kilo.jsonc" ]; then
+  cat > "$user_home/.config/kilo/kilo.jsonc" <<JSON
+{
+  // Kilo Code (the agent in VS Code) uses your own model on the AI machine. The Linux machine's
+  // gateway forwards 127.0.0.1:8090/v1 to it and turns the AI machine on when needed.
+  "\$schema": "https://app.kilo.ai/config.json",
+  "model": "local/${CODE_MODEL}",
+  "provider": {
+    "local": {
+      "npm": "@ai-sdk/openai-compatible",
+      "name": "My AI machine",
+      "options": { "baseURL": "http://127.0.0.1:8090/v1", "apiKey": "local" },
+      "models": {
+        "${CODE_MODEL}": { "name": "Qwen 3.6 35B (coding)", "tool_call": true, "limit": { "context": 32768, "output": 8192 } },
+        "qwen3.8:27b": { "name": "Qwen 3.8 27B (general, vision)", "tool_call": true, "attachment": true, "limit": { "context": 32768, "output": 8192 } }
+      }
+    }
+  },
+  "permission": "allow"
+}
+JSON
+  chown "$DESKTOP_USER:$DESKTOP_USER" "$user_home/.config/kilo/kilo.jsonc"
+fi
+if [ -f /opt/kilo-code.vsix ] && ! ls -d "$cs_data/extensions/kilocode.kilo-code-${KILO_VERSION}"* >/dev/null 2>&1; then
+  as_user /opt/code-server/bin/code-server --user-data-dir "$cs_data" --install-extension /opt/kilo-code.vsix \
+    || log "Kilo Code install failed (continuing)"
+fi
+
 log "starting services"
 mkdir -p /run/dbus && (pgrep -x dbus-daemon >/dev/null || dbus-daemon --system --fork || log "dbus failed to start (continuing)")
 # xrdp listens on localhost only: the gateway is the sole way in.
@@ -105,6 +167,20 @@ xrdp-sesman
 xrdp
 guacd -b 127.0.0.1 -l 4822
 
+log "starting VS Code on 127.0.0.1:8443 (as $DESKTOP_USER)"
+# No secrets in its environment; only the gateway (with its sign-in cookie) can reach it.
+(
+  while true; do
+    setpriv --reuid="$DESKTOP_USER" --regid="$DESKTOP_USER" --init-groups env -i \
+      "HOME=$user_home" "USER=$DESKTOP_USER" "SHELL=/bin/bash" "LANG=en_US.UTF-8" \
+      "PATH=$user_home/.local/bin:/usr/local/bin:/usr/bin:/bin" \
+      /opt/code-server/bin/code-server --bind-addr 127.0.0.1:8443 --auth none \
+      --disable-telemetry --disable-update-check --disable-workspace-trust --disable-getting-started-override \
+      --user-data-dir "$cs_data" "$user_home/projects" || true
+    sleep 3
+  done
+) > /var/log/code-server.log 2>&1 &
+
 log "starting gateway + Orbit host on :8080 (as $DESKTOP_USER)"
 # Run as the desktop user so Orbit's terminal, files and Antigravity act as that user.
 gateway_env=(
@@ -114,6 +190,7 @@ gateway_env=(
   "RDP_HOST=127.0.0.1" "RDP_PORT=3389" "RDP_USERNAME=$DESKTOP_USER" "RDP_PASSWORD=$DESKTOP_PASSWORD"
   "RDP_SECURITY=${RDP_SECURITY:-any}" "RDP_IGNORE_CERT=true" "GUACD_HOST=127.0.0.1" "GUACD_PORT=4822" "PORT=8080"
   "ORBIT_HOST=1" "ORBIT_PROJECTS_DIR=$user_home/projects" "AGY_PATH=$user_home/.local/bin/agy"
+  "CODE_SERVER_URL=http://127.0.0.1:8443" "AI_LOCAL_PORT=8090" "SITE_URL=${SITE_URL:-}"
 )
 unset DESKTOP_PASSWORD
 cd /opt/gateway

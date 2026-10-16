@@ -84,6 +84,14 @@ on (when the site has a Runpod API key) or to continue in demo mode.
   (`src/services/runner/agyCapabilities.ts`): supported → enabled; unsupported → disabled with an explanation;
   unverified → not offered, listed in "What's supported".
 
+### AI (own models)
+- Chat with open-weights models on the AI machine (a GPU pod with Open WebUI + Ollama, see `ai/README.md`),
+  streamed through its OpenAI-compatible API with a 1-hour token from the site (`POST /api/ai/token`).
+- Turn-on banner with start/download progress (the machine turns itself off after 30 minutes unused), model
+  picker, visible "thinking", copy/again, chats kept in this browser (newest 60).
+- Header links to the full playground (`/ai`: documents, web search, voice, images) and to VS Code with the
+  coding agent (`/code`).
+
 ### Settings
 - Appearance (theme, accent, wallpaper, text size, motion), terminal options, split view, keyboard shortcuts,
   data & storage (export / import / reset), about and "what is simulated".
