@@ -91,6 +91,9 @@ on (when the site has a Runpod API key) or to continue in demo mode.
   picker, visible "thinking", copy/again, chats kept in this browser (newest 60).
 - Header links to the full playground (`/ai`: documents, web search, voice, images) and to VS Code with the
   coding agent (`/code`).
+- iPhone and iPad, both orientations: chat list as a sheet on narrow screens and a sidebar on wide ones; 44px
+  touch targets; wide code scrolls inside its block; on short screens (iPhone sideways) the model picker and
+  message box share one row. Covered by `tests/e2e/ai.spec.ts`.
 
 ### Settings
 - Appearance (theme, accent, wallpaper, text size, motion), terminal options, split view, keyboard shortcuts,

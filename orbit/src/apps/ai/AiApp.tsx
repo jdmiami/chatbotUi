@@ -101,11 +101,19 @@ export default function AiApp({ isActive, compact, placement }: AppProps) {
     setSummary('ai', busy ? 'Answering…' : status ? `AI machine: ${STATE_TEXT[status.state].toLowerCase()}` : '');
   }, [busy, status, setSummary]);
 
-  // Keep the newest text in view while it streams.
+  // Keep the newest text in view while it streams, unless the reader scrolled up to read.
+  const follow = useRef(true);
+  const onScroll = () => {
+    const el = scroller.current;
+    if (el) follow.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
+  };
   useEffect(() => {
     const el = scroller.current;
-    if (el && el.scrollHeight - el.scrollTop - el.clientHeight < 160) el.scrollTop = el.scrollHeight;
+    if (el && follow.current) el.scrollTop = el.scrollHeight;
   }, [chat?.messages]);
+  useEffect(() => {
+    follow.current = true;
+  }, [store.activeId]);
 
   const model = chat?.model || store.model || models[0] || '';
 
@@ -202,6 +210,7 @@ export default function AiApp({ isActive, compact, placement }: AppProps) {
       ),
     }));
     setDraft('');
+    follow.current = true;
     await run(chatId, history, model);
   };
 
@@ -325,7 +334,7 @@ export default function AiApp({ isActive, compact, placement }: AppProps) {
       <div className="ag-layout ai-layout">
         {!compact && <aside className="ai-side">{list}</aside>}
         <section className="ai-main" aria-label={chat?.title ?? 'New chat'}>
-          <div className="ai-scroll" ref={scroller}>
+          <div className="ai-scroll" ref={scroller} onScroll={onScroll}>
             {!chat || chat.messages.length === 0 ? (
               <EmptyState icon="sparkle" title="Chat with your own models">
                 Private, open-weights models on your GPU machine. For documents, web search and voice, open the full
