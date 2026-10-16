@@ -63,6 +63,9 @@ on (when the site has a Runpod API key) or to continue in demo mode.
 - Line editing, history, tab completion, Ctrl+C/L/U/D, multi-line paste; commands over the demo project files.
 - Touch key row: Esc, Tab, sticky Ctrl, arrows and common symbols; keys don't dismiss the keyboard.
 - Copy/paste buttons, keyboard show/hide, font size, clear, restart.
+- Width: "Fit" (columns follow the screen) or a fixed 80/100/120/160 columns. A wider terminal pans sideways
+  (swipe left/right, thin position bar), follows the cursor as you type, and "Fit width" (or pinch, down to 5px)
+  zooms out until every column is on screen.
 - States: connecting, connected, reconnecting (demo trigger), disconnected (after `exit`), error.
 
 ### Code

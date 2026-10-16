@@ -23,6 +23,11 @@ export interface Settings {
    * terminal. Unset = on for phones, off elsewhere.
    */
   terminalTypingBox?: boolean;
+  /**
+   * Terminal width in columns. Unset/0 = fit the screen. A fixed width (80, 100…) can be wider
+   * than the screen: swipe sideways to pan, pinch or "Fit width" to zoom out.
+   */
+  terminalColumns?: number;
   /** Seen the first-run "what is simulated" sheet. */
   introSeen: boolean;
 }

@@ -142,7 +142,8 @@ export function applyStickyCtrl(data: string, armed: boolean): { data: string; a
   return { data: ctrlTransform(data) ?? data, armed: false };
 }
 
-export const FONT_MIN = 10;
+/** Small enough to zoom a wide terminal all the way out on a phone. */
+export const FONT_MIN = 5;
 export const FONT_MAX = 24;
 
 export function clampFontSize(n: number): number {
