@@ -15,7 +15,8 @@ Orbit AI app / coding agent ──> gate :8080 /v1 ──> Ollama (OpenAI-compat
   `qwen3.8-obliterated:27b`, the uncensored [OBLITERATUS Qwen3.8-27B V3](https://hf.co/OBLITERATUS/Qwen3.8-27B-OBLITERATED)
   (6-bit GGUF from Hugging Face, with the model card's settings: temperature 0, repetition penalty 1.15).
   Downloaded once to the network volume; add more from the playground's admin settings, or in `AI_MODELS`
-  (`name=source|param=value` installs an outside model under a friendly name with its own settings).
+  (`name=source|param=value` installs an outside model under a friendly name with its own settings;
+  `|like=<library model>` gives it that model's chat format, so tools such as web search and code work).
 - **Gate** (`gate/`, Node, no dependencies): the only exposed port.
   - `/_orbit/login?token=…` swaps a 90-second, single-use token from the site for an HttpOnly cookie,
     then tells Open WebUI who you are with a trusted header it always strips from incoming requests.

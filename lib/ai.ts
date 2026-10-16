@@ -50,7 +50,7 @@ const env = () => ({
   gpuTypes: (process.env.AI_GPU_TYPES || 'NVIDIA A40').split(',').map((s) => s.trim()).filter(Boolean),
   image: process.env.AI_IMAGE || 'ghcr.io/open-webui/open-webui:0.12.2-ollama',
   idleMinutes: process.env.AI_IDLE_MINUTES || '30',
-  models: process.env.AI_MODELS || 'qwen3.8:27b,qwen3.6:35b,qwen3.8-obliterated:27b=hf.co/OBLITERATUS/Qwen3.8-27B-OBLITERATED:Q6_K|temperature=0|repeat_penalty=1.15',
+  models: process.env.AI_MODELS || 'qwen3.8:27b,qwen3.6:35b,qwen3.8-obliterated:27b=hf.co/OBLITERATUS/Qwen3.8-27B-OBLITERATED:Q6_K|like=qwen3.8:27b|temperature=0|repeat_penalty=1.15',
   secret: process.env.LINUX_GATEWAY_SECRET || '',
 });
 
