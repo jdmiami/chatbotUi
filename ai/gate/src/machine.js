@@ -7,10 +7,32 @@ export async function ollamaJson(base, path, init) {
 }
 
 /**
+ * One default model. Either an Ollama library name ("qwen3.8:27b"), or a friendly name for a model
+ * from elsewhere with its own settings:
+ *   "qwen3.8-obliterated:27b=hf.co/OBLITERATUS/Qwen3.8-27B-OBLITERATED:Q6_K|temperature=0|repeat_penalty=1.15"
+ */
+export function parseModelSpec(spec) {
+  const [main, ...opts] = spec.split('|').map((s) => s.trim());
+  const eq = main.indexOf('=');
+  const name = eq > 0 ? main.slice(0, eq).trim() : main;
+  const source = eq > 0 ? main.slice(eq + 1).trim() : main;
+  const parameters = {};
+  for (const o of opts) {
+    const i = o.indexOf('=');
+    if (i <= 0) continue;
+    const v = o.slice(i + 1).trim();
+    parameters[o.slice(0, i).trim()] = v !== '' && Number.isFinite(Number(v)) ? Number(v) : v;
+  }
+  return { name, source, parameters };
+}
+
+/**
  * Makes sure the default models are downloaded (on the machine's storage, so this happens once).
  * Downloads run one at a time; progress is visible in /_orbit/status.
  */
-export function createModelKeeper({ ollama, wanted, retryMs = 60_000, fetchImpl = fetch }) {
+export function createModelKeeper({ ollama, wanted: specs, retryMs = 60_000, fetchImpl = fetch }) {
+  const wantedModels = specs.map(parseModelSpec);
+  const wanted = wantedModels.map((m) => m.name);
   let current = null; // { model, completed, total, status }
   let running = false;
 
@@ -60,6 +82,25 @@ export function createModelKeeper({ ollama, wanted, retryMs = 60_000, fetchImpl 
     }
   }
 
+  // A model from elsewhere gets its friendly name and settings, then the long source name is
+  // removed from the list (the files stay, the friendly name uses them).
+  async function install({ name, source, parameters }) {
+    await pull(source);
+    if (source === name) return;
+    current = { model: name, completed: 0, total: 0, status: 'setting up' };
+    const res = await fetchImpl(`${ollama}/api/create`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ model: name, from: source, parameters, stream: false }),
+    });
+    if (!res.ok) throw new Error(`create ${name}: ${res.status} ${(await res.text().catch(() => '')).slice(0, 200)}`);
+    await fetchImpl(`${ollama}/api/delete`, {
+      method: 'DELETE',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ model: source }),
+    }).catch(() => {});
+  }
+
   async function loop() {
     if (running) return;
     running = true;
@@ -68,14 +109,14 @@ export function createModelKeeper({ ollama, wanted, retryMs = 60_000, fetchImpl 
         let missing;
         try {
           const names = await have();
-          missing = wanted.filter((m) => !names.has(m));
+          missing = wantedModels.filter((m) => !names.has(m.name));
         } catch {
           await new Promise((r) => setTimeout(r, 3000)); // Ollama still starting
           continue;
         }
         if (!missing.length) break;
         try {
-          await pull(missing[0]);
+          await install(missing[0]);
         } catch (err) {
           console.warn(`[gate] ${err.message}; retrying in ${Math.round(retryMs / 1000)}s`);
           current = null;

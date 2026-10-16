@@ -29,6 +29,9 @@ export interface AiStatus {
   pulling?: { model: string; percent: number } | null;
   models?: string[];
   idle?: { limitMinutes: number; idleMinutes: number } | null;
+  /** Direct address of the AI machine (sign-in still goes through the site) and its Runpod page. */
+  url?: string;
+  consoleUrl?: string;
 }
 
 interface Pod {
@@ -47,7 +50,7 @@ const env = () => ({
   gpuTypes: (process.env.AI_GPU_TYPES || 'NVIDIA A40').split(',').map((s) => s.trim()).filter(Boolean),
   image: process.env.AI_IMAGE || 'ghcr.io/open-webui/open-webui:0.12.2-ollama',
   idleMinutes: process.env.AI_IDLE_MINUTES || '30',
-  models: process.env.AI_MODELS || 'qwen3.8:27b,qwen3.6:35b',
+  models: process.env.AI_MODELS || 'qwen3.8:27b,qwen3.6:35b,qwen3.8-obliterated:27b=hf.co/OBLITERATUS/Qwen3.8-27B-OBLITERATED:Q6_K|temperature=0|repeat_penalty=1.15',
   secret: process.env.LINUX_GATEWAY_SECRET || '',
 });
 
@@ -71,6 +74,7 @@ async function gateUp(podId: string) {
 }
 
 export const aiBase = (podId: string) => `https://${podId}-8080.proxy.runpod.net`;
+export const aiConsole = (podId: string) => `https://console.runpod.io/pods?id=${encodeURIComponent(podId)}`;
 
 /** The code version the machine runs: the same commit as this deployment (falls back to main). */
 function repoRaw() {
@@ -133,7 +137,11 @@ async function createAiPod(): Promise<Pod> {
 }
 
 /** Runpod says there's no GPU left on the stopped pod's own machine (it can only resume there). */
-const noCapacity = (msg: string) => /not enough|no (gpu|longer)|insufficient|capacity|unavailable|free gpu/i.test(msg);
+const noCapacity = (msg: string) =>
+  /not enough|no (gpu|longer|instances?)|insufficient|capacity|unavailable|not available|free gpu/i.test(msg);
+
+const NO_GPU =
+  'No GPU is free for your AI machine right now: Runpod is out of them in its data center. This usually clears within the hour; try again in a few minutes.';
 
 /** Turn the AI machine on: start it, create it, or replace it when its host has no free GPU. */
 export async function startAi(): Promise<void> {
@@ -144,12 +152,14 @@ export async function startAi(): Promise<void> {
     return;
   }
   if (pod.status === 'RUNNING' || pod.status === 'STARTING' || pod.status === 'PROVISIONING') return;
-  // Run the same code version as this deployment: point a stopped machine at it before starting.
-  const want = repoRaw();
-  if (process.env.VERCEL_GIT_COMMIT_SHA && pod.env?.REPO_RAW && pod.env.REPO_RAW !== want) {
+  // Run the same code version and default models as this deployment: update a stopped machine
+  // before starting it.
+  const want: Record<string, string> = { DEFAULT_MODELS: env().models };
+  if (process.env.VERCEL_GIT_COMMIT_SHA) want.REPO_RAW = repoRaw();
+  if (pod.env && Object.entries(want).some(([k, v]) => pod.env![k] !== v)) {
     await runpod(`/pods/${encodeURIComponent(pod.id)}`, {
       method: 'PATCH',
-      body: JSON.stringify({ env: { ...pod.env, REPO_RAW: want } }),
+      body: JSON.stringify({ env: { ...pod.env, ...want } }),
     }).catch(() => {});
   }
   try {
@@ -157,7 +167,13 @@ export async function startAi(): Promise<void> {
   } catch (err) {
     if (!noCapacity((err as Error).message) && pod.status !== 'ERROR') throw err;
     // Everything worth keeping is on the network volume, so a fresh pod picks up where it left off.
-    await createAiPod();
+    // If no GPU is free anywhere in the volume's data center either, keep the old pod and say so.
+    try {
+      await createAiPod();
+    } catch (createErr) {
+      if (noCapacity((createErr as Error).message)) throw new Error(NO_GPU);
+      throw createErr;
+    }
     await runpod(`/pods/${encodeURIComponent(pod.id)}`, { method: 'DELETE' }).catch(() => {});
   }
 }

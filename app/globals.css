@@ -243,3 +243,5 @@ a.button { text-decoration: none; }
 @media (prefers-reduced-motion: reduce) { .ai-steps li.now .ai-step-dot { animation: none; } .ai-bar span { transition: none; } }
 .choice-code .choice-icon { background: linear-gradient(145deg, #0ea5e9, #6366f1); }
 .choice-ai-note { font-size: 12px; color: #c4b5fd; }
+.ai-links .button { font-size: 14px; }
+.ai-direct a { color: var(--muted); }

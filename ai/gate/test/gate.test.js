@@ -5,7 +5,7 @@ import net from 'node:net';
 import crypto from 'node:crypto';
 import { createGate, COOKIE, originMatcher } from '../src/gate.js';
 import { signJwt, verifyJwt } from '../src/jwt.js';
-import { createIdleWatch, createModelKeeper, runpodStopSelf } from '../src/machine.js';
+import { createIdleWatch, createModelKeeper, parseModelSpec, runpodStopSelf } from '../src/machine.js';
 
 const SECRET = 'x'.repeat(40);
 const SITE = 'https://site.example';
@@ -254,4 +254,45 @@ test('stop self: REST first, GraphQL fallback, clear error when neither works', 
     /REST 403/,
   );
   await assert.rejects(runpodStopSelf({ podId: '', apiKey: '' }), /not available/);
+});
+
+test('model specs: plain names, and friendly names for outside models with their settings', () => {
+  assert.deepEqual(parseModelSpec('qwen3.8:27b'), { name: 'qwen3.8:27b', source: 'qwen3.8:27b', parameters: {} });
+  assert.deepEqual(parseModelSpec('free:27b=hf.co/Org/Repo:Q6_K|temperature=0|repeat_penalty=1.15|stop=END'), {
+    name: 'free:27b',
+    source: 'hf.co/Org/Repo:Q6_K',
+    parameters: { temperature: 0, repeat_penalty: 1.15, stop: 'END' },
+  });
+});
+
+test('model keeper: an outside model is pulled, given its friendly name and settings, and its long name removed', async () => {
+  const have = new Set(['qwen:latest']);
+  const calls = [];
+  const fetchImpl = async (url, init = {}) => {
+    const body = init.body ? JSON.parse(init.body) : {};
+    calls.push({ path: new URL(url).pathname, body });
+    if (url.endsWith('/api/tags')) return new Response(JSON.stringify({ models: [...have].map((name) => ({ name })) }));
+    if (url.endsWith('/api/pull')) {
+      have.add(body.model);
+      return new Response(new ReadableStream({ start(c) { c.enqueue(new TextEncoder().encode('{"status":"success"}\n')); c.close(); } }));
+    }
+    if (url.endsWith('/api/create')) {
+      have.add(body.model);
+      return new Response('{"status":"success"}');
+    }
+    if (url.endsWith('/api/delete')) {
+      have.delete(body.model);
+      return new Response('');
+    }
+    return new Response('', { status: 404 });
+  };
+  const k = createModelKeeper({ ollama: 'http://o', wanted: ['qwen', 'free:27b=hf.co/Org/Repo:Q6_K|temperature=0'], fetchImpl });
+  assert.deepEqual(k.wanted, ['qwen', 'free:27b']);
+  k.start();
+  for (let i = 0; i < 100 && !have.has('free:27b'); i++) await new Promise((r) => setTimeout(r, 5));
+  await new Promise((r) => setTimeout(r, 20));
+  const create = calls.find((c) => c.path === '/api/create');
+  assert.deepEqual(create.body, { model: 'free:27b', from: 'hf.co/Org/Repo:Q6_K', parameters: { temperature: 0 }, stream: false });
+  assert.ok(calls.some((c) => c.path === '/api/delete' && c.body.model === 'hf.co/Org/Repo:Q6_K'));
+  assert.ok(have.has('free:27b') && !have.has('hf.co/Org/Repo:Q6_K'));
 });
