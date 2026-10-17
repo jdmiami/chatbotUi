@@ -31,6 +31,83 @@ export function parseModelSpec(spec) {
   return like ? { name, source, parameters, like } : { name, source, parameters };
 }
 
+/** Download a model into Ollama, reporting { status, completed, total } as it goes. */
+export async function pullModel({ ollama, model, onProgress = () => {}, fetchImpl = fetch }) {
+  let cur = { status: 'starting', completed: 0, total: 0 };
+  onProgress(cur);
+  const res = await fetchImpl(`${ollama}/api/pull`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ model, stream: true }),
+  });
+  if (!res.ok || !res.body) throw new Error(`pull ${model}: ${res.status}`);
+  const decoder = new TextDecoder();
+  let buf = '';
+  for await (const chunk of res.body) {
+    buf += decoder.decode(chunk, { stream: true });
+    let nl;
+    while ((nl = buf.indexOf('\n')) >= 0) {
+      const line = buf.slice(0, nl).trim();
+      buf = buf.slice(nl + 1);
+      if (!line) continue;
+      let msg;
+      try {
+        msg = JSON.parse(line);
+      } catch {
+        continue;
+      }
+      if (msg.error) throw new Error(`pull ${model}: ${msg.error}`);
+      cur = { status: msg.status || cur.status, completed: msg.completed ?? cur.completed, total: msg.total ?? cur.total };
+      onProgress(cur);
+    }
+  }
+}
+
+// The chat format (template, renderer, parser) of a library model, for like=.
+async function chatFormat({ ollama, model, fetchImpl }) {
+  const res = await fetchImpl(`${ollama}/api/show`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ model }),
+  });
+  if (!res.ok) throw new Error(`show ${model}: ${res.status}`);
+  const d = await res.json();
+  const line = (k) => (d.modelfile || '').match(new RegExp(`^${k} (\\S+)`, 'm'))?.[1];
+  const format = {};
+  if (d.template) format.template = d.template;
+  if (line('RENDERER')) format.renderer = line('RENDERER');
+  if (line('PARSER')) format.parser = line('PARSER');
+  return format;
+}
+
+/**
+ * Install one model spec (see parseModelSpec). A model from elsewhere gets its friendly name and
+ * settings, then the long source name is removed from the list (the files stay, the friendly name
+ * uses them). onProgress({ model, status, completed, total }).
+ */
+export async function installModel({ ollama, spec, onProgress = () => {}, fetchImpl = fetch }) {
+  const { name, source, parameters, like } = typeof spec === 'string' ? parseModelSpec(spec) : spec;
+  const report = (model) => (p) => onProgress({ model, ...p });
+  if (like) await pullModel({ ollama, model: like, onProgress: report(like), fetchImpl }); // no-op when it's already there
+  await pullModel({ ollama, model: source, onProgress: report(name), fetchImpl });
+  if (source === name && !Object.keys(parameters || {}).length) return;
+  onProgress({ model: name, status: 'setting up', completed: 0, total: 0 });
+  const format = like ? await chatFormat({ ollama, model: like, fetchImpl }) : {};
+  const res = await fetchImpl(`${ollama}/api/create`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ model: name, from: source, ...format, parameters, stream: false }),
+  });
+  if (!res.ok) throw new Error(`create ${name}: ${res.status} ${(await res.text().catch(() => '')).slice(0, 200)}`);
+  if (source !== name) {
+    await fetchImpl(`${ollama}/api/delete`, {
+      method: 'DELETE',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ model: source }),
+    }).catch(() => {});
+  }
+}
+
 /**
  * Makes sure the default models are downloaded (on the machine's storage, so this happens once).
  * Downloads run one at a time; progress is visible in /_orbit/status.
@@ -53,77 +130,7 @@ export function createModelKeeper({ ollama, wanted: specs, retryMs = 60_000, fet
     return names;
   }
 
-  async function pull(model) {
-    current = { model, completed: 0, total: 0, status: 'starting' };
-    const res = await fetchImpl(`${ollama}/api/pull`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ model, stream: true }),
-    });
-    if (!res.ok || !res.body) throw new Error(`pull ${model}: ${res.status}`);
-    const decoder = new TextDecoder();
-    let buf = '';
-    for await (const chunk of res.body) {
-      buf += decoder.decode(chunk, { stream: true });
-      let nl;
-      while ((nl = buf.indexOf('\n')) >= 0) {
-        const line = buf.slice(0, nl).trim();
-        buf = buf.slice(nl + 1);
-        if (!line) continue;
-        let msg;
-        try {
-          msg = JSON.parse(line);
-        } catch {
-          continue;
-        }
-        if (msg.error) throw new Error(`pull ${model}: ${msg.error}`);
-        current = {
-          model,
-          status: msg.status || current.status,
-          completed: msg.completed ?? current.completed,
-          total: msg.total ?? current.total,
-        };
-      }
-    }
-  }
-
-  // A model from elsewhere gets its friendly name and settings, then the long source name is
-  // removed from the list (the files stay, the friendly name uses them).
-  // The chat format (template, renderer, parser) of a library model, for like=.
-  async function chatFormat(model) {
-    const res = await fetchImpl(`${ollama}/api/show`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ model }),
-    });
-    if (!res.ok) throw new Error(`show ${model}: ${res.status}`);
-    const d = await res.json();
-    const line = (k) => (d.modelfile || '').match(new RegExp(`^${k} (\\S+)`, 'm'))?.[1];
-    const format = {};
-    if (d.template) format.template = d.template;
-    if (line('RENDERER')) format.renderer = line('RENDERER');
-    if (line('PARSER')) format.parser = line('PARSER');
-    return format;
-  }
-
-  async function install({ name, source, parameters, like }) {
-    if (like) await pull(like); // no-op when it's already there
-    await pull(source);
-    if (source === name) return;
-    current = { model: name, completed: 0, total: 0, status: 'setting up' };
-    const format = like ? await chatFormat(like) : {};
-    const res = await fetchImpl(`${ollama}/api/create`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ model: name, from: source, ...format, parameters, stream: false }),
-    });
-    if (!res.ok) throw new Error(`create ${name}: ${res.status} ${(await res.text().catch(() => '')).slice(0, 200)}`);
-    await fetchImpl(`${ollama}/api/delete`, {
-      method: 'DELETE',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ model: source }),
-    }).catch(() => {});
-  }
+  const install = (spec) => installModel({ ollama, spec, fetchImpl, onProgress: (p) => (current = p) });
 
   async function loop() {
     if (running) return;

@@ -35,7 +35,7 @@ fi
 
 log "fetching the gate"
 rm -rf /opt/gate && mkdir -p /opt/gate/src /opt/gate/openwebui
-for f in package.json src/index.js src/gate.js src/jwt.js src/machine.js src/studio.js src/workflows.js src/openwebui.js openwebui/studio_pipe.py; do
+for f in package.json src/index.js src/gate.js src/jwt.js src/machine.js src/store.js src/studio.js src/workflows.js src/openwebui.js openwebui/studio_pipe.py; do
   curl -fsSL "${REPO_RAW}/ai/gate/${f}" -o "/opt/gate/${f}"
 done
 curl -fsSL "${REPO_RAW}/ai/studio.sh" -o /opt/gate/studio.sh

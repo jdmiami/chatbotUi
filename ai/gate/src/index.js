@@ -5,6 +5,7 @@ import { fileURLToPath } from 'node:url';
 import { createGate } from './gate.js';
 import { createIdleWatch, createModelKeeper, ollamaJson, runpodStopSelf } from './machine.js';
 import { installStudioFunction } from './openwebui.js';
+import { createModelStore } from './store.js';
 import { createStudio } from './studio.js';
 
 const env = process.env;
@@ -84,6 +85,7 @@ const server = createGate({
   status,
   studio,
   studioKey: env.STUDIO_KEY || '',
+  store: createModelStore({ ollama: OLLAMA, volume: env.PERSIST_DIR || '/workspace' }),
 });
 
 server.listen(Number(env.PORT || 8080), '0.0.0.0', () => console.log(`[gate] listening on :${env.PORT || 8080}`));
