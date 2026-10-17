@@ -105,6 +105,9 @@ export function createStudio(o) {
   const now = o.now || Date.now;
   const clientId = `gate-${newId()}`;
   const freeAfterMs = o.freeAfterMs ?? 3 * 60_000;
+  // A helper machine shares the main machine's files: it makes things but never downloads or
+  // deletes model files (the main machine does that).
+  const helper = Boolean(o.helper);
   const ffmpeg = o.ffmpeg || runFfmpeg;
 
   const jobs = new Map(); // id -> job
@@ -245,6 +248,7 @@ export function createStudio(o) {
   }
 
   async function installMaker(id) {
+    if (helper) throw Object.assign(new Error('Add makers from your main AI machine.'), { status: 409 });
     const m = makerById(id);
     if (!m) throw Object.assign(new Error('No such maker.'), { status: 404 });
     if (m.kind === 'style' && !(m.for && (makerById(m.for)?.builtIn || wanted.has(m.for)))) {
@@ -257,6 +261,7 @@ export function createStudio(o) {
   }
 
   async function removeMaker(id) {
+    if (helper) throw Object.assign(new Error('Remove makers from your main AI machine.'), { status: 409 });
     const m = makerById(id);
     if (!m) throw Object.assign(new Error('No such maker.'), { status: 404 });
     if (m.builtIn) throw Object.assign(new Error('This maker comes with the machine and stays.'), { status: 400 });
@@ -304,7 +309,7 @@ export function createStudio(o) {
   const comfyUp = () => comfyJson('/system_stats', { timeout: 3000 }).then(() => true, () => false);
 
   async function setupState() {
-    return (await fsp.readFile(path.join(dir, 'state'), 'utf8').catch(() => 'installing')).trim();
+    return (await fsp.readFile(path.join(dir, helper ? 'state-helper' : 'state'), 'utf8').catch(() => 'installing')).trim();
   }
 
   function connectWs() {
@@ -683,7 +688,7 @@ export function createStudio(o) {
 
   return {
     start() {
-      void downloadAll();
+      if (!helper) void downloadAll();
       const t = setInterval(() => void poll().catch(() => {}), o.pollMs ?? 3000);
       t.unref?.();
     },

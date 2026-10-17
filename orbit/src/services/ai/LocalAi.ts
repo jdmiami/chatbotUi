@@ -131,6 +131,8 @@ export interface Movie {
   shots: MovieShot[];
   render: { itemId: string; at: string } | null;
   running: boolean;
+  /** Which machine is making it (while running). */
+  runningOn: AiMachine | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -227,8 +229,21 @@ export class AiError extends Error {
 
 interface Grant {
   url: string;
+  /** The helper machine (images and videos only), when it is on. */
+  helper: string | null;
   token: string;
   expires: number;
+}
+
+export type AiMachine = 'main' | 'helper';
+
+/** The optional second AI machine that only makes images and videos (soReal: two movies at once). */
+export interface HelperStatus {
+  state: 'unconfigured' | 'off' | 'starting' | 'on' | 'error';
+  costPerHour: number | null;
+  pricePerHour: number;
+  detail?: string;
+  idle?: { limitMinutes: number; idleMinutes: number } | null;
 }
 
 async function siteJson<T>(path: string, init?: RequestInit): Promise<T> {
@@ -299,18 +314,21 @@ export class LocalAi {
   /** Address + token of the AI machine; null while it isn't ready. */
   private async access(force = false): Promise<Grant | null> {
     if (!force && this.grant && this.grant.expires - Date.now() > 120_000) return this.grant;
-    const r = await siteJson<{ url: string | null; token: string | null; expiresIn: number }>('/api/ai/token', {
+    const r = await siteJson<{ url: string | null; helperUrl?: string | null; token: string | null; expiresIn: number }>('/api/ai/token', {
       method: 'POST',
       body: '{}',
     });
-    this.grant = r.url && r.token ? { url: r.url, token: r.token, expires: Date.now() + r.expiresIn * 1000 } : null;
+    this.grant = r.url && r.token ? { url: r.url, helper: r.helperUrl ?? null, token: r.token, expires: Date.now() + r.expiresIn * 1000 } : null;
     return this.grant;
   }
 
-  private async call(path: string, init: RequestInit, retry = true): Promise<Response> {
-    const g = await this.access();
+  private async call(path: string, init: RequestInit, retry = true, machine: AiMachine = 'main'): Promise<Response> {
+    let g = await this.access();
+    // The helper may have come on since the last token: ask again once.
+    if (g && machine === 'helper' && !g.helper) g = await this.access(true);
     if (!g) throw new AiError('Your AI machine is not on yet.', 503);
-    const res = await fetch(`${g.url}${path}`, {
+    if (machine === 'helper' && !g.helper) throw new AiError('Your helper machine is not on yet.', 503);
+    const res = await fetch(`${machine === 'helper' ? g.helper : g.url}${path}`, {
       ...init,
       headers: { ...(init.headers ?? {}), authorization: `Bearer ${g.token}` },
     }).catch((err: Error) => {
@@ -319,7 +337,7 @@ export class LocalAi {
     });
     if (res.status === 401 && retry) {
       await this.access(true);
-      return this.call(path, init, false);
+      return this.call(path, init, false, machine);
     }
     return res;
   }
@@ -380,8 +398,8 @@ export class LocalAi {
 
   // ---- image and video maker
 
-  private async studioCall<T>(path: string, init: RequestInit = {}): Promise<T> {
-    const res = await this.call(path, { ...init, headers: { 'content-type': 'application/json', ...(init.headers ?? {}) } });
+  private async studioCall<T>(path: string, init: RequestInit = {}, machine: AiMachine = 'main'): Promise<T> {
+    const res = await this.call(path, { ...init, headers: { 'content-type': 'application/json', ...(init.headers ?? {}) } }, true, machine);
     const body = await res.json().catch(() => ({}));
     if (!res.ok) {
       const msg = typeof body.error === 'string' ? body.error : body.error?.message;
@@ -457,13 +475,26 @@ export class LocalAi {
     await this.studioCall(`/_orbit/studio/movies/${encodeURIComponent(id)}`, { method: 'DELETE' });
   }
 
-  /** Make the shots that aren't done yet, in order (keeps going on the machine). */
-  runMovie(id: string): Promise<Movie> {
-    return this.studioCall<Movie>(`/_orbit/studio/movies/${encodeURIComponent(id)}/run`, { method: 'POST', body: '{}' });
+  /** Make the shots that aren't done yet, in order, on the main or the helper machine (keeps going there). */
+  runMovie(id: string, on: AiMachine = 'main'): Promise<Movie> {
+    return this.studioCall<Movie>(`/_orbit/studio/movies/${encodeURIComponent(id)}/run`, { method: 'POST', body: '{}' }, on);
   }
 
-  stopMovie(id: string): Promise<Movie> {
-    return this.studioCall<Movie>(`/_orbit/studio/movies/${encodeURIComponent(id)}/stop`, { method: 'POST', body: '{}' });
+  /** Stop it on the machine that is making it. */
+  stopMovie(id: string, on: AiMachine = 'main'): Promise<Movie> {
+    return this.studioCall<Movie>(`/_orbit/studio/movies/${encodeURIComponent(id)}/stop`, { method: 'POST', body: '{}' }, on);
+  }
+
+  // ---- the helper machine
+
+  helperStatus(): Promise<HelperStatus> {
+    return siteJson<HelperStatus>('/api/ai/helper');
+  }
+
+  async helperPower(action: 'start' | 'stop'): Promise<HelperStatus> {
+    const s = await siteJson<HelperStatus>('/api/ai/helper', { method: 'POST', body: JSON.stringify({ action }) });
+    this.grant = null; // its address changes the token answer
+    return s;
   }
 
   /** Join the finished shots into one video in the gallery. */

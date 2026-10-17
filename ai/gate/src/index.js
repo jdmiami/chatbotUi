@@ -18,21 +18,24 @@ if (!env.GATEWAY_SECRET || env.GATEWAY_SECRET.length < 32) {
   console.error('GATEWAY_SECRET (32+ characters) is required');
   process.exit(1);
 }
+// helper: a second AI machine that only makes images and videos (no chat, no downloads); it
+// shares the main machine's volume, so its creations show up in the same gallery.
+const HELPER = env.AI_ROLE === 'helper';
 const OLLAMA = env.OLLAMA_URL || 'http://127.0.0.1:11434';
 const WEBUI = env.WEBUI_URL || 'http://127.0.0.1:8081';
 const startedAt = Date.now();
 
 const models = createModelKeeper({
   ollama: OLLAMA,
-  wanted: (env.DEFAULT_MODELS || '').split(',').map((s) => s.trim()).filter(Boolean),
+  wanted: HELPER ? [] : (env.DEFAULT_MODELS || '').split(',').map((s) => s.trim()).filter(Boolean),
 });
 
 // Image and video maker (ComfyUI, started by ai/studio.sh). Off when STUDIO_DIR isn't set.
 const studio = env.STUDIO_DIR
-  ? createStudio({ dir: env.STUDIO_DIR, comfy: env.COMFY_URL || 'http://127.0.0.1:8188', ollama: OLLAMA })
+  ? createStudio({ dir: env.STUDIO_DIR, comfy: env.COMFY_URL || 'http://127.0.0.1:8188', ollama: OLLAMA, helper: HELPER })
   : null;
 // soReal movies (chained video shots), kept with the studio's files.
-const movies = studio ? createMovies({ dir: env.STUDIO_DIR, studio }) : null;
+const movies = studio ? createMovies({ dir: env.STUDIO_DIR, studio, machine: HELPER ? 'helper' : 'main' }) : null;
 
 const idle = createIdleWatch({
   limitMinutes: Number(env.IDLE_MINUTES || 30),
@@ -69,7 +72,25 @@ async function status() {
     webuiUp(),
     studio ? studio.state().catch(() => null) : null,
   ]);
+  if (HELPER) {
+    // Ready once the maker runs; there is no chat here.
+    return {
+      role: 'helper',
+      ready: Boolean(studioState?.running),
+      webui: false,
+      ollama: false,
+      models: [],
+      loaded: [],
+      pulling: null,
+      defaultModels: [],
+      uptimeMinutes: Math.round((Date.now() - startedAt) / 60000),
+      idle: idle.state(),
+      canStopSelf: Boolean(env.RUNPOD_POD_ID && env.RUNPOD_API_KEY),
+      studio: studioState,
+    };
+  }
   return {
+    role: 'main',
     ready: Boolean(ui && tags),
     webui: ui,
     ollama: Boolean(tags),
@@ -108,11 +129,11 @@ const server = createGate({
 });
 
 server.listen(Number(env.PORT || 8080), '0.0.0.0', () => console.log(`[gate] listening on :${env.PORT || 8080}`));
-models.start();
+if (!HELPER) models.start();
 idle.start();
 
-if (studio) {
-  studio.start();
+if (studio) studio.start();
+if (studio && !HELPER) {
   // Put the Image/Video maker models in the playground once Open WebUI is up.
   const codePath = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'openwebui', 'studio_pipe.py');
   (async () => {

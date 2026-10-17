@@ -67,6 +67,12 @@ export function createMovies(o) {
   const log = o.log || console;
   const moviesDir = path.join(o.dir, 'output', 'orbit', 'movies');
   const running = new Map(); // movie id -> { stop: boolean, jobId }
+  // Two AI machines (main and helper) share the movies folder. The one making a movie marks it
+  // with its name and a recent time, so the other leaves it alone and shows it as being made.
+  const machine = o.machine || 'main';
+  const BEAT_MS = 10_000;
+  const elsewhere = (m) => Boolean(m.runningOn && m.runningOn.machine !== machine && now() - Date.parse(m.runningOn.at) < 4 * BEAT_MS);
+  const busyElsewhere = (m) => err(`This movie is being made on your ${m.runningOn.machine === 'helper' ? 'helper' : 'main'} AI machine. Stop it there first.`, 409);
 
   const file = (id) => path.join(moviesDir, `${id}.json`);
   async function read(id) {
@@ -79,16 +85,19 @@ export function createMovies(o) {
   }
   async function write(m) {
     m.updatedAt = new Date(now()).toISOString();
+    if (running.has(m.id) && !running.get(m.id).finished) m.runningOn = { machine, at: m.updatedAt };
+    else if (m.runningOn?.machine === machine) delete m.runningOn;
     await fsp.mkdir(moviesDir, { recursive: true });
-    const tmp = `${file(m.id)}.tmp`;
+    const tmp = `${file(m.id)}.${newId()}.tmp`;
     await fsp.writeFile(tmp, JSON.stringify(m));
     await fsp.rename(tmp, file(m.id));
     return view(m);
   }
   // After a restart nothing is making shots, so a shot left "making" is just waiting.
   const view = (m) => {
-    const on = running.has(m.id);
-    return { ...m, running: on, shots: on ? m.shots : m.shots.map((s) => (s.status === 'making' ? { ...s, status: 'todo' } : s)) };
+    const on = running.has(m.id) || elsewhere(m);
+    const { runningOn, ...rest } = m;
+    return { ...rest, running: on, runningOn: on ? (running.has(m.id) ? machine : runningOn.machine) : null, shots: on ? m.shots : m.shots.map((s) => (s.status === 'making' ? { ...s, status: 'todo' } : s)) };
   };
 
   const cleanShot = (s) => ({
@@ -135,6 +144,7 @@ export function createMovies(o) {
     const m = await read(id);
     if (!m) throw err('No such movie.', 404);
     if (running.has(id)) throw err('Stop the movie first, then change it.', 409);
+    if (elsewhere(m)) throw busyElsewhere(m);
     if (body.title != null) m.title = String(body.title).slice(0, 120);
     // Anything every shot is made with: changing it remakes the whole movie.
     const before = { look: m.look, maker: m.maker, size: m.size, seconds: m.seconds, start: m.start };
@@ -160,6 +170,8 @@ export function createMovies(o) {
   }
 
   async function remove(id) {
+    const m = await read(id);
+    if (m && elsewhere(m)) throw busyElsewhere(m);
     const state = running.get(id);
     if (state) {
       state.removed = true;
@@ -177,6 +189,7 @@ export function createMovies(o) {
     const m = await read(id);
     if (!m) throw err('No such movie.', 404);
     if (running.has(id)) return view(m);
+    if (elsewhere(m)) throw busyElsewhere(m);
     if (!m.shots.some((s) => s.status !== 'done' && s.prompt.trim())) throw err('Write what happens in the next shot first.', 400);
     const state = { stop: false, removed: false, jobId: null, done: null };
     running.set(id, state);
@@ -214,9 +227,16 @@ export function createMovies(o) {
           job = { status: 'error', error: e.message };
         }
         state.jobId = job.id || null;
+        let beat = now();
         while (job.status === 'queued' || job.status === 'running') {
           await new Promise((r) => setTimeout(r, pollMs));
           job = studio.job(job.id) || { status: 'error', error: 'The shot went missing.' };
+          if (now() - beat >= BEAT_MS && !state.removed) {
+            // Still making it: tell the other machine (write() stamps the time).
+            beat = now();
+            const cur = await read(id);
+            if (cur) await write(cur);
+          }
         }
         if (state.removed) return;
         const latest = await read(id);
@@ -230,6 +250,10 @@ export function createMovies(o) {
         if (job.status !== 'done') return;
       }
     } finally {
+      // Done here: clear this machine's mark so the movie can be changed or made elsewhere.
+      state.finished = true;
+      const last = state.removed ? null : await read(id).catch(() => null);
+      if (last?.runningOn?.machine === machine) await write(last).catch(() => {});
       running.delete(id);
     }
   }
