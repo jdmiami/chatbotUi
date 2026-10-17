@@ -74,9 +74,16 @@ test.describe('Orbit 0.5', () => {
     await turnOn(page);
     const win = page.locator('.app-window[data-app="settings"]');
     const scroller = win.locator('.st-scroll');
+    // Something scrolling by itself leaves the header alone…
     await scroller.evaluate((el) => el.scrollBy(0, 400));
+    await expect(win).not.toHaveAttribute('data-chrome', 'hidden');
+    await scroller.evaluate((el) => el.scrollTo(0, 0));
+    // …your own scrolling tucks it away, and scrolling back brings it back.
+    const box = (await scroller.boundingBox())!;
+    await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+    await page.mouse.wheel(0, 400);
     await expect(win).toHaveAttribute('data-chrome', 'hidden');
-    await scroller.evaluate((el) => el.scrollBy(0, -300));
+    await page.mouse.wheel(0, -300);
     await expect(win).toHaveAttribute('data-chrome', 'shown');
   });
 

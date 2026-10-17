@@ -84,6 +84,10 @@ async function copyText(text: string) {
 export default function AiApp({ isActive, compact, placement }: AppProps) {
   const ai = useMemo(() => getLocalAi(), []);
   const toast = useShell((s) => s.toast);
+  // Orbit 0.5: no header or tabs, just "Talk · Make" and the orb; everything else is behind the orb.
+  const o5 = useShell((s) => s.settings.skin === 'o5');
+  const [orbMenu, setOrbMenu] = useState(false);
+  const [toolsOpen, setToolsOpen] = useState(false);
   const setSummary = useWorkspace((s) => s.setSummary);
   const [status, setStatus] = useState<AiMachineStatus | null>(null);
   const [statusError, setStatusError] = useState<string | null>(null);
@@ -202,6 +206,14 @@ export default function AiApp({ isActive, compact, placement }: AppProps) {
   const modelInfo = installed?.find((m) => m.name === model);
 
   const [speed, setSpeed] = useState<string | null>(null);
+  const chooseMode = (m: 'chat' | 'create') => {
+    setMode(m);
+    try {
+      sessionStorage.setItem('orbit:ai:mode', m);
+    } catch {
+      /* private mode */
+    }
+  };
   const power = async (action: 'start' | 'stop', tier?: string) => {
     setPowering(true);
     try {
@@ -579,46 +591,70 @@ export default function AiApp({ isActive, compact, placement }: AppProps) {
 
   return (
     <div className="ag-root ai-root" data-placement={placement}>
+      {o5 ? (
+        <div className="o5-ai-bar">
+          <div className="o5-ai-modes" role="group" aria-label="Talk or make">
+            {(['chat', 'create'] as const).map((m) => (
+              <button key={m} type="button" className="o5-ai-mode" aria-pressed={mode === m} onClick={() => chooseMode(m)}>
+                {m === 'chat' ? 'Talk' : 'Make'}
+              </button>
+            ))}
+          </div>
+          <button
+            type="button"
+            className="o5-orb-btn"
+            data-state={machine.state}
+            data-busy={busy}
+            aria-label={`Your AI: ${STATE_TEXT[machine.state]}${busy ? ', answering' : ''}. Open its menu.`}
+            onClick={() => setOrbMenu(true)}
+          >
+            <AiOrb typing={busy} className="o5-orb-mini" />
+          </button>
+        </div>
+      ) : (
+        <>
       <AppHeader
-        title="AI"
-        subtitle={
-          <span className="ai-status">
-            <span className={`ai-dot ai-dot-${machine.state}`} aria-hidden />
-            Your AI machine: {STATE_TEXT[machine.state]}
-            {currentTier && tiers.length > 1 && machine.state !== 'off' ? ` · ${currentTier.label}` : ''}
-            {machine.state === 'on' && machine.idle && !compact ? ` · turns off after ${machine.idle.limitMinutes} min unused` : ''}
-          </span>
-        }
-        leading={compact && mode === 'chat' ? <IconButton icon="sidebar" label="Chats" onClick={() => setListOpen(true)} /> : undefined}
-        actions={
-          <>
-            {mode === 'chat' && <IconButton icon="plus" label="New chat" onClick={startChat} disabled={busy} />}
-            {mode === 'chat' && <IconButton icon="user" label="Personas & memory" onClick={() => setMemoryOpen(true)} />}
-            {mode === 'chat' && <IconButton icon="download" label="Model store" onClick={() => setStoreOpen(true)} disabled={!ready} />}
-            <IconButton icon="external" label="Open the full AI playground" onClick={() => window.open('/ai', '_blank', 'noopener')} />
-            <IconButton icon="code" label="Code with AI (VS Code)" onClick={() => window.open('/code', '_blank', 'noopener')} />
-          </>
-        }
-      />
-
-      <div className="ai-tabs">
-        <Segmented
-          label="Chat or create"
-          value={mode}
-          onChange={(m) => {
-            setMode(m);
-            try {
-              sessionStorage.setItem('orbit:ai:mode', m);
-            } catch {
-              /* private mode */
-            }
-          }}
-          options={[
-            { value: 'chat', label: 'Chat' },
-            { value: 'create', label: 'Create' },
-          ]}
+          title="AI"
+          subtitle={
+            <span className="ai-status">
+              <span className={`ai-dot ai-dot-${machine.state}`} aria-hidden />
+              Your AI machine: {STATE_TEXT[machine.state]}
+              {currentTier && tiers.length > 1 && machine.state !== 'off' ? ` · ${currentTier.label}` : ''}
+              {machine.state === 'on' && machine.idle && !compact ? ` · turns off after ${machine.idle.limitMinutes} min unused` : ''}
+            </span>
+          }
+          leading={compact && mode === 'chat' ? <IconButton icon="sidebar" label="Chats" onClick={() => setListOpen(true)} /> : undefined}
+          actions={
+            <>
+              {mode === 'chat' && <IconButton icon="plus" label="New chat" onClick={startChat} disabled={busy} />}
+              {mode === 'chat' && <IconButton icon="user" label="Personas & memory" onClick={() => setMemoryOpen(true)} />}
+              {mode === 'chat' && <IconButton icon="download" label="Model store" onClick={() => setStoreOpen(true)} disabled={!ready} />}
+              <IconButton icon="external" label="Open the full AI playground" onClick={() => window.open('/ai', '_blank', 'noopener')} />
+              <IconButton icon="code" label="Code with AI (VS Code)" onClick={() => window.open('/code', '_blank', 'noopener')} />
+            </>
+          }
         />
-      </div>
+  
+        <div className="ai-tabs">
+          <Segmented
+            label="Chat or create"
+            value={mode}
+            onChange={(m) => {
+              setMode(m);
+              try {
+                sessionStorage.setItem('orbit:ai:mode', m);
+              } catch {
+                /* private mode */
+              }
+            }}
+            options={[
+              { value: 'chat', label: 'Chat' },
+              { value: 'create', label: 'Create' },
+            ]}
+          />
+        </div>
+        </>
+      )}
 
       {machine.state !== 'on' && (
         <div className={`ai-banner ai-banner-${machine.state}`} role="status">
@@ -672,9 +708,23 @@ export default function AiApp({ isActive, compact, placement }: AppProps) {
       {mode === 'create' && <CreateView ai={ai} machineOn={ready} isActive={isActive} />}
 
       <div className="ag-layout ai-layout" hidden={mode !== 'chat'}>
-        {!compact && <aside className="ai-side">{list}</aside>}
+        {!compact && !o5 && <aside className="ai-side">{list}</aside>}
         <section className="ai-main" aria-label={chat?.title ?? 'New chat'}>
-          <div className="ai-scroll" ref={scroller} onScroll={onScroll}>
+          <div
+            className="ai-scroll"
+            ref={scroller}
+            onScroll={onScroll}
+            onClick={
+              o5
+                ? (e) => {
+                    // Orbit 0.5 keeps a message's actions out of sight until you tap that message.
+                    const msg = (e.target as HTMLElement).closest<HTMLElement>('.ai-msg');
+                    if (!msg || (e.target as HTMLElement).closest('button, a, textarea, input, summary')) return;
+                    msg.dataset.open = msg.dataset.open === 'true' ? 'false' : 'true';
+                  }
+                : undefined
+            }
+          >
             {!chat || chat.messages.length === 0 ? (
               <div className="ai-hello" data-typing={draft.trim().length > 0}>
                 <AiOrb typing={draft.trim().length > 0} />
@@ -957,11 +1007,14 @@ export default function AiApp({ isActive, compact, placement }: AppProps) {
                 aria-label="Message"
                 enterKeyHint="send"
               />
-              <div className="ai-composer-bar">
-                <IconButton icon="plus" label="Add photos or files" onClick={() => fileInput.current?.click()} disabled={pictureMode} />
+              <div className="ai-composer-bar" data-tools={o5 ? (toolsOpen || webMode || pictureMode ? 'open' : 'folded') : undefined}>
+                {o5 && (
+                  <IconButton icon={toolsOpen ? 'close' : 'plus'} label={toolsOpen ? 'Hide tools' : 'Tools: photos, web, picture'} className="o5-tools-btn" aria-expanded={toolsOpen} onClick={() => setToolsOpen((v) => !v)} />
+                )}
+                <IconButton icon={o5 ? "upload" : "plus"} label="Add photos or files" className="o5-tool" onClick={() => fileInput.current?.click()} disabled={pictureMode} />
                 <button
                   type="button"
-                  className="ai-pill-toggle ai-pill-icon"
+                  className="ai-pill-toggle ai-pill-icon o5-tool"
                   aria-pressed={webMode}
                   aria-label="Search the web"
                   onClick={() => setWebMode((v) => !v)}
@@ -972,7 +1025,7 @@ export default function AiApp({ isActive, compact, placement }: AppProps) {
                 </button>
                 <button
                   type="button"
-                  className="ai-pill-toggle"
+                  className="ai-pill-toggle o5-tool"
                   aria-pressed={pictureMode}
                   onClick={() => setPictureMode((v) => !v)}
                   title="Make a picture from your message"
@@ -981,7 +1034,7 @@ export default function AiApp({ isActive, compact, placement }: AppProps) {
                 </button>
                 <button
                   type="button"
-                  className="ai-model-chip"
+                  className="ai-model-chip o5-hide"
                   onClick={() => setPickerOpen(true)}
                   disabled={!ready}
                   aria-label={`Model: ${model || 'none'}. Change model`}
@@ -1013,7 +1066,7 @@ export default function AiApp({ isActive, compact, placement }: AppProps) {
         </section>
       </div>
 
-      {compact && listOpen && mode === 'chat' && (
+      {(compact || o5) && listOpen && mode === 'chat' && (
         <Sheet title="Chats" onClose={() => setListOpen(false)}>
           {list}
         </Sheet>
@@ -1056,6 +1109,49 @@ export default function AiApp({ isActive, compact, placement }: AppProps) {
           onClose={() => setCanvasFor(null)}
         />
       )}
+      {orbMenu && (
+        <Sheet title="Your AI" onClose={() => setOrbMenu(false)}>
+          <div className="o5-orb-menu">
+            <p className="o5-orb-status">
+              <span className={`ai-dot ai-dot-${machine.state}`} aria-hidden /> {STATE_TEXT[machine.state]}
+              {machine.state === 'on' && machine.costPerHour ? ` · $${machine.costPerHour.toFixed(2)}/h` : ''}
+              {machine.state === 'on' && machine.idle ? ` · rests after ${machine.idle.limitMinutes} min unused` : ''}
+            </p>
+            <ul className="o5-orb-list">
+              {(
+                [
+                  ['New conversation', 'A clean page', startChat, busy],
+                  ['Conversations', `${store.chats.length} kept in this browser`, () => setListOpen(true), false],
+                  ['Model', model || (ready ? 'Choose one' : 'Appears when the machine is on'), () => setPickerOpen(true), !ready],
+                  ['Talk out loud', 'A voice conversation', () => { unlockSpeech(); setVoiceOpen(true); }, !ready || !model],
+                  ['Personas & memory', 'Who it is, what it remembers', () => setMemoryOpen(true), false],
+                  ['Model store', 'Add or remove models', () => setStoreOpen(true), !ready],
+                  ['Full playground', 'Opens in a new tab', () => window.open('/ai', '_blank', 'noopener'), false],
+                  ['Code with AI', 'VS Code in a new tab', () => window.open('/code', '_blank', 'noopener'), false],
+                ] as const
+              ).map(([label, hint, run, off]) => (
+                <li key={label}>
+                  <button
+                    type="button"
+                    className="o5-go"
+                    disabled={off}
+                    onClick={() => {
+                      setOrbMenu(false);
+                      if (label === 'New conversation' || label === 'Conversations') chooseMode('chat');
+                      run();
+                    }}
+                  >
+                    <span className="o5-go-label">{label}</span>
+                    <span className="o5-go-hint">{hint}</span>
+                    <Icon name="forward" size={20} />
+                  </button>
+                </li>
+              ))}
+            </ul>
+          </div>
+        </Sheet>
+      )}
+
       {voiceOpen && <VoiceMode ai={ai} onAsk={askByVoice} onClose={() => setVoiceOpen(false)} />}
       {memoryOpen && (
         <MemorySheet
