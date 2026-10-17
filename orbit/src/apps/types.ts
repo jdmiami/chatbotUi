@@ -9,3 +9,13 @@ export interface AppProps {
   /** True when the app's own area is narrow (< 600px): use stacked, one-pane navigation. */
   compact: boolean;
 }
+
+declare module 'react' {
+  // eslint-disable-next-line @typescript-eslint/no-namespace
+  namespace JSX {
+    interface IntrinsicElements {
+      /** The glass status pill (public/island.js). */
+      'orbit-island': { api?: string; place?: string; token?: string; site?: string };
+    }
+  }
+}

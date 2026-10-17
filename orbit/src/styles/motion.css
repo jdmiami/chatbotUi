@@ -201,3 +201,15 @@
 /* `clip` hides overflow like `hidden` but can never be scrolled, not even by the browser bringing a focused
    field into view while an app is still sliding open. (Older browsers keep `hidden` from global.css.) */
 .shell, .app-host, .app-window { overflow: clip; }
+
+/* ---------------------------------------------------------------- Glass Island
+   While the status pill shows, everything starts below it. Children treat the pill's strip as the
+   top of the screen (so headers don't add the notch inset twice). */
+.shell[data-island='true'] { --island-top: calc(env(safe-area-inset-top, 0px) + 44px); }
+.shell[data-island='true'] > .app-host,
+.shell[data-island='true'] > .home,
+.shell[data-island='true'] > .shell-topbar { top: var(--island-top); --safe-top: 0px; }
+@media (max-height: 520px) {
+  /* iPhone sideways: a slimmer strip. */
+  .shell[data-island='true'] { --island-top: calc(env(safe-area-inset-top, 0px) + 40px); }
+}

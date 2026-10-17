@@ -142,3 +142,15 @@ test('local AI endpoint: finds the AI machine through the site, forwards with a 
   assert.equal((await fetch(`http://127.0.0.1:${port}/other`)).status, 404);
   local.close();
 });
+
+test('VS Code page gets the status pill with a token for the site; assets are untouched', async () => {
+  const cookie = await signIn();
+  const page = await fetch(`${base}/code/`, { headers: { cookie, accept: 'text/html' } });
+  const html = await page.text();
+  assert.match(html, /<script type="module" src="\/code\/_island\.js"><\/script><orbit-island api="https:\/\/site\.example\/api\/status" token="[\w.-]+" place="code"/);
+  const { jwtVerify } = await import('jose');
+  const token = /token="([\w.-]+)"/.exec(html)[1];
+  assert.equal((await jwtVerify(token, key, { audience: 'site-island' })).payload.sub, 'owner');
+  const asset = await fetch(`${base}/code/static/x.js`, { headers: { cookie } });
+  assert.doesNotMatch(await asset.text(), /orbit-island/);
+});

@@ -120,6 +120,18 @@ test('every API route needs a valid orbit-host token', async () => {
   assert.equal(bad.status, 403);
 });
 
+test('stats: CPU, memory, disks and the busiest processes for the status panel', async () => {
+  assert.equal((await api('/stats', {}, null)).status, 401);
+  await api('/stats');
+  const res = await api('/stats');
+  assert.equal(res.status, 200);
+  const s = await res.json();
+  assert.ok(s.memory.total > 0 && s.memory.used > 0);
+  assert.ok(Array.isArray(s.processes) && s.processes.length > 0);
+  assert.ok(s.disks.length >= 1);
+  assert.equal(typeof s.tmux, 'boolean');
+});
+
 test('files: list, read, write, rename, delete', async () => {
   const list = await (await api('/files')).json();
   assert.equal(list.root, 'projects');

@@ -8,6 +8,12 @@ export async function openOrbit(page: Page, opts: { keepIntro?: boolean } = {}) 
     // The static preview has no web app: Orbit's sign-in check gets a 404 and falls back to demo mode.
     if (m.type() === 'error' && !m.text().includes('404 (Not Found)')) errors.push(`console: ${m.text()}`);
   });
+  // Layout tests measure settled screens: start with Motion off unless a test saved its own settings.
+  await page.addInitScript(() => {
+    if (!localStorage.getItem('orbit:shell:v1')) {
+      localStorage.setItem('orbit:shell:v1', JSON.stringify({ state: { settings: { motion: 'reduce', motionPicked: true } }, version: 0 }));
+    }
+  });
   await page.goto('/');
   if (!opts.keepIntro) {
     await page.getByRole('button', { name: 'Got it' }).click();

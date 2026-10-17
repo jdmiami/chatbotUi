@@ -7,6 +7,8 @@ import { createIdleWatch, createModelKeeper, ollamaJson, runpodStopSelf } from '
 import { installStudioFunction } from './openwebui.js';
 import { createModelStore } from './store.js';
 import { createStudio } from './studio.js';
+import { createSysStats } from './sysstats.js';
+import { createGpuStats } from './gpustats.js';
 
 const env = process.env;
 if (!env.GATEWAY_SECRET || env.GATEWAY_SECRET.length < 32) {
@@ -38,6 +40,13 @@ const idle = createIdleWatch({
   stop: () => runpodStopSelf({ podId: env.RUNPOD_POD_ID, apiKey: env.RUNPOD_API_KEY }),
   log: console,
 });
+
+const sys = createSysStats({ volume: env.PERSIST_DIR || '/workspace' });
+const gpu = createGpuStats({ ollama: OLLAMA, comfy: studio ? env.COMFY_URL || 'http://127.0.0.1:8188' : null });
+async function stats() {
+  const [system, graphics] = await Promise.all([sys.collect(), gpu()]);
+  return { ...system, ...graphics, idle: idle.state(), uptimeMinutes: Math.round((Date.now() - startedAt) / 60000) };
+}
 
 async function webuiUp() {
   try {
@@ -83,6 +92,8 @@ const server = createGate({
   trustedNameHeader: 'X-Orbit-Name',
   activity: () => idle.touch(),
   status,
+  stats,
+  keepAwake: (minutes) => idle.extend(minutes),
   studio,
   studioKey: env.STUDIO_KEY || '',
   store: createModelStore({ ollama: OLLAMA, volume: env.PERSIST_DIR || '/workspace' }),

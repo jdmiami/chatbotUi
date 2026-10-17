@@ -18,6 +18,11 @@ before(async () => {
   activity = 0;
   webui = http.createServer((req, res) => {
     seen.push({ to: 'webui', url: req.url, headers: req.headers });
+    if (req.url.startsWith('/page')) {
+      const html = '<html><body><h1>hi</h1></body></html>\n';
+      res.writeHead(200, { 'content-type': 'text/html; charset=utf-8', 'content-length': String(Buffer.byteLength(html)) });
+      return res.end(html);
+    }
     res.writeHead(200, { 'content-type': 'text/plain', connection: 'keep-alive' });
     res.end('webui ' + req.url);
   });
@@ -44,6 +49,8 @@ before(async () => {
       userEmail: 'owner@orbit.local',
       activity: () => activity++,
       status: async () => ({ ready: true }),
+      stats: async () => ({ cpu: { percent: 12 }, gpus: [{ name: 'A40' }] }),
+      keepAwake: (m) => Date.UTC(2030, 0, 1) + m * 60_000,
     },
     { warn() {}, info() {} },
   );
@@ -365,4 +372,55 @@ test('model API: an error from the model arrives as a stream error event', async
   assert.match(await res.text(), /data: \{"error":\{"message":"model \\"nope\\" not found"\}\}/);
   g.close();
   fake.close();
+});
+
+test('stats: token or session required, and reading them does not keep the machine on', async () => {
+  assert.equal((await fetch(`${base}/_orbit/stats`)).status, 401);
+  const before = activity;
+  const res = await fetch(`${base}/_orbit/stats`, { headers: { authorization: `Bearer ${apiToken()}` } });
+  assert.equal(res.status, 200);
+  assert.deepEqual(await res.json(), { cpu: { percent: 12 }, gpus: [{ name: 'A40' }] });
+  assert.equal(activity, before, 'polling stats is not activity');
+});
+
+test('keep awake: pushes the turn-off time back and counts as activity', async () => {
+  const before = activity;
+  const res = await fetch(`${base}/_orbit/keepawake`, {
+    method: 'POST',
+    headers: { authorization: `Bearer ${apiToken()}`, 'content-type': 'application/json' },
+    body: JSON.stringify({ minutes: 30 }),
+  });
+  assert.equal(res.status, 200);
+  assert.equal((await res.json()).offAt, new Date(Date.UTC(2030, 0, 1) + 30 * 60_000).toISOString());
+  assert.equal(activity, before + 1);
+});
+
+test('playground pages get the status pill, with a token for the site; other responses are untouched', async () => {
+  const cookie = await signIn();
+  const page = await fetch(`${base}/page`, { headers: { cookie, accept: 'text/html' } });
+  const html = await page.text();
+  assert.match(html, /<script type="module" src="\/_orbit\/island\.js"><\/script><orbit-island api="https:\/\/site\.example\/api\/status" token="[\w.-]+" place="playground"/);
+  assert.ok(html.indexOf('<orbit-island') < html.indexOf('</body>'), 'inside the body');
+  const token = /token="([\w.-]+)"/.exec(html)[1];
+  assert.equal(verifyJwt(token, SECRET, { audience: 'site-island' }).sub, 'jd');
+  assert.equal(page.headers.get('content-length'), null, 'length recomputed');
+  assert.equal(seen.filter((x) => x.url === '/page').pop().headers['accept-encoding'], 'identity');
+  // Not a page request: passed through as is.
+  const raw = await fetch(`${base}/page`, { headers: { cookie, accept: 'application/json' } });
+  assert.doesNotMatch(await raw.text(), /orbit-island/);
+});
+
+test('idle watch: keep awake pushes the turn-off time and offAt reports it', async () => {
+  let t = 0;
+  let stops = 0;
+  const w = createIdleWatch({ limitMinutes: 30, busy: async () => false, stop: async () => stops++, now: () => t });
+  assert.equal(w.state().offAt, new Date(30 * 60_000).toISOString());
+  w.extend(30);
+  assert.equal(w.state().offAt, new Date(60 * 60_000).toISOString());
+  t = 45 * 60_000;
+  await w.check();
+  assert.equal(stops, 0, 'held');
+  t = 61 * 60_000;
+  await w.check();
+  assert.equal(stops, 1);
 });

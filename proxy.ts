@@ -1,8 +1,8 @@
 import { NextResponse, type NextRequest } from 'next/server';
 import { SESSION_COOKIE, verifySessionToken } from './lib/session';
 
-// Everything except the login page, static assets and the machine-to-site AI endpoint (which checks
-// its own machine token) requires a session. The home-screen icons
+// Everything except the login page, static assets, the machine-to-site AI endpoint and the status
+// endpoint (both check their own tokens) requires a session. The status pill's script is public. The home-screen icons
 // and Orbit's web manifest stay public: iOS and browsers fetch them without the session cookie.
 export async function proxy(request: NextRequest) {
   const user = await verifySessionToken(request.cookies.get(SESSION_COOKIE)?.value);
@@ -17,6 +17,6 @@ export async function proxy(request: NextRequest) {
 
 export const config = {
   matcher: [
-    '/((?!login|api/ai/endpoint|_next/static|_next/image|favicon.ico|icon.svg|apple-icon.png|robots.txt|orbit/manifest.webmanifest|orbit/icon.svg|orbit/apple-touch-icon.png).*)',
+    '/((?!login|api/ai/endpoint|api/status|orbit/island.js|_next/static|_next/image|favicon.ico|icon.svg|apple-icon.png|robots.txt|orbit/manifest.webmanifest|orbit/icon.svg|orbit/apple-touch-icon.png).*)',
   ],
 };

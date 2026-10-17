@@ -7,10 +7,11 @@ import { applyCors, bearer, verifyOrbitToken } from './auth.js';
 import { HttpError } from './files.js';
 import { killTerminalSession, hasTmux, terminalHistory } from './pty.js';
 import { AGY_CAPABILITIES } from './agent.js';
+import { createSysStats } from '../sysstats.js';
 
 const MAX_BODY = 5 * 1024 * 1024;
 
-export function createOrbitApi({ secret, allowedOrigins, files, agent, log }) {
+export function createOrbitApi({ secret, allowedOrigins, files, agent, log, stats = createSysStats({ volume: files.root }) }) {
   return async function handle(req, res, url) {
     if (!applyCors(req, res, allowedOrigins)) return json(res, 403, { error: 'Origin not allowed' });
     if (req.method === 'OPTIONS') {
@@ -31,6 +32,11 @@ export function createOrbitApi({ secret, allowedOrigins, files, agent, log }) {
           tmux: await hasTmux(),
           agy: await agent.info(),
         });
+      }
+
+      // ---- live machine stats for the status panel
+      if (req.method === 'GET' && route === '/stats') {
+        return json(res, 200, { ...(await stats.collect()), tmux: await hasTmux() });
       }
 
       // ---- files

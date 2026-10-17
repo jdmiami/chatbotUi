@@ -1,11 +1,17 @@
 import { redirect } from 'next/navigation';
 import { currentUser } from '@/lib/auth';
 import AiLauncher from '../ai/AiLauncher';
+import Island from '@/app/Island';
 
 export const dynamic = 'force-dynamic';
 export const metadata = { title: 'Coding · My Workspace' };
 
 export default async function CodePage() {
   if (!(await currentUser())) redirect('/login');
-  return <AiLauncher target="code" />;
+  return (
+    <>
+      <Island />
+      <AiLauncher target="code" />
+    </>
+  );
 }
