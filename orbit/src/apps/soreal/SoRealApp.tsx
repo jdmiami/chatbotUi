@@ -68,6 +68,8 @@ export default function SoRealApp({ isActive, compact, placement }: AppProps) {
   const [watching, setWatching] = useState<StudioItem[] | null>(null);
   const [confirmDelete, setConfirmDelete] = useState<Movie | null>(null);
   const edits = useRef(0);
+  const openRef = useRef<string | null>(null);
+  openRef.current = openId;
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const ready = status?.state === 'on';
@@ -149,7 +151,8 @@ export default function SoRealApp({ isActive, compact, placement }: AppProps) {
       try {
         const saved = await ai.updateMovie(m.id, { title: m.title, look: m.look, maker: m.maker, size: m.size, seconds: m.seconds, start: m.start, shots: m.shots });
         putMovie(saved);
-        if (edits.current === v) setDraft(saved);
+        // Only if nothing changed since, and the same movie is still open.
+        if (edits.current === v && openRef.current === saved.id) setDraft(saved);
         return saved;
       } catch (err) {
         toast((err as Error).message, 'error');
@@ -338,6 +341,10 @@ export default function SoRealApp({ isActive, compact, placement }: AppProps) {
           <Segmented label="Shot length" value={String(draft.seconds)} onChange={(v) => edit((m) => ({ ...m, seconds: Number(v) }))} options={LENGTHS} />
         </div>
       </div>
+
+      {draft.shots.some((s) => s.status === 'done') && !running && (
+        <p className="ai-muted">Changing the look, maker, shape, length or starting point remakes every shot.</p>
+      )}
 
       <div className="sr-field">
         <span>First shot starts from</span>

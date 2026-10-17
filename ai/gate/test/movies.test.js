@@ -187,6 +187,9 @@ test('gate: movie routes need sign-in and reach the movie plan', async () => {
   const auth = { authorization: `Bearer ${signJwt({ sub: 'jd', aud: 'orbit-ai' }, SECRET, { expiresIn: 600 })}`, 'content-type': 'application/json' };
   try {
     assert.equal((await fetch(base)).status, 401);
+    // Orbit calls from another origin, so the browser asks first whether PUT is allowed.
+    const pre = await fetch(`${base}/x`, { method: 'OPTIONS', headers: { origin: 'https://site.example', 'access-control-request-method': 'PUT' } });
+    assert.match(pre.headers.get('access-control-allow-methods') || '', /PUT/);
     const m = await (await fetch(base, { method: 'POST', headers: auth, body: JSON.stringify({ title: 'T', shots: [{ prompt: 'a' }] }) })).json();
     assert.equal(m.title, 'T');
     const put = await (await fetch(`${base}/${m.id}`, { method: 'PUT', headers: auth, body: JSON.stringify({ title: 'T2' }) })).json();
@@ -201,4 +204,52 @@ test('gate: movie routes need sign-in and reach the movie plan', async () => {
   } finally {
     gate.close();
   }
+});
+
+test('removing a shot or changing what every shot is made with remakes from that point on', async () => {
+  const dir = await tmp('movies-');
+  const studio = fakeStudio();
+  const movies = createMovies({ dir, studio, pollMs: 1, log: { warn() {} } });
+  const m = await movies.create({ shots: [{ prompt: 'a' }, { prompt: 'b' }, { prompt: 'c' }] });
+  await movies.run(m.id);
+  await until(async () => !(await movies.get(m.id)).running);
+  const done = await movies.get(m.id);
+  // Shot "b" goes: "c" now follows "a", so it is remade; "a" is kept.
+  const cut = await movies.update(m.id, { shots: [done.shots[0], done.shots[2]] });
+  assert.deepEqual(cut.shots.map((s) => [s.prompt, s.status]), [['a', 'done'], ['c', 'todo']]);
+  // Same shots, same order: nothing is remade.
+  const same = await movies.update(m.id, { title: 'New name', shots: cut.shots });
+  assert.deepEqual(same.shots.map((s) => s.status), ['done', 'todo']);
+  // A new look applies to every shot.
+  const looked = await movies.update(m.id, { look: 'film noir' });
+  assert.deepEqual(looked.shots.map((s) => s.status), ['todo', 'todo']);
+  assert.equal(looked.shots[0].itemId, null);
+});
+
+test('a shot whose starting picture is gone is an error, not a fresh start from words', async () => {
+  const dir = await tmp('movies-');
+  const studio = fakeStudio();
+  const movies = createMovies({ dir, studio, pollMs: 1, log: { warn() {} } });
+  const m = await movies.create({ start: 'deletedvid1', shots: [{ prompt: 'a' }] });
+  await movies.run(m.id);
+  await until(async () => !(await movies.get(m.id)).running);
+  const after = await movies.get(m.id);
+  assert.equal(after.shots[0].status, 'error');
+  assert.match(after.shots[0].error, /no longer in your gallery/);
+  assert.equal(studio.reqs.length, 0);
+});
+
+test('deleting a movie while it makes a shot stops it for good', async () => {
+  const dir = await tmp('movies-');
+  const studio = fakeStudio();
+  studio.hold = true;
+  const movies = createMovies({ dir, studio, pollMs: 5, log: { warn() {} } });
+  const m = await movies.create({ shots: [{ prompt: 'a' }, { prompt: 'b' }] });
+  await movies.run(m.id);
+  await until(() => studio.reqs.length === 1);
+  await movies.remove(m.id);
+  await new Promise((r) => setTimeout(r, 50));
+  assert.equal(await movies.get(m.id), null);
+  assert.equal((await movies.list()).length, 0);
+  assert.equal(movies.busy(), false);
 });

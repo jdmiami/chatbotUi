@@ -136,30 +136,36 @@ export function createMovies(o) {
     if (!m) throw err('No such movie.', 404);
     if (running.has(id)) throw err('Stop the movie first, then change it.', 409);
     if (body.title != null) m.title = String(body.title).slice(0, 120);
+    // Anything every shot is made with: changing it remakes the whole movie.
+    const before = { look: m.look, maker: m.maker, size: m.size, seconds: m.seconds, start: m.start };
     if (body.look != null) m.look = String(body.look).slice(0, 2000);
     if (body.maker === 'ltx' || body.maker === 'h3-max') m.maker = body.maker;
     if (['landscape', 'portrait', 'square'].includes(body.size)) m.size = body.size;
     if (body.seconds != null) m.seconds = Math.min(10, Math.max(2, Math.round(Number(body.seconds) || 5)));
     if (body.start !== undefined) m.start = body.start && ID.test(String(body.start)) ? String(body.start) : null;
-    if (Array.isArray(body.shots)) {
-      // Keep each shot's result unless its prompt changed; a changed shot (and all after it) is remade.
-      const before = new Map(m.shots.map((s) => [s.id, s]));
-      let changed = false;
-      m.shots = body.shots.slice(0, 60).map((raw) => {
-        const s = cleanShot(raw);
-        const old = before.get(s.id);
-        if (changed || !old || old.prompt !== s.prompt) {
-          changed = changed || Boolean(old && old.itemId);
-          return { ...s, itemId: null, status: 'todo', error: null };
-        }
-        return { ...s, itemId: old.itemId, status: old.status === 'making' ? 'todo' : old.status, error: old.error };
-      });
-    }
+    let changed = Object.keys(before).some((k) => before[k] !== m[k]);
+    const shots = Array.isArray(body.shots) ? body.shots.slice(0, 60).map(cleanShot) : m.shots;
+    // Keep a shot's result only while it and every shot before it are unchanged, in the same order
+    // (each shot starts from the last frame of the one before); from the first change on, remake.
+    const old = m.shots;
+    m.shots = shots.map((s, i) => {
+      const was = old[i];
+      if (!changed && was && was.id === s.id && was.prompt === s.prompt) {
+        return { ...s, itemId: was.itemId, status: was.status === 'making' ? 'todo' : was.status, error: was.error };
+      }
+      changed = true;
+      return { ...s, itemId: null, status: 'todo', error: null };
+    });
     return write(m);
   }
 
   async function remove(id) {
-    if (running.has(id)) await stop(id);
+    const state = running.get(id);
+    if (state) {
+      state.removed = true;
+      await stop(id);
+      await state.done;
+    }
     await fsp.rm(file(id), { force: true });
     return true;
   }
@@ -172,9 +178,9 @@ export function createMovies(o) {
     if (!m) throw err('No such movie.', 404);
     if (running.has(id)) return view(m);
     if (!m.shots.some((s) => s.status !== 'done' && s.prompt.trim())) throw err('Write what happens in the next shot first.', 400);
-    const state = { stop: false, jobId: null };
+    const state = { stop: false, removed: false, jobId: null, done: null };
     running.set(id, state);
-    void loop(id, state).catch((e) => log.warn?.(`[movies] ${e.message}`));
+    state.done = loop(id, state).catch((e) => log.warn?.(`[movies] ${e.message}`));
     return view(m);
   }
 
@@ -189,6 +195,12 @@ export function createMovies(o) {
         if (!shot.prompt.trim()) return;
         const prev = idx > 0 ? m.shots[idx - 1].itemId : m.start;
         const prevItem = prev ? await studio.item(prev) : null;
+        if (prev && !prevItem) {
+          // Never quietly start over from words: the shot must continue the one before.
+          Object.assign(shot, { status: 'error', error: idx > 0 ? 'The shot before this one is no longer in your gallery. Remake it first.' : 'The picture or video to start from is no longer in your gallery. Pick another one.' });
+          await write(m);
+          return;
+        }
         const req = { kind: 'video', maker: m.maker, prompt: promptFor(m, shot), size: m.size, seconds: m.seconds };
         if (prevItem?.kind === 'video') req.fromLastFrameOf = prevItem.id;
         else if (prevItem?.kind === 'image') req.fromItem = prevItem.id;
@@ -206,7 +218,9 @@ export function createMovies(o) {
           await new Promise((r) => setTimeout(r, pollMs));
           job = studio.job(job.id) || { status: 'error', error: 'The shot went missing.' };
         }
-        const latest = (await read(id)) || m;
+        if (state.removed) return;
+        const latest = await read(id);
+        if (!latest) return;
         const s = latest.shots.find((x) => x.id === shot.id);
         if (s) {
           if (job.status === 'done' && job.item) Object.assign(s, { status: 'done', itemId: job.item.id, error: null });
