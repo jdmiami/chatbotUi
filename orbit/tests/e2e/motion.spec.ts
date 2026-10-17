@@ -11,7 +11,7 @@ type Level = 'full' | 'lite' | 'reduce' | 'system';
 
 async function open(page: Page, motion: Level) {
   await page.addInitScript((m) => {
-    localStorage.setItem('orbit:shell:v1', JSON.stringify({ state: { settings: { motion: m, introSeen: true } }, version: 0 }));
+    localStorage.setItem('orbit:shell:v1', JSON.stringify({ state: { settings: { motion: m, motionPicked: true, introSeen: true } }, version: 0 }));
   }, motion);
   const errors: string[] = [];
   page.on('pageerror', (e) => errors.push(e.message));
@@ -79,6 +79,14 @@ test.describe('motion levels', () => {
     await open(page, 'system');
     expect(await level(page)).toBe('off');
     await ctx.close();
+  });
+
+  test('older saved Auto settings move to Full once; a picked level is kept', async ({ page }) => {
+    await page.addInitScript(() =>
+      localStorage.setItem('orbit:shell:v1', JSON.stringify({ state: { settings: { motion: 'system', introSeen: true } }, version: 0 })),
+    );
+    await page.goto('/');
+    await expect.poll(() => level(page)).toBe('full');
   });
 
   test('Settings: pick a level and it applies at once; sounds and vibration start off', async ({ page }) => {

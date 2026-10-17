@@ -671,7 +671,7 @@ function AppearanceSection() {
         <div className="row st-row st-wrap">
           <span className="st-label">Motion</span>
           <div className="st-control">
-            <Segmented label="Motion" value={settings.motion} options={MOTIONS} onChange={(motion) => updateSettings({ motion })} />
+            <Segmented label="Motion" value={settings.motion} options={MOTIONS} onChange={(motion) => updateSettings({ motion, motionPicked: true })} />
           </div>
         </div>
         <label className="row st-row st-click">

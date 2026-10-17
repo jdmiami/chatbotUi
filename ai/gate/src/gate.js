@@ -94,6 +94,7 @@ export function createGate(cfg, log = console) {
   const cookieKey = crypto.createHmac('sha256', secret).update('orbit-ai-cookie').digest();
   const allowed = originMatcher(cfg.allowedOrigins);
   const usedJti = new Map();
+  let islandJs = null; // { body, at }
   const emailHeader = (cfg.trustedEmailHeader || 'X-Orbit-Email').toLowerCase();
   const nameHeader = (cfg.trustedNameHeader || 'X-Orbit-Name').toLowerCase();
   const webui = new URL(cfg.webui);
@@ -172,12 +173,36 @@ export function createGate(cfg, log = console) {
     return out;
   }
 
-  function proxy(req, res, target, path, user) {
+  /** The status pill (money, timers, machine stats) added to the playground's pages. */
+  function islandSnippet(user) {
+    const token = signJwt({ sub: user.sub, aud: 'site-island' }, secret, { expiresIn: 12 * 3600 });
+    const site = cfg.siteUrl;
+    const attr = (v) => String(v).replace(/[&"<>]/g, (c) => `&#${c.charCodeAt(0)};`);
+    return `<script type="module" src="/_orbit/island.js"></script><orbit-island api="${attr(site)}/api/status" token="${attr(token)}" place="playground" site="${attr(site)}"></orbit-island>`;
+  }
+
+  function proxy(req, res, target, path, user, inject = null) {
+    const headers0 = upstreamHeaders(req, user);
+    // Pages we add the pill to are read whole, so ask for them uncompressed.
+    if (inject) headers0['accept-encoding'] = 'identity';
     const up = http.request(
-      { host: target.hostname, port: target.port, method: req.method, path, headers: upstreamHeaders(req, user) },
+      { host: target.hostname, port: target.port, method: req.method, path, headers: headers0 },
       (upRes) => {
         const headers = { ...upRes.headers };
         for (const k of Object.keys(headers)) if (HOP.has(k)) delete headers[k];
+        const html = /text\/html/.test(String(headers['content-type'] || ''));
+        if (inject && html && upRes.statusCode === 200 && !headers['content-encoding']) {
+          const chunks = [];
+          upRes.on('data', (c) => chunks.push(c));
+          upRes.on('end', () => {
+            let body = Buffer.concat(chunks).toString('utf8');
+            body = body.includes('</body>') ? body.replace(/<\/body>(?![\s\S]*<\/body>)/, `${inject}</body>`) : body + inject;
+            delete headers['content-length'];
+            res.writeHead(200, headers);
+            res.end(body);
+          });
+          return;
+        }
         res.writeHead(upRes.statusCode || 502, headers);
         upRes.pipe(res);
       },
@@ -238,6 +263,40 @@ export function createGate(cfg, log = console) {
       }
     }
 
+    // ---- the status pill's script, served from this address so the playground's security rules allow it
+    if (path === '/_orbit/island.js' && cfg.siteUrl) {
+      if (!session(req)) return send(res, 401, 'Sign in first', 'text/plain');
+      try {
+        if (!islandJs || Date.now() - islandJs.at > 10 * 60_000) {
+          const r = await (cfg.fetchImpl || fetch)(`${cfg.siteUrl}/orbit/island.js`, { signal: AbortSignal.timeout(8000) });
+          if (!r.ok) throw new Error(`site answered ${r.status}`);
+          islandJs = { body: await r.text(), at: Date.now() };
+        }
+        res.writeHead(200, { 'content-type': 'text/javascript; charset=utf-8', 'cache-control': 'max-age=300' });
+        return res.end(islandJs.body);
+      } catch (err) {
+        return send(res, 502, err.message, 'text/plain');
+      }
+    }
+
+    // ---- live stats for the status panel (reading them doesn't count as using the machine)
+    if (path === '/_orbit/stats' || path === '/_orbit/keepawake') {
+      if (!cors(req, res)) return send(res, 403, { error: 'Origin not allowed' });
+      if (req.method === 'OPTIONS') return send(res, 204, '');
+      if (!apiToken(req) && !session(req)) return send(res, 401, { error: 'Unauthorized' });
+      try {
+        if (path === '/_orbit/stats' && req.method === 'GET' && cfg.stats) return send(res, 200, await cfg.stats());
+        if (path === '/_orbit/keepawake' && req.method === 'POST' && cfg.keepAwake) {
+          const { minutes } = JSON.parse((await readBody(req, 4096)) || '{}');
+          activity();
+          return send(res, 200, { offAt: new Date(cfg.keepAwake(Number(minutes) || 30)).toISOString() });
+        }
+        return send(res, 404, { error: 'Not found' });
+      } catch (err) {
+        return send(res, 500, { error: err.message });
+      }
+    }
+
     // ---- model store (chat models)
     if (cfg.store && (path === '/_orbit/models' || path.startsWith('/_orbit/models/'))) {
       if (!cors(req, res)) return send(res, 403, { error: 'Origin not allowed' });
@@ -280,7 +339,8 @@ export function createGate(cfg, log = console) {
       return send(res, 401, { detail: 'Sign in through your workspace site first.' });
     }
     if (req.method !== 'GET' && req.method !== 'HEAD') activity();
-    return proxy(req, res, webui, req.url, user);
+    const page = req.method === 'GET' && /text\/html/.test(req.headers.accept || '') && cfg.siteUrl;
+    return proxy(req, res, webui, req.url, user, page ? islandSnippet(user) : null);
   });
 
   async function handleStore(req, res, url, path) {
@@ -293,10 +353,14 @@ export function createGate(cfg, log = console) {
         return send(res, 200, { results: q ? await store.search(q) : [] });
       }
       if (path === '/_orbit/models/files' && req.method === 'GET') return send(res, 200, { files: await store.files(url.searchParams.get('repo') || '') });
-      if (req.method === 'POST' && (path === '/_orbit/models/install' || path === '/_orbit/models/load' || path === '/_orbit/models/dismiss')) {
+      if (req.method === 'POST' && ['/_orbit/models/install', '/_orbit/models/load', '/_orbit/models/dismiss', '/_orbit/models/unload'].includes(path)) {
         const body = JSON.parse((await readBody(req, 64 * 1024)) || '{}');
         if (path.endsWith('/install')) return send(res, 202, { name: store.install(body) });
         if (path.endsWith('/dismiss')) return send(res, 200, { ok: store.dismiss(String(body.name || '')) });
+        if (path.endsWith('/unload')) {
+          await store.unload(String(body.name || ''));
+          return send(res, 200, { ok: true });
+        }
         await studio?.yieldGpu?.().catch(() => {});
         await store.load(String(body.name || ''));
         return send(res, 200, { ok: true });

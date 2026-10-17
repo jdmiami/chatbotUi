@@ -105,19 +105,37 @@ export function createCodeProxy({ secret, upstream, siteUrl, log = console }) {
       }
       return res.end(req.method === 'GET' ? '' : 'Sign in through your workspace site first.');
     }
+    // The status pill's script, served from this address so the editor's security rules allow it.
+    if (url.pathname === '/code/_island.js') return serveIsland(res);
     // Assets are relative to the page, so the editor must live at /code/ (with the slash).
     if (url.pathname === '/code') {
       res.writeHead(302, { location: '/code/' + url.search });
       return res.end();
     }
+    const page = req.method === 'GET' && /text\/html/.test(req.headers.accept || '') && siteUrl;
+    const upHeaders = headersFor(req);
+    if (page) upHeaders['accept-encoding'] = 'identity';
     const up = http.request(
-      { host: target.hostname, port: target.port, method: req.method, path: strip(req.url), headers: headersFor(req) },
+      { host: target.hostname, port: target.port, method: req.method, path: strip(req.url), headers: upHeaders },
       (upRes) => {
         const headers = { ...upRes.headers };
         for (const k of Object.keys(headers)) if (HOP.has(k)) delete headers[k];
         // code-server redirects within itself ("./login", "/?folder=..."): keep them under /code/.
         if (typeof headers.location === 'string' && headers.location.startsWith('/') && !headers.location.startsWith('//')) {
           headers.location = '/code' + headers.location;
+        }
+        if (page && upRes.statusCode === 200 && /text\/html/.test(String(headers['content-type'] || '')) && !headers['content-encoding']) {
+          const chunks = [];
+          upRes.on('data', (c) => chunks.push(c));
+          upRes.on('end', async () => {
+            const snippet = await islandSnippet().catch(() => '');
+            let body = Buffer.concat(chunks).toString('utf8');
+            body = body.includes('</body>') ? body.replace(/<\/body>(?![\s\S]*<\/body>)/, `${snippet}</body>`) : body + snippet;
+            delete headers['content-length'];
+            res.writeHead(200, headers);
+            res.end(body);
+          });
+          return;
         }
         res.writeHead(upRes.statusCode || 502, headers);
         upRes.pipe(res);
@@ -132,6 +150,34 @@ export function createCodeProxy({ secret, upstream, siteUrl, log = console }) {
     });
     res.on('close', () => up.destroy());
     req.pipe(up);
+  }
+
+  // ---- the status pill (money, timers, machine stats) on the VS Code page
+  const attr = (v) => String(v).replace(/[&"<>]/g, (c) => `&#${c.charCodeAt(0)};`);
+  async function islandSnippet() {
+    const token = await new SignJWT({ scope: 'island' })
+      .setProtectedHeader({ alg: 'HS256' })
+      .setSubject('owner')
+      .setAudience('site-island')
+      .setIssuedAt()
+      .setExpirationTime('12h')
+      .sign(secret);
+    return `<script type="module" src="/code/_island.js"></script><orbit-island api="${attr(siteUrl)}/api/status" token="${attr(token)}" place="code" site="${attr(siteUrl)}"></orbit-island>`;
+  }
+  let islandJs = null; // { body, at }
+  async function serveIsland(res) {
+    try {
+      if (!islandJs || Date.now() - islandJs.at > 10 * 60_000) {
+        const r = await fetch(`${siteUrl}/orbit/island.js`, { signal: AbortSignal.timeout(8000) });
+        if (!r.ok) throw new Error(`site answered ${r.status}`);
+        islandJs = { body: await r.text(), at: Date.now() };
+      }
+      res.writeHead(200, { 'content-type': 'text/javascript; charset=utf-8', 'cache-control': 'max-age=300' });
+      return res.end(islandJs.body);
+    } catch (err) {
+      res.writeHead(502, { 'content-type': 'text/plain' });
+      return res.end(err.message);
+    }
   }
 
   /** WebSocket upgrade under /code/. Returns false when the path isn't ours. */

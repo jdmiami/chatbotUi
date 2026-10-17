@@ -59,7 +59,7 @@ if [ ! -f /opt/.desktop-installed ]; then
   log "installing the gateway and Orbit host"
   mkdir -p /opt/gateway/src/orbit /opt/gateway/bin
   for f in package.json package-lock.json src/index.js src/server.js src/protocol.js src/origins.js \
-    src/code.js src/ai-local.js src/orbit/auth.js src/orbit/files.js src/orbit/pty.js src/orbit/agent.js src/orbit/http.js src/orbit/seed.js \
+    src/code.js src/ai-local.js src/sysstats.js src/orbit/auth.js src/orbit/files.js src/orbit/pty.js src/orbit/agent.js src/orbit/http.js src/orbit/seed.js \
     bin/workspace-secrets.mjs; do
     curl -fsSL "${REPO_RAW}/gateway/${f}" -o "/opt/gateway/${f}"
   done

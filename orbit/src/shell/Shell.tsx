@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { useShell, type AppId } from '../state/shell';
 import { useLayout } from '../state/viewport';
 import { useVisualViewport } from '../hooks/useVisualViewport';
@@ -23,9 +23,11 @@ export function Shell() {
   useShortcuts();
 
   const inApp = activeApp !== null;
+  const island = useIsland();
   return (
     <div
       className="shell"
+      data-island={island}
       data-in-app={inApp}
       data-compact={layout.compact}
       data-keyboard={layout.keyboardOpen}
@@ -45,8 +47,31 @@ export function Shell() {
       {overlay === 'control-center' && <ControlCenter />}
       {!settings.introSeen && <IntroSheet />}
       <Toasts />
+      <orbit-island api="/api/status" place="orbit" />
     </div>
   );
+}
+
+/**
+ * The glass status pill (money, auto-off timers, machine stats) lives in public/island.js, shared
+ * with the site's pages and the machines' pages. Orbit loads it and makes room at the top while it
+ * is showing (it hides itself where there is no site behind Orbit, e.g. the demo preview).
+ */
+function useIsland() {
+  const [shown, setShown] = useState(false);
+  useEffect(() => {
+    const onVisible = (e: Event) => setShown(Boolean((e as CustomEvent<{ visible: boolean }>).detail?.visible));
+    document.addEventListener('island-visible', onVisible);
+    if (!document.querySelector('script[data-orbit-island]')) {
+      const s = document.createElement('script');
+      s.type = 'module';
+      s.src = `${import.meta.env.BASE_URL}island.js`;
+      s.dataset.orbitIsland = '';
+      document.head.append(s);
+    }
+    return () => document.removeEventListener('island-visible', onVisible);
+  }, []);
+  return shown;
 }
 
 /**

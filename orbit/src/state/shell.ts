@@ -16,6 +16,8 @@ export interface Settings {
   /** 0.9 – 1.3 */
   textScale: number;
   motion: MotionPref;
+  /** The person chose a Motion level themselves (older saved "Auto" settings are moved to Full once). */
+  motionPicked?: boolean;
   terminalFontSize: number;
   /** Show the touch key row above the keyboard in Terminal. */
   terminalKeys: boolean;
@@ -74,7 +76,8 @@ export const DEFAULT_SETTINGS: Settings = {
   accent: 'indigo',
   wallpaper: 'orbit',
   textScale: 1,
-  motion: 'system',
+  // Full by default: Auto quietly turned animation down on phones in Low Power Mode.
+  motion: 'full',
   terminalFontSize: 14,
   terminalKeys: true,
   sound: false,
@@ -155,12 +158,16 @@ export const useShell = create<ShellState>()(
         const p = (persisted ?? {}) as Partial<ShellState>;
         return {
           ...current,
-          settings: { ...DEFAULT_SETTINGS, ...(p.settings ?? {}) },
+          settings: migrate({ ...DEFAULT_SETTINGS, ...(p.settings ?? {}) }),
           split: { ...DEFAULT_SPLIT, ...(p.split ?? {}), enabled: false },
         };
       },
     },
   ),
 );
+
+function migrate(s: Settings): Settings {
+  return s.motion === 'system' && !s.motionPicked ? { ...s, motion: 'full' } : s;
+}
 
 export const APP_ORDER: AppId[] = ['terminal', 'editor', 'agent', 'ai', 'settings'];

@@ -180,6 +180,7 @@ export function createModelKeeper({ ollama, wanted: specs, retryMs = 60_000, fet
  */
 export function createIdleWatch({ limitMinutes, busy, stop, log = console, now = Date.now, everyMs = 60_000 }) {
   let last = now();
+  let hold = 0; // "keep awake" until this time, whatever the activity
   let stopping = null; // last stop attempt result
   let timer = null;
   const limitMs = limitMinutes * 60_000;
@@ -187,7 +188,7 @@ export function createIdleWatch({ limitMinutes, busy, stop, log = console, now =
   async function check() {
     if (!(limitMinutes > 0)) return;
     if (await busy().catch(() => false)) last = now();
-    if (now() - last < limitMs) return;
+    if (now() - last < limitMs || now() < hold) return;
     log.info?.(`[gate] idle for ${limitMinutes} min, stopping the machine`);
     try {
       await stop();
@@ -201,6 +202,12 @@ export function createIdleWatch({ limitMinutes, busy, stop, log = console, now =
 
   return {
     touch: () => (last = now()),
+    /** Push the turn-off time back by `minutes` (up to 4 hours at a time). Returns the new turn-off time. */
+    extend: (minutes) => {
+      const offAt = Math.max(last + limitMs, hold, now());
+      hold = offAt + Math.max(0, Math.min(240, minutes)) * 60_000;
+      return hold;
+    },
     check,
     start: () => {
       timer = setInterval(() => void check(), everyMs);
@@ -209,6 +216,10 @@ export function createIdleWatch({ limitMinutes, busy, stop, log = console, now =
     state: () => ({
       limitMinutes,
       idleMinutes: Math.floor((now() - last) / 60_000),
+      idleSeconds: Math.floor((now() - last) / 1000),
+      // When it will turn itself off if nobody uses it (the check runs every minute).
+      offAt: limitMinutes > 0 ? new Date(Math.max(last + limitMs, hold)).toISOString() : null,
+      heldUntil: hold > now() ? new Date(hold).toISOString() : null,
       lastStop: stopping,
     }),
   };

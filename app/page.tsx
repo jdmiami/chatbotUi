@@ -8,6 +8,7 @@ import { chooseWorkspace, forgetWorkspace } from './choose/actions';
 import { isWorkspace, PREF_COOKIE, WORKSPACES, type WorkspaceId } from '@/lib/workspaces';
 import MachinePanel from './MachinePanel';
 import AiPanel from './AiPanel';
+import Island from '@/app/Island';
 
 export const dynamic = 'force-dynamic';
 
@@ -70,6 +71,7 @@ export default async function Home({ searchParams }: { searchParams: Promise<{ c
 
   return (
     <main className="center">
+      <Island />
       <div className="card chooser">
         <h1>Choose your workspace</h1>
         <form action={chooseWorkspace} className="stack-form">
