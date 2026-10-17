@@ -49,11 +49,12 @@ void main(){
   gl_FragColor = vec4(col * edge, edge);
 }`;
 
-export function AiOrb({ typing }: { typing: boolean }) {
+/** `energy` (0…1), when given, drives the orb directly, e.g. from the microphone level in a voice chat. */
+export function AiOrb({ typing, energy: drive, className = '' }: { typing: boolean; energy?: number; className?: string }) {
   const level = useMotionLevel();
   const ref = useRef<HTMLCanvasElement>(null);
   const target = useRef(0.25);
-  target.current = typing ? 1 : 0.25;
+  target.current = drive != null ? Math.max(0.15, Math.min(1, drive)) : typing ? 1 : 0.25;
   const gpu = level === 'full' && typeof WebGLRenderingContext !== 'undefined';
 
   useEffect(() => {
@@ -126,6 +127,6 @@ export function AiOrb({ typing }: { typing: boolean }) {
     };
   }, [gpu]);
 
-  if (!gpu) return <div className="ai-orb" aria-hidden />;
-  return <canvas ref={ref} className="ai-orb ai-orb-gpu" aria-hidden />;
+  if (!gpu) return <div className={`ai-orb ${className}`} aria-hidden style={drive != null ? { transform: `scale(${1 + Math.min(1, drive) * 0.25})` } : undefined} />;
+  return <canvas ref={ref} className={`ai-orb ai-orb-gpu ${className}`} aria-hidden />;
 }

@@ -9,6 +9,8 @@ import { createModelStore } from './store.js';
 import { createStudio } from './studio.js';
 import { createSysStats } from './sysstats.js';
 import { createGpuStats } from './gpustats.js';
+import { createSearch } from './search.js';
+import { createVoice } from './voice.js';
 
 const env = process.env;
 if (!env.GATEWAY_SECRET || env.GATEWAY_SECRET.length < 32) {
@@ -97,6 +99,8 @@ const server = createGate({
   studio,
   studioKey: env.STUDIO_KEY || '',
   store: createModelStore({ ollama: OLLAMA, volume: env.PERSIST_DIR || '/workspace' }),
+  search: createSearch(),
+  voice: createVoice({ webui: WEBUI, email: env.AI_USER_EMAIL || 'owner@orbit.local', name: env.AI_USER_NAME || 'Owner' }),
 });
 
 server.listen(Number(env.PORT || 8080), '0.0.0.0', () => console.log(`[gate] listening on :${env.PORT || 8080}`));

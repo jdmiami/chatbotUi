@@ -1,5 +1,5 @@
 /** AI app chats, kept in this browser (localStorage). Capped so storage can't fill up. */
-import type { ChatMessage, ContentPart } from '../../services/ai/LocalAi';
+import type { ChatMessage, ContentPart, WebResult } from '../../services/ai/LocalAi';
 import { withFiles } from './attach';
 
 export interface AiMessage {
@@ -25,6 +25,10 @@ export interface AiMessage {
   alts?: AiMessage[];
   /** Which answer is shown and used from here on: 0 = this one, n = alts[n - 1]. */
   pick?: number;
+  /** Web pages this reply was based on (Web search). */
+  sources?: { title: string; url: string }[];
+  /** Searching the web before answering. */
+  searching?: boolean;
 }
 
 export interface AiChat {
@@ -140,6 +144,26 @@ export function toHistory(messages: AiMessage[], system: string): ChatMessage[] 
       const parts: ContentPart[] = [{ type: 'text', text }, ...m.images.map((url) => ({ type: 'image_url' as const, image_url: { url } }))];
       out.push({ role: 'user', content: parts });
     } else if (text) out.push({ role: 'user', content: text });
+  }
+  return out;
+}
+
+/**
+ * Web search: the results go with your latest message (not into the saved chat), numbered so the
+ * model can cite them as [1], [2]…
+ */
+export function withWeb(history: ChatMessage[], results: WebResult[], today = new Date()): ChatMessage[] {
+  if (!results.length) return history;
+  const block = results
+    .map((r, i) => `[${i + 1}] ${r.title}\n${r.url}\n${(r.text || r.snippet || '').slice(0, 3000)}`)
+    .join('\n\n');
+  const intro = `Web search results (searched ${today.toDateString()}). Answer using them where they help, cite them like [1], and say so if they don't answer the question.\n\n${block}\n\nMy message:\n`;
+  const out = [...history];
+  for (let i = out.length - 1; i >= 0; i--) {
+    if (out[i].role !== 'user') continue;
+    const c = out[i].content;
+    out[i] = { ...out[i], content: typeof c === 'string' ? intro + c : c.map((p, j) => (j === 0 && p.type === 'text' ? { ...p, text: intro + p.text } : p)) };
+    break;
   }
   return out;
 }
