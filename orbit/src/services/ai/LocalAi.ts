@@ -97,6 +97,14 @@ export interface StreamHandlers {
   onUsage?(usage: { promptTokens: number; completionTokens: number }): void;
 }
 
+export interface WebResult {
+  title: string;
+  url: string;
+  snippet: string;
+  /** Readable text of the page, for the top results. */
+  text?: string;
+}
+
 // ---- model store
 
 export interface InstalledModel {
@@ -297,6 +305,19 @@ export class LocalAi {
 
   async dismissPull(name: string): Promise<void> {
     await this.studioCall('/_orbit/models/dismiss', { method: 'POST', body: JSON.stringify({ name }) });
+  }
+
+  // ---- web search and speech to text (both run on the AI machine)
+
+  async webSearch(q: string, signal?: AbortSignal): Promise<{ query: string; results: WebResult[] }> {
+    return this.studioCall(`/_orbit/search?q=${encodeURIComponent(q.slice(0, 300))}&pages=3`, { signal });
+  }
+
+  async transcribe(audio: Blob, signal?: AbortSignal): Promise<string> {
+    const res = await this.call('/_orbit/voice/transcribe', { method: 'POST', body: audio, signal, headers: { 'content-type': audio.type || 'audio/webm' } });
+    const body = (await res.json().catch(() => ({}))) as { text?: string; error?: string };
+    if (!res.ok) throw new AiError(body.error || `The AI machine answered ${res.status}.`, res.status);
+    return body.text ?? '';
   }
 
   // ---- image and video maker

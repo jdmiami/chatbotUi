@@ -35,7 +35,7 @@ fi
 
 log "fetching the gate"
 rm -rf /opt/gate && mkdir -p /opt/gate/src /opt/gate/openwebui
-for f in package.json src/index.js src/gate.js src/jwt.js src/machine.js src/store.js src/studio.js src/sysstats.js src/gpustats.js src/workflows.js src/openwebui.js openwebui/studio_pipe.py; do
+for f in package.json src/index.js src/gate.js src/jwt.js src/machine.js src/store.js src/studio.js src/sysstats.js src/gpustats.js src/workflows.js src/openwebui.js src/search.js src/voice.js openwebui/studio_pipe.py; do
   curl -fsSL "${REPO_RAW}/ai/gate/${f}" -o "/opt/gate/${f}"
 done
 curl -fsSL "${REPO_RAW}/ai/studio.sh" -o /opt/gate/studio.sh
@@ -63,6 +63,7 @@ log "starting Open WebUI and Ollama"
     ENABLE_OPENAI_API=false ENABLE_VERSION_UPDATE_CHECK=false \
     ENABLE_WEB_SEARCH=true WEB_SEARCH_ENGINE=duckduckgo WEB_SEARCH_RESULT_COUNT=5 \
     ENABLE_CODE_INTERPRETER=true \
+    WHISPER_MODEL=large-v3-turbo WHISPER_MODEL_AUTO_UPDATE=true \
     DEFAULT_MODELS="$CHAT_MODEL" \
     ENABLE_IMAGE_GENERATION=true IMAGE_GENERATION_ENGINE=openai \
     IMAGES_OPENAI_API_BASE_URL=http://127.0.0.1:8080/v1 IMAGES_OPENAI_API_KEY="$STUDIO_KEY" \

@@ -54,6 +54,22 @@ function withoutCookie(header, name) {
   return kept.length ? kept.join('; ') : undefined;
 }
 
+function readRaw(req, max) {
+  return new Promise((resolve, reject) => {
+    const chunks = [];
+    let size = 0;
+    req.on('data', (c) => {
+      size += c.length;
+      if (size > max) {
+        reject(Object.assign(new Error('The request is too large.'), { status: 413 }));
+        req.destroy();
+      } else chunks.push(c);
+    });
+    req.on('end', () => resolve(Buffer.concat(chunks)));
+    req.on('error', reject);
+  });
+}
+
 function readBody(req, max) {
   return new Promise((resolve, reject) => {
     const chunks = [];
@@ -294,6 +310,28 @@ export function createGate(cfg, log = console) {
         return send(res, 404, { error: 'Not found' });
       } catch (err) {
         return send(res, 500, { error: err.message });
+      }
+    }
+
+    // ---- web search and speech to text for Orbit's chat
+    if ((cfg.search && path === '/_orbit/search') || (cfg.voice && path === '/_orbit/voice/transcribe')) {
+      if (!cors(req, res)) return send(res, 403, { error: 'Origin not allowed' });
+      if (req.method === 'OPTIONS') return send(res, 204, '');
+      if (!apiToken(req) && !session(req)) return send(res, 401, { error: 'Unauthorized' });
+      activity();
+      try {
+        if (path === '/_orbit/search' && req.method === 'GET') {
+          const pages = Number(url.searchParams.get('pages') ?? 3);
+          return send(res, 200, await cfg.search.search(url.searchParams.get('q') || '', { pages: Number.isFinite(pages) ? pages : 3 }));
+        }
+        if (path === '/_orbit/voice/transcribe' && req.method === 'POST') {
+          const audio = await readRaw(req, 25 * 1024 * 1024);
+          if (!audio.length) return send(res, 400, { error: 'No audio.' });
+          return send(res, 200, await cfg.voice.transcribe(audio, req.headers['content-type'] || ''));
+        }
+        return send(res, 404, { error: 'Not found' });
+      } catch (err) {
+        return send(res, err.status && err.status < 600 ? err.status : 500, { error: err.message });
       }
     }
 

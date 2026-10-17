@@ -6,11 +6,13 @@ import { Icon } from '../../ui/Icon';
 import { AppHeader, ConfirmSheet, IconButton, Segmented, Sheet } from '../../ui/components';
 import { MessageBody } from '../agent/Transcript';
 import { AiError, getLocalAi, type AiMachineStatus, type ChatMessage } from '../../services/ai/LocalAi';
-import { loadChats, saveChats, newChat, titleFrom, toHistory, shown, branchChat, type AiChat, type AiChatStore, type AiMessage } from './chats';
+import { loadChats, saveChats, newChat, titleFrom, toHistory, shown, branchChat, withWeb, type AiChat, type AiChatStore, type AiMessage } from './chats';
 import { readAttachment, type Attachment } from './attach';
 import { addFact, loadMemory, personaById, saveMemory, systemPrompt, type MemoryStore } from './memory';
 import { Canvas } from './Canvas';
 import { MemorySheet } from './MemorySheet';
+import { VoiceMode } from './VoiceMode';
+import { canSpeak, createSpeaker, unlockSpeech } from './speech';
 import { cue } from '../../motion/feedback';
 import { CreateView } from './CreateView';
 import { ModelPicker, ModelStore, useModelList } from './models';
@@ -33,6 +35,14 @@ const SUGGESTIONS = [
   { icon: 'bolt', label: 'Brainstorm', prompt: 'Give me 10 bold ideas for a weekend project.' },
   { icon: 'pencil', label: 'Tell a story', prompt: 'Write a short, gripping story that starts with a power cut.' },
 ] as const;
+
+function hostOf(url: string) {
+  try {
+    return new URL(url).hostname.replace(/^www\./, '');
+  } catch {
+    return url;
+  }
+}
 
 function formatSecs(ms: number) {
   const s = Math.max(1, Math.round(ms / 1000));
@@ -106,6 +116,10 @@ export default function AiApp({ isActive, compact, placement }: AppProps) {
   const [memoryOpen, setMemoryOpen] = useState(false);
   const [attachments, setAttachments] = useState<Attachment[]>([]);
   const [pictureMode, setPictureMode] = useState(false);
+  const [webMode, setWebMode] = useState(false);
+  const [voiceOpen, setVoiceOpen] = useState(false);
+  const [listening, setListening] = useState<number | null>(null);
+  const reader = useRef<ReturnType<typeof createSpeaker> | null>(null);
   const [editing, setEditing] = useState<number | null>(null);
   const [canvasFor, setCanvasFor] = useState<number | null>(null);
   const [compareFor, setCompareFor] = useState<number | null>(null);
@@ -213,7 +227,13 @@ export default function AiApp({ isActive, compact, placement }: AppProps) {
    * Stream a reply. By default it is a new message at the end; with `alt` it is another model's
    * answer to message `alt.index` (Compare), shown next to the first one.
    */
-  const run = async (chatId: string, history: ChatMessage[], useModel: string, alt?: { index: number }) => {
+  const run = async (
+    chatId: string,
+    history: ChatMessage[],
+    useModel: string,
+    alt?: { index: number },
+    opts: { web?: string; onDelta?: (d: string) => void } = {},
+  ) => {
     const ctrl = new AbortController();
     abort.current = ctrl;
     setBusy(true);
@@ -231,7 +251,7 @@ export default function AiApp({ isActive, compact, placement }: AppProps) {
           };
         }),
       }));
-    const fresh: AiMessage = { role: 'assistant', content: '', streaming: true, model: useModel };
+    const fresh: AiMessage = { role: 'assistant', content: '', streaming: true, model: useModel, ...(opts.web ? { searching: true } : {}) };
     if (alt) {
       const target = store.chats.find((c) => c.id === chatId)?.messages[alt.index];
       altSlot = target?.alts?.length ?? 0;
@@ -255,11 +275,24 @@ export default function AiApp({ isActive, compact, placement }: AppProps) {
     let thinkStart = 0;
     let usage: { completionTokens: number } | null = null;
     try {
+      if (opts.web) {
+        // Web search first: the top pages go with the question, and the reply lists them as sources.
+        try {
+          const found = await ai.webSearch(opts.web, ctrl.signal);
+          history = withWeb(history, found.results);
+          patchLast((m) => ({ ...m, searching: false, sources: found.results.map((r) => ({ title: r.title, url: r.url })) }));
+        } catch (err) {
+          if (ctrl.signal.aborted) throw err;
+          patchLast((m) => ({ ...m, searching: false, sources: [] }));
+          toast(`Web search didn't work (${(err as Error).message}). Answering without it.`, 'info');
+        }
+      }
       await ai.chat(
         useModel,
         history,
         {
           onText: (d) => {
+            opts.onDelta?.(d);
             const first = !firstToken;
             firstToken ||= Date.now();
             patchLast((m) => ({ ...m, content: m.content + d, ...(first && thinkStart ? { thinkMs: Date.now() - thinkStart } : {}) }));
@@ -298,6 +331,9 @@ export default function AiApp({ isActive, compact, placement }: AppProps) {
     }
   };
 
+  const attachmentsNow = attachments;
+  const pictureNow = pictureMode;
+  const editingNow = editing;
   const instructions = (c: AiChat | null) => systemPrompt(memory, c?.persona ?? memory.defaultPersona, c?.system);
 
   /** Create from chat: the message becomes a picture made by the image maker, shown in the chat. */
@@ -342,8 +378,12 @@ export default function AiApp({ isActive, compact, placement }: AppProps) {
     }
   };
 
-  const send = async () => {
-    const text = draft.trim();
+  /** Send the message box (or, from a voice chat, the words you said). */
+  const send = async (spoken?: { text: string; onDelta: (d: string) => void }) => {
+    const text = spoken ? spoken.text.trim() : draft.trim();
+    const attachments = spoken ? [] : attachmentsNow;
+    const pictureMode = spoken ? false : pictureNow;
+    const editing = spoken ? null : editingNow;
     if ((!text && !attachments.length) || busy) return;
     if (!ready) {
       toast('Turn on your AI machine first.', 'info');
@@ -379,9 +419,11 @@ export default function AiApp({ isActive, compact, placement }: AppProps) {
           : c,
       ),
     }));
-    setDraft('');
-    setAttachments([]);
-    setEditing(null);
+    if (!spoken) {
+      setDraft('');
+      setAttachments([]);
+      setEditing(null);
+    }
     cue('send');
     const sendBtn = input.current?.closest('form')?.querySelector<HTMLElement>('.ai-send');
     if (sendBtn) {
@@ -392,7 +434,7 @@ export default function AiApp({ isActive, compact, placement }: AppProps) {
     follow.current = true;
     setAtBottom(true);
     if (pictureMode) return makePicture(chatId, text);
-    await run(chatId, toHistory([...before, userMsg], instructions(target)), model);
+    await run(chatId, toHistory([...before, userMsg], instructions(target)), model, undefined, { web: webMode && text ? text : undefined, onDelta: spoken?.onDelta });
   };
 
   const addFiles = async (list: FileList | File[] | null) => {
@@ -406,6 +448,23 @@ export default function AiApp({ isActive, compact, placement }: AppProps) {
       }
     }
   };
+
+  // Voice chat: what you say is sent as a message and the reply streams back to be spoken.
+  const sendRef = useRef(send);
+  sendRef.current = send;
+  const askByVoice = useCallback((text: string, onDelta: (d: string) => void) => sendRef.current({ text, onDelta }), []);
+
+  /** Read one reply aloud (tap again to stop). */
+  const listen = (index: number, text: string) => {
+    reader.current?.stop();
+    if (listening === index) return setListening(null);
+    const sp = createSpeaker({ onDone: () => setListening((l) => (l === index ? null : l)) });
+    reader.current = sp;
+    setListening(index);
+    sp.push(text);
+    sp.end();
+  };
+  useEffect(() => () => reader.current?.stop(), []);
 
   const compareWith = async (other: string) => {
     if (!chat || compareFor == null || busy) return;
@@ -728,6 +787,23 @@ export default function AiApp({ isActive, compact, placement }: AppProps) {
                         <MessageBody text={m.content} onCopy={onCopy} />
                       </div>
                     )}
+                    {m.searching && (
+                      <p className="ai-searching ai-shimmer" role="status">
+                        <Icon name="globe" size={14} /> Searching the web…
+                      </p>
+                    )}
+                    {m.sources && m.sources.length > 0 && (
+                      <ol className="ai-sources" aria-label="Sources">
+                        {m.sources.map((src, j) => (
+                          <li key={src.url}>
+                            <a href={src.url} target="_blank" rel="noopener noreferrer" title={src.title}>
+                              <span className="ai-source-n">{j + 1}</span>
+                              <span className="ai-source-host">{hostOf(src.url)}</span>
+                            </a>
+                          </li>
+                        ))}
+                      </ol>
+                    )}
                     {m.error && <p className="ai-error">{m.error}</p>}
                     {m.stopped && <p className="ai-muted">Stopped.</p>}
                     {m.role === 'user' && !busy && (
@@ -766,6 +842,11 @@ export default function AiApp({ isActive, compact, placement }: AppProps) {
                         {last && !orig.alts?.length && (
                           <button type="button" className="btn ghost small" onClick={() => void regenerate()} disabled={busy || !ready}>
                             <Icon name="refresh" size={16} /> Again
+                          </button>
+                        )}
+                        {!m.picture && canSpeak() && (
+                          <button type="button" className="btn ghost small" onClick={() => listen(i, m.content)} aria-pressed={listening === i}>
+                            <Icon name={listening === i ? 'stop' : 'speaker'} size={16} /> {listening === i ? 'Stop' : 'Listen'}
                           </button>
                         )}
                         {!m.picture && (
@@ -880,6 +961,17 @@ export default function AiApp({ isActive, compact, placement }: AppProps) {
                 <IconButton icon="plus" label="Add photos or files" onClick={() => fileInput.current?.click()} disabled={pictureMode} />
                 <button
                   type="button"
+                  className="ai-pill-toggle ai-pill-icon"
+                  aria-pressed={webMode}
+                  aria-label="Search the web"
+                  onClick={() => setWebMode((v) => !v)}
+                  disabled={pictureMode}
+                  title="Search the web before answering"
+                >
+                  <Icon name="globe" size={16} />
+                </button>
+                <button
+                  type="button"
                   className="ai-pill-toggle"
                   aria-pressed={pictureMode}
                   onClick={() => setPictureMode((v) => !v)}
@@ -898,7 +990,19 @@ export default function AiApp({ isActive, compact, placement }: AppProps) {
                   <span className="ai-model-chip-name">{model || (ready ? 'Choose a model' : 'Models appear when on')}</span>
                   <Icon name="down" size={14} />
                 </button>
-                {busy ? (
+                {!busy && !draft.trim() && !attachments.length && !pictureMode ? (
+                  <IconButton
+                    icon="mic"
+                    label="Talk"
+                    className="ai-send ai-talk"
+                    onClick={() => {
+                      if (!ready || !model) return toast(ready ? 'No model yet.' : 'Turn on your AI machine first.', 'info');
+                      unlockSpeech();
+                      setVoiceOpen(true);
+                    }}
+                    disabled={!ready}
+                  />
+                ) : busy ? (
                   <IconButton icon="stop" label="Stop" className="ai-send ai-send-stop" onClick={() => abort.current?.abort()} />
                 ) : (
                   <IconButton icon="send" label={pictureMode ? 'Make picture' : 'Send'} className="ai-send" type="submit" disabled={(!draft.trim() && (!attachments.length || pictureMode)) || !ready} />
@@ -952,6 +1056,7 @@ export default function AiApp({ isActive, compact, placement }: AppProps) {
           onClose={() => setCanvasFor(null)}
         />
       )}
+      {voiceOpen && <VoiceMode ai={ai} onAsk={askByVoice} onClose={() => setVoiceOpen(false)} />}
       {memoryOpen && (
         <MemorySheet
           memory={memory}
