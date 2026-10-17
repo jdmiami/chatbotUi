@@ -117,6 +117,7 @@ export function createGate(cfg, log = console) {
   const ollama = new URL(cfg.ollama);
   const activity = cfg.activity || (() => {});
   const studio = cfg.studio || null;
+  const movies = cfg.movies || null;
   const studioKey = cfg.studioKey ? Buffer.from(cfg.studioKey) : null;
 
   const apiToken = (req) => {
@@ -510,6 +511,7 @@ export function createGate(cfg, log = console) {
         const j = await studio.cancel(jobMatch[1]);
         return j ? send(res, 200, withJobUrl(j)) : send(res, 404, { error: 'No such job' });
       }
+      if (movies && path.startsWith('/_orbit/studio/movies')) return await handleMovies(req, res, path, withUrl);
       const itemMatch = /^\/_orbit\/studio\/items\/([A-Za-z0-9_-]+)$/.exec(path);
       if (itemMatch && req.method === 'DELETE') return send(res, (await studio.remove(itemMatch[1])) ? 200 : 404, { ok: true });
       return send(res, 404, { error: 'Not found' });
@@ -517,6 +519,32 @@ export function createGate(cfg, log = console) {
       const code = err.status || (err instanceof SyntaxError ? 400 : 500);
       return send(res, code, { error: err.message, blocked: Boolean(err.blocked) });
     }
+  }
+
+  // soReal movies: a plan of shots on this machine, made one after another from each last frame.
+  async function handleMovies(req, res, path, withUrl) {
+    const body = async () => JSON.parse((await readBody(req, 256 * 1024)) || '{}');
+    if (path === '/_orbit/studio/movies' && req.method === 'GET') return send(res, 200, { movies: await movies.list() });
+    if (path === '/_orbit/studio/movies' && req.method === 'POST') return send(res, 200, await movies.create(await body()));
+    const m = /^\/_orbit\/studio\/movies\/([A-Za-z0-9_-]+)(?:\/(run|stop|render))?$/.exec(path);
+    if (!m) return send(res, 404, { error: 'Not found' });
+    const [, id, action] = m;
+    if (!action && req.method === 'GET') {
+      const movie = await movies.get(id);
+      return movie ? send(res, 200, movie) : send(res, 404, { error: 'No such movie.' });
+    }
+    if (!action && req.method === 'PUT') return send(res, 200, await movies.update(id, await body()));
+    if (!action && req.method === 'DELETE') return send(res, 200, { ok: await movies.remove(id) });
+    if (action === 'run' && req.method === 'POST') return send(res, 200, await movies.run(id));
+    if (action === 'stop' && req.method === 'POST') {
+      const movie = await movies.stop(id);
+      return movie ? send(res, 200, movie) : send(res, 404, { error: 'No such movie.' });
+    }
+    if (action === 'render' && req.method === 'POST') {
+      const out = await movies.render(id);
+      return send(res, 200, { movie: out.movie, item: withUrl(out.item) });
+    }
+    return send(res, 404, { error: 'Not found' });
   }
 
   // OpenAI-style image endpoint, so Open WebUI's built-in image button uses the image maker.

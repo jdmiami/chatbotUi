@@ -7,6 +7,7 @@ import fs from 'node:fs';
 import fsp from 'node:fs/promises';
 import path from 'node:path';
 import { Readable } from 'node:stream';
+import { lastFrameArgs, runFfmpeg } from './movies.js';
 import { pipeline } from 'node:stream/promises';
 import {
   MAKERS,
@@ -45,7 +46,7 @@ export function blockedPrompt(text) {
 export const BLOCKED_MESSAGE = "This can't be made: sexual content involving minors is never allowed.";
 
 /** Photos you upload are often of real people: they can't be made sexual or undressed. */
-const UNDRESS = /\b(undress\w*|unclothe\w*|remove\s+(her|his|their|the)?\s*(clothes|clothing|shirt|top|dress|bra|pants|underwear)|take\s+off\s+(her|his|their)?\s*(clothes|clothing)|without\s+clothes|see[-\s]?through|x-?ray)\b/;
+const UNDRESS = /\b(undress\w*|unclothe\w*|remove\s+(her|his|their|the)?\s*(clothes|clothing|shirt|top|dress|bra|pants|underwear)|(?:take|takes|taking|took)\s+off\s+(her|his|their)?\s*(clothes|clothing)|without\s+clothes|see[-\s]?through|x-?ray)\b/;
 export function blockedForPhoto(text) {
   const t = String(text || '').toLowerCase().replace(/[_*~`]/g, ' ');
   return SEXUAL.test(t) || UNDRESS.test(t);
@@ -104,6 +105,7 @@ export function createStudio(o) {
   const now = o.now || Date.now;
   const clientId = `gate-${newId()}`;
   const freeAfterMs = o.freeAfterMs ?? 3 * 60_000;
+  const ffmpeg = o.ffmpeg || runFfmpeg;
 
   const jobs = new Map(); // id -> job
   const byPrompt = new Map(); // ComfyUI prompt_id -> job
@@ -397,6 +399,18 @@ export function createStudio(o) {
     return name;
   }
 
+  /** The last frame of a gallery video, as a picture to start from (soReal: the next shot). */
+  async function lastFrameOf(id) {
+    const it = await readItem(id);
+    if (!it || it.kind !== 'video') throw Object.assign(new Error('That video is no longer in your gallery.'), { status: 404 });
+    const src = path.resolve(path.join(dir, 'output'), it.file);
+    if (!src.startsWith(path.join(dir, 'output') + path.sep)) throw Object.assign(new Error('Not found'), { status: 404 });
+    const name = `orbit-${newId()}-last.png`;
+    await fsp.mkdir(path.join(dir, 'input'), { recursive: true });
+    await ffmpeg(lastFrameArgs(src, path.join(dir, 'input', name)), { timeoutMs: 60_000 });
+    return name;
+  }
+
   async function saveUpload(dataUrl) {
     const m = /^data:image\/(png|jpe?g|webp);base64,([A-Za-z0-9+/=\s]+)$/.exec(String(dataUrl || ''));
     if (!m) throw Object.assign(new Error('The starting picture must be a PNG, JPEG or WebP image.'), { status: 400 });
@@ -424,7 +438,11 @@ export function createStudio(o) {
     if (!prompt && mode !== 'upscale') throw Object.assign(new Error(mode === 'edit' ? 'Describe the change.' : 'Describe what to make.'), { status: 400 });
     if (blockedPrompt(prompt)) throw Object.assign(new Error(BLOCKED_MESSAGE), { status: 422, blocked: true });
     const uploads = [...(req.image ? [req.image] : []), ...(Array.isArray(req.images) ? req.images : [])].slice(0, 2);
-    if (uploads.length && blockedForPhoto(prompt)) throw Object.assign(new Error(PHOTO_MESSAGE), { status: 422, blocked: true });
+    // A gallery picture or video that came from someone's photo keeps the photo rule.
+    const fromId = req.fromLastFrameOf || req.fromItem;
+    const source = fromId ? await readItem(String(fromId)) : null;
+    const photo = uploads.length > 0 || Boolean(source?.photo);
+    if (photo && blockedForPhoto(prompt)) throw Object.assign(new Error(PHOTO_MESSAGE), { status: 422, blocked: true });
     if (!(await makerReady(maker))) {
       const pct = (await makers()).find((m) => m.id === maker.id)?.percent ?? 0;
       const what = maker.builtIn ? `The ${maker.name} maker is still downloading (${pct}%)` : `${maker.name} is ${wanted.has(maker.id) ? `still downloading (${pct}%)` : 'not installed'}`;
@@ -443,7 +461,8 @@ export function createStudio(o) {
     const prefix = `orbit/${kind}-${id}`;
     // Pictures to start from: uploads, or a picture from the gallery.
     const inputs = [];
-    if (req.fromItem) inputs.push(await copyFromGallery(String(req.fromItem)));
+    if (req.fromLastFrameOf) inputs.push(await lastFrameOf(String(req.fromLastFrameOf)));
+    else if (req.fromItem) inputs.push(await copyFromGallery(String(req.fromItem)));
     for (const u of uploads) inputs.push(await saveUpload(u));
     const need = mode === 'edit' ? (maker.twoImages ? 2 : 1) : mode === 'upscale' ? 1 : 0;
     if (inputs.length < need) {
@@ -495,6 +514,7 @@ export function createStudio(o) {
       height,
       seconds,
       fromImage: inputs.length > 0,
+      photo,
       status: 'queued',
       progress: 0,
       createdAt: new Date(now()).toISOString(),
@@ -541,6 +561,7 @@ export function createStudio(o) {
         height: job.height,
         seconds: job.seconds,
         fromImage: job.fromImage,
+        photo: job.photo || undefined,
         file,
         createdAt: job.createdAt,
       };
@@ -616,6 +637,24 @@ export function createStudio(o) {
     return true;
   }
 
+  /** Where an item's file is on disk (null when it is gone). */
+  async function itemPath(id) {
+    const it = await readItem(id);
+    if (!it) return null;
+    const outRoot = path.join(dir, 'output');
+    const p = path.resolve(outRoot, it.file);
+    if (!p.startsWith(outRoot + path.sep)) return null;
+    return (await fsp.stat(p).catch(() => null)) ? p : null;
+  }
+
+  /** Put a finished file (already under output/) in the gallery, e.g. a stitched movie. */
+  async function addItem({ kind, prompt, file, seconds, width, height, movie, photo }) {
+    const item = { id: newId(), kind, maker: 'soreal', prompt, width, height, seconds, movie, photo: photo || undefined, file, createdAt: new Date(now()).toISOString() };
+    await fsp.mkdir(metaDir, { recursive: true });
+    await fsp.writeFile(path.join(metaDir, `${item.id}.json`), JSON.stringify(item));
+    return item;
+  }
+
   /** Open an item's file for sending. Returns { path, size, type, name } or null. */
   async function file(id) {
     const it = await readItem(id);
@@ -666,6 +705,8 @@ export function createStudio(o) {
     cancel,
     items,
     item: readItem,
+    itemPath,
+    addItem,
     remove,
     file,
     poll,
