@@ -1,8 +1,10 @@
-import { Component, Suspense, useCallback, useRef, type ReactNode } from 'react';
+import { Component, Suspense, useCallback, useLayoutEffect, useRef, type ReactNode } from 'react';
 import { APPS } from '../apps/registry';
 import type { Placement } from '../apps/types';
 import { useShell, type AppId } from '../state/shell';
 import { useLayout } from '../state/viewport';
+import { useMotionLevel } from '../motion/MotionProvider';
+import { cancelMorph, morphIn, morphOut } from '../motion/morph';
 
 /**
  * Renders every open app exactly once, in a stable order, and only changes its placement.
@@ -55,38 +57,92 @@ export function AppHost() {
             : placement === 'split-right'
               ? { width: `calc(100% - ${leftPct})` }
               : {};
-        const App = meta.component;
         return (
-          <section
+          <AppWindow
             key={id}
-            className="app-window"
-            data-app={id}
-            data-placement={placement}
-            data-focused={isActive}
-            aria-label={meta.name}
-            aria-hidden={!visible}
-            // `inert` keeps hidden apps out of the tab order and away from assistive tech.
-            inert={!visible || undefined}
+            id={id}
+            name={meta.name}
+            placement={placement}
+            visible={visible}
+            isActive={isActive}
             style={style}
-            onPointerDownCapture={() => {
+            compact={paneWidth < 600}
+            goingHome={activeApp === null}
+            onFocusApp={() => {
               if (visible && activeApp !== id) launch(id);
             }}
-            onFocusCapture={() => {
-              if (visible && activeApp !== id) launch(id);
-            }}
-          >
-            <div className="app-window-body">
-              <AppLoadBoundary name={meta.name}>
-                <Suspense fallback={<AppLoading name={meta.name} />}>
-                  <App placement={placement} isActive={isActive} compact={paneWidth < 600} />
-                </Suspense>
-              </AppLoadBoundary>
-            </div>
-          </section>
+            Component={meta.component}
+          />
         );
       })}
       {splitActive && <SplitDivider ratio={split.ratio} onChange={(ratio) => setSplit({ ratio })} />}
     </div>
+  );
+}
+
+/** One open app. Opening grows it out of its icon; closing shrinks it back (see motion/morph). */
+function AppWindow({
+  id,
+  name,
+  placement,
+  visible,
+  isActive,
+  style,
+  compact,
+  goingHome,
+  onFocusApp,
+  Component,
+}: {
+  id: AppId;
+  name: string;
+  placement: Placement;
+  visible: boolean;
+  isActive: boolean;
+  style: React.CSSProperties;
+  compact: boolean;
+  goingHome: boolean;
+  onFocusApp: () => void;
+  Component: (typeof APPS)[AppId]['component'];
+}) {
+  const ref = useRef<HTMLElement>(null);
+  const level = useMotionLevel();
+  // A window mounts when its app is first opened, already in place: treat that as coming from hidden.
+  const prev = useRef<Placement>('hidden');
+
+  useLayoutEffect(() => {
+    const el = ref.current;
+    const was = prev.current;
+    prev.current = placement;
+    if (!el || was === placement) return;
+    const split = (p: Placement) => p === 'split-left' || p === 'split-right';
+    if (split(was) || split(placement)) return cancelMorph(el);
+    if (was === 'hidden') void morphIn(el, id, level);
+    else if (placement === 'hidden') void morphOut(el, id, level, goingHome);
+  }, [placement, id, level, goingHome]);
+
+  return (
+    <section
+      ref={ref}
+      className="app-window"
+      data-app={id}
+      data-placement={placement}
+      data-focused={isActive}
+      aria-label={name}
+      aria-hidden={!visible}
+      // `inert` keeps hidden apps out of the tab order and away from assistive tech.
+      inert={!visible || undefined}
+      style={style}
+      onPointerDownCapture={onFocusApp}
+      onFocusCapture={onFocusApp}
+    >
+      <div className="app-window-body">
+        <AppLoadBoundary name={name}>
+          <Suspense fallback={<AppLoading name={name} />}>
+            <Component placement={placement} isActive={isActive} compact={compact} />
+          </Suspense>
+        </AppLoadBoundary>
+      </div>
+    </section>
   );
 }
 

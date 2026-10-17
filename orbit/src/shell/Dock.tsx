@@ -35,6 +35,7 @@ export function Dock() {
             key={id}
             type="button"
             className="dock-item"
+            data-app-id={id}
             onClick={() => launch(id)}
             aria-label={`${app.name}${running ? ' (open)' : ''}`}
             aria-current={current ? 'true' : undefined}

@@ -7,6 +7,7 @@ import { AppHeader, ConfirmSheet, IconButton, Segmented, Sheet } from '../../ui/
 import { MessageBody } from '../agent/Transcript';
 import { AiError, getLocalAi, type AiMachineStatus, type ChatMessage } from '../../services/ai/LocalAi';
 import { loadChats, saveChats, newChat, titleFrom, type AiChat, type AiChatStore } from './chats';
+import { cue } from '../../motion/feedback';
 import { CreateView } from './CreateView';
 import { ModelPicker, ModelStore, useModelList } from './models';
 import '../agent/agent.css';
@@ -230,6 +231,7 @@ export default function AiApp({ isActive, compact, placement }: AppProps) {
       );
       const secs = firstToken ? (Date.now() - firstToken) / 1000 : 0;
       const u = usage as { completionTokens: number } | null;
+      cue('done');
       patchLast((m) => ({
         ...m,
         streaming: false,
@@ -238,6 +240,7 @@ export default function AiApp({ isActive, compact, placement }: AppProps) {
       }));
     } catch (err) {
       const stopped = ctrl.signal.aborted;
+      if (!stopped) cue('error');
       patchLast((m) => ({
         ...m,
         streaming: false,
@@ -284,6 +287,12 @@ export default function AiApp({ isActive, compact, placement }: AppProps) {
       ),
     }));
     setDraft('');
+    cue('send');
+    const sendBtn = input.current?.closest('form')?.querySelector<HTMLElement>('.ai-send');
+    if (sendBtn) {
+      sendBtn.dataset.launch = 'true';
+      setTimeout(() => delete sendBtn.dataset.launch, 600);
+    }
     if (input.current) input.current.style.height = '';
     follow.current = true;
     setAtBottom(true);
@@ -446,7 +455,7 @@ export default function AiApp({ isActive, compact, placement }: AppProps) {
         <section className="ai-main" aria-label={chat?.title ?? 'New chat'}>
           <div className="ai-scroll" ref={scroller} onScroll={onScroll}>
             {!chat || chat.messages.length === 0 ? (
-              <div className="ai-hello">
+              <div className="ai-hello" data-typing={draft.trim().length > 0}>
                 <div className="ai-orb" aria-hidden />
                 <h2>What can I help with?</h2>
                 <p className="ai-muted">

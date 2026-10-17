@@ -12,6 +12,7 @@ export function useApplySettings() {
     root.dataset.theme = theme;
     root.dataset.accent = settings.accent;
     root.dataset.wallpaper = settings.wallpaper;
+    // Off (or Auto with the device's Reduce Motion on) also zeroes CSS timings; Full and Lite keep them.
     root.dataset.reduceMotion = settings.motion === 'system' ? '' : settings.motion === 'reduce' ? 'true' : 'false';
     if (settings.motion === 'system') delete root.dataset.reduceMotion;
     root.style.setProperty('--text-scale', String(settings.textScale));

@@ -6,7 +6,8 @@ export type Overlay = null | 'switcher' | 'control-center';
 export type ThemePref = 'system' | 'dark' | 'light';
 export type AccentId = 'indigo' | 'teal' | 'amber' | 'rose' | 'sky';
 export type WallpaperId = 'orbit' | 'dusk' | 'aurora' | 'graphite';
-export type MotionPref = 'system' | 'reduce' | 'full';
+/** system = Auto, reduce = Off. */
+export type MotionPref = 'system' | 'reduce' | 'full' | 'lite';
 
 export interface Settings {
   theme: ThemePref;
@@ -28,6 +29,10 @@ export interface Settings {
    * than the screen: swipe sideways to pan, pinch or "Fit width" to zoom out.
    */
   terminalColumns?: number;
+  /** Soft sounds for key moments. Off until you turn it on. */
+  sound: boolean;
+  /** A short vibration for key moments, where the device allows it. */
+  haptics: boolean;
   /** Seen the first-run "what is simulated" sheet. */
   introSeen: boolean;
 }
@@ -72,6 +77,8 @@ export const DEFAULT_SETTINGS: Settings = {
   motion: 'system',
   terminalFontSize: 14,
   terminalKeys: true,
+  sound: false,
+  haptics: false,
   introSeen: false,
 };
 

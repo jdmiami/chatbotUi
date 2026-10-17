@@ -27,6 +27,9 @@ export default defineConfig({
     baseURL: `http://localhost:${port}`,
     trace: 'retain-on-failure',
     screenshot: 'only-on-failure',
+    // Orbit's Motion "Auto" turns animation off for this, so layout tests measure settled screens.
+    // tests/e2e/motion.spec.ts switches Full / Lite on explicitly.
+    contextOptions: { reducedMotion: 'reduce' },
   },
   projects: [
     { name: 'iphone-portrait', use: chromiumWith(devices['iPhone 14 Pro Max']) },

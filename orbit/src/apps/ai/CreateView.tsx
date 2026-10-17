@@ -234,7 +234,9 @@ export function CreateView({ ai, machineOn, isActive }: { ai: LocalAi; machineOn
         <ul className="ai-jobs" aria-label="In progress">
           {jobs.map((j) => (
             <li key={j.id} className={`ai-job ai-job-${j.status}`}>
-              <Icon name={j.kind === 'image' ? 'image' : 'film'} size={18} />
+              <span className="ai-job-art" data-live={active(j)} aria-hidden>
+                <Icon name={j.kind === 'image' ? 'image' : 'film'} size={18} />
+              </span>
               <div className="ai-job-text">
                 <span className="ai-list-title">{j.prompt}</span>
                 {j.status === 'error' ? (
@@ -265,11 +267,11 @@ export function CreateView({ ai, machineOn, isActive }: { ai: LocalAi; machineOn
         </EmptyState>
       ) : (
         <ul className="ai-gallery" aria-label="Your creations">
-          {items.map((it) => (
-            <li key={it.id}>
+          {items.map((it, n) => (
+            <li key={it.id} style={{ '--i': Math.min(n, 14) } as React.CSSProperties}>
               <button type="button" className="ai-tile" onClick={() => setViewing(it)} aria-label={`${it.kind === 'video' ? 'Video' : 'Image'}: ${it.prompt}`}>
                 {it.kind === 'image' ? (
-                  <img src={it.url} alt="" loading="lazy" />
+                  <DevelopImg src={it.url} alt="" loading="lazy" />
                 ) : (
                   <>
                     <video src={`${it.url}#t=0.1`} muted playsInline preload="metadata" />
@@ -288,7 +290,7 @@ export function CreateView({ ai, machineOn, isActive }: { ai: LocalAi; machineOn
         <Sheet title={viewing.kind === 'image' ? 'Image' : 'Video'} onClose={() => setViewing(null)}>
           <div className="ai-viewer">
             {viewing.kind === 'image' ? (
-              <img src={viewing.url} alt={viewing.prompt} />
+              <DevelopImg src={viewing.url} alt={viewing.prompt} />
             ) : (
               <video src={viewing.url} controls playsInline autoPlay />
             )}
@@ -340,4 +342,17 @@ export function CreateView({ ai, machineOn, isActive }: { ai: LocalAi; machineOn
       )}
     </div>
   );
+}
+
+/**
+ * A picture that "develops": it starts blurred and colourless and sharpens as it loads (see
+ * motion.css). The final state is always a normal image, so nothing depends on the effect.
+ */
+function DevelopImg(props: React.ImgHTMLAttributes<HTMLImageElement>) {
+  const ref = useRef<HTMLImageElement>(null);
+  const [loaded, setLoaded] = useState(false);
+  useEffect(() => {
+    if (ref.current?.complete && ref.current.naturalWidth > 0) setLoaded(true);
+  }, []);
+  return <img {...props} ref={ref} className="ai-dev" data-loaded={loaded} onLoad={() => setLoaded(true)} onError={() => setLoaded(true)} />;
 }

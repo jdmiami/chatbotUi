@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { Icon } from '../../ui/Icon';
 import { ConfirmSheet, IconButton, Segmented, Sheet } from '../../ui/components';
 import { useShell } from '../../state/shell';
+import { useTilt } from '../../motion/useTilt';
 import type { FeaturedModel, HubFile, HubModel, InstalledModel, LocalAi, ModelList, ModelPull } from '../../services/ai/LocalAi';
 
 /** The standard GPU has 48 GB; bigger models need the Turbo machine (80 GB). */
@@ -171,6 +172,7 @@ export function ModelStore({ ai, list, refresh, onClose }: { ai: LocalAi; list: 
   const [remove, setRemove] = useState<InstalledModel | null>(null);
   const [error, setError] = useState<string | null>(null);
   const searchBox = useRef<HTMLInputElement>(null);
+  const tilt = useTilt(4);
 
   const installedNames = new Set(list?.installed.map((m) => m.name) ?? []);
   const pullFor = (name: string) => list?.pulls.find((p) => p.name === name);
@@ -255,7 +257,7 @@ export function ModelStore({ ai, list, refresh, onClose }: { ai: LocalAi; list: 
               const pull = pullFor(m.name);
               const have = m.installed || installedNames.has(m.name);
               return (
-                <li key={m.name} className="ai-card">
+                <li key={m.name} {...tilt} className={`ai-card ${tilt.className}`}>
                   <div className="ai-card-head">
                     <h3>{m.title}</h3>
                     <span className="ai-muted">{formatSize(m.size)}</span>

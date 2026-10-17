@@ -274,7 +274,7 @@ test.describe('AI app', () => {
     // 16 GB doesn't fit in 15 GB free.
     await expect(store.getByRole('button', { name: 'Install Q8_0' })).toBeDisabled();
     await store.getByRole('button', { name: 'Install Q4_K_M' }).click();
-    expect(calls.filter((c) => c.path === 'POST /install').pop()?.body).toEqual({ repo: 'org/Cool-Model-GGUF', quant: 'Q4_K_M' });
+    await expect.poll(() => calls.filter((c) => c.path === 'POST /install').pop()?.body).toEqual({ repo: 'org/Cool-Model-GGUF', quant: 'Q4_K_M' });
 
     await store.getByRole('button', { name: /^Installed/ }).click();
     await store.getByRole('button', { name: 'Delete qwen3.6:35b' }).click();
@@ -408,5 +408,51 @@ test.describe('AI app: Create', () => {
     await page.getByRole('textbox', { name: 'Describe it' }).fill('naked child');
     await page.getByRole('button', { name: 'Make image' }).click();
     await expect(page.getByText('sexual content involving minors is never allowed')).toBeVisible();
+  });
+});
+
+// ---- Full motion: the chat's personality
+
+test.describe('AI app with full motion', () => {
+  test.use({ contextOptions: { reducedMotion: 'no-preference' } });
+
+  test('messages pop in, the send button launches, the orb reacts to typing, pictures develop', async ({ page }, testInfo) => {
+    await page.addInitScript(() =>
+      localStorage.setItem('orbit:shell:v1', JSON.stringify({ state: { settings: { motion: 'full', introSeen: true } }, version: 0 })),
+    );
+    await mockAi(page, 'on');
+    await mockStudio(page);
+    const errors: string[] = [];
+    page.on('pageerror', (e) => errors.push(e.message));
+    await page.goto('/');
+    await openAi(page);
+
+    // The orb swells while you type.
+    const hello = page.locator('.ai-hello');
+    await expect(hello).toHaveAttribute('data-typing', 'false');
+    await page.getByRole('textbox', { name: 'Message' }).fill('Hello there');
+    await expect(hello).toHaveAttribute('data-typing', 'true');
+
+    const send = page.getByRole('button', { name: 'Send' });
+    await send.click();
+    await expect(send.or(page.getByRole('button', { name: 'Stop' }))).toBeVisible();
+    const user = page.locator('.ai-msg-user').first();
+    expect(await user.evaluate((el) => getComputedStyle(el).animationName)).toBe('mo-pop-right');
+    await expect(page.getByText('Done.')).toBeVisible();
+    expect(await page.locator('.ai-msg-assistant').first().evaluate((el) => getComputedStyle(el).animationName)).toBe('mo-pop-left');
+    await expectNoHorizontalOverflow(page);
+    // The open animation has finished: no leftover transform, the window fills the screen.
+    await expect.poll(() => page.locator('.app-window[data-app="ai"]').evaluate((el) => getComputedStyle(el).transform), { timeout: 4000 }).toBe('none');
+    expect(await page.locator('.app-window[data-app="ai"]').evaluate((el) => Math.round(el.getBoundingClientRect().left))).toBe(0);
+    await page.screenshot({ path: testInfo.outputPath('ai-chat-full-motion.png') });
+
+    // Create: pictures start undeveloped and sharpen once loaded; tiles bounce in.
+    await page.getByRole('button', { name: 'Create' }).click();
+    const tile = page.locator('.ai-gallery li').first();
+    await expect(tile).toBeVisible();
+    expect(await tile.evaluate((el) => getComputedStyle(el).animationName)).toBe('mo-icon-pop');
+    await expect(page.locator('.ai-tile img.ai-dev[data-loaded="true"]').first()).toBeVisible();
+    await expectNoHorizontalOverflow(page);
+    expect(errors).toEqual([]);
   });
 });
