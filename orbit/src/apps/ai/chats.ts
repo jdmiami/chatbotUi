@@ -1,4 +1,6 @@
 /** AI app chats, kept in this browser (localStorage). Capped so storage can't fill up. */
+import type { ChatMessage, ContentPart } from '../../services/ai/LocalAi';
+import { withFiles } from './attach';
 
 export interface AiMessage {
   role: 'user' | 'assistant';
@@ -13,6 +15,16 @@ export interface AiMessage {
   thinkMs?: number;
   /** Reply length and speed. */
   stats?: { tokens: number; perSecond: number };
+  /** Photos sent with this message (shrunk JPEG data URLs). */
+  images?: string[];
+  /** Text files sent with this message. */
+  files?: { name: string; text: string }[];
+  /** A picture made from the chat (Create from chat). */
+  picture?: { url: string; prompt: string; jobId?: string; progress?: number };
+  /** Other models' answers to the same question (Compare). */
+  alts?: AiMessage[];
+  /** Which answer is shown and used from here on: 0 = this one, n = alts[n - 1]. */
+  pick?: number;
 }
 
 export interface AiChat {
@@ -20,6 +32,10 @@ export interface AiChat {
   title: string;
   model: string;
   system?: string;
+  /** How the AI behaves in this chat (see memory.ts). */
+  persona?: string;
+  /** The chat this one was branched from. */
+  branchOf?: string;
   messages: AiMessage[];
   createdAt: number;
   updatedAt: number;
@@ -85,4 +101,45 @@ function safeStorage(): Storage | null {
   } catch {
     return null;
   }
+}
+
+/** The answer currently chosen for a message (Compare lets you pick between models). */
+export function shown(m: AiMessage): AiMessage {
+  return m.pick && m.alts?.[m.pick - 1] ? m.alts[m.pick - 1] : m;
+}
+
+/** A copy of a chat up to and including message `upTo`, to explore another direction. */
+export function branchChat(c: AiChat, upTo: number): AiChat {
+  const now = Date.now();
+  const base = newChat(c.model);
+  return {
+    ...base,
+    title: `↳ ${c.title.replace(/^↳ /, '')}`.slice(0, 48),
+    system: c.system,
+    persona: c.persona,
+    branchOf: c.id,
+    messages: c.messages.slice(0, upTo + 1).map((m) => ({ ...shown(m), alts: undefined, pick: undefined, streaming: false })),
+    createdAt: now,
+    updatedAt: now,
+  };
+}
+
+/** What the model is sent: the opening instructions, then each message as chosen (with its files and photos). */
+export function toHistory(messages: AiMessage[], system: string): ChatMessage[] {
+  const out: ChatMessage[] = system ? [{ role: 'system', content: system }] : [];
+  for (const raw of messages) {
+    const m = shown(raw);
+    if (m.error) continue;
+    if (m.role === 'assistant') {
+      const text = m.picture ? `[I made a picture: ${m.picture.prompt}]` : m.content;
+      if (text) out.push({ role: 'assistant', content: text });
+      continue;
+    }
+    const text = withFiles(m.content, m.files);
+    if (m.images?.length) {
+      const parts: ContentPart[] = [{ type: 'text', text }, ...m.images.map((url) => ({ type: 'image_url' as const, image_url: { url } }))];
+      out.push({ role: 'user', content: parts });
+    } else if (text) out.push({ role: 'user', content: text });
+  }
+  return out;
 }
