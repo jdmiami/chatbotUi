@@ -1,8 +1,10 @@
-// Coding workspace: VS Code in the browser (code-server on 127.0.0.1) served by the gateway at /code/.
+// Web apps on this machine served by the gateway behind the workspace sign-in:
+//   /code/  VS Code in the browser (code-server on 127.0.0.1)
+//   /claw/  the OpenClaw agent's own app (its gateway on 127.0.0.1, trusting this proxy's identity)
 //
-// Sign-in works like the AI playground: the web app sends the browser to /code/_login?token=<1-use,
+// Sign-in works like the AI playground: the web app sends the browser to /<app>/_login?token=<1-use,
 // 90-second token>; the gateway sets its own HttpOnly cookie, and only requests with that cookie
-// reach code-server (which itself runs with --auth none and listens on localhost only).
+// reach the app (which itself has no login of its own and listens on localhost only).
 import crypto from 'node:crypto';
 import http from 'node:http';
 import net from 'node:net';
@@ -20,35 +22,77 @@ function readCookie(req, name) {
   return null;
 }
 
+/** The request's cookies minus the gateway's own sign-in cookies (the apps never see them). */
 function withoutOurCookie(header) {
   if (!header) return undefined;
   const kept = header
     .split(';')
     .map((p) => p.trim())
-    .filter((p) => p && !p.startsWith(CODE_COOKIE + '='));
+    .filter((p) => p && !p.startsWith('__Host-orbit_'));
   return kept.length ? kept.join('; ') : undefined;
+}
+
+/** VS Code in the browser at /code/. */
+export function createCodeProxy({ secret, upstream, siteUrl, log = console }) {
+  return createAppProxy({ secret, upstream, siteUrl, log, app: 'code', cookie: CODE_COOKIE, label: 'VS Code', stripPrefix: true, island: true });
+}
+
+export const CLAW_COOKIE = '__Host-orbit_claw';
+/** Identity headers the OpenClaw gateway trusts: set only here, never passed through from the browser. */
+const IDENTITY = ['x-orbit-user', 'x-orbit-proxy', 'forwarded', 'x-forwarded-for', 'x-forwarded-host', 'x-forwarded-proto', 'x-real-ip'];
+
+/**
+ * The OpenClaw agent's app at /claw/ (its gateway serves everything under /claw itself). The agent's
+ * gateway uses trusted-proxy sign-in: this proxy is its only door, removes any identity headers the
+ * browser sent, and adds its own for the signed-in owner.
+ */
+export function createClawProxy({ secret, upstream, siteUrl, log = console }) {
+  return createAppProxy({
+    secret,
+    upstream,
+    siteUrl,
+    log,
+    app: 'claw',
+    cookie: CLAW_COOKIE,
+    label: 'The agent',
+    stripPrefix: false,
+    island: false,
+    identity(req, out) {
+      for (const h of IDENTITY) delete out[h];
+      const client = (req.socket.remoteAddress || '').replace(/^::ffff:/, '');
+      out['x-orbit-user'] = 'owner';
+      out['x-orbit-proxy'] = '1';
+      out['x-forwarded-proto'] = 'https';
+      out['x-forwarded-host'] = req.headers.host || '';
+      // Runpod's proxy address (never loopback), so the agent's gateway sees a remote client.
+      out['x-forwarded-for'] = client && client !== '127.0.0.1' && client !== '::1' ? client : '100.64.0.1';
+    },
+  });
 }
 
 /**
  * @param secret   Uint8Array GATEWAY_SECRET
- * @param upstream code-server base URL (http://127.0.0.1:8443)
+ * @param upstream the app's base URL on 127.0.0.1
  * @param siteUrl  the web app, for people who aren't signed in
+ * @param app      path segment and token audience ('code' -> /code/, orbit-code-login)
  */
-export function createCodeProxy({ secret, upstream, siteUrl, log = console }) {
-  const cookieKey = crypto.createHmac('sha256', Buffer.from(secret)).update('orbit-code-cookie').digest();
+function createAppProxy({ secret, upstream, siteUrl, log = console, app, cookie: COOKIE, label, stripPrefix, island, identity }) {
+  const cookieKey = crypto.createHmac('sha256', Buffer.from(secret)).update(`orbit-${app}-cookie`).digest();
+  const prefix = `/${app}`;
+  const mine = new RegExp(`^\\/${app}(\\/|\\?|$)`);
   const target = new URL(upstream);
   const used = new Map();
 
   async function session(req) {
     try {
-      await jwtVerify(readCookie(req, CODE_COOKIE) || '', cookieKey, { algorithms: ['HS256'], audience: 'orbit-code-cookie' });
+      await jwtVerify(readCookie(req, COOKIE) || '', cookieKey, { algorithms: ['HS256'], audience: `orbit-${app}-cookie` });
       return true;
     } catch {
       return false;
     }
   }
 
-  const strip = (url) => url.replace(/^\/code(?=\/|\?|$)/, '') || '/';
+  const strip = (url) => (stripPrefix ? url.replace(new RegExp(`^\\/${app}(?=\\/|\\?|$)`), '') || '/' : url);
 
   function headersFor(req) {
     const out = {};
@@ -56,63 +100,64 @@ export function createCodeProxy({ secret, upstream, siteUrl, log = console }) {
     const cookie = withoutOurCookie(req.headers.cookie);
     if (cookie) out.cookie = cookie;
     else delete out.cookie;
-    // code-server compares the Origin with the host it is reached at: keep the public Host.
+    // The apps compare the Origin with the host they are reached at: keep the public Host.
     out['x-forwarded-proto'] = 'https';
+    identity?.(req, out);
     return out;
   }
 
   async function handle(req, res, url) {
-    if (url.pathname === '/code/_login') {
+    if (url.pathname === `${prefix}/_login`) {
       let payload;
       try {
         ({ payload } = await jwtVerify(url.searchParams.get('token') || '', secret, {
           algorithms: ['HS256'],
-          audience: 'orbit-code-login',
+          audience: `orbit-${app}-login`,
           issuer: 'rdp-web',
           requiredClaims: ['exp', 'iat', 'jti'],
           maxTokenAge: '2m',
         }));
       } catch {
-        res.writeHead(302, { location: siteUrl ? `${siteUrl}/code` : '/', 'cache-control': 'no-store' });
+        res.writeHead(302, { location: siteUrl ? `${siteUrl}${prefix}` : '/', 'cache-control': 'no-store' });
         return res.end();
       }
       const now = Date.now();
       for (const [id, exp] of used) if (exp < now) used.delete(id);
       if (used.has(payload.jti)) {
-        res.writeHead(302, { location: siteUrl ? `${siteUrl}/code` : '/' });
+        res.writeHead(302, { location: siteUrl ? `${siteUrl}${prefix}` : '/' });
         return res.end();
       }
       used.set(payload.jti, payload.exp * 1000);
       const cookie = await new SignJWT({})
         .setProtectedHeader({ alg: 'HS256' })
         .setSubject(String(payload.sub || 'owner'))
-        .setAudience('orbit-code-cookie')
+        .setAudience(`orbit-${app}-cookie`)
         .setIssuedAt()
         .setExpirationTime(`${COOKIE_HOURS}h`)
         .sign(cookieKey);
       res.writeHead(302, {
-        location: '/code/',
-        'set-cookie': `${CODE_COOKIE}=${cookie}; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=${COOKIE_HOURS * 3600}`,
+        location: `${prefix}/`,
+        'set-cookie': `${COOKIE}=${cookie}; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=${COOKIE_HOURS * 3600}`,
         'cache-control': 'no-store',
       });
       return res.end();
     }
     if (!(await session(req))) {
       if (req.method === 'GET' && /text\/html/.test(req.headers.accept || '') && siteUrl) {
-        res.writeHead(302, { location: `${siteUrl}/code`, 'cache-control': 'no-store' });
+        res.writeHead(302, { location: `${siteUrl}${prefix}`, 'cache-control': 'no-store' });
       } else {
         res.writeHead(401, { 'content-type': 'text/plain' });
       }
       return res.end(req.method === 'GET' ? '' : 'Sign in through your workspace site first.');
     }
     // The status pill's script, served from this address so the editor's security rules allow it.
-    if (url.pathname === '/code/_island.js') return serveIsland(res);
-    // Assets are relative to the page, so the editor must live at /code/ (with the slash).
-    if (url.pathname === '/code') {
-      res.writeHead(302, { location: '/code/' + url.search });
+    if (island && url.pathname === `${prefix}/_island.js`) return serveIsland(res);
+    // Assets are relative to the page, so the app must live at /<app>/ (with the slash).
+    if (url.pathname === prefix) {
+      res.writeHead(302, { location: `${prefix}/` + url.search });
       return res.end();
     }
-    const page = req.method === 'GET' && /text\/html/.test(req.headers.accept || '') && siteUrl;
+    const page = island && req.method === 'GET' && /text\/html/.test(req.headers.accept || '') && siteUrl;
     const upHeaders = headersFor(req);
     if (page) upHeaders['accept-encoding'] = 'identity';
     const up = http.request(
@@ -121,8 +166,8 @@ export function createCodeProxy({ secret, upstream, siteUrl, log = console }) {
         const headers = { ...upRes.headers };
         for (const k of Object.keys(headers)) if (HOP.has(k)) delete headers[k];
         // code-server redirects within itself ("./login", "/?folder=..."): keep them under /code/.
-        if (typeof headers.location === 'string' && headers.location.startsWith('/') && !headers.location.startsWith('//')) {
-          headers.location = '/code' + headers.location;
+        if (stripPrefix && typeof headers.location === 'string' && headers.location.startsWith('/') && !headers.location.startsWith('//')) {
+          headers.location = prefix + headers.location;
         }
         if (page && upRes.statusCode === 200 && /text\/html/.test(String(headers['content-type'] || '')) && !headers['content-encoding']) {
           const chunks = [];
@@ -142,10 +187,10 @@ export function createCodeProxy({ secret, upstream, siteUrl, log = console }) {
       },
     );
     up.on('error', (err) => {
-      log.warn?.(`[code] ${err.message}`);
+      log.warn?.(`[${app}] ${err.message}`);
       if (!res.headersSent) {
         res.writeHead(502, { 'content-type': 'text/plain' });
-        res.end('VS Code is still starting on the Linux machine. Reload in a moment.');
+        res.end(`${label} is still starting on the Linux machine. Reload in a moment.`);
       } else res.destroy();
     });
     res.on('close', () => up.destroy());
@@ -180,9 +225,9 @@ export function createCodeProxy({ secret, upstream, siteUrl, log = console }) {
     }
   }
 
-  /** WebSocket upgrade under /code/. Returns false when the path isn't ours. */
+  /** WebSocket upgrade under /<app>/. Returns false when the path isn't ours. */
   async function upgrade(req, socket, head) {
-    if (!/^\/code(\/|\?|$)/.test(req.url)) return false;
+    if (!mine.test(req.url)) return false;
     if (!(await session(req))) {
       socket.end('HTTP/1.1 401 Unauthorized\r\nConnection: close\r\n\r\n');
       return true;

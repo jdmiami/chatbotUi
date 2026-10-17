@@ -145,8 +145,9 @@ function connectToGuacd(config, display) {
  * @param orbit optional Orbit host: { api(req,res,url), pty: { cwd } }. When present the same port
  *   also serves Orbit's authenticated API (/orbit/api/*) and terminal WebSocket (/orbit/pty).
  * @param code optional coding workspace proxy (./code.js): VS Code in the browser at /code/.
+ * @param claw optional agent proxy (./code.js): the OpenClaw agent's app at /claw/.
  */
-export function createGateway(config, log = console, orbit = null, code = null) {
+export function createGateway(config, log = console, orbit = null, code = null, claw = null) {
   const server = http.createServer((req, res) => {
     if (req.url === '/healthz') {
       res.writeHead(200, { 'content-type': 'text/plain' });
@@ -155,6 +156,7 @@ export function createGateway(config, log = console, orbit = null, code = null) 
     const url = new URL(req.url, 'http://gateway.local');
     if (orbit && url.pathname.startsWith('/orbit/api')) return orbit.api(req, res, url);
     if (code && /^\/code(\/|$)/.test(url.pathname)) return code.handle(req, res, url);
+    if (claw && /^\/claw(\/|$)/.test(url.pathname)) return claw.handle(req, res, url);
     res.writeHead(404);
     res.end();
   });
@@ -177,6 +179,7 @@ export function createGateway(config, log = console, orbit = null, code = null) 
     // VS Code's own sockets come from the machine's address (not the web app): its proxy checks
     // the sign-in cookie instead.
     if (code && (await code.upgrade(req, socket, head))) return;
+    if (claw && (await claw.upgrade(req, socket, head))) return;
 
     const origin = req.headers.origin || '';
     if (!originAllowed(origin, config.allowedOrigins)) {
