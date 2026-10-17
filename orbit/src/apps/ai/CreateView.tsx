@@ -196,10 +196,15 @@ export function CreateView({ ai, machineOn, isActive }: { ai: LocalAi; machineOn
             }
           : {}),
       });
-      if (job.status === 'error') toast(job.error || 'That did not start.', 'error');
-      else setJobs((prev) => [...prev, job]);
+      if (job.status === 'error') {
+        toast(job.error || 'That did not start.', 'error');
+        return false;
+      }
+      setJobs((prev) => [...prev, job]);
+      return true;
     } catch (err) {
       toast((err as Error).message, 'error');
+      return false;
     } finally {
       setSubmitting(false);
     }
@@ -274,7 +279,10 @@ export function CreateView({ ai, machineOn, isActive }: { ai: LocalAi; machineOn
         className="ai-create-form"
         onSubmit={(e) => {
           e.preventDefault();
-          void make().then(() => setTimeout(() => next('o5-making'), 120));
+          void make().then((started) => {
+            // Only once something is actually being made; a failed start leaves you on the form.
+            if (started) setTimeout(() => next('o5-making'), 120);
+          });
         }}
       >
         <Step on={o5} n="01" id="o5-make-what" title="What will it be?">
