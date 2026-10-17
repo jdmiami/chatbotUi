@@ -117,3 +117,161 @@ export function videoWorkflow({ prompt, width = 1280, height = 720, seconds = 5,
     53: { class_type: 'SaveVideo', inputs: { video: ['52', 0], filename_prefix: prefix, format: 'mp4', 'format.codec': 'h264' } },
   };
 }
+
+// ---------------------------------------------------------------- the maker store
+// More makers you can install from Orbit (Create → Makers). Each lists the files it needs; files
+// shared between makers are downloaded once. Recipes were checked against ComfyUI's own templates
+// (Krea 2 turbo, MiniMax H3 text/image-to-video, Qwen Image 2.1 edit) on the pinned ComfyUI version.
+
+const hf = (dir, name, repo, path, size) => ({ dir, name, repo, path, size });
+export const FILES = {
+  qwenUnet: STUDIO_FILES.image[0],
+  qwenTe: STUDIO_FILES.image[1],
+  qwenVae: STUDIO_FILES.image[2],
+  noctReal: hf('diffusion_models', 'NoctQ_V4_int8_convrot.safetensors', 'Noctaluna/Noct-Q-Uncensored-Qwen-Image-2.1', 'NoctQ_V4_int8_convrot.safetensors', 7256784368),
+  noctAnime: hf('diffusion_models', 'NoctQA_V1_int8_convrot.safetensors', 'Noctaluna/Noct-Q-Anime-Uncensored-Qwen-Image-2.1', 'NoctQA_V1_int8_convrot.safetensors', 7256784368),
+  kreaNoct: hf('diffusion_models', 'KreaNoct_V4_int8_convrot.safetensors', 'Noctaluna/Krea2-Noct-Uncensored', 'KreaNoct_V4_int8_convrot.safetensors', 13492706520),
+  kreaTe: hf('text_encoders', 'qwen3vl_4b_fp8_scaled.safetensors', 'Comfy-Org/Krea-2', 'text_encoders/qwen3vl_4b_fp8_scaled.safetensors', 5242467968),
+  kreaVae: hf('vae', 'qwen_image_vae.safetensors', 'Comfy-Org/Krea-2', 'vae/qwen_image_vae.safetensors', 253806246),
+  h3Unet: hf('diffusion_models', '10Eros_Max_h3_TURBO-hybrid_beta5_int8.safetensors', 'TenStrip/10Eros-Max', '10Eros_Max_h3_TURBO-hybrid_beta5_int8.safetensors', 20970414464),
+  h3Te: hf('text_encoders', 'qwen3vl_32b_minimax_h3_int8_convrot.safetensors', 'Comfy-Org/MiniMax-H3', 'text_encoders/qwen3vl_32b_minimax_h3_int8_convrot.safetensors', 27141342152),
+  h3Vae: hf('vae', 'minimax_h3_video_vae_int8_convrot.safetensors', 'Comfy-Org/MiniMax-H3', 'vae/minimax_h3_video_vae_int8_convrot.safetensors', 2811065184),
+  h3AudioVae: hf('vae', 'minimax_h3_audio_vae_fp32.safetensors', 'Comfy-Org/MiniMax-H3', 'vae/minimax_h3_audio_vae_fp32.safetensors', 605254808),
+  esrgan: hf('upscale_models', 'RealESRGAN_x4plus.safetensors', 'Comfy-Org/Real-ESRGAN_repackaged', 'RealESRGAN_x4plus.safetensors', 66857836),
+  outfitLora: hf('loras', 'qwen-image-2.1-outfit-swap.safetensors', 'ausboss/Qwen-Image-2.1-Outfit-Swap-Consistency-LoRA', 'qwen-image-2.1-outfit-swap.safetensors', 159436488),
+  anglesLora: hf('loras', 'multiple_angles_step1000.safetensors', 'akhaliq/Qwen-Image-2.1-Multiple-Angles-LoRA', 'multiple_angles_step1000.safetensors', 159435968),
+};
+const kreaStyle = (id) => hf('loras', `krea2_${id}.safetensors`, 'Comfy-Org/Krea-2', `loras/krea2_${id}.safetensors`, 469291992);
+
+const NOCT_NEGATIVE =
+  'artifacts, gpt-image, washed-out colors, low quality, low resolution, AI slop, deviantart, sloppy lines, rough sketch, blurry, indistinct, missing fingers, badly drawn hands, wrong number of fingers';
+
+/**
+ * What can be installed. kind: image | video | edit | upscale makers, or style (a look for one maker).
+ * `builtIn` makers are the ones the machine always downloads.
+ */
+export const MAKERS = [
+  { id: 'qwen', kind: 'image', name: 'Qwen Uncensored', blurb: 'All-rounder, great with text in pictures.', builtIn: true, files: ['qwenUnet', 'qwenTe', 'qwenVae'] },
+  { id: 'qwen-real', kind: 'image', name: 'Qwen Real', blurb: 'Photoreal people and places (Noct-Q v4), uncensored.', files: ['noctReal', 'qwenTe', 'qwenVae'] },
+  { id: 'anime', kind: 'image', name: 'Anime', blurb: 'Anime and illustration (Noct-Q Anime), uncensored.', files: ['noctAnime', 'qwenTe', 'qwenVae'] },
+  { id: 'krea-real', kind: 'image', name: 'Krea Real', blurb: 'Krea 2 photoreal (Noct), fast 8 steps, uncensored.', files: ['kreaNoct', 'kreaTe', 'kreaVae'] },
+  { id: 'ltx', kind: 'video', name: 'LTX 10Eros', blurb: 'Video with sound, uncensored.', builtIn: true, files: [] },
+  { id: 'h3-max', kind: 'video', name: 'H3 Max', blurb: 'MiniMax H3 (10Eros Max): best motion, with sound, uncensored.', files: ['h3Unet', 'h3Te', 'h3Vae', 'h3AudioVae'] },
+  { id: 'edit', kind: 'edit', name: 'Edit with words', blurb: 'Change a picture by describing it. Uses Qwen, no extra download.', builtIn: true, files: ['qwenUnet', 'qwenTe', 'qwenVae'] },
+  { id: 'outfit', kind: 'edit', name: 'Outfit swap', blurb: 'Dress the person in picture 1 in the outfit from picture 2.', files: ['outfitLora', 'qwenUnet', 'qwenTe', 'qwenVae'], lora: 'outfitLora', twoImages: true },
+  { id: 'angles', kind: 'edit', name: 'New angle', blurb: 'The same subject from another camera angle.', files: ['anglesLora', 'qwenUnet', 'qwenTe', 'qwenVae'], lora: 'anglesLora' },
+  { id: 'sharpen', kind: 'upscale', name: 'Sharpen 4×', blurb: 'Makes a picture four times larger and crisper.', files: ['esrgan'] },
+  ...[
+    ['softwatercolor', 'Soft watercolor'],
+    ['retroanime', 'Retro anime'],
+    ['darkbrush', 'Dark brush'],
+    ['neondrip', 'Neon drip'],
+    ['vintagetarot', 'Vintage tarot'],
+    ['rainywindow', 'Rainy window'],
+    ['sunsetblur', 'Sunset blur'],
+    ['dotmatrix', 'Dot matrix'],
+    ['kidsdrawing', 'Crayon drawing'],
+  ].map(([id, name]) => ({ id: `style-${id}`, kind: 'style', for: 'krea-real', name, blurb: `A ${name.toLowerCase()} look for Krea Real.`, files: [`style:${id}`], loraFile: kreaStyle(id) })),
+];
+
+/** Qwen Image 2.1 family (Qwen Uncensored, Qwen Real, Anime). */
+export function qwenWorkflow({ unet, prompt, width = 1024, height = 1024, seed = randomSeed(), steps = 25, cfg = 1, negative = '', prefix = 'orbit/image' }) {
+  return {
+    1: { class_type: 'UNETLoader', inputs: { unet_name: unet, weight_dtype: 'default' } },
+    2: { class_type: 'QwenImage21Cache', inputs: { model: ['1', 0], device: 'auto', dtype: 'default' } },
+    3: { class_type: 'CLIPLoader', inputs: { clip_name: QWEN_TE, type: 'qwen_image', device: 'default' } },
+    4: { class_type: 'VAELoader', inputs: { vae_name: QWEN_VAE } },
+    5: { class_type: 'TextEncodeQwenImage21', inputs: { clip: ['3', 0], prompt, negative_prompt: negative, resolution: 1024 } },
+    6: { class_type: 'EmptyLatentImage', inputs: { width, height, batch_size: 1 } },
+    7: {
+      class_type: 'KSampler',
+      inputs: { model: ['2', 0], seed, steps, cfg, sampler_name: 'euler', scheduler: 'simple', positive: ['5', 0], negative: ['5', 1], latent_image: ['6', 0], denoise: 1 },
+    },
+    8: { class_type: 'VAEDecode', inputs: { samples: ['7', 0], vae: ['4', 0] } },
+    9: { class_type: 'SaveImage', inputs: { images: ['8', 0], filename_prefix: prefix } },
+  };
+}
+
+/** Krea 2 (Krea Real), from ComfyUI's Krea 2 turbo template; `style` adds one of Krea's style LoRAs. */
+export function kreaWorkflow({ prompt, width = 1024, height = 1536, seed = randomSeed(), style = null, prefix = 'orbit/image' }) {
+  const model = style ? ['11', 0] : ['1', 0];
+  return {
+    1: { class_type: 'UNETLoader', inputs: { unet_name: FILES.kreaNoct.name, weight_dtype: 'default' } },
+    2: { class_type: 'CLIPLoader', inputs: { clip_name: FILES.kreaTe.name, type: 'krea2', device: 'default' } },
+    3: { class_type: 'VAELoader', inputs: { vae_name: FILES.kreaVae.name } },
+    4: { class_type: 'CLIPTextEncode', inputs: { clip: ['2', 0], text: prompt } },
+    5: { class_type: 'ConditioningZeroOut', inputs: { conditioning: ['4', 0] } },
+    6: { class_type: 'EmptyLatentImage', inputs: { width, height, batch_size: 1 } },
+    7: {
+      class_type: 'KSampler',
+      inputs: { model, seed, steps: 8, cfg: 1, sampler_name: 'euler', scheduler: 'simple', positive: ['4', 0], negative: ['5', 0], latent_image: ['6', 0], denoise: 1 },
+    },
+    8: { class_type: 'VAEDecode', inputs: { samples: ['7', 0], vae: ['3', 0] } },
+    9: { class_type: 'SaveImage', inputs: { images: ['8', 0], filename_prefix: prefix } },
+    ...(style ? { 11: { class_type: 'LoraLoaderModelOnly', inputs: { model: ['1', 0], lora_name: style, strength_model: 0.8 } } } : {}),
+  };
+}
+
+/** Frames for H3: about `seconds` at 24 fps, rounded the way ComfyUI's H3 template does (5 + 17k). */
+export function h3Length(seconds) {
+  const n = Math.max(5, Math.round(seconds * 24));
+  return n + (((5 - (n % 17)) % 17) + 17) % 17;
+}
+export const H3_FPS = 24;
+
+/** MiniMax H3 (H3 Max): text or picture to video with sound, from ComfyUI's H3 templates (turbo baked in: 8 steps). */
+export function h3Workflow({ prompt, width = 1280, height = 704, seconds = 5, image = null, seed = randomSeed(), steps = 8, prefix = 'orbit/video' }) {
+  return {
+    1: { class_type: 'UNETLoader', inputs: { unet_name: FILES.h3Unet.name, weight_dtype: 'default' } },
+    2: { class_type: 'CLIPLoader', inputs: { clip_name: FILES.h3Te.name, type: 'minimax', device: 'default' } },
+    3: { class_type: 'VAELoader', inputs: { vae_name: FILES.h3Vae.name } },
+    4: { class_type: 'VAELoader', inputs: { vae_name: FILES.h3AudioVae.name } },
+    5: {
+      class_type: 'MiniMaxH3ImageToVideo',
+      inputs: { clip: ['2', 0], vae: ['3', 0], prompt, width, height, length: h3Length(seconds), ...(image ? { first_frame: ['20', 0] } : {}) },
+    },
+    6: { class_type: 'RandomNoise', inputs: { noise_seed: seed } },
+    7: { class_type: 'BasicGuider', inputs: { model: ['1', 0], conditioning: ['5', 0] } },
+    8: { class_type: 'KSamplerSelect', inputs: { sampler_name: 'res_multistep' } },
+    9: { class_type: 'BasicScheduler', inputs: { model: ['1', 0], scheduler: 'simple', steps, denoise: 1 } },
+    10: { class_type: 'SamplerCustomAdvanced', inputs: { noise: ['6', 0], guider: ['7', 0], sampler: ['8', 0], sigmas: ['9', 0], latent_image: ['5', 1] } },
+    11: { class_type: 'VAEDecode', inputs: { samples: ['10', 0], vae: ['3', 0] } },
+    12: { class_type: 'VAEDecodeAudio', inputs: { samples: ['10', 0], vae: ['4', 0] } },
+    13: { class_type: 'CreateVideo', inputs: { images: ['11', 0], audio: ['12', 0], fps: H3_FPS } },
+    14: { class_type: 'SaveVideo', inputs: { video: ['13', 0], filename_prefix: prefix, format: 'mp4', codec: 'h264' } },
+    ...(image ? { 20: { class_type: 'LoadImage', inputs: { image } } } : {}),
+  };
+}
+
+/** Qwen Image 2.1 edit: change pictures by describing it (from ComfyUI's Qwen Image 2.1 edit template). */
+export function editWorkflow({ prompt, images, lora = null, strength = 1, seed = randomSeed(), steps = 25, prefix = 'orbit/image' }) {
+  const refs = Object.fromEntries(images.map((_, i) => [`images.image_${i + 1}`, [String(30 + i), 0]]));
+  const loads = Object.fromEntries(images.map((name, i) => [String(30 + i), { class_type: 'LoadImage', inputs: { image: name } }]));
+  return {
+    1: { class_type: 'UNETLoader', inputs: { unet_name: QWEN_UNET, weight_dtype: 'default' } },
+    2: { class_type: 'QwenImage21Cache', inputs: { model: lora ? ['10', 0] : ['1', 0], device: 'auto', dtype: 'default' } },
+    3: { class_type: 'CLIPLoader', inputs: { clip_name: QWEN_TE, type: 'qwen_image', device: 'default' } },
+    4: { class_type: 'VAELoader', inputs: { vae_name: QWEN_VAE } },
+    5: { class_type: 'TextEncodeQwenImage21', inputs: { clip: ['3', 0], vae: ['4', 0], prompt, negative_prompt: '', resolution: 1024, ...refs } },
+    7: {
+      class_type: 'KSampler',
+      inputs: { model: ['2', 0], seed, steps, cfg: 1, sampler_name: 'euler', scheduler: 'simple', positive: ['5', 0], negative: ['5', 1], latent_image: ['5', 2], denoise: 1 },
+    },
+    8: { class_type: 'VAEDecode', inputs: { samples: ['7', 0], vae: ['4', 0] } },
+    9: { class_type: 'SaveImage', inputs: { images: ['8', 0], filename_prefix: prefix } },
+    ...(lora ? { 10: { class_type: 'LoraLoaderModelOnly', inputs: { model: ['1', 0], lora_name: lora, strength_model: strength } } } : {}),
+    ...loads,
+  };
+}
+
+/** Sharpen 4×: a classic upscaler (Real-ESRGAN), no prompt needed. */
+export function upscaleWorkflow({ image, prefix = 'orbit/image' }) {
+  return {
+    1: { class_type: 'LoadImage', inputs: { image } },
+    2: { class_type: 'UpscaleModelLoader', inputs: { model_name: FILES.esrgan.name } },
+    3: { class_type: 'ImageUpscaleWithModel', inputs: { upscale_model: ['2', 0], image: ['1', 0] } },
+    4: { class_type: 'SaveImage', inputs: { images: ['3', 0], filename_prefix: prefix } },
+  };
+}
+
+export { NOCT_NEGATIVE };

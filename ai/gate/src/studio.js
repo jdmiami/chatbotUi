@@ -8,7 +8,19 @@ import fsp from 'node:fs/promises';
 import path from 'node:path';
 import { Readable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
-import { STUDIO_FILES, imageWorkflow, videoWorkflow } from './workflows.js';
+import {
+  MAKERS,
+  NOCT_NEGATIVE,
+  FILES,
+  STUDIO_FILES,
+  editWorkflow,
+  h3Workflow,
+  imageWorkflow,
+  kreaWorkflow,
+  qwenWorkflow,
+  upscaleWorkflow,
+  videoWorkflow,
+} from './workflows.js';
 
 // ---------------------------------------------------------------- content rule
 
@@ -32,11 +44,22 @@ export function blockedPrompt(text) {
 }
 export const BLOCKED_MESSAGE = "This can't be made: sexual content involving minors is never allowed.";
 
+/** Photos you upload are often of real people: they can't be made sexual or undressed. */
+const UNDRESS = /\b(undress\w*|unclothe\w*|remove\s+(her|his|their|the)?\s*(clothes|clothing|shirt|top|dress|bra|pants|underwear)|take\s+off\s+(her|his|their)?\s*(clothes|clothing)|without\s+clothes|see[-\s]?through|x-?ray)\b/;
+export function blockedForPhoto(text) {
+  const t = String(text || '').toLowerCase().replace(/[_*~`]/g, ' ');
+  return SEXUAL.test(t) || UNDRESS.test(t);
+}
+export const PHOTO_MESSAGE = "Photos you upload can't be made sexual or have clothes removed: they may show real people. Pictures made here from a description can.";
+
 // ---------------------------------------------------------------- helpers
 
 const SIZES = {
   image: { square: [1328, 1328], portrait: [1104, 1472], landscape: [1472, 1104], wide: [1664, 928], tall: [928, 1664] },
   video: { landscape: [1280, 720], portrait: [720, 1280], square: [960, 960] },
+  // Krea 2 and H3 like their own sizes (H3: multiples of 32).
+  krea: { square: [1024, 1024], portrait: [1024, 1536], landscape: [1536, 1024], wide: [1536, 864], tall: [864, 1536] },
+  h3: { landscape: [1280, 704], portrait: [704, 1280], square: [960, 960] },
 };
 const MIME = { '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.webp': 'image/webp', '.mp4': 'video/mp4', '.webm': 'video/webm' };
 const newId = () => crypto.randomBytes(9).toString('base64url');
@@ -90,6 +113,28 @@ export function createStudio(o) {
   let ws = null;
 
   const modelPath = (file) => path.join(dir, 'models', file.dir, file.name);
+  const wantedPath = path.join(dir, 'makers.json');
+  let wanted = new Set();
+  try {
+    wanted = new Set(JSON.parse(fs.readFileSync(wantedPath, 'utf8')).wanted || []);
+  } catch {
+    /* none yet */
+  }
+  const makerById = (id) => MAKERS.find((m) => m.id === id) || null;
+  // The built-in makers use the studio's own files (tests pass small fake ones).
+  const QWEN_KEYS = { qwenUnet: 0, qwenTe: 1, qwenVae: 2 };
+  function makerFiles(m) {
+    if (m.id === 'ltx') return files.video;
+    return m.files.map((k) => (k in QWEN_KEYS ? files.image[QWEN_KEYS[k]] : k.startsWith('style:') ? m.loraFile : FILES[k])).filter(Boolean);
+  }
+  const kept = () => MAKERS.filter((m) => m.builtIn || wanted.has(m.id));
+  /** Every file to keep on the machine, in download order: the built-in image and video makers first. */
+  function neededFiles() {
+    const seen = new Map();
+    for (const kind of ['image', 'video']) for (const file of files[kind]) seen.set(file.name, file);
+    for (const m of kept()) for (const file of makerFiles(m)) if (!seen.has(file.name)) seen.set(file.name, file);
+    return [...seen.values()];
+  }
   const metaDir = path.join(dir, 'output', 'orbit');
 
   // ---- model downloads (resumable, one at a time; images first)
@@ -124,19 +169,26 @@ export function createStudio(o) {
     if (download.running) return;
     download.running = true;
     try {
-      for (const kind of ['image', 'video']) {
-        for (const file of files[kind]) {
-          for (let attempt = 0; !(await haveFile(file)); attempt++) {
-            try {
-              await fetchFile(file);
-              download.error = null;
-            } catch (err) {
-              download.error = err.message;
-              log.warn?.(`[studio] ${err.message}; retrying in 30s`);
-              await new Promise((r) => setTimeout(r, o.retryMs ?? 30_000));
-            }
+      // The list is read again after every file, so makers installed meanwhile are picked up.
+      for (;;) {
+        let next = null;
+        for (const file of neededFiles()) {
+          if (download.done.has(file.name)) continue;
+          if (await haveFile(file)) download.done.add(file.name);
+          else {
+            next = file;
+            break;
           }
-          download.done.add(file.name);
+        }
+        if (!next) break;
+        try {
+          await fetchFile(next);
+          download.error = null;
+          download.done.add(next.name);
+        } catch (err) {
+          download.error = err.message;
+          log.warn?.(`[studio] ${err.message}; retrying in 30s`);
+          await new Promise((r) => setTimeout(r, o.retryMs ?? 30_000));
         }
       }
     } finally {
@@ -147,6 +199,82 @@ export function createStudio(o) {
 
   async function ready(kind) {
     for (const file of files[kind]) if (!(await haveFile(file))) return false;
+    return true;
+  }
+
+  // ---- the maker store
+  function bytesDone(list) {
+    let total = 0;
+    let done = 0;
+    for (const file of list) {
+      total += file.size || 0;
+      if (download.done.has(file.name)) done += file.size || 0;
+      else if (download.current?.name === file.name) done += download.current.completed;
+    }
+    return { total, done };
+  }
+
+  async function makers() {
+    const out = [];
+    for (const m of MAKERS) {
+      const list = makerFiles(m);
+      let installed = true;
+      for (const file of list) if (!(await haveFile(file))) installed = false;
+      const { total, done } = bytesDone(list);
+      out.push({
+        id: m.id,
+        kind: m.kind,
+        name: m.name,
+        blurb: m.blurb,
+        for: m.for || null,
+        twoImages: Boolean(m.twoImages),
+        builtIn: Boolean(m.builtIn),
+        wanted: Boolean(m.builtIn || wanted.has(m.id)),
+        installed,
+        size: total,
+        percent: installed ? 100 : total ? Math.min(99, Math.floor((done / total) * 100)) : 0,
+      });
+    }
+    return out;
+  }
+
+  async function saveWanted() {
+    await fsp.writeFile(wantedPath, JSON.stringify({ wanted: [...wanted] }));
+  }
+
+  async function installMaker(id) {
+    const m = makerById(id);
+    if (!m) throw Object.assign(new Error('No such maker.'), { status: 404 });
+    if (m.kind === 'style' && !(m.for && (makerById(m.for)?.builtIn || wanted.has(m.for)))) {
+      wanted.add(m.for);
+    }
+    wanted.add(id);
+    await saveWanted();
+    void downloadAll();
+    return makers();
+  }
+
+  async function removeMaker(id) {
+    const m = makerById(id);
+    if (!m) throw Object.assign(new Error('No such maker.'), { status: 404 });
+    if (m.builtIn) throw Object.assign(new Error('This maker comes with the machine and stays.'), { status: 400 });
+    if (active().some((j) => j.maker === id)) throw Object.assign(new Error('It is making something right now. Try again when that is done.'), { status: 409 });
+    wanted.delete(id);
+    // Styles go with their maker.
+    for (const s of MAKERS) if (s.for === id) wanted.delete(s.id);
+    await saveWanted();
+    const keep = new Set(neededFiles().map((f) => f.name));
+    for (const file of makerFiles(m)) {
+      if (keep.has(file.name)) continue;
+      download.done.delete(file.name);
+      await fsp.rm(modelPath(file), { force: true });
+      await fsp.rm(`${modelPath(file)}.part`, { force: true });
+    }
+    return makers();
+  }
+
+  async function makerReady(m) {
+    for (const file of makerFiles(m)) if (!(await haveFile(file))) return false;
     return true;
   }
 
@@ -209,9 +337,9 @@ export function createStudio(o) {
   }
 
   // How far along a job is: each sampling pass covers part of the bar.
-  const STAGES = { image: { 7: [0, 95] }, video: { 38: [5, 70], 47: [70, 92] } };
+  const STAGES = { image: { 7: [0, 95] }, video: { 38: [5, 70], 47: [70, 92] }, h3: { 10: [5, 90] }, upscale: { 3: [0, 95] } };
   function onProgress(job, node, value, max) {
-    const stage = STAGES[job.kind][node];
+    const stage = STAGES[job.stages || job.kind]?.[node];
     if (!stage || !max) return;
     const pct = Math.floor(stage[0] + ((stage[1] - stage[0]) * value) / max);
     job.progress = Math.max(job.progress, Math.min(99, pct));
@@ -246,6 +374,7 @@ export function createStudio(o) {
     return {
       id: j.id,
       kind: j.kind,
+      maker: j.maker || null,
       prompt: j.prompt,
       status: j.status,
       progress: j.progress,
@@ -282,28 +411,94 @@ export function createStudio(o) {
   }
 
   /**
-   * Start a job. req: { kind: 'image'|'video', prompt, size?, seconds?, image? (data URL), fromItem? (gallery id) }.
+   * Start a job. req: { kind: 'image'|'video', maker?, prompt, size?, seconds?, style?,
+   *   image? (data URL), images? (data URLs, for edits), fromItem? (gallery id) }.
    * Throws errors with .status for bad requests.
    */
   async function createJob(req) {
-    const kind = req.kind === 'video' ? 'video' : 'image';
-    const prompt = String(req.prompt || '').trim().slice(0, 4000);
-    if (!prompt) throw Object.assign(new Error('Describe what to make.'), { status: 400 });
+    const maker = req.maker ? makerById(String(req.maker)) : makerById(req.kind === 'video' ? 'ltx' : 'qwen');
+    if (!maker || maker.kind === 'style') throw Object.assign(new Error('No such maker.'), { status: 400 });
+    const mode = maker.kind; // image | video | edit | upscale
+    const kind = mode === 'video' ? 'video' : 'image';
+    let prompt = String(req.prompt || '').trim().slice(0, 4000);
+    if (!prompt && mode !== 'upscale') throw Object.assign(new Error(mode === 'edit' ? 'Describe the change.' : 'Describe what to make.'), { status: 400 });
     if (blockedPrompt(prompt)) throw Object.assign(new Error(BLOCKED_MESSAGE), { status: 422, blocked: true });
-    if (!(await ready(kind))) {
-      throw Object.assign(new Error(`The ${kind} maker is still downloading (${kindProgress(kind)}%). Try again when it's done.`), { status: 503 });
+    const uploads = [...(req.image ? [req.image] : []), ...(Array.isArray(req.images) ? req.images : [])].slice(0, 2);
+    if (uploads.length && blockedForPhoto(prompt)) throw Object.assign(new Error(PHOTO_MESSAGE), { status: 422, blocked: true });
+    if (!(await makerReady(maker))) {
+      const pct = (await makers()).find((m) => m.id === maker.id)?.percent ?? 0;
+      const what = maker.builtIn ? `The ${maker.name} maker is still downloading (${pct}%)` : `${maker.name} is ${wanted.has(maker.id) ? `still downloading (${pct}%)` : 'not installed'}`;
+      throw Object.assign(new Error(`${what}. Try again when it's done.`), { status: 503 });
+    }
+    let style = null;
+    if (req.style) {
+      const s = makerById(String(req.style));
+      if (!s || s.kind !== 'style' || s.for !== maker.id) throw Object.assign(new Error('That style is not for this maker.'), { status: 400 });
+      if (!(await makerReady(s))) throw Object.assign(new Error(`The ${s.name} style is not installed yet.`), { status: 503 });
+      style = s.loraFile.name;
     }
     if (!(await comfyUp())) throw Object.assign(new Error('The image and video maker is still starting. Try again in a minute.'), { status: 503 });
 
-    const sizes = SIZES[kind];
-    const [width, height] = sizes[req.size] || Object.values(sizes)[0];
-    const seconds = kind === 'video' ? Math.min(10, Math.max(2, Math.round(Number(req.seconds) || 5))) : undefined;
     const id = newId();
-    const image = kind !== 'video' ? null : req.fromItem ? await copyFromGallery(String(req.fromItem)) : req.image ? await saveUpload(req.image) : null;
     const prefix = `orbit/${kind}-${id}`;
-    const workflow = kind === 'video' ? videoWorkflow({ prompt, width, height, seconds, image, prefix }) : imageWorkflow({ prompt, width, height, prefix });
+    // Pictures to start from: uploads, or a picture from the gallery.
+    const inputs = [];
+    if (req.fromItem) inputs.push(await copyFromGallery(String(req.fromItem)));
+    for (const u of uploads) inputs.push(await saveUpload(u));
+    const need = mode === 'edit' ? (maker.twoImages ? 2 : 1) : mode === 'upscale' ? 1 : 0;
+    if (inputs.length < need) {
+      throw Object.assign(new Error(maker.twoImages ? 'Add two pictures: the person first, then the outfit.' : 'Add the picture to start from.'), { status: 400 });
+    }
 
-    const job = { id, kind, prompt, width, height, seconds, fromImage: Boolean(image), status: 'queued', progress: 0, createdAt: new Date(now()).toISOString() };
+    let workflow;
+    let width;
+    let height;
+    let seconds;
+    let stages = null;
+    if (mode === 'video') {
+      seconds = Math.min(10, Math.max(2, Math.round(Number(req.seconds) || 5)));
+      const image = inputs[0] || null;
+      if (maker.id === 'h3-max') {
+        [width, height] = SIZES.h3[req.size] || SIZES.h3.landscape;
+        workflow = h3Workflow({ prompt, width, height, seconds, image, prefix });
+        stages = 'h3';
+      } else {
+        [width, height] = SIZES.video[req.size] || SIZES.video.landscape;
+        workflow = videoWorkflow({ prompt, width, height, seconds, image, prefix });
+      }
+    } else if (mode === 'edit') {
+      const lora = maker.lora ? FILES[maker.lora].name : null;
+      if (maker.id === 'angles' && !prompt.startsWith('<mva>')) prompt = `<mva> ${prompt}`;
+      workflow = editWorkflow({ prompt, images: inputs.slice(0, need), lora, prefix });
+    } else if (mode === 'upscale') {
+      prompt = prompt || 'Sharpened 4×';
+      workflow = upscaleWorkflow({ image: inputs[0], prefix });
+      stages = 'upscale';
+    } else if (maker.id === 'krea-real') {
+      [width, height] = SIZES.krea[req.size] || SIZES.krea.portrait;
+      workflow = kreaWorkflow({ prompt, width, height, style, prefix });
+    } else {
+      [width, height] = SIZES.image[req.size] || SIZES.image.square;
+      workflow =
+        maker.id === 'qwen'
+          ? imageWorkflow({ prompt, width, height, prefix })
+          : qwenWorkflow({ unet: FILES[maker.files[0]].name, prompt, width, height, cfg: 3, negative: NOCT_NEGATIVE, prefix });
+    }
+
+    const job = {
+      id,
+      kind,
+      maker: maker.id,
+      stages,
+      prompt,
+      width,
+      height,
+      seconds,
+      fromImage: inputs.length > 0,
+      status: 'queued',
+      progress: 0,
+      createdAt: new Date(now()).toISOString(),
+    };
     jobs.set(id, job);
     try {
       connectWs();
@@ -340,6 +535,7 @@ export function createStudio(o) {
       const item = {
         id: job.id,
         kind: job.kind,
+        maker: job.maker,
         prompt: job.prompt,
         width: job.width,
         height: job.height,
@@ -462,6 +658,9 @@ export function createStudio(o) {
       );
     },
     state,
+    makers,
+    installMaker,
+    removeMaker,
     createJob,
     job: (id) => (jobs.has(id) ? publicJob(jobs.get(id)) : null),
     cancel,

@@ -70,8 +70,31 @@ export interface StudioState {
   jobs: StudioJob[];
 }
 
+/** A maker in the studio's store (Create → Makers). */
+export interface StudioMakerInfo {
+  id: string;
+  kind: 'image' | 'video' | 'edit' | 'upscale' | 'style';
+  name: string;
+  blurb: string;
+  /** For a style: the maker it belongs to. */
+  for: string | null;
+  /** Needs two pictures (outfit swap: the person, then the outfit). */
+  twoImages: boolean;
+  builtIn: boolean;
+  wanted: boolean;
+  installed: boolean;
+  size: number;
+  percent: number;
+}
+
 export interface StudioRequest {
   kind: StudioKind;
+  /** Which maker to use (default: the built-in one for the kind). */
+  maker?: string;
+  /** A style for the maker (Krea Real). */
+  style?: string;
+  /** Pictures to edit, as data URLs (after `fromItem`, if any). */
+  images?: string[];
   prompt: string;
   size?: string;
   seconds?: number;
@@ -347,6 +370,18 @@ export class LocalAi {
   async studioItems(): Promise<StudioItem[]> {
     const r = await this.studioCall<{ items: StudioItem[] }>('/_orbit/studio/items');
     return r.items.map((i) => this.absolute(i));
+  }
+
+  async studioMakers(): Promise<StudioMakerInfo[]> {
+    return (await this.studioCall<{ makers: StudioMakerInfo[] }>('/_orbit/studio/makers')).makers;
+  }
+
+  async installStudioMaker(id: string): Promise<StudioMakerInfo[]> {
+    return (await this.studioCall<{ makers: StudioMakerInfo[] }>('/_orbit/studio/makers/install', { method: 'POST', body: JSON.stringify({ id }) })).makers;
+  }
+
+  async removeStudioMaker(id: string): Promise<StudioMakerInfo[]> {
+    return (await this.studioCall<{ makers: StudioMakerInfo[] }>('/_orbit/studio/makers/remove', { method: 'POST', body: JSON.stringify({ id }) })).makers;
   }
 
   async createStudioJob(req: StudioRequest): Promise<StudioJob> {

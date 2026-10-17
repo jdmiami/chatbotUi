@@ -491,6 +491,12 @@ export function createGate(cfg, log = console) {
       if (path === '/v1/images/generations' && req.method === 'POST') return await openaiImage(req, res);
       if (path === '/_orbit/studio' && req.method === 'GET') return send(res, 200, await studio.state());
       if (path === '/_orbit/studio/items' && req.method === 'GET') return send(res, 200, { items: (await studio.items()).map(withUrl) });
+      if (path === '/_orbit/studio/makers' && req.method === 'GET') return send(res, 200, { makers: await studio.makers() });
+      if ((path === '/_orbit/studio/makers/install' || path === '/_orbit/studio/makers/remove') && req.method === 'POST') {
+        const { id } = JSON.parse((await readBody(req, 4096)) || '{}');
+        const list = path.endsWith('/install') ? await studio.installMaker(String(id || '')) : await studio.removeMaker(String(id || ''));
+        return send(res, 200, { makers: list });
+      }
       if (path === '/_orbit/studio/jobs' && req.method === 'POST') {
         const body = JSON.parse((await readBody(req, 30 * 1024 * 1024)) || '{}');
         return send(res, 200, withJobUrl(await studio.createJob(body)));

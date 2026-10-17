@@ -190,7 +190,34 @@ async function mockStudio(page: Page) {
     if (!items.some((i) => i.id === item.id)) items.unshift(item as (typeof items)[number]);
     return route.fulfill({ json: { id, kind: req.kind, prompt: req.prompt, status: 'done', progress: 100, error: null, createdAt: '', item } });
   });
-  return { items, requests };
+  // The maker store: built-ins installed; installing H3 Max downloads for two polls, then it is ready.
+  const makers = [
+    { id: 'qwen', kind: 'image', name: 'Qwen Uncensored', blurb: 'All-rounder.', for: null, twoImages: false, builtIn: true, wanted: true, installed: true, size: 17e9, percent: 100 },
+    { id: 'krea-real', kind: 'image', name: 'Krea Real', blurb: 'Photoreal.', for: null, twoImages: false, builtIn: false, wanted: false, installed: false, size: 19e9, percent: 0 },
+    { id: 'ltx', kind: 'video', name: 'LTX 10Eros', blurb: 'Video with sound.', for: null, twoImages: false, builtIn: true, wanted: true, installed: true, size: 43e9, percent: 100 },
+    { id: 'h3-max', kind: 'video', name: 'H3 Max', blurb: 'Best motion.', for: null, twoImages: false, builtIn: false, wanted: false, installed: false, size: 51.5e9, percent: 0 },
+    { id: 'edit', kind: 'edit', name: 'Edit with words', blurb: 'Change a picture.', for: null, twoImages: false, builtIn: true, wanted: true, installed: true, size: 17e9, percent: 100 },
+    { id: 'outfit', kind: 'edit', name: 'Outfit swap', blurb: 'Swap outfits.', for: null, twoImages: true, builtIn: false, wanted: true, installed: true, size: 0.2e9, percent: 100 },
+    { id: 'sharpen', kind: 'upscale', name: 'Sharpen 4×', blurb: 'Bigger and crisper.', for: null, twoImages: false, builtIn: false, wanted: false, installed: false, size: 67e6, percent: 0 },
+    { id: 'style-darkbrush', kind: 'style', name: 'Dark brush', blurb: 'A look.', for: 'krea-real', twoImages: false, builtIn: false, wanted: false, installed: false, size: 0.47e9, percent: 0 },
+  ];
+  const makerCalls: string[] = [];
+  let polls2 = 0;
+  await page.route('**/fake-ai/_orbit/studio/makers', (route) => {
+    const h3 = makers.find((m) => m.id === 'h3-max')!;
+    if (h3.wanted && !h3.installed && ++polls2 > 1) Object.assign(h3, { installed: true, percent: 100 });
+    return route.fulfill({ json: { makers } });
+  });
+  await page.route('**/fake-ai/_orbit/studio/makers/*', (route) => {
+    const { id } = route.request().postDataJSON() as { id: string };
+    const action = route.request().url().split('/').pop()!;
+    makerCalls.push(`${action} ${id}`);
+    const m = makers.find((x) => x.id === id)!;
+    if (action === 'install') Object.assign(m, { wanted: true, percent: 40 });
+    else Object.assign(m, { wanted: false, installed: false, percent: 0 });
+    return route.fulfill({ json: { makers } });
+  });
+  return { items, requests, makers, makerCalls };
 }
 
 async function openCreate(page: Page) {
@@ -316,6 +343,8 @@ test.describe('AI app with full motion', () => {
     const tile = page.locator('.ai-gallery li').first();
     await expect(tile).toBeVisible();
     expect(await tile.evaluate((el) => getComputedStyle(el).animationName)).toBe('mo-icon-pop');
+    // Pictures load lazily: bring the first one on screen (it is below the form on a landscape phone).
+    await tile.scrollIntoViewIfNeeded();
     await expect(page.locator('.ai-tile img.ai-dev[data-loaded="true"]').first()).toBeVisible();
     await expectNoHorizontalOverflow(page);
     expect(errors).toEqual([]);
@@ -490,3 +519,61 @@ test.describe('AI app: web search', () => {
   });
 });
 
+
+test.describe('AI app: maker store', () => {
+  test('install a new video maker, pick it, and the job uses it', async ({ page }) => {
+    await mockAi(page, 'on');
+    const studio = await mockStudio(page);
+    await openOrbit(page);
+    await openCreate(page);
+    await page.getByRole('group', { name: 'What to make' }).getByRole('button', { name: 'Video' }).click();
+    await page.getByRole('button', { name: 'Makers' }).click();
+    const sheet = page.getByRole('dialog', { name: 'Makers' });
+    await expect(sheet.getByRole('region', { name: 'Video' })).toContainText('H3 Max');
+    await sheet.getByRole('button', { name: /^Install H3 Max, 52 GB$/ }).click();
+    expect(studio.makerCalls).toEqual(['install h3-max']);
+    await expect(sheet.getByText('40%')).toBeVisible();
+    await expectNoHorizontalOverflow(page);
+    await page.keyboard.press('Escape');
+    const picks = page.getByRole('radiogroup', { name: 'Maker' });
+    await picks.getByRole('radio', { name: /H3 Max/ }).click();
+    await expect(picks.getByRole('radio', { name: /H3 Max/ })).toHaveAttribute('aria-checked', 'true');
+    // Ready once the download finishes (the next refresh).
+    await page.getByRole('textbox', { name: 'Describe it' }).fill('neon rain on a city street, synth music');
+    const make = page.getByRole('button', { name: 'Make video' });
+    await expect(make).toBeEnabled({ timeout: 12_000 });
+    await make.click();
+    await expect.poll(() => studio.requests.length).toBe(1);
+    expect(studio.requests[0]).toMatchObject({ kind: 'video', maker: 'h3-max', prompt: 'neon rain on a city street, synth music' });
+  });
+
+  test('edit a picture from the gallery with words; outfit swap asks for two pictures', async ({ page }) => {
+    await mockAi(page, 'on');
+    const studio = await mockStudio(page);
+    await openOrbit(page);
+    await openCreate(page);
+    await page.getByRole('button', { name: /^Image: a red fox in snow/ }).click();
+    await page.getByRole('dialog').getByRole('button', { name: 'Edit' }).click();
+    await expect(page.getByRole('group', { name: 'What to make' }).getByRole('button', { name: 'Edit', pressed: true })).toBeVisible();
+    await expect(page.getByRole('img', { name: 'Picture to edit' })).toBeVisible();
+    await page.getByRole('textbox', { name: 'Describe it' }).fill('make it night with a full moon');
+    await page.getByRole('button', { name: /^Edit$/ }).last().click();
+    await expect.poll(() => studio.requests.length).toBe(1);
+    expect(studio.requests[0]).toMatchObject({ kind: 'image', maker: 'edit', fromItem: 'img1', prompt: 'make it night with a full moon', images: [] });
+
+    await page.getByRole('radiogroup', { name: 'Maker' }).getByRole('radio', { name: 'Outfit swap' }).click();
+    await expect(page.getByText('Add the person first, then the outfit.')).toBeVisible();
+    await page.getByRole('textbox', { name: 'Describe it' }).fill('Dress the person in image 1 in the jacket from image 2.');
+    const go = page.getByRole('button', { name: /^Edit$/ }).last();
+    await expect(go).toBeDisabled();
+    await page.locator('.ai-edit-photos input[type=file]').setInputFiles({ name: 'jacket.png', mimeType: 'image/png', buffer: PNG });
+    await expect(page.getByRole('img', { name: 'The outfit' })).toBeVisible();
+    await expect(go).toBeEnabled();
+    await expect(page.getByText('Edits take under a minute.')).toBeVisible();
+    await go.click();
+    await expect.poll(() => studio.requests.length).toBe(2);
+    expect(studio.requests[1]).toMatchObject({ maker: 'outfit', fromItem: 'img1' });
+    expect((studio.requests[1].images as string[]).length).toBe(1);
+    await expectNoHorizontalOverflow(page);
+  });
+});
