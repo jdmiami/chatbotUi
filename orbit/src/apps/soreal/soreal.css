@@ -85,3 +85,7 @@
 .sr-plan { margin: 0; padding-left: 1.4em; display: flex; flex-direction: column; gap: 6px; color: var(--text-2); max-height: 50vh; overflow-y: auto; }
 
 @media (prefers-reduced-motion: reduce) { .sr-spin { animation: none; } }
+
+.sr-helper { margin-top: var(--space-2); }
+.sr-bar .segmented { flex: 1 1 100%; }
+.sr-bar .segmented button { flex: 1; }

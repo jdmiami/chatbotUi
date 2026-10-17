@@ -166,4 +166,49 @@ test.describe('soReal', () => {
     await expectNoHorizontalOverflow(page);
     expect(errors).toEqual([]);
   });
+
+  test('helper machine: turn it on and make a movie there while the main machine stays free', async ({ page }) => {
+    await mockAi(page, 'on');
+    const api = await mockMovies(page);
+    let helper = 'off';
+    const helperCalls: string[] = [];
+    await page.route('**/api/ai/helper', async (route) => {
+      if (route.request().method() === 'POST') {
+        helperCalls.push(route.request().postDataJSON().action);
+        helper = 'on';
+      }
+      await route.fulfill({ json: { state: helper, costPerHour: helper === 'on' ? 0.59 : null, pricePerHour: 0.59, idle: { limitMinutes: 30, idleMinutes: 0 } } });
+    });
+    await page.route('**/api/ai/token', (route) =>
+      route.fulfill({
+        json: { url: new URL('/fake-ai', page.url()).href, helperUrl: helper === 'on' ? new URL('/fake-helper', page.url()).href : null, token: 'test', expiresIn: 3600 },
+      }),
+    );
+    const onHelper: string[] = [];
+    await page.route('**/fake-helper/_orbit/studio/movies/*/run', async (route) => {
+      onHelper.push(route.request().url());
+      const id = /movies\/([^/]+)\/run/.exec(route.request().url())![1];
+      const m = api.movies.get(id)!;
+      Object.assign(m, { running: true, runningOn: 'helper' });
+      m.shots[0].status = 'making';
+      await route.fulfill({ json: m });
+    });
+    const errors = await openOrbit(page);
+    const win = await openSoReal(page);
+    const bar = win.getByRole('status', { name: 'Helper machine' });
+    await expect(bar).toContainText('Turn it on to make two movies at once ($0.59/h while on)');
+    await bar.getByRole('button', { name: 'Turn on helper' }).click();
+    await expect(bar).toContainText('Helper machine: on');
+    expect(helperCalls).toEqual(['start']);
+
+    await win.getByRole('button', { name: 'New movie' }).first().click();
+    await win.getByRole('textbox', { name: 'What happens in shot 1' }).fill('Waves roll in');
+    await win.getByRole('group', { name: 'Make on' }).getByRole('button', { name: 'Helper' }).click();
+    await expectNoHorizontalOverflow(page);
+    await expectTappable(page);
+    await win.getByRole('button', { name: 'Make the movie' }).click();
+    await expect.poll(() => onHelper.length).toBe(1);
+    await expect(win.locator('.sr-bar-text')).toContainText('on the helper');
+    expect(errors).toEqual([]);
+  });
 });

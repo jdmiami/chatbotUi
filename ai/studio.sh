@@ -14,7 +14,7 @@ TORCH_INDEX=https://download.pytorch.org/whl/cu128
 STAMP="$COMFY_VERSION $TORCH"
 
 log() { echo "[studio] $*"; }
-state() { echo "$*" > "$S/state"; }
+state() { if [ "${AI_ROLE:-main}" = "helper" ]; then echo "$*" > "$S/state-helper"; else echo "$*" > "$S/state"; fi; }
 mkdir -p "$S/models" "$S/input" "$S/output" "$S/pip-cache"
 
 install() {
@@ -59,13 +59,28 @@ if ! command -v git >/dev/null || ! python3 -c 'import ensurepip' 2>/dev/null; t
   (apt-get update -qq && DEBIAN_FRONTEND=noninteractive apt-get install -y -qq git python3-venv >/dev/null) || true
 fi
 
-until install; do
+# A helper machine shares the main machine's volume: it never installs or updates anything there
+# (two machines writing the same files at once could break them); it waits for the main machine.
+installed() { [ "$(cat "$S/venv/.installed" 2>/dev/null)" = "$STAMP" ] && [ -d "$S/ComfyUI/.git" ] && [ -L "$S/ComfyUI/models" ]; }
+if [ "${AI_ROLE:-}" = "helper" ]; then
+  until installed; do
+    state "error: waiting for the main AI machine to finish setting up the maker"
+    log "maker not set up on the volume yet; the main AI machine does that. Checking again in 60s"
+    sleep 60
+  done
+fi
+
+until [ "${AI_ROLE:-}" = "helper" ] || install; do
   state "error: install failed, retrying in 60s"
   log "install failed, retrying in 60s"
   sleep 60
 done
 
 cd "$S/ComfyUI" || exit 1
+# Each machine keeps its own ComfyUI settings, database and temp files (ComfyUI empties its temp
+# folder on start, and its database must not be shared between two machines).
+ROLE_DIR="$S/machine-${AI_ROLE:-main}"
+mkdir -p "$ROLE_DIR/user" "$ROLE_DIR/temp"
 while true; do
   state starting
   log "starting ComfyUI"
@@ -73,6 +88,7 @@ while true; do
   env -u GATEWAY_SECRET -u RUNPOD_API_KEY -u STUDIO_KEY \
     "$S/venv/bin/python" main.py --listen 127.0.0.1 --port 8188 \
     --input-directory "$S/input" --output-directory "$S/output" \
+    --user-directory "$ROLE_DIR/user" --temp-directory "$ROLE_DIR/temp" \
     --disable-auto-launch --preview-method none &
   pid=$!
   for _ in $(seq 1 120); do

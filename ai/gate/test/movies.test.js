@@ -253,3 +253,53 @@ test('deleting a movie while it makes a shot stops it for good', async () => {
   assert.equal((await movies.list()).length, 0);
   assert.equal(movies.busy(), false);
 });
+
+test('two machines share the movies: the one making a movie marks it, the other leaves it alone', async () => {
+  const dir = await tmp('movies-');
+  const studio = fakeStudio();
+  studio.hold = true;
+  let clock = Date.now();
+  const now = () => clock;
+  const main = createMovies({ dir, studio, pollMs: 1, now, machine: 'main', log: { warn() {} } });
+  const helper = createMovies({ dir, studio, pollMs: 1, now, machine: 'helper', log: { warn() {} } });
+  const m = await main.create({ shots: [{ prompt: 'a' }] });
+  await helper.run(m.id);
+  await until(() => studio.reqs.length === 1);
+  const seen = await main.get(m.id);
+  assert.equal(seen.running, true);
+  assert.equal(seen.runningOn, 'helper');
+  await assert.rejects(main.update(m.id, { title: 'x' }), (e) => e.status === 409 && /helper/.test(e.message));
+  await assert.rejects(main.run(m.id), (e) => e.status === 409);
+  await assert.rejects(main.remove(m.id), (e) => e.status === 409);
+  // A mark that stopped being renewed (the helper turned off mid-shot) no longer counts.
+  clock += 60_000;
+  assert.equal((await main.get(m.id)).running, false);
+  clock -= 60_000;
+  // When the helper finishes, the mark is cleared and the main machine can change it again.
+  studio.hold = false;
+  await until(async () => !(await helper.get(m.id)).running);
+  const after = await main.get(m.id);
+  assert.equal(after.running, false);
+  assert.equal(after.runningOn, null);
+  assert.equal(after.shots[0].status, 'done');
+  assert.equal((await main.update(m.id, { title: 'x' })).title, 'x');
+});
+
+test('the main machine keeps a maker the helper is making a movie with', async () => {
+  const { createStudio: make } = await import('../src/studio.js');
+  const dir = await tmp('movies-');
+  const studio = fakeStudio();
+  studio.hold = true;
+  const helper = createMovies({ dir, studio, pollMs: 1, machine: 'helper', log: { warn() {} } });
+  const main = createMovies({ dir, studio, pollMs: 1, machine: 'main', log: { warn() {} } });
+  const m = await helper.create({ maker: 'h3-max', shots: [{ prompt: 'a' }] });
+  await helper.run(m.id);
+  await until(() => studio.reqs.length === 1);
+  assert.equal(await main.usedElsewhere('h3-max'), true);
+  assert.equal(await main.usedElsewhere('ltx'), false);
+  assert.equal(await helper.usedElsewhere('h3-max'), false);
+  const mainStudio = make({ dir, files: { image: [], video: [] }, fetchImpl: async () => Response.json({}), WebSocketImpl: null, log: { warn() {} }, inUseElsewhere: (id) => main.usedElsewhere(id) });
+  await mainStudio.installMaker('h3-max');
+  await assert.rejects(mainStudio.removeMaker('h3-max'), (e) => e.status === 409 && /helper/.test(e.message));
+  await helper.stop(m.id);
+});

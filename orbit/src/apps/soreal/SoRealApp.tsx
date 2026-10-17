@@ -6,7 +6,9 @@ import { Icon } from '../../ui/Icon';
 import { AppHeader, ConfirmSheet, EmptyState, IconButton, Segmented, Sheet } from '../../ui/components';
 import {
   getLocalAi,
+  type AiMachine,
   type AiMachineStatus,
+  type HelperStatus,
   type Movie,
   type MovieShot,
   type StudioItem,
@@ -38,7 +40,7 @@ function progressText(m: Movie) {
   const done = m.shots.filter((s) => s.status === 'done').length;
   if (m.running) {
     const at = m.shots.findIndex((s) => s.status === 'making');
-    return `Making shot ${(at < 0 ? done : at) + 1} of ${m.shots.length}…`;
+    return `Making shot ${(at < 0 ? done : at) + 1} of ${m.shots.length}${m.runningOn === 'helper' ? ' on the helper' : ''}…`;
   }
   if (m.shots.some((s) => s.status === 'error')) return 'A shot needs a look';
   if (done && done === m.shots.length) return m.render ? 'Exported' : 'All shots made';
@@ -56,6 +58,9 @@ export default function SoRealApp({ isActive, compact, placement }: AppProps) {
   const setSummary = useWorkspace((s) => s.setSummary);
   const [status, setStatus] = useState<AiMachineStatus | null>(null);
   const [powering, setPowering] = useState(false);
+  const [helper, setHelper] = useState<HelperStatus | null>(null);
+  const [helperBusy, setHelperBusy] = useState(false);
+  const [makeOn, setMakeOn] = useState<AiMachine>('main');
   const [movies, setMovies] = useState<Movie[] | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [items, setItems] = useState<StudioItem[]>([]);
@@ -106,6 +111,49 @@ export default function SoRealApp({ isActive, compact, placement }: AppProps) {
   useEffect(() => {
     if (isActive && ready) void load();
   }, [isActive, ready, load]);
+
+  // The helper machine: a second GPU that makes another movie at the same time.
+  const refreshHelper = useCallback(async () => {
+    try {
+      setHelper(await ai.helperStatus());
+    } catch {
+      /* hidden until it answers */
+    }
+  }, [ai]);
+  // Watched even while the main machine is off: the helper may still be on (and billing).
+  useEffect(() => {
+    if (!isActive) return;
+    void refreshHelper();
+    const t = setInterval(refreshHelper, helper?.state === 'starting' ? 5000 : 30000);
+    return () => clearInterval(t);
+  }, [isActive, refreshHelper, helper?.state]);
+  const helperOn = helper?.state === 'on';
+  useEffect(() => {
+    if (!helperOn) setMakeOn('main');
+  }, [helperOn]);
+  const helperPower = async (action: 'start' | 'stop') => {
+    setHelperBusy(true);
+    try {
+      setHelper(await ai.helperPower(action));
+    } catch (err) {
+      toast((err as Error).message, 'error');
+    } finally {
+      setHelperBusy(false);
+    }
+  };
+
+  // Other movies being made (on either machine) keep their progress up to date in the list.
+  const othersRunning = Boolean(movies?.some((m) => m.running && m.id !== openId));
+  useEffect(() => {
+    if (!othersRunning || !isActive) return;
+    const t = setInterval(() => {
+      ai.movies().then(
+        (list) => setMovies((prev) => list.map((m) => (m.id === openId ? (prev?.find((p) => p.id === m.id) ?? m) : m))),
+        () => {},
+      );
+    }, 8000);
+    return () => clearInterval(t);
+  }, [othersRunning, isActive, ai, openId]);
 
   // Open the first movie on wide screens.
   useEffect(() => {
@@ -226,7 +274,7 @@ export default function SoRealApp({ isActive, compact, placement }: AppProps) {
         setWatching([r.item]);
         toast('Your movie is in the gallery.', 'success');
       } else {
-        const next = what === 'run' ? await ai.runMovie(m.id) : await ai.stopMovie(m.id);
+        const next = what === 'run' ? await ai.runMovie(m.id, makeOn) : await ai.stopMovie(m.id, m.runningOn ?? 'main');
         putMovie(next);
         setDraft(next);
       }
@@ -435,6 +483,17 @@ export default function SoRealApp({ isActive, compact, placement }: AppProps) {
           {progressText(draft)}
           {!running && draft.shots.some((s) => s.status !== 'done') ? ' · each shot takes a few minutes' : ''}
         </p>
+        {!running && helperOn && (
+          <Segmented
+            label="Make on"
+            value={makeOn}
+            onChange={setMakeOn}
+            options={[
+              { value: 'main', label: 'Main machine' },
+              { value: 'helper', label: 'Helper' },
+            ]}
+          />
+        )}
         {running ? (
           <button type="button" className="btn" onClick={() => void act('stop')} disabled={busy === 'stop'}>
             <Icon name="stop" size={16} /> Stop
@@ -482,6 +541,27 @@ export default function SoRealApp({ isActive, compact, placement }: AppProps) {
         actions={ready && compact && !openId ? <IconButton icon="plus" label="New movie" onClick={() => void create()} disabled={busy === 'new'} /> : undefined}
       />
       {machineBanner}
+      {helper && helper.state !== 'unconfigured' && (ready || helper.state !== 'off') && (
+        <div className={`ai-banner sr-helper ai-banner-${helper.state}`} role="status" aria-label="Helper machine">
+          <p>
+            {helper.state === 'off' && `Helper machine: off. Turn it on to make two movies at once ($${helper.pricePerHour.toFixed(2)}/h while on).`}
+            {helper.state === 'starting' && 'Helper machine: starting… usually 2–4 minutes.'}
+            {helper.state === 'on' &&
+              `Helper machine: on${helper.costPerHour ? ` · $${helper.costPerHour.toFixed(2)}/h` : ''} · turns itself off after ${helper.idle?.limitMinutes ?? 30} minutes unused.`}
+            {helper.state === 'error' && `Helper machine: ${helper.detail ?? 'has a problem.'}`}
+          </p>
+          {(helper.state === 'off' || helper.state === 'error') && (
+            <button type="button" className="btn" onClick={() => void helperPower('start')} disabled={helperBusy}>
+              {helperBusy ? 'Turning on…' : 'Turn on helper'}
+            </button>
+          )}
+          {(helper.state === 'on' || helper.state === 'starting') && (
+            <button type="button" className="btn ghost" onClick={() => void helperPower('stop')} disabled={helperBusy}>
+              Turn off helper
+            </button>
+          )}
+        </div>
+      )}
       {loadError && ready && <p className="ai-error sr-pad">{loadError}</p>}
       <div className="sr-layout">
         {showList && <aside className={compact ? 'sr-side sr-side-full' : 'sr-side'}>{list}</aside>}

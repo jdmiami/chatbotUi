@@ -11,7 +11,9 @@
 # Models, chats and settings live on the network volume at /workspace, so they survive stops.
 #
 # Required env: GATEWAY_SECRET
-# Optional env: REPO_RAW, SITE_URL, ALLOWED_ORIGINS, IDLE_MINUTES (30), DEFAULT_MODELS, CHAT_MODEL
+# Optional env: REPO_RAW, SITE_URL, ALLOWED_ORIGINS, IDLE_MINUTES (30), DEFAULT_MODELS, CHAT_MODEL,
+#   AI_ROLE=helper: a second machine on the same volume that only makes images and videos (no Open
+#   WebUI, no Ollama, no downloads); its creations land in the same gallery.
 set -euo pipefail
 
 : "${GATEWAY_SECRET:?GATEWAY_SECRET is required}"
@@ -52,6 +54,9 @@ STUDIO_DIR="$P/studio"
 
 public_url="https://${RUNPOD_POD_ID:-localhost}-8080.proxy.runpod.net"
 
+if [ "${AI_ROLE:-main}" = "helper" ]; then
+  log "helper machine: images and videos only (no chat)"
+else
 # Open WebUI + Ollama (the image's start.sh launches both). They never see the gate's secrets.
 log "starting Open WebUI and Ollama"
 (
@@ -77,10 +82,11 @@ log "starting Open WebUI and Ollama"
     ORBIT_STUDIO_KEY="$STUDIO_KEY" \
     bash start.sh
 ) 2>&1 | sed -u 's/^/[webui] /' &
+fi
 
 # Image and video maker (ComfyUI). Installs once onto the volume, then runs on 127.0.0.1:8188.
 log "starting the image and video maker"
-(env -u GATEWAY_SECRET -u RUNPOD_API_KEY STUDIO_DIR="$STUDIO_DIR" PERSIST_DIR="$P" bash /opt/gate/studio.sh) 2>&1 | sed -u 's/^/[studio] /' &
+(env -u GATEWAY_SECRET -u RUNPOD_API_KEY AI_ROLE="${AI_ROLE:-main}" STUDIO_DIR="$STUDIO_DIR" PERSIST_DIR="$P" bash /opt/gate/studio.sh) 2>&1 | sed -u 's/^/[studio] /' &
 
 log "starting the gate on :8080"
 cd /opt/gate
@@ -88,7 +94,7 @@ while true; do
   env PORT=8080 OLLAMA_URL=http://127.0.0.1:11434 WEBUI_URL=http://127.0.0.1:8081 \
     SITE_URL="${SITE_URL:-}" ALLOWED_ORIGINS="${ALLOWED_ORIGINS:-}" IDLE_MINUTES="${IDLE_MINUTES:-30}" \
     DEFAULT_MODELS="$DEFAULT_MODELS" AI_USER_EMAIL="${AI_USER_EMAIL:-owner@orbit.local}" \
-    STUDIO_DIR="$STUDIO_DIR" STUDIO_KEY="$STUDIO_KEY" \
+    STUDIO_DIR="$STUDIO_DIR" STUDIO_KEY="$STUDIO_KEY" AI_ROLE="${AI_ROLE:-main}" \
     "$NODE_DIR/bin/node" src/index.js || true
   log "gate exited, restarting in 2s"
   sleep 2

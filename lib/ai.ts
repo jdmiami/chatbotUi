@@ -121,6 +121,14 @@ function siteUrl() {
   return prod ? `https://${prod}` : '';
 }
 
+/** The newest live pod with this name, or null. */
+async function findPodNamed(name: string): Promise<Pod | null> {
+  const body = (await runpod('/pods')) as { pods?: Pod[] } | Pod[];
+  const pods = (Array.isArray(body) ? body : (body.pods ?? [])).filter((p) => p.name === name && p.status !== 'TERMINATED');
+  pods.sort((a, b) => String(b.createdAt ?? '').localeCompare(String(a.createdAt ?? '')));
+  return pods[0] ?? null;
+}
+
 /** The newest live pod with the AI machine's name, or null. */
 export async function findAiPod(): Promise<Pod | null> {
   const fixed = process.env.AI_POD_ID;
@@ -128,13 +136,17 @@ export async function findAiPod(): Promise<Pod | null> {
     // No Runpod key: we can't see or change its power state, only whether it answers.
     return { id: fixed, name: env().name, status: (await gateUp(fixed)) ? 'RUNNING' : 'EXITED' };
   }
-  const body = (await runpod('/pods')) as { pods?: Pod[] } | Pod[];
-  const pods = (Array.isArray(body) ? body : (body.pods ?? [])).filter((p) => p.name === env().name && p.status !== 'TERMINATED');
-  pods.sort((a, b) => String(b.createdAt ?? '').localeCompare(String(a.createdAt ?? '')));
-  return pods[0] ?? null;
+  return findPodNamed(env().name);
 }
 
-async function createAiPod(tier: AiTier): Promise<Pod> {
+/**
+ * The helper: an optional second AI machine on the same volume that only makes images and videos
+ * (soReal can make two movies at once). Same GPU and price as Standard; it turns itself off when idle.
+ */
+const helperName = () => `${env().name}-helper`;
+export const findHelperPod = () => findPodNamed(helperName());
+
+async function createAiPod(tier: AiTier, role: 'main' | 'helper' = 'main'): Promise<Pod> {
   const e = env();
   const origins = process.env.LINUX_ALLOWED_ORIGINS || [siteUrl(), 'https://chatbot-ui-62nj-*-jdmiamis-projects.vercel.app'].filter(Boolean).join(',');
   let lastError: Error | null = null;
@@ -143,7 +155,7 @@ async function createAiPod(tier: AiTier): Promise<Pod> {
       return (await runpod('/pods', {
         method: 'POST',
         body: JSON.stringify({
-          name: e.name,
+          name: role === 'helper' ? helperName() : e.name,
           cloud: 'SECURE',
           // 12.8+: the image/video maker uses a CUDA 12.8 build of PyTorch.
           gpu: { id: gpu, count: 1, minCudaVersion: '12.8' },
@@ -161,6 +173,7 @@ async function createAiPod(tier: AiTier): Promise<Pod> {
             ALLOWED_ORIGINS: origins,
             IDLE_MINUTES: String(tier.idleMinutes),
             DEFAULT_MODELS: e.models,
+            ...(role === 'helper' ? { AI_ROLE: 'helper' } : {}),
           },
         }),
       })) as Pod;
@@ -180,9 +193,9 @@ const noGpu = (tier: AiTier, others: AiTier[]) =>
   (others.length ? `Try ${others.map((t) => t.label).join(' or ')}, or try again in a few minutes.` : 'This usually clears within the hour; try again in a few minutes.');
 
 /** Create a pod for `tier`, with a clear message when that GPU is sold out. */
-async function createOrExplain(tier: AiTier) {
+async function createOrExplain(tier: AiTier, role: 'main' | 'helper' = 'main') {
   try {
-    return await createAiPod(tier);
+    return await createAiPod(tier, role);
   } catch (err) {
     if (noCapacity((err as Error).message)) throw new Error(noGpu(tier, aiTiers().filter((t) => t.id !== tier.id)));
     throw err;
@@ -250,6 +263,81 @@ export async function stopAi(): Promise<void> {
   const pod = await findAiPod();
   if (pod && pod.status !== 'EXITED') {
     await runpod(`/pods/${encodeURIComponent(pod.id)}/action`, { method: 'POST', body: JSON.stringify({ action: 'stop' }) });
+  }
+}
+
+/** Turn the helper on (Standard GPU). Creates it the first time; replaces it when its host has no free GPU. */
+export async function startHelper(): Promise<void> {
+  if (!process.env.RUNPOD_API_KEY) throw new Error('Add RUNPOD_API_KEY in Vercel so the site can turn the helper on.');
+  const tier = aiTiers()[0];
+  const pod = await findHelperPod();
+  if (!pod) {
+    await createOrExplain(tier, 'helper');
+    return;
+  }
+  if (pod.status === 'RUNNING' || pod.status === 'STARTING' || pod.status === 'PROVISIONING') return;
+  const want: Record<string, string> = { AI_ROLE: 'helper', IDLE_MINUTES: String(tier.idleMinutes) };
+  if (process.env.VERCEL_GIT_COMMIT_SHA) want.REPO_RAW = repoRaw();
+  if (pod.env && Object.entries(want).some(([k, v]) => pod.env![k] !== v)) {
+    await runpod(`/pods/${encodeURIComponent(pod.id)}`, { method: 'PATCH', body: JSON.stringify({ env: { ...pod.env, ...want } }) }).catch(() => {});
+  }
+  try {
+    await runpod(`/pods/${encodeURIComponent(pod.id)}/action`, { method: 'POST', body: JSON.stringify({ action: 'start' }) });
+  } catch (err) {
+    if (!noCapacity((err as Error).message) && pod.status !== 'ERROR') throw err;
+    await createOrExplain(tier, 'helper');
+    await runpod(`/pods/${encodeURIComponent(pod.id)}`, { method: 'DELETE' }).catch(() => {});
+  }
+}
+
+export async function stopHelper(): Promise<void> {
+  if (!process.env.RUNPOD_API_KEY) throw new Error('Add RUNPOD_API_KEY in Vercel so the site can turn the helper off.');
+  const pod = await findHelperPod();
+  if (pod && pod.status !== 'EXITED') {
+    await runpod(`/pods/${encodeURIComponent(pod.id)}/action`, { method: 'POST', body: JSON.stringify({ action: 'stop' }) });
+  }
+}
+
+export interface HelperStatus {
+  state: 'unconfigured' | 'off' | 'starting' | 'on' | 'error';
+  costPerHour: number | null;
+  /** What it costs per hour while on (shown before turning it on). */
+  pricePerHour: number;
+  detail?: string;
+  idle?: { limitMinutes: number; idleMinutes: number } | null;
+}
+
+export async function helperStatus(user: string): Promise<HelperStatus & { podId?: string }> {
+  const pricePerHour = aiTiers()[0].pricePerHour;
+  if (!aiConfigured() || !process.env.RUNPOD_API_KEY) return { state: 'unconfigured', costPerHour: null, pricePerHour };
+  let pod: Pod | null;
+  try {
+    pod = await findHelperPod();
+  } catch (err) {
+    return { state: 'error', costPerHour: null, pricePerHour, detail: (err as Error).message };
+  }
+  if (!pod || pod.status === 'EXITED') return { state: 'off', costPerHour: null, pricePerHour, podId: pod?.id };
+  const cost = typeof pod.cost === 'number' && pod.cost > 0 ? pod.cost : null;
+  if (pod.status !== 'RUNNING') {
+    const state = pod.status === 'PROVISIONING' || pod.status === 'STARTING' ? 'starting' : 'error';
+    return { state, costPerHour: cost, pricePerHour, podId: pod.id, detail: state === 'error' ? `Runpod reports status ${pod.status ?? 'unknown'}.` : undefined };
+  }
+  try {
+    const res = await fetch(`${aiBase(pod.id)}/_orbit/status`, {
+      headers: { authorization: `Bearer ${await aiToken(user, 'orbit-ai')}` },
+      cache: 'no-store',
+      signal: AbortSignal.timeout(5000),
+    });
+    const g = res.ok ? ((await res.json()) as GateStatus) : null;
+    return {
+      state: g?.ready ? 'on' : 'starting',
+      costPerHour: cost,
+      pricePerHour,
+      podId: pod.id,
+      idle: g?.idle ? { limitMinutes: g.idle.limitMinutes, idleMinutes: g.idle.idleMinutes } : null,
+    };
+  } catch {
+    return { state: 'starting', costPerHour: cost, pricePerHour, podId: pod.id };
   }
 }
 
