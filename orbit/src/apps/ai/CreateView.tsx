@@ -54,6 +54,20 @@ async function toDataUrl(src: Blob, max = 1920): Promise<string> {
   }
 }
 
+/** Orbit 0.5: one step of the maker's walk-through (in the classic look it adds nothing). */
+function Step({ on, n, id, title, children }: { on: boolean; n: string; id: string; title: string; children: React.ReactNode }) {
+  if (!on) return <>{children}</>;
+  return (
+    <section className="o5-step" id={id} aria-labelledby={`${id}-t`}>
+      <p className="o5-kicker">{n}</p>
+      <h3 className="o5-step-title" id={`${id}-t`}>
+        {title}
+      </h3>
+      {children}
+    </section>
+  );
+}
+
 const withParam = (url: string, param: string) => url + (url.includes('?') ? '&' : '?') + param;
 const active = (j: StudioJob) => j.status === 'queued' || j.status === 'running';
 
@@ -63,6 +77,12 @@ const active = (j: StudioJob) => j.status === 'queued' || j.status === 'running'
  */
 export function CreateView({ ai, machineOn, isActive }: { ai: LocalAi; machineOn: boolean; isActive: boolean }) {
   const toast = useShell((s) => s.toast);
+  const o5 = useShell((s) => s.settings.skin === 'o5');
+  // The next step glides into view once this one is answered.
+  const next = (id: string) => {
+    if (!o5) return;
+    requestAnimationFrame(() => document.getElementById(id)?.scrollIntoView({ behavior: 'smooth', block: 'start' }));
+  };
   const [kind, setKind] = useState<Mode>('image');
   const [prompt, setPrompt] = useState('');
   const [size, setSize] = useState<Record<StudioKind, string>>({ image: 'square', video: 'landscape' });
@@ -176,10 +196,15 @@ export function CreateView({ ai, machineOn, isActive }: { ai: LocalAi; machineOn
             }
           : {}),
       });
-      if (job.status === 'error') toast(job.error || 'That did not start.', 'error');
-      else setJobs((prev) => [...prev, job]);
+      if (job.status === 'error') {
+        toast(job.error || 'That did not start.', 'error');
+        return false;
+      }
+      setJobs((prev) => [...prev, job]);
+      return true;
     } catch (err) {
       toast((err as Error).message, 'error');
+      return false;
     } finally {
       setSubmitting(false);
     }
@@ -254,22 +279,58 @@ export function CreateView({ ai, machineOn, isActive }: { ai: LocalAi; machineOn
         className="ai-create-form"
         onSubmit={(e) => {
           e.preventDefault();
-          void make();
+          void make().then((started) => {
+            // Only once something is actually being made; a failed start leaves you on the form.
+            if (started) setTimeout(() => next('o5-making'), 120);
+          });
         }}
       >
-        <Segmented
-          label="What to make"
-          value={kind}
-          onChange={setKind}
-          options={[
-            { value: 'image', label: 'Image' },
-            { value: 'video', label: 'Video' },
-            { value: 'edit', label: 'Edit' },
-          ]}
-        />
+        <Step on={o5} n="01" id="o5-make-what" title="What will it be?">
+          {o5 ? (
+            <div className="o5-choices" role="radiogroup" aria-label="What to make">
+              {(
+                [
+                  ['image', 'A picture', 'From a description'],
+                  ['video', 'A video', 'With sound, from words or a photo'],
+                  ['edit', 'An edit', 'Change a photo with words'],
+                ] as const
+              ).map(([v, label, hint]) => (
+                <button
+                  key={v}
+                  type="button"
+                  role="radio"
+                  aria-checked={kind === v}
+                  className="o5-choice"
+                  onClick={() => {
+                    setKind(v);
+                    next('o5-make-who');
+                  }}
+                >
+                  <span className="o5-go-label">{label}</span>
+                  <span className="o5-go-hint">{hint}</span>
+                </button>
+              ))}
+            </div>
+          ) : (
+            <Segmented
+              label="What to make"
+              value={kind}
+              onChange={setKind}
+              options={[
+                { value: 'image', label: 'Image' },
+                { value: 'video', label: 'Video' },
+                { value: 'edit', label: 'Edit' },
+              ]}
+            />
+          )}
+        </Step>
+        <Step on={o5} n="02" id="o5-make-who" title="Who makes it">
         <div className="ai-maker-picks" role="radiogroup" aria-label="Maker">
           {(choices.length ? choices : chosen ? [chosen] : []).map((m) => (
-            <button key={m.id} type="button" role="radio" aria-checked={m.id === chosenId} className="ai-maker-chip" onClick={() => setPick(kind, m.id)}>
+            <button key={m.id} type="button" role="radio" aria-checked={m.id === chosenId} className="ai-maker-chip" onClick={() => {
+              setPick(kind, m.id);
+              next('o5-make-describe');
+            }}>
               {m.name}
               {!m.installed && <span className="ai-muted"> {m.percent}%</span>}
             </button>
@@ -290,6 +351,8 @@ export function CreateView({ ai, machineOn, isActive }: { ai: LocalAi; machineOn
             ))}
           </div>
         )}
+        </Step>
+        <Step on={o5} n="03" id="o5-make-describe" title={kind === 'edit' ? 'Show it, then say the change' : 'Describe it'}>
         {kind === 'edit' && (
           <div className="ai-edit-photos">
             {editImages.map((p, i) => (
@@ -345,6 +408,9 @@ export function CreateView({ ai, machineOn, isActive }: { ai: LocalAi; machineOn
             ))}
           </div>
         )}
+        </Step>
+        {(kind !== 'edit' || !o5) && (
+        <Step on={o5} n="04" id="o5-make-shape" title={kind === 'video' ? 'Shape, length and start' : 'Shape'}>
         {kind !== 'edit' && (
           <div className="ai-create-options">
             <Segmented label="Shape" value={size[kind]} onChange={(v) => setSize((s) => ({ ...s, [kind]: v }))} options={SIZES[kind]} />
@@ -383,14 +449,23 @@ export function CreateView({ ai, machineOn, isActive }: { ai: LocalAi; machineOn
             />
           </div>
         )}
+        </Step>
+        )}
+        <Step on={o5} n={kind === 'edit' ? '04' : '05'} id="o5-make-go" title="Make it">
         <button type="submit" className="btn primary ai-make" disabled={!canMake}>
           <Icon name={kind === 'video' ? 'film' : kind === 'edit' ? 'pencil' : 'image'} size={18} /> {submitting ? 'Starting…' : verb}
         </button>
         <p className="ai-muted" role="status">
           {status}
         </p>
+        </Step>
       </form>
 
+      {o5 && jobs.length > 0 && (
+        <h3 className="o5-chapter-title" id="o5-making">
+          In the making
+        </h3>
+      )}
       {jobs.length > 0 && (
         <ul className="ai-jobs" aria-label="In progress">
           {jobs.map((j) => (
@@ -422,6 +497,12 @@ export function CreateView({ ai, machineOn, isActive }: { ai: LocalAi; machineOn
         </ul>
       )}
 
+      {o5 && items.length > 0 && (
+        <header className="o5-gallery-head">
+          <p className="o5-kicker">The gallery</p>
+          <h3 className="o5-chapter-title">Your creations</h3>
+        </header>
+      )}
       {items.length === 0 ? (
         <EmptyState icon="image" title="Your creations">
           Pictures and videos you make are kept on your AI machine and show up here on all your devices.
