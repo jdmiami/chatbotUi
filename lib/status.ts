@@ -103,6 +103,20 @@ function live(p: RunpodPod | null): MachineCard['live'] {
   return { cpu: r.cpu?.util ?? null, memory: r.memory?.util ?? null, gpu: g?.util ?? null, gpuMemory: g?.memoryUtil ?? null };
 }
 
+type Myself = { data?: { myself?: { clientBalance?: number; currentSpendPerHr?: number; spendLimit?: number } } };
+
+/** Balance and spend per hour (GraphQL). Bearer header first; older keys only work as ?api_key=. */
+async function myself(key: string): Promise<Myself | null> {
+  const query = JSON.stringify({ query: 'query { myself { clientBalance currentSpendPerHr spendLimit } }' });
+  const ask = (url: string, headers: Record<string, string>) =>
+    fetch(url, { method: 'POST', headers: { 'content-type': 'application/json', ...headers }, body: query, cache: 'no-store', signal: AbortSignal.timeout(8000) })
+      .then((r) => (r.ok ? (r.json() as Promise<Myself>) : null))
+      .catch(() => null);
+  const first = await ask('https://api.runpod.io/graphql', { authorization: `Bearer ${key}` });
+  if (first?.data?.myself) return first;
+  return ask(`https://api.runpod.io/graphql?api_key=${encodeURIComponent(key)}`, {});
+}
+
 // Money changes slowly and costs two Runpod calls: keep it for 30 seconds per server instance.
 let moneyCache: { at: number; value: Money } | null = null;
 
@@ -111,15 +125,7 @@ export async function money(): Promise<Money | null> {
   if (!key) return null;
   if (moneyCache && Date.now() - moneyCache.at < 30_000) return moneyCache.value;
   const [me, bill] = await Promise.all([
-    fetch('https://api.runpod.io/graphql', {
-      method: 'POST',
-      headers: { authorization: `Bearer ${key}`, 'content-type': 'application/json' },
-      body: JSON.stringify({ query: 'query { myself { clientBalance currentSpendPerHr spendLimit } }' }),
-      cache: 'no-store',
-      signal: AbortSignal.timeout(8000),
-    })
-      .then((r) => (r.ok ? r.json() : null))
-      .catch(() => null) as Promise<{ data?: { myself?: { clientBalance?: number; currentSpendPerHr?: number; spendLimit?: number } } } | null>,
+    myself(key),
     runpod('/billing?bucketSize=day&lastN=1').catch(() => null) as Promise<{ records?: { totalAmount?: number }[]; metadata?: { totals?: { totalAmount?: number } } } | null>,
   ]);
   const m = me?.data?.myself;
