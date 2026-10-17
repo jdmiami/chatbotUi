@@ -303,8 +303,13 @@ export function createMovies(o) {
     return { movie: view(m), item };
   }
 
+  /** True while the other machine is making a movie with this maker (its files must stay). */
+  async function usedElsewhere(makerId) {
+    return (await list()).some((m) => m.running && m.runningOn !== machine && m.maker === makerId);
+  }
+
   /** True while a movie is making shots (keeps the machine from turning off between shots). */
   const busy = () => running.size > 0;
 
-  return { list, create, get, update, remove, run, stop, render, busy };
+  return { list, create, get, update, remove, run, stop, render, busy, usedElsewhere };
 }

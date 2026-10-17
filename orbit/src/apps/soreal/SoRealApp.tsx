@@ -120,12 +120,13 @@ export default function SoRealApp({ isActive, compact, placement }: AppProps) {
       /* hidden until it answers */
     }
   }, [ai]);
+  // Watched even while the main machine is off: the helper may still be on (and billing).
   useEffect(() => {
-    if (!isActive || !ready) return;
+    if (!isActive) return;
     void refreshHelper();
     const t = setInterval(refreshHelper, helper?.state === 'starting' ? 5000 : 30000);
     return () => clearInterval(t);
-  }, [isActive, ready, refreshHelper, helper?.state]);
+  }, [isActive, refreshHelper, helper?.state]);
   const helperOn = helper?.state === 'on';
   useEffect(() => {
     if (!helperOn) setMakeOn('main');
@@ -540,7 +541,7 @@ export default function SoRealApp({ isActive, compact, placement }: AppProps) {
         actions={ready && compact && !openId ? <IconButton icon="plus" label="New movie" onClick={() => void create()} disabled={busy === 'new'} /> : undefined}
       />
       {machineBanner}
-      {ready && helper && helper.state !== 'unconfigured' && (
+      {helper && helper.state !== 'unconfigured' && (ready || helper.state !== 'off') && (
         <div className={`ai-banner sr-helper ai-banner-${helper.state}`} role="status" aria-label="Helper machine">
           <p>
             {helper.state === 'off' && `Helper machine: off. Turn it on to make two movies at once ($${helper.pricePerHour.toFixed(2)}/h while on).`}

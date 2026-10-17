@@ -266,6 +266,8 @@ export function createStudio(o) {
     if (!m) throw Object.assign(new Error('No such maker.'), { status: 404 });
     if (m.builtIn) throw Object.assign(new Error('This maker comes with the machine and stays.'), { status: 400 });
     if (active().some((j) => j.maker === id)) throw Object.assign(new Error('It is making something right now. Try again when that is done.'), { status: 409 });
+    // Both machines use the same model files: keep them while the helper is making a movie with it.
+    if (await o.inUseElsewhere?.(id)) throw Object.assign(new Error('Your helper machine is making a movie with it. Try again when that is done.'), { status: 409 });
     wanted.delete(id);
     // Styles go with their maker.
     for (const s of MAKERS) if (s.for === id) wanted.delete(s.id);

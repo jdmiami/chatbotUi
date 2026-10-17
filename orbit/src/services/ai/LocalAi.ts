@@ -228,7 +228,8 @@ export class AiError extends Error {
 }
 
 interface Grant {
-  url: string;
+  /** The main machine; null while only the helper is on. */
+  url: string | null;
   /** The helper machine (images and videos only), when it is on. */
   helper: string | null;
   token: string;
@@ -318,7 +319,8 @@ export class LocalAi {
       method: 'POST',
       body: '{}',
     });
-    this.grant = r.url && r.token ? { url: r.url, helper: r.helperUrl ?? null, token: r.token, expires: Date.now() + r.expiresIn * 1000 } : null;
+    // Keep the grant when only the helper is on, so a movie it is making can still be stopped.
+    this.grant = (r.url || r.helperUrl) && r.token ? { url: r.url, helper: r.helperUrl ?? null, token: r.token, expires: Date.now() + r.expiresIn * 1000 } : null;
     return this.grant;
   }
 
@@ -326,8 +328,8 @@ export class LocalAi {
     let g = await this.access();
     // The helper may have come on since the last token: ask again once.
     if (g && machine === 'helper' && !g.helper) g = await this.access(true);
-    if (!g) throw new AiError('Your AI machine is not on yet.', 503);
-    if (machine === 'helper' && !g.helper) throw new AiError('Your helper machine is not on yet.', 503);
+    if (machine === 'helper' && !g?.helper) throw new AiError('Your helper machine is not on yet.', 503);
+    if (!g || (machine === 'main' && !g.url)) throw new AiError('Your AI machine is not on yet.', 503);
     const res = await fetch(`${machine === 'helper' ? g.helper : g.url}${path}`, {
       ...init,
       headers: { ...(init.headers ?? {}), authorization: `Bearer ${g.token}` },
@@ -410,7 +412,7 @@ export class LocalAi {
 
   private absolute<T extends { url?: string } | null>(item: T): T {
     if (!item || !this.grant || !item.url || /^https?:/.test(item.url)) return item;
-    return { ...item, url: this.grant.url + item.url };
+    return { ...item, url: (this.grant.url ?? this.grant.helper ?? '') + item.url };
   }
   private absoluteJob(job: StudioJob): StudioJob {
     return { ...job, item: this.absolute(job.item) };

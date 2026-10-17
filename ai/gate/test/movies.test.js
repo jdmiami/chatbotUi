@@ -284,3 +284,22 @@ test('two machines share the movies: the one making a movie marks it, the other 
   assert.equal(after.shots[0].status, 'done');
   assert.equal((await main.update(m.id, { title: 'x' })).title, 'x');
 });
+
+test('the main machine keeps a maker the helper is making a movie with', async () => {
+  const { createStudio: make } = await import('../src/studio.js');
+  const dir = await tmp('movies-');
+  const studio = fakeStudio();
+  studio.hold = true;
+  const helper = createMovies({ dir, studio, pollMs: 1, machine: 'helper', log: { warn() {} } });
+  const main = createMovies({ dir, studio, pollMs: 1, machine: 'main', log: { warn() {} } });
+  const m = await helper.create({ maker: 'h3-max', shots: [{ prompt: 'a' }] });
+  await helper.run(m.id);
+  await until(() => studio.reqs.length === 1);
+  assert.equal(await main.usedElsewhere('h3-max'), true);
+  assert.equal(await main.usedElsewhere('ltx'), false);
+  assert.equal(await helper.usedElsewhere('h3-max'), false);
+  const mainStudio = make({ dir, files: { image: [], video: [] }, fetchImpl: async () => Response.json({}), WebSocketImpl: null, log: { warn() {} }, inUseElsewhere: (id) => main.usedElsewhere(id) });
+  await mainStudio.installMaker('h3-max');
+  await assert.rejects(mainStudio.removeMaker('h3-max'), (e) => e.status === 409 && /helper/.test(e.message));
+  await helper.stop(m.id);
+});

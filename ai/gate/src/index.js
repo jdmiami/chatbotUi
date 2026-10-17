@@ -32,7 +32,7 @@ const models = createModelKeeper({
 
 // Image and video maker (ComfyUI, started by ai/studio.sh). Off when STUDIO_DIR isn't set.
 const studio = env.STUDIO_DIR
-  ? createStudio({ dir: env.STUDIO_DIR, comfy: env.COMFY_URL || 'http://127.0.0.1:8188', ollama: OLLAMA, helper: HELPER })
+  ? createStudio({ dir: env.STUDIO_DIR, comfy: env.COMFY_URL || 'http://127.0.0.1:8188', ollama: OLLAMA, helper: HELPER, inUseElsewhere: (id) => movies?.usedElsewhere(id) })
   : null;
 // soReal movies (chained video shots), kept with the studio's files.
 const movies = studio ? createMovies({ dir: env.STUDIO_DIR, studio, machine: HELPER ? 'helper' : 'main' }) : null;
