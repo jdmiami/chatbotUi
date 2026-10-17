@@ -345,3 +345,24 @@
 .ai-voice-reply { margin: 0; font-size: var(--fs-md, 17px); line-height: 1.5; }
 .ai-voice-bar { display: flex; gap: 10px; }
 .ai-voice-bar .btn { min-height: var(--tap, 44px); padding: 0 18px; }
+
+/* ---- Create: makers, styles, editing */
+.ai-maker-picks { display: flex; gap: 6px; overflow-x: auto; padding-bottom: 2px; scrollbar-width: none; }
+.ai-maker-picks::-webkit-scrollbar { display: none; }
+.ai-maker-chip { flex: none; display: inline-flex; align-items: center; gap: 4px; min-height: var(--tap, 44px); padding: 0 14px; border-radius: 999px; border: 1px solid var(--border); background: var(--surface); color: var(--text); font: inherit; font-size: var(--fs-sm); cursor: pointer; }
+.ai-maker-chip[aria-checked='true'] { background: var(--accent); border-color: var(--accent); color: #fff; }
+.ai-maker-more { color: var(--accent); border-style: dashed; }
+.ai-edit-photos { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+.ai-edit-photo { position: relative; }
+.ai-edit-photo img { width: 96px; height: 96px; object-fit: cover; border-radius: var(--radius-md); box-shadow: var(--depth-1); display: block; }
+.ai-edit-photo .icon-btn { position: absolute; top: -10px; right: -10px; }
+.ai-makers { display: grid; gap: 18px; }
+.ai-makers h3 { margin: 0 0 8px; font-size: var(--fs-md, 16px); }
+.ai-makers ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+.ai-maker-row { display: flex; align-items: center; gap: 12px; padding: 12px; border-radius: var(--radius-md); border: 1px solid var(--border); background: var(--surface); }
+.ai-maker-row[data-installed='true'] { border-color: color-mix(in srgb, var(--accent) 45%, var(--border)); }
+.ai-maker-text { flex: 1; min-width: 0; display: grid; gap: 4px; }
+.ai-maker-name { font-weight: 600; display: inline-flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.ai-maker-tag { font-size: 11px; font-weight: 600; padding: 2px 8px; border-radius: 999px; background: color-mix(in srgb, var(--accent) 20%, transparent); color: var(--accent); }
+.ai-maker-ok { display: inline-flex; align-items: center; gap: 4px; font-size: var(--fs-sm); color: var(--text-muted, var(--text)); white-space: nowrap; }
+.ai-maker-row .btn { flex: none; min-height: var(--tap, 44px); }

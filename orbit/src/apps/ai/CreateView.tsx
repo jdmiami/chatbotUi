@@ -2,7 +2,20 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { useShell } from '../../state/shell';
 import { Icon } from '../../ui/Icon';
 import { ConfirmSheet, EmptyState, IconButton, Segmented, Sheet } from '../../ui/components';
-import { AiError, type LocalAi, type StudioItem, type StudioJob, type StudioKind, type StudioState } from '../../services/ai/LocalAi';
+import { AiError, type LocalAi, type StudioItem, type StudioJob, type StudioKind, type StudioMakerInfo, type StudioState } from '../../services/ai/LocalAi';
+import { MakersSheet } from './Makers';
+
+type Mode = StudioKind | 'edit';
+const DEFAULT_PICK: Record<Mode, string> = { image: 'qwen', video: 'ltx', edit: 'edit' };
+const ANGLES = ['front-right quarter view, eye-level shot', 'right side view, eye-level shot', 'back view, eye-level shot', 'left side view, eye-level shot', 'front view, high-angle shot', 'front view, eye-level shot close-up'];
+
+function loadPick(): Record<Mode, string> {
+  try {
+    return { ...DEFAULT_PICK, ...JSON.parse(localStorage.getItem('orbit:studio:pick') || '{}') };
+  } catch {
+    return { ...DEFAULT_PICK };
+  }
+}
 
 const SIZES: Record<StudioKind, { value: string; label: string }[]> = {
   image: [
@@ -50,15 +63,22 @@ const active = (j: StudioJob) => j.status === 'queued' || j.status === 'running'
  */
 export function CreateView({ ai, machineOn, isActive }: { ai: LocalAi; machineOn: boolean; isActive: boolean }) {
   const toast = useShell((s) => s.toast);
-  const [kind, setKind] = useState<StudioKind>('image');
+  const [kind, setKind] = useState<Mode>('image');
   const [prompt, setPrompt] = useState('');
   const [size, setSize] = useState<Record<StudioKind, string>>({ image: 'square', video: 'landscape' });
   const [seconds, setSeconds] = useState('5');
   const [startImage, setStartImage] = useState<string | null>(null);
   /** When the starting picture comes from the gallery: its id (the machine already has the file). */
   const [startItem, setStartItem] = useState<string | null>(null);
+  /** Pictures to edit: up to two (outfit swap: the person, then the outfit). */
+  const [editImages, setEditImages] = useState<{ src: string; item?: string }[]>([]);
   const [studio, setStudio] = useState<StudioState | null>(null);
   const [studioError, setStudioError] = useState<string | null>(null);
+  const [makers, setMakers] = useState<StudioMakerInfo[] | null>(null);
+  const [makersOpen, setMakersOpen] = useState(false);
+  const [makerBusy, setMakerBusy] = useState<string | null>(null);
+  const [pick, setPickState] = useState<Record<Mode, string>>(loadPick);
+  const [style, setStyle] = useState<string>('');
   const [jobs, setJobs] = useState<StudioJob[]>([]);
   const [items, setItems] = useState<StudioItem[]>([]);
   const [submitting, setSubmitting] = useState(false);
@@ -67,6 +87,18 @@ export function CreateView({ ai, machineOn, isActive }: { ai: LocalAi; machineOn
   const viewFrom = useRef<DOMRect | null>(null);
   const [confirmDelete, setConfirmDelete] = useState<StudioItem | null>(null);
   const fileInput = useRef<HTMLInputElement>(null);
+  const editInput = useRef<HTMLInputElement>(null);
+
+  const setPick = (mode: Mode, id: string) =>
+    setPickState((prev) => {
+      const next = { ...prev, [mode]: id };
+      try {
+        localStorage.setItem('orbit:studio:pick', JSON.stringify(next));
+      } catch {
+        /* private mode */
+      }
+      return next;
+    });
 
   const loadItems = useCallback(() => {
     ai.studioItems()
@@ -84,6 +116,7 @@ export function CreateView({ ai, machineOn, isActive }: { ai: LocalAi; machineOn
         for (const j of s.jobs) known.set(j.id, j);
         return [...known.values()].filter((j) => active(j) || j.status === 'error').slice(-6);
       });
+      ai.studioMakers().then(setMakers, () => {});
     } catch (err) {
       setStudioError(err instanceof AiError && err.status === 404 ? 'The image and video maker is not installed on your AI machine yet.' : (err as Error).message);
     }
@@ -110,19 +143,37 @@ export function CreateView({ ai, machineOn, isActive }: { ai: LocalAi; machineOn
     return () => clearInterval(t);
   }, [running.map((j) => j.id).join(','), ai, loadItems]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const maker = studio?.[kind];
-  const canMake = machineOn && Boolean(maker?.ready) && Boolean(prompt.trim()) && !submitting;
+  // Makers for this mode: the installed ones, plus the one picked (even while it downloads).
+  const kindsFor = (m: Mode): StudioMakerInfo['kind'][] => (m === 'edit' ? ['edit', 'upscale'] : [m]);
+  const choices = (makers ?? []).filter((m) => kindsFor(kind).includes(m.kind) && (m.installed || m.wanted));
+  const chosen = (makers ?? []).find((m) => m.id === pick[kind]) ?? (makers ?? []).find((m) => m.id === DEFAULT_PICK[kind]) ?? null;
+  const chosenId = chosen?.id ?? DEFAULT_PICK[kind];
+  const styles = (makers ?? []).filter((m) => m.kind === 'style' && m.for === chosenId && m.installed);
+  const sharpen = chosen?.kind === 'upscale';
+  const needImages = kind === 'edit' ? (chosen?.twoImages ? 2 : 1) : 0;
+  const builtInMaker = studio?.[kind === 'video' ? 'video' : 'image'];
+  const makerReady = machineOn && Boolean(studio?.running) && (chosen ? chosen.installed : Boolean(builtInMaker?.ready));
+  const canMake = makerReady && (sharpen || Boolean(prompt.trim())) && editImages.length >= needImages && !submitting;
 
   const make = async () => {
     if (!canMake) return;
     setSubmitting(true);
     try {
+      const fromGallery = kind === 'edit' ? editImages.find((p, i) => i === 0 && p.item)?.item : undefined;
       const job = await ai.createStudioJob({
-        kind,
+        kind: kind === 'video' ? 'video' : 'image',
+        maker: chosenId,
         prompt: prompt.trim(),
-        size: size[kind],
+        ...(kind !== 'edit' ? { size: size[kind] } : {}),
+        ...(style && styles.some((s) => s.id === style) ? { style } : {}),
         ...(kind === 'video'
           ? { seconds: Number(seconds), ...(startItem ? { fromItem: startItem } : { image: startImage ?? undefined }) }
+          : {}),
+        ...(kind === 'edit'
+          ? {
+              ...(fromGallery ? { fromItem: fromGallery } : {}),
+              images: editImages.filter((p, i) => !(i === 0 && p.item)).map((p) => p.src).slice(0, needImages),
+            }
           : {}),
       });
       if (job.status === 'error') toast(job.error || 'That did not start.', 'error');
@@ -145,6 +196,16 @@ export function CreateView({ ai, machineOn, isActive }: { ai: LocalAi; machineOn
     }
   };
 
+  const addEditPhoto = async (file: File | undefined) => {
+    if (!file) return;
+    try {
+      const src = await toDataUrl(file);
+      setEditImages((prev) => [...prev, { src }].slice(-2));
+    } catch {
+      toast('That picture could not be read.', 'error');
+    }
+  };
+
   const animate = (item: StudioItem) => {
     setStartImage(item.url);
     setStartItem(item.id);
@@ -154,14 +215,38 @@ export function CreateView({ ai, machineOn, isActive }: { ai: LocalAi; machineOn
     toast('Describe how it should move, then tap Make video.', 'info');
   };
 
+  const editItem = (item: StudioItem, maker = 'edit') => {
+    setKind('edit');
+    setPick('edit', maker);
+    setEditImages([{ src: item.url, item: item.id }]);
+    setPrompt('');
+    setViewing(null);
+    if (maker !== 'sharpen') toast('Describe the change, then tap Edit.', 'info');
+  };
+
+  const changeMaker = async (fn: () => Promise<StudioMakerInfo[]>, id: string) => {
+    setMakerBusy(id);
+    try {
+      setMakers(await fn());
+    } catch (err) {
+      toast((err as Error).message, 'error');
+    } finally {
+      setMakerBusy(null);
+    }
+  };
+
   const status = (() => {
     if (!machineOn) return 'Turn on your AI machine to make images and videos.';
     if (studioError) return studioError;
     if (!studio) return 'Checking the image and video maker…';
-    if (!maker?.downloaded) return `The ${kind} maker is downloading (first start only): ${maker?.percent ?? 0}%.`;
+    if (chosen && !chosen.installed) return chosen.wanted ? `${chosen.name} is downloading: ${chosen.percent}%.` : `${chosen.name} is not installed. Open Makers to add it.`;
+    if (!chosen && !builtInMaker?.downloaded) return `The maker is downloading (first start only): ${builtInMaker?.percent ?? 0}%.`;
     if (!studio.running) return studio.setup.startsWith('error') ? `The maker had a problem: ${studio.setup.slice(6).trim()}` : 'The image and video maker is starting…';
+    if (kind === 'edit') return needImages === 2 && editImages.length < 2 ? 'Add the person first, then the outfit.' : sharpen ? 'Makes the picture four times larger and crisper.' : 'Edits take under a minute.';
     return kind === 'image' ? 'Images take under a minute.' : 'Videos with sound take a few minutes.';
   })();
+
+  const verb = kind === 'image' ? 'Make image' : kind === 'video' ? 'Make video' : sharpen ? 'Sharpen' : 'Edit';
 
   return (
     <div className="ai-create">
@@ -179,19 +264,93 @@ export function CreateView({ ai, machineOn, isActive }: { ai: LocalAi; machineOn
           options={[
             { value: 'image', label: 'Image' },
             { value: 'video', label: 'Video' },
+            { value: 'edit', label: 'Edit' },
           ]}
         />
-        <textarea
-          value={prompt}
-          onChange={(e) => setPrompt(e.target.value)}
-          rows={3}
-          aria-label="Describe it"
-          placeholder={kind === 'image' ? 'Describe the picture…' : startImage ? 'Describe how the photo should move, and any sound…' : 'Describe the scene, the motion and the sound…'}
-        />
-        <div className="ai-create-options">
-          <Segmented label="Shape" value={size[kind]} onChange={(v) => setSize((s) => ({ ...s, [kind]: v }))} options={SIZES[kind]} />
-          {kind === 'video' && <Segmented label="Length" value={seconds} onChange={setSeconds} options={LENGTHS} />}
+        <div className="ai-maker-picks" role="radiogroup" aria-label="Maker">
+          {(choices.length ? choices : chosen ? [chosen] : []).map((m) => (
+            <button key={m.id} type="button" role="radio" aria-checked={m.id === chosenId} className="ai-maker-chip" onClick={() => setPick(kind, m.id)}>
+              {m.name}
+              {!m.installed && <span className="ai-muted"> {m.percent}%</span>}
+            </button>
+          ))}
+          <button type="button" className="ai-maker-chip ai-maker-more" onClick={() => setMakersOpen(true)} disabled={!machineOn}>
+            <Icon name="plus" size={14} /> Makers
+          </button>
         </div>
+        {styles.length > 0 && (
+          <div className="ai-maker-picks" role="radiogroup" aria-label="Style">
+            <button type="button" role="radio" aria-checked={!style} className="ai-maker-chip" onClick={() => setStyle('')}>
+              No style
+            </button>
+            {styles.map((s) => (
+              <button key={s.id} type="button" role="radio" aria-checked={style === s.id} className="ai-maker-chip" onClick={() => setStyle(s.id)}>
+                {s.name}
+              </button>
+            ))}
+          </div>
+        )}
+        {kind === 'edit' && (
+          <div className="ai-edit-photos">
+            {editImages.map((p, i) => (
+              <div key={i} className="ai-edit-photo">
+                <img src={p.src} alt={needImages === 2 ? (i === 0 ? 'The person' : 'The outfit') : 'Picture to edit'} />
+                <IconButton icon="close" label="Remove this picture" onClick={() => setEditImages((prev) => prev.filter((_, k) => k !== i))} />
+              </div>
+            ))}
+            {editImages.length < Math.max(1, needImages) && (
+              <button type="button" className="btn ghost" onClick={() => editInput.current?.click()}>
+                <Icon name="image" size={18} /> {needImages === 2 && editImages.length === 1 ? 'Add the outfit' : 'Add a picture'}
+              </button>
+            )}
+            <input
+              ref={editInput}
+              type="file"
+              accept="image/*"
+              hidden
+              onChange={(e) => {
+                void addEditPhoto(e.target.files?.[0]);
+                e.target.value = '';
+              }}
+            />
+          </div>
+        )}
+        {!sharpen && (
+          <textarea
+            value={prompt}
+            onChange={(e) => setPrompt(e.target.value)}
+            rows={3}
+            aria-label="Describe it"
+            placeholder={
+              kind === 'edit'
+                ? chosenId === 'angles'
+                  ? 'Which angle? e.g. back view, eye-level shot'
+                  : chosenId === 'outfit'
+                    ? 'e.g. Dress the person in image 1 in the denim jacket from image 2.'
+                    : 'Describe the change… e.g. make it night, add snow'
+                : kind === 'image'
+                  ? 'Describe the picture…'
+                  : startImage
+                    ? 'Describe how the photo should move, and any sound…'
+                    : 'Describe the scene, the motion and the sound…'
+            }
+          />
+        )}
+        {kind === 'edit' && chosenId === 'angles' && (
+          <div className="ai-maker-picks" aria-label="Angles">
+            {ANGLES.map((a) => (
+              <button key={a} type="button" className="ai-maker-chip" onClick={() => setPrompt(a)}>
+                {a.split(',')[0]}
+              </button>
+            ))}
+          </div>
+        )}
+        {kind !== 'edit' && (
+          <div className="ai-create-options">
+            <Segmented label="Shape" value={size[kind]} onChange={(v) => setSize((s) => ({ ...s, [kind]: v }))} options={SIZES[kind]} />
+            {kind === 'video' && <Segmented label="Length" value={seconds} onChange={setSeconds} options={LENGTHS} />}
+          </div>
+        )}
         {kind === 'video' && (
           <div className="ai-create-photo">
             {startImage ? (
@@ -225,7 +384,7 @@ export function CreateView({ ai, machineOn, isActive }: { ai: LocalAi; machineOn
           </div>
         )}
         <button type="submit" className="btn primary ai-make" disabled={!canMake}>
-          <Icon name={kind === 'image' ? 'image' : 'film'} size={18} /> {submitting ? 'Starting…' : kind === 'image' ? 'Make image' : 'Make video'}
+          <Icon name={kind === 'video' ? 'film' : kind === 'edit' ? 'pencil' : 'image'} size={18} /> {submitting ? 'Starting…' : verb}
         </button>
         <p className="ai-muted" role="status">
           {status}
@@ -309,16 +468,26 @@ export function CreateView({ ai, machineOn, isActive }: { ai: LocalAi; machineOn
                 className="btn"
                 onClick={() => {
                   setKind(viewing.kind);
-                  setPrompt(viewing.prompt);
+                  setPrompt(viewing.prompt === 'Sharpened 4×' ? '' : viewing.prompt);
                   setViewing(null);
                 }}
               >
                 <Icon name="refresh" size={16} /> Use prompt
               </button>
               {viewing.kind === 'image' && (
-                <button type="button" className="btn" onClick={() => animate(viewing)}>
-                  <Icon name="film" size={16} /> Make it move
-                </button>
+                <>
+                  <button type="button" className="btn" onClick={() => animate(viewing)}>
+                    <Icon name="film" size={16} /> Make it move
+                  </button>
+                  <button type="button" className="btn" onClick={() => editItem(viewing)}>
+                    <Icon name="pencil" size={16} /> Edit
+                  </button>
+                  {makers?.some((m) => m.id === 'sharpen' && m.installed) && (
+                    <button type="button" className="btn" onClick={() => editItem(viewing, 'sharpen')}>
+                      <Icon name="sparkle" size={16} /> Sharpen
+                    </button>
+                  )}
+                </>
               )}
               <button type="button" className="btn danger" onClick={() => setConfirmDelete(viewing)}>
                 <Icon name="trash" size={16} /> Delete
@@ -326,6 +495,15 @@ export function CreateView({ ai, machineOn, isActive }: { ai: LocalAi; machineOn
             </div>
           </div>
         </Sheet>
+      )}
+      {makersOpen && (
+        <MakersSheet
+          makers={makers}
+          busy={makerBusy}
+          onInstall={(id) => void changeMaker(() => ai.installStudioMaker(id), id)}
+          onRemove={(id) => void changeMaker(() => ai.removeStudioMaker(id), id)}
+          onClose={() => setMakersOpen(false)}
+        />
       )}
       {confirmDelete && (
         <ConfirmSheet
