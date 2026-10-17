@@ -153,3 +153,25 @@ test('sharpen needs only a picture; removing a maker deletes only files nothing 
   await assert.rejects(studio.removeMaker('qwen'), /comes with the machine/);
   assert.equal(byId(await studio.makers(), 'outfit').wanted, false);
 });
+
+test('memory: ComfyUI is cleared before a video and after one, not between pictures', async () => {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'makers-'));
+  for (const f of [...FILES.image, ...FILES.video]) await place(dir, f);
+  const calls = [];
+  const fetchImpl = async (url, init = {}) => {
+    const u = new URL(url);
+    if (u.hostname === 'huggingface.co') return new Response('nope', { status: 404 });
+    if (u.pathname === '/free' || u.pathname === '/prompt') calls.push(u.pathname);
+    if (u.pathname === '/prompt') return Response.json({ prompt_id: `p${calls.length}` });
+    if (u.pathname === '/api/ps') return Response.json({ models: [] });
+    return Response.json({});
+  };
+  const studio = createStudio({ dir, files: FILES, fetchImpl, WebSocketImpl: null, log: { warn() {} }, retryMs: 20 });
+  await studio.createJob({ kind: 'image', prompt: 'a cat' });
+  await studio.createJob({ kind: 'image', prompt: 'a dog' });
+  assert.deepEqual(calls, ['/prompt', '/prompt']);
+  await studio.createJob({ kind: 'video', prompt: 'waves' });
+  await studio.createJob({ kind: 'video', prompt: 'more waves' });
+  await studio.createJob({ kind: 'image', prompt: 'a bird' });
+  assert.deepEqual(calls, ['/prompt', '/prompt', '/free', '/prompt', '/free', '/prompt', '/free', '/prompt']);
+});
