@@ -105,7 +105,7 @@ export function Dock() {
  * Swipe up on the dock to go home (MOTION.md §4): the app follows your finger, shrinking; let go
  * quickly or far enough and it flies into its icon at your finger's speed, otherwise it springs back.
  */
-function useSwipeHome(activeApp: AppId | null, splitShowing: boolean, goHome: () => void) {
+export function useSwipeHome(activeApp: AppId | null, splitShowing: boolean, goHome: () => void) {
   const level = useMotionLevel();
   const swallowClick = useRef(false);
   const enabled = level === 'full' && activeApp !== null && !splitShowing;

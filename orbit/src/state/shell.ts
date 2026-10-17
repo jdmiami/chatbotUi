@@ -2,10 +2,12 @@ import { create } from 'zustand';
 import { persist, createJSONStorage } from 'zustand/middleware';
 
 export type AppId = 'terminal' | 'editor' | 'agent' | 'ai' | 'soreal' | 'settings';
-export type Overlay = null | 'switcher' | 'control-center';
+export type Overlay = null | 'switcher' | 'control-center' | 'index';
 export type ThemePref = 'system' | 'dark' | 'light';
 export type AccentId = 'indigo' | 'teal' | 'amber' | 'rose' | 'sky';
 export type WallpaperId = 'orbit' | 'dusk' | 'aurora' | 'graphite';
+/** classic = the original Orbit look; o5 = Orbit 0.5 (editorial, full screen, chrome hides away). */
+export type SkinId = 'classic' | 'o5';
 /** system = Auto, reduce = Off. */
 export type MotionPref = 'system' | 'reduce' | 'full' | 'lite';
 
@@ -39,6 +41,8 @@ export interface Settings {
   sound: boolean;
   /** A short vibration for key moments, where the device allows it. */
   haptics: boolean;
+  /** The look: classic or Orbit 0.5. Unset = classic. */
+  skin?: SkinId;
   /** Seen the first-run "what is simulated" sheet. */
   introSeen: boolean;
 }

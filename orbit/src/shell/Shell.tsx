@@ -11,6 +11,10 @@ import { AppSwitcher } from './AppSwitcher';
 import { ControlCenter } from './ControlCenter';
 import { Toasts } from './Toasts';
 import { IntroSheet } from './IntroSheet';
+import { Path } from './o5/Path';
+import { Handle } from './o5/Handle';
+import { IndexMenu } from './o5/IndexMenu';
+import { useChromeOnScroll } from './o5/chrome';
 
 /**
  * Root of Orbit. Owns global layout concerns: visual viewport (keyboard), theme, overlays,
@@ -25,6 +29,8 @@ export function Shell() {
 
   const inApp = activeApp !== null;
   const island = useIsland();
+  const o5 = settings.skin === 'o5';
+  useChromeOnScroll(o5);
   return (
     <div
       className="shell"
@@ -37,14 +43,23 @@ export function Shell() {
           // Apps reserve space for the floating dock, except while the keyboard is up (dock hides).
           '--app-bottom-inset': layout.keyboardOpen
             ? '0px'
-            : `calc(var(--safe-bottom) + ${layout.compact ? 58 : 64}px + var(--dock-gap) * 2)`,
+            : o5
+              ? 'calc(var(--safe-bottom) + 22px)' // Orbit 0.5: only a thin line at the bottom
+              : `calc(var(--safe-bottom) + ${layout.compact ? 58 : 64}px + var(--dock-gap) * 2)`,
         } as React.CSSProperties
       }
     >
-      <HomeLight active={!inApp} />
-      <HomeScreen hidden={inApp} />
+      {o5 ? (
+        <Path hidden={inApp} />
+      ) : (
+        <>
+          <HomeLight active={!inApp} />
+          <HomeScreen hidden={inApp} />
+        </>
+      )}
       <AppHost />
-      <Dock />
+      {o5 ? <Handle /> : <Dock />}
+      {overlay === 'index' && <IndexMenu />}
       {overlay === 'switcher' && <AppSwitcher />}
       {overlay === 'control-center' && <ControlCenter />}
       {!settings.introSeen && <IntroSheet />}
