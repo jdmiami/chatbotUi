@@ -12,6 +12,7 @@ import { CreateView } from './CreateView';
 import { ModelPicker, ModelStore, useModelList } from './models';
 import '../agent/agent.css';
 import './ai.css';
+import { AiOrb } from './AiOrb';
 
 const STATE_TEXT: Record<AiMachineStatus['state'], string> = {
   unconfigured: 'Not set up',
@@ -456,7 +457,7 @@ export default function AiApp({ isActive, compact, placement }: AppProps) {
           <div className="ai-scroll" ref={scroller} onScroll={onScroll}>
             {!chat || chat.messages.length === 0 ? (
               <div className="ai-hello" data-typing={draft.trim().length > 0}>
-                <div className="ai-orb" aria-hidden />
+                <AiOrb typing={draft.trim().length > 0} />
                 <h2>What can I help with?</h2>
                 <p className="ai-muted">
                   Private chat with your own models on your GPU machine. Nothing leaves it.
