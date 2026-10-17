@@ -38,6 +38,10 @@ export interface StudioItem {
   height?: number;
   seconds?: number;
   fromImage?: boolean;
+  /** Which maker made it (soreal: a joined movie). */
+  maker?: string;
+  /** soReal: the movie it was joined from. */
+  movie?: string;
   createdAt: string;
   /** Absolute link to the file (works in <img>/<video> tags for 12 hours). */
   url: string;
@@ -103,6 +107,37 @@ export interface StudioRequest {
   /** Or a picture from the gallery, by id. */
   fromItem?: string;
 }
+
+/** soReal: one shot of a movie (a video made from the last frame of the shot before). */
+export interface MovieShot {
+  id: string;
+  prompt: string;
+  itemId: string | null;
+  status: 'todo' | 'making' | 'done' | 'error';
+  error: string | null;
+}
+
+/** soReal: a movie plan, kept on the AI machine. */
+export interface Movie {
+  id: string;
+  title: string;
+  /** Who is in it and the style; added to every shot so it stays consistent. */
+  look: string;
+  maker: 'ltx' | 'h3-max';
+  size: 'landscape' | 'portrait' | 'square';
+  seconds: number;
+  /** Gallery picture or video the first shot continues from. */
+  start: string | null;
+  shots: MovieShot[];
+  render: { itemId: string; at: string } | null;
+  running: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export type MovieDraft = Partial<Pick<Movie, 'title' | 'look' | 'maker' | 'size' | 'seconds' | 'start'>> & {
+  shots?: Partial<MovieShot>[];
+};
 
 export type ContentPart = { type: 'text'; text: string } | { type: 'image_url'; image_url: { url: string } };
 
@@ -398,6 +433,43 @@ export class LocalAi {
 
   async deleteStudioItem(id: string): Promise<void> {
     await this.studioCall(`/_orbit/studio/items/${encodeURIComponent(id)}`, { method: 'DELETE' });
+  }
+
+  // ---- soReal movies
+
+  async movies(): Promise<Movie[]> {
+    return (await this.studioCall<{ movies: Movie[] }>('/_orbit/studio/movies')).movies;
+  }
+
+  createMovie(draft: MovieDraft): Promise<Movie> {
+    return this.studioCall<Movie>('/_orbit/studio/movies', { method: 'POST', body: JSON.stringify(draft) });
+  }
+
+  movie(id: string): Promise<Movie> {
+    return this.studioCall<Movie>(`/_orbit/studio/movies/${encodeURIComponent(id)}`);
+  }
+
+  updateMovie(id: string, draft: MovieDraft): Promise<Movie> {
+    return this.studioCall<Movie>(`/_orbit/studio/movies/${encodeURIComponent(id)}`, { method: 'PUT', body: JSON.stringify(draft) });
+  }
+
+  async deleteMovie(id: string): Promise<void> {
+    await this.studioCall(`/_orbit/studio/movies/${encodeURIComponent(id)}`, { method: 'DELETE' });
+  }
+
+  /** Make the shots that aren't done yet, in order (keeps going on the machine). */
+  runMovie(id: string): Promise<Movie> {
+    return this.studioCall<Movie>(`/_orbit/studio/movies/${encodeURIComponent(id)}/run`, { method: 'POST', body: '{}' });
+  }
+
+  stopMovie(id: string): Promise<Movie> {
+    return this.studioCall<Movie>(`/_orbit/studio/movies/${encodeURIComponent(id)}/stop`, { method: 'POST', body: '{}' });
+  }
+
+  /** Join the finished shots into one video in the gallery. */
+  async renderMovie(id: string): Promise<{ movie: Movie; item: StudioItem }> {
+    const r = await this.studioCall<{ movie: Movie; item: StudioItem }>(`/_orbit/studio/movies/${encodeURIComponent(id)}/render`, { method: 'POST', body: '{}' });
+    return { movie: r.movie, item: this.absolute(r.item) };
   }
 
   /** Stream one reply. Resolves when the model is done (or the signal aborts). */
