@@ -32,14 +32,14 @@ export const FEATURED = [
     title: 'Qwen 3.8 27B abliterated (huihui)',
     blurb: 'Popular uncensored Qwen 3.8 that keeps image understanding. Smaller 4-bit.',
     tags: ['uncensored', 'vision'],
-    size: 17.4e9,
+    size: 18.3e9,
   },
   {
     spec: 'defiant-fable:9b=hf.co/DavidAU/Qwen3.5-9B-The-Defiant-Fable-Uncensored-Heretic-NEO-IMATRIX-MAX-MTP-GGUF:NEO-MAX-Q6_K',
     title: 'Defiant Fable 9B',
     blurb: 'Small, very fast uncensored storyteller. Good for role-play and quick chats.',
     tags: ['uncensored', 'fast', 'creative'],
-    size: 8.6e9,
+    size: 9.5e9,
   },
 ];
 
@@ -121,12 +121,14 @@ export function createModelStore(o) {
     if (!/^[A-Za-z0-9][\w.-]*\/[A-Za-z0-9][\w.-]*$/.test(repo) || repo.includes('..')) throw Object.assign(new Error('Not a Hugging Face model name'), { status: 400 });
     const res = await f(`${HF}/api/models/${repo}/tree/main?recursive=true`, { signal: AbortSignal.timeout(10_000) });
     if (!res.ok) throw Object.assign(new Error(`Hugging Face: ${res.status}`), { status: res.status === 404 ? 404 : 502 });
-    const out = [];
+    // One entry per size: Hugging Face picks the file when a repo has several with the same one.
+    const out = new Map();
     for (const e of await res.json()) {
       const m = e.type === 'file' && !/mmproj/i.test(e.path) && QUANT.exec(e.path);
-      if (m) out.push({ quant: m[1].toUpperCase(), file: e.path, size: e.lfs?.size ?? e.size ?? 0 });
+      const quant = m && m[1].toUpperCase();
+      if (m && (!out.has(quant) || e.path.length < out.get(quant).file.length)) out.set(quant, { quant, file: e.path, size: e.lfs?.size ?? e.size ?? 0 });
     }
-    return out.sort((a, b) => a.size - b.size);
+    return [...out.values()].sort((a, b) => a.size - b.size);
   }
 
   /** Start installing; progress shows in list().pulls. Returns the friendly name. */

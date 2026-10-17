@@ -3,11 +3,12 @@ import type { AppProps } from '../types';
 import { useShell } from '../../state/shell';
 import { useWorkspace } from '../../state/workspace';
 import { Icon } from '../../ui/Icon';
-import { AppHeader, ConfirmSheet, EmptyState, IconButton, Segmented, Sheet } from '../../ui/components';
+import { AppHeader, ConfirmSheet, IconButton, Segmented, Sheet } from '../../ui/components';
 import { MessageBody } from '../agent/Transcript';
 import { AiError, getLocalAi, type AiMachineStatus, type ChatMessage } from '../../services/ai/LocalAi';
 import { loadChats, saveChats, newChat, titleFrom, type AiChat, type AiChatStore } from './chats';
 import { CreateView } from './CreateView';
+import { ModelPicker, ModelStore, useModelList } from './models';
 import '../agent/agent.css';
 import './ai.css';
 
@@ -19,6 +20,24 @@ const STATE_TEXT: Record<AiMachineStatus['state'], string> = {
   on: 'Ready',
   error: 'Problem',
 };
+
+const SUGGESTIONS = [
+  { icon: 'sparkle', label: 'Explain simply', prompt: 'Explain how large language models work, in simple words.' },
+  { icon: 'code', label: 'Write code', prompt: 'Write a Python script that renames all photos in a folder by the date they were taken.' },
+  { icon: 'bolt', label: 'Brainstorm', prompt: 'Give me 10 bold ideas for a weekend project.' },
+  { icon: 'pencil', label: 'Tell a story', prompt: 'Write a short, gripping story that starts with a power cut.' },
+] as const;
+
+function formatSecs(ms: number) {
+  const s = Math.max(1, Math.round(ms / 1000));
+  return s < 60 ? `${s}s` : `${Math.floor(s / 60)}m ${s % 60}s`;
+}
+
+/** The message box grows with its text, up to a limit (then it scrolls). */
+function grow(el: HTMLTextAreaElement) {
+  el.style.height = 'auto';
+  el.style.height = `${Math.min(el.scrollHeight, Math.max(120, window.innerHeight * 0.3))}px`;
+}
 
 function finePointer() {
   try {
@@ -59,6 +78,10 @@ export default function AiApp({ isActive, compact, placement }: AppProps) {
   const [listOpen, setListOpen] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
   const [powering, setPowering] = useState(false);
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const [storeOpen, setStoreOpen] = useState(false);
+  const [atBottom, setAtBottom] = useState(true);
+  const [now, setNow] = useState(() => Date.now());
   const [mode, setMode] = useState<'chat' | 'create'>(() => {
     try {
       return sessionStorage.getItem('orbit:ai:mode') === 'create' ? 'create' : 'chat';
@@ -98,12 +121,14 @@ export default function AiApp({ isActive, compact, placement }: AppProps) {
     return () => clearInterval(t);
   }, [isActive, refresh, status?.state]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  const modelStore = useModelList(ai, ready && isActive);
+  const installed = modelStore.list?.installed;
   useEffect(() => {
     if (!ready) return;
     ai.listModels()
       .then((list) => setModels(list))
       .catch(() => {});
-  }, [ready, ai]);
+  }, [ready, ai, installed?.length]);
 
   useEffect(() => {
     setSummary('ai', busy ? 'Answering…' : status ? `AI machine: ${STATE_TEXT[status.state].toLowerCase()}` : '');
@@ -113,8 +138,23 @@ export default function AiApp({ isActive, compact, placement }: AppProps) {
   const follow = useRef(true);
   const onScroll = () => {
     const el = scroller.current;
-    if (el) follow.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
+    if (!el) return;
+    follow.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
+    setAtBottom(follow.current);
   };
+  const toBottom = () => {
+    const el = scroller.current;
+    follow.current = true;
+    setAtBottom(true);
+    el?.scrollTo({ top: el.scrollHeight, behavior: 'smooth' });
+  };
+  // A clock for "loading the model… 12 s" while a reply hasn't started.
+  useEffect(() => {
+    if (!busy) return;
+    const t = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(t);
+  }, [busy]);
+  const [startedAt, setStartedAt] = useState(0);
   useEffect(() => {
     const el = scroller.current;
     if (el && follow.current) el.scrollTop = el.scrollHeight;
@@ -124,6 +164,7 @@ export default function AiApp({ isActive, compact, placement }: AppProps) {
   }, [store.activeId]);
 
   const model = chat?.model || store.model || models[0] || '';
+  const modelInfo = installed?.find((m) => m.name === model);
 
   const [speed, setSpeed] = useState<string | null>(null);
   const power = async (action: 'start' | 'stop', tier?: string) => {
@@ -158,19 +199,43 @@ export default function AiApp({ isActive, compact, placement }: AppProps) {
       }));
     update((s) => ({
       ...s,
-      chats: s.chats.map((c) => (c.id === chatId ? { ...c, messages: [...c.messages, { role: 'assistant', content: '', streaming: true }] } : c)),
+      chats: s.chats.map((c) =>
+        c.id === chatId ? { ...c, messages: [...c.messages, { role: 'assistant', content: '', streaming: true, model: useModel }] } : c,
+      ),
     }));
+    const t0 = Date.now();
+    setStartedAt(t0);
+    setNow(t0);
+    let firstToken = 0;
+    let thinkStart = 0;
+    let usage: { completionTokens: number } | null = null;
     try {
       await ai.chat(
         useModel,
         history,
         {
-          onText: (d) => patchLast((m) => ({ ...m, content: m.content + d })),
-          onReasoning: (d) => patchLast((m) => ({ ...m, reasoning: (m.reasoning ?? '') + d })),
+          onText: (d) => {
+            const first = !firstToken;
+            firstToken ||= Date.now();
+            patchLast((m) => ({ ...m, content: m.content + d, ...(first && thinkStart ? { thinkMs: Date.now() - thinkStart } : {}) }));
+          },
+          onReasoning: (d) => {
+            thinkStart ||= Date.now();
+            firstToken ||= Date.now();
+            patchLast((m) => ({ ...m, reasoning: (m.reasoning ?? '') + d }));
+          },
+          onUsage: (u) => (usage = u),
         },
         ctrl.signal,
       );
-      patchLast((m) => ({ ...m, streaming: false }));
+      const secs = firstToken ? (Date.now() - firstToken) / 1000 : 0;
+      const u = usage as { completionTokens: number } | null;
+      patchLast((m) => ({
+        ...m,
+        streaming: false,
+        ...(thinkStart && !m.thinkMs ? { thinkMs: Date.now() - thinkStart } : {}),
+        ...(u && u.completionTokens && firstToken ? { stats: { tokens: u.completionTokens, perSecond: u.completionTokens / Math.max(secs, 0.05) } } : {}),
+      }));
     } catch (err) {
       const stopped = ctrl.signal.aborted;
       patchLast((m) => ({
@@ -219,7 +284,9 @@ export default function AiApp({ isActive, compact, placement }: AppProps) {
       ),
     }));
     setDraft('');
+    if (input.current) input.current.style.height = '';
     follow.current = true;
+    setAtBottom(true);
     await run(chatId, history, model);
   };
 
@@ -297,6 +364,7 @@ export default function AiApp({ isActive, compact, placement }: AppProps) {
         actions={
           <>
             {mode === 'chat' && <IconButton icon="plus" label="New chat" onClick={startChat} disabled={busy} />}
+            {mode === 'chat' && <IconButton icon="download" label="Model store" onClick={() => setStoreOpen(true)} disabled={!ready} />}
             <IconButton icon="external" label="Open the full AI playground" onClick={() => window.open('/ai', '_blank', 'noopener')} />
             <IconButton icon="code" label="Code with AI (VS Code)" onClick={() => window.open('/code', '_blank', 'noopener')} />
           </>
@@ -378,36 +446,92 @@ export default function AiApp({ isActive, compact, placement }: AppProps) {
         <section className="ai-main" aria-label={chat?.title ?? 'New chat'}>
           <div className="ai-scroll" ref={scroller} onScroll={onScroll}>
             {!chat || chat.messages.length === 0 ? (
-              <EmptyState icon="sparkle" title="Chat with your own models">
-                Private, open-weights models on your GPU machine. For documents, web search and voice, open the full
-                playground (↗ in the header).
-              </EmptyState>
+              <div className="ai-hello">
+                <div className="ai-orb" aria-hidden />
+                <h2>What can I help with?</h2>
+                <p className="ai-muted">
+                  Private chat with your own models on your GPU machine. Nothing leaves it.
+                </p>
+                <div className="ai-suggest">
+                  {SUGGESTIONS.map((sg) => (
+                    <button
+                      key={sg.label}
+                      type="button"
+                      className="ai-suggest-btn"
+                      onClick={() => {
+                        setDraft(sg.prompt);
+                        setTimeout(() => input.current?.focus(), 0);
+                      }}
+                    >
+                      <Icon name={sg.icon} size={18} />
+                      <span>{sg.label}</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
             ) : (
-              chat.messages.map((m, i) => (
-                <article key={i} className={`ai-msg ai-msg-${m.role}`}>
-                  {m.role === 'assistant' && m.reasoning && (
-                    <details className="ai-think" open={m.streaming && !m.content}>
-                      <summary>Thinking</summary>
-                      <p>{m.reasoning}</p>
-                    </details>
-                  )}
-                  {m.role === 'user' ? <p className="ai-user-text">{m.content}</p> : <MessageBody text={m.content || (m.streaming ? '…' : '')} onCopy={onCopy} />}
-                  {m.error && <p className="ai-error">{m.error}</p>}
-                  {m.stopped && <p className="ai-muted">Stopped.</p>}
-                  {m.role === 'assistant' && !m.streaming && m.content && (
-                    <div className="ai-msg-actions">
-                      <button type="button" className="btn ghost small" onClick={() => onCopy(m.content, 'reply')}>
-                        <Icon name="copy" size={16} /> Copy
-                      </button>
-                      {i === chat.messages.length - 1 && (
-                        <button type="button" className="btn ghost small" onClick={() => void regenerate()} disabled={busy || !ready}>
-                          <Icon name="refresh" size={16} /> Again
+              chat.messages.map((m, i) => {
+                const last = i === chat.messages.length - 1;
+                const waiting = m.streaming && !m.content && !m.reasoning;
+                const waited = last && waiting ? Math.max(0, Math.round((now - startedAt) / 1000)) : 0;
+                return (
+                  <article key={i} className={`ai-msg ai-msg-${m.role}`}>
+                    {m.role === 'assistant' && (
+                      <div className="ai-msg-from">
+                        <span className={`ai-avatar${m.streaming ? ' ai-avatar-live' : ''}`} aria-hidden>
+                          <Icon name="sparkle" size={14} />
+                        </span>
+                        <span>{m.model || chat.model || 'AI'}</span>
+                      </div>
+                    )}
+                    {m.role === 'assistant' && m.reasoning && (
+                      <details className="ai-think" open={m.streaming && !m.content}>
+                        <summary>
+                          <span className={m.streaming && !m.content ? 'ai-shimmer' : undefined}>
+                            {m.streaming && !m.content ? 'Thinking…' : m.thinkMs ? `Thought for ${formatSecs(m.thinkMs)}` : 'Thinking'}
+                          </span>
+                        </summary>
+                        <p>{m.reasoning}</p>
+                      </details>
+                    )}
+                    {m.role === 'user' ? (
+                      <p className="ai-user-text">{m.content}</p>
+                    ) : waiting ? (
+                      <div className="ai-waiting" role="status">
+                        <span className="ai-dots" aria-hidden>
+                          <i />
+                          <i />
+                          <i />
+                        </span>
+                        {waited >= 4 && <span className="ai-muted">Loading the model into the GPU… {waited} s</span>}
+                      </div>
+                    ) : (
+                      <div className={m.streaming ? 'ai-streaming' : undefined}>
+                        <MessageBody text={m.content} onCopy={onCopy} />
+                      </div>
+                    )}
+                    {m.error && <p className="ai-error">{m.error}</p>}
+                    {m.stopped && <p className="ai-muted">Stopped.</p>}
+                    {m.role === 'assistant' && !m.streaming && m.content && (
+                      <div className="ai-msg-actions">
+                        <button type="button" className="btn ghost small" onClick={() => onCopy(m.content, 'reply')}>
+                          <Icon name="copy" size={16} /> Copy
                         </button>
-                      )}
-                    </div>
-                  )}
-                </article>
-              ))
+                        {last && (
+                          <button type="button" className="btn ghost small" onClick={() => void regenerate()} disabled={busy || !ready}>
+                            <Icon name="refresh" size={16} /> Again
+                          </button>
+                        )}
+                        {m.stats && (
+                          <span className="ai-stats" title={`${m.stats.tokens} tokens`}>
+                            <Icon name="bolt" size={14} /> {Math.round(m.stats.perSecond)} tokens/s
+                          </span>
+                        )}
+                      </div>
+                    )}
+                  </article>
+                );
+              })
             )}
           </div>
 
@@ -418,35 +542,43 @@ export default function AiApp({ isActive, compact, placement }: AppProps) {
               void send();
             }}
           >
-            <div className="ai-composer-row">
-              <label className="ai-model">
-                <span className="visually-hidden">Model</span>
-                <select value={model} onChange={(e) => setModel(e.target.value)} disabled={busy || !models.length}>
-                  {!models.length && <option value="">{ready ? 'Loading models…' : 'Models appear when the machine is on'}</option>}
-                  {models.map((m) => (
-                    <option key={m} value={m}>
-                      {m}
-                    </option>
-                  ))}
-                </select>
-              </label>
-            </div>
-            <div className="ai-composer-row">
+            {!atBottom && chat && chat.messages.length > 0 && (
+              <button type="button" className="ai-to-bottom" onClick={toBottom} aria-label="Jump to latest">
+                <Icon name="down" size={20} />
+              </button>
+            )}
+            <div className="ai-composer-card">
               <textarea
                 ref={input}
                 value={draft}
-                onChange={(e) => setDraft(e.target.value)}
+                onChange={(e) => {
+                  setDraft(e.target.value);
+                  grow(e.target);
+                }}
                 onKeyDown={onKey}
-                rows={2}
+                rows={1}
                 placeholder={ready ? 'Message your model…' : 'Turn on your AI machine to chat'}
                 aria-label="Message"
                 enterKeyHint="send"
               />
-              {busy ? (
-                <IconButton icon="stop" label="Stop" className="ai-send" onClick={() => abort.current?.abort()} />
-              ) : (
-                <IconButton icon="send" label="Send" className="ai-send" type="submit" disabled={!draft.trim() || !ready} />
-              )}
+              <div className="ai-composer-bar">
+                <button
+                  type="button"
+                  className="ai-model-chip"
+                  onClick={() => setPickerOpen(true)}
+                  disabled={!ready}
+                  aria-label={`Model: ${model || 'none'}. Change model`}
+                >
+                  <span className={`ai-live${modelInfo?.loaded ? '' : ' ai-live-off'}`} aria-hidden />
+                  <span className="ai-model-chip-name">{model || (ready ? 'Choose a model' : 'Models appear when on')}</span>
+                  <Icon name="down" size={14} />
+                </button>
+                {busy ? (
+                  <IconButton icon="stop" label="Stop" className="ai-send ai-send-stop" onClick={() => abort.current?.abort()} />
+                ) : (
+                  <IconButton icon="send" label="Send" className="ai-send" type="submit" disabled={!draft.trim() || !ready} />
+                )}
+              </div>
             </div>
           </form>
         </section>
@@ -457,6 +589,21 @@ export default function AiApp({ isActive, compact, placement }: AppProps) {
           {list}
         </Sheet>
       )}
+      {pickerOpen && (
+        <ModelPicker
+          ai={ai}
+          list={modelStore.list}
+          fallback={models}
+          current={model}
+          onPick={setModel}
+          onOpenStore={() => {
+            setPickerOpen(false);
+            setStoreOpen(true);
+          }}
+          onClose={() => setPickerOpen(false)}
+        />
+      )}
+      {storeOpen && <ModelStore ai={ai} list={modelStore.list} refresh={modelStore.refresh} onClose={() => setStoreOpen(false)} />}
       {confirmDelete && (
         <ConfirmSheet
           title="Delete this chat?"

@@ -13,6 +13,7 @@ function fakeOllama(state) {
         return Response.json([
           { type: 'file', path: 'Cool-Model-Q4_K_M.gguf', size: 100, lfs: { size: 9e9 } },
           { type: 'file', path: 'Cool-Model-Q8_0.gguf', size: 100, lfs: { size: 16e9 } },
+          { type: 'file', path: 'Cool-Model-plus-Q8_0.gguf', size: 100, lfs: { size: 17e9 } },
           { type: 'file', path: 'Cool-Model-UD-IQ3_XXS.gguf', size: 100, lfs: { size: 6e9 } },
           { type: 'file', path: 'mmproj-Cool-Model-F16.gguf', size: 100, lfs: { size: 1e9 } },
           { type: 'file', path: 'README.md', size: 10 },
@@ -76,7 +77,7 @@ test('store: Hugging Face search and the sizes a model comes in', async () => {
   assert.deepEqual(
     files.map((x) => x.quant),
     ['UD-IQ3_XXS', 'Q4_K_M', 'Q8_0'],
-    'smallest first, no vision projector or readme',
+    'smallest first, one per size, no vision projector or readme',
   );
   await assert.rejects(store.files('../etc'), (err) => err.status === 400);
 });
