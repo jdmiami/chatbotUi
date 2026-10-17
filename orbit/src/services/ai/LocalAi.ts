@@ -77,6 +77,8 @@ export interface StudioRequest {
   seconds?: number;
   /** Starting picture for a video, as a data URL. */
   image?: string;
+  /** Or a picture from the gallery, by id. */
+  fromItem?: string;
 }
 
 export interface ChatMessage {

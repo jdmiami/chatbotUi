@@ -55,6 +55,8 @@ export function CreateView({ ai, machineOn, isActive }: { ai: LocalAi; machineOn
   const [size, setSize] = useState<Record<StudioKind, string>>({ image: 'square', video: 'landscape' });
   const [seconds, setSeconds] = useState('5');
   const [startImage, setStartImage] = useState<string | null>(null);
+  /** When the starting picture comes from the gallery: its id (the machine already has the file). */
+  const [startItem, setStartItem] = useState<string | null>(null);
   const [studio, setStudio] = useState<StudioState | null>(null);
   const [studioError, setStudioError] = useState<string | null>(null);
   const [jobs, setJobs] = useState<StudioJob[]>([]);
@@ -117,7 +119,9 @@ export function CreateView({ ai, machineOn, isActive }: { ai: LocalAi; machineOn
         kind,
         prompt: prompt.trim(),
         size: size[kind],
-        ...(kind === 'video' ? { seconds: Number(seconds), image: startImage ?? undefined } : {}),
+        ...(kind === 'video'
+          ? { seconds: Number(seconds), ...(startItem ? { fromItem: startItem } : { image: startImage ?? undefined }) }
+          : {}),
       });
       if (job.status === 'error') toast(job.error || 'That did not start.', 'error');
       else setJobs((prev) => [...prev, job]);
@@ -132,23 +136,20 @@ export function CreateView({ ai, machineOn, isActive }: { ai: LocalAi; machineOn
     if (!file) return;
     try {
       setStartImage(await toDataUrl(file));
+      setStartItem(null);
       setKind('video');
     } catch {
       toast('That picture could not be read.', 'error');
     }
   };
 
-  const animate = async (item: StudioItem) => {
-    try {
-      const blob = await (await fetch(item.url)).blob();
-      setStartImage(await toDataUrl(blob));
-      setKind('video');
-      setPrompt('');
-      setViewing(null);
-      toast('Describe how it should move, then tap Make.', 'info');
-    } catch {
-      toast('Could not load that picture.', 'error');
-    }
+  const animate = (item: StudioItem) => {
+    setStartImage(item.url);
+    setStartItem(item.id);
+    setKind('video');
+    setPrompt('');
+    setViewing(null);
+    toast('Describe how it should move, then tap Make video.', 'info');
   };
 
   const status = (() => {
@@ -195,7 +196,14 @@ export function CreateView({ ai, machineOn, isActive }: { ai: LocalAi; machineOn
               <>
                 <img src={startImage} alt="Starting photo" />
                 <span className="ai-muted">The video starts from this photo.</span>
-                <IconButton icon="close" label="Remove the starting photo" onClick={() => setStartImage(null)} />
+                <IconButton
+                  icon="close"
+                  label="Remove the starting photo"
+                  onClick={() => {
+                    setStartImage(null);
+                    setStartItem(null);
+                  }}
+                />
               </>
             ) : (
               <button type="button" className="btn ghost" onClick={() => fileInput.current?.click()}>
@@ -301,7 +309,7 @@ export function CreateView({ ai, machineOn, isActive }: { ai: LocalAi; machineOn
                 <Icon name="refresh" size={16} /> Use prompt
               </button>
               {viewing.kind === 'image' && (
-                <button type="button" className="btn" onClick={() => void animate(viewing)}>
+                <button type="button" className="btn" onClick={() => animate(viewing)}>
                   <Icon name="film" size={16} /> Make it move
                 </button>
               )}
