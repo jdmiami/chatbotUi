@@ -31,6 +31,10 @@ export interface Settings {
    * than the screen: swipe sideways to pan, pinch or "Fit width" to zoom out.
    */
   terminalColumns?: number;
+  /** Light and depth follow the phone's tilt (or the mouse). */
+  tilt: boolean;
+  /** The iPhone motion-sensor permission was given once (it is asked again silently on each visit). */
+  tiltGranted?: boolean;
   /** Soft sounds for key moments. Off until you turn it on. */
   sound: boolean;
   /** A short vibration for key moments, where the device allows it. */
@@ -80,6 +84,7 @@ export const DEFAULT_SETTINGS: Settings = {
   motion: 'full',
   terminalFontSize: 14,
   terminalKeys: true,
+  tilt: true,
   sound: false,
   haptics: false,
   introSeen: false,

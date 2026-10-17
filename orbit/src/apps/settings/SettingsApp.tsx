@@ -7,6 +7,7 @@ import { connection, getFileStore, resetDemoData } from '../../services';
 import { AGY_CAPABILITIES } from '../../services/runner/agyCapabilities';
 import type { CapabilityStatus } from '../../services/runner/types';
 import { cue } from '../../motion/feedback';
+import { requestTiltPermission, tiltNeedsPermission } from '../../motion/tilt';
 import { useShell, type AppId, type MotionPref, type ThemePref, type WallpaperId } from '../../state/shell';
 import { useWorkspace } from '../../state/workspace';
 import { useLayout } from '../../state/viewport';
@@ -674,6 +675,22 @@ function AppearanceSection() {
             <Segmented label="Motion" value={settings.motion} options={MOTIONS} onChange={(motion) => updateSettings({ motion, motionPicked: true })} />
           </div>
         </div>
+        <label className="row st-row st-click">
+          <span className="st-main">
+            <span className="st-label">Tilt effects</span>
+            <span className="st-sub">
+              Light and depth follow how you hold your phone (or your mouse). On iPhone and iPad this asks once to use the motion sensor.
+            </span>
+          </span>
+          <Toggle
+            checked={settings.tilt && (!tiltNeedsPermission() || Boolean(settings.tiltGranted))}
+            label="Tilt effects"
+            onChange={(v) => {
+              if (!v) return updateSettings({ tilt: false });
+              void requestTiltPermission().then((ok) => updateSettings({ tilt: true, tiltGranted: ok || settings.tiltGranted }));
+            }}
+          />
+        </label>
         <label className="row st-row st-click">
           <span className="st-main">
             <span className="st-label">Sounds</span>

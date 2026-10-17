@@ -2,12 +2,15 @@ import {
   useCallback,
   useEffect,
   useId,
+  useLayoutEffect,
   useRef,
   type ButtonHTMLAttributes,
   type ReactNode,
 } from 'react';
 import { animate } from 'motion/mini';
+import { springValue } from '../motion/physics';
 import { SPRING } from '../motion/springs';
+import { recentTap } from '../motion/tilt';
 import { useMotionLevel } from '../motion/MotionProvider';
 import { Icon, type IconName } from './Icon';
 
@@ -86,12 +89,15 @@ export function Sheet({
   children,
   footer,
   labelledBy,
+  origin,
 }: {
   title: ReactNode;
   onClose: () => void;
   children: ReactNode;
   footer?: ReactNode;
   labelledBy?: string;
+  /** Grow out of this rectangle (e.g. the picture tile that was tapped). Defaults to where you last tapped. */
+  origin?: DOMRect | null;
 }) {
   const ref = useRef<HTMLDivElement>(null);
   const scrim = useRef<HTMLDivElement>(null);
@@ -99,6 +105,31 @@ export function Sheet({
   const titleId = labelledBy ?? `sheet-title-${autoId}`;
   const level = useMotionLevel();
   const closing = useRef(false);
+  // Sheets grow out of what you tapped (MOTION.md §4). Decided once, at first render.
+  const grow = useRef<{ x: number; y: number; w: number; h: number } | null | undefined>(undefined);
+  if (grow.current === undefined) {
+    const tap = level === 'full' ? recentTap() : null;
+    grow.current =
+      level !== 'full' ? null : origin ? { x: origin.left + origin.width / 2, y: origin.top + origin.height / 2, w: origin.width, h: origin.height } : tap ? { x: tap.x, y: tap.y, w: 0, h: 0 } : null;
+  }
+  useLayoutEffect(() => {
+    const sheet = ref.current;
+    const from = grow.current;
+    if (!sheet || !from) return;
+    const r = sheet.getBoundingClientRect();
+    const s = from.w ? Math.max(0.08, Math.min(1, from.w / r.width, from.h / r.height)) : 0.12;
+    const dx = from.x - (r.left + r.width / 2);
+    const dy = from.y - (r.top + r.height / 2);
+    animate(
+      sheet,
+      { transform: [`translate(${dx}px, ${dy}px) scale(${s})`, 'translate(0px, 0px) scale(1)'], opacity: [from.w ? 1 : 0, 1, 1] },
+      { ...SPRING.bouncy, opacity: { duration: 0.16 } } as never,
+    ).then(
+      () => sheet.style.removeProperty('transform'),
+      () => {},
+    );
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   const onCloseRef = useRef(onClose);
   onCloseRef.current = onClose;
 
@@ -121,12 +152,21 @@ export function Sheet({
   );
 
   /** Drag the handle or title down to dismiss. Past a short distance (or a quick flick) it closes; otherwise it springs back. */
+  const springBack = useRef<{ stop(): void } | null>(null);
   const grab = useRef<{ id: number; y0: number; last: number; t: number; v: number; dy: number } | null>(null);
   const onGripDown = (e: React.PointerEvent) => {
     if (level === 'off' || e.button > 0 || (e.target as HTMLElement).closest('button')) return;
     grab.current = { id: e.pointerId, y0: e.clientY, last: e.clientY, t: e.timeStamp, v: 0, dy: 0 };
     e.currentTarget.setPointerCapture(e.pointerId);
-    ref.current?.getAnimations().forEach((a) => a.cancel());
+    // Grab it mid-flight: stop whatever it was doing and continue from where it is now.
+    const sheet = ref.current;
+    springBack.current?.stop();
+    if (sheet) {
+      const m = new DOMMatrix(getComputedStyle(sheet).transform);
+      sheet.getAnimations().forEach((a) => a.cancel());
+      grab.current.y0 = e.clientY - m.m42;
+      sheet.style.transform = `translateY(${m.m42}px)`;
+    }
   };
   const onGripMove = (e: React.PointerEvent) => {
     const g = grab.current;
@@ -146,10 +186,16 @@ export function Sheet({
     const sheet = ref.current;
     if (!g || !sheet) return;
     if (g.dy > 110 || g.v > 0.7) return close(g.dy, 600);
-    animate(sheet, { transform: [`translateY(${g.dy}px)`, 'translateY(0px)'] }, SPRING.bouncy as never).then(
-      () => sheet.style.removeProperty('transform'),
-      () => sheet.style.removeProperty('transform'),
-    );
+    // Spring back with the `flick` spring, starting at the speed your finger was moving.
+    const back = springValue({
+      from: g.dy,
+      to: 0,
+      velocity: g.v * 1000,
+      spring: SPRING.flick,
+      onUpdate: (y) => (sheet.style.transform = `translateY(${y}px)`),
+    });
+    springBack.current = back;
+    void back.finished.then((done) => done && sheet.style.removeProperty('transform'));
     e.currentTarget.releasePointerCapture?.(e.pointerId);
   };
 
@@ -197,7 +243,7 @@ export function Sheet({
         if (e.target === e.currentTarget) close();
       }}
     >
-      <div className="sheet" role="dialog" aria-modal="true" aria-labelledby={titleId} ref={ref} tabIndex={-1}>
+      <div className="sheet" data-grown={grow.current ? '' : undefined} role="dialog" aria-modal="true" aria-labelledby={titleId} ref={ref} tabIndex={-1}>
         <div
           className="sheet-grip"
           onPointerDown={onGripDown}

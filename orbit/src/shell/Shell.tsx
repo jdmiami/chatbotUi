@@ -4,6 +4,7 @@ import { useLayout } from '../state/viewport';
 import { useVisualViewport } from '../hooks/useVisualViewport';
 import { useApplySettings } from '../hooks/useApplySettings';
 import { HomeScreen } from './HomeScreen';
+import { HomeLight } from './HomeLight';
 import { Dock } from './Dock';
 import { AppHost } from './AppHost';
 import { AppSwitcher } from './AppSwitcher';
@@ -40,6 +41,7 @@ export function Shell() {
         } as React.CSSProperties
       }
     >
+      <HomeLight active={!inApp} />
       <HomeScreen hidden={inApp} />
       <AppHost />
       <Dock />
