@@ -72,7 +72,8 @@ export function createSysStats({ volume = '/workspace', procRoot = '/proc', cgro
       try {
         const s = await fs.statfs(p);
         const total = s.blocks * s.bsize;
-        if (total > 0 && !out.some((d) => d.total === total && d.free === s.bavail * s.bsize)) out.push({ label, path: p, total, free: s.bavail * s.bsize });
+        // A shared network filesystem reports the whole cluster (hundreds of TB): that says nothing about yours.
+        if (total > 0 && total < 20e12 && !out.some((d) => d.total === total && d.free === s.bavail * s.bsize)) out.push({ label, path: p, total, free: s.bavail * s.bsize });
       } catch {
         /* not mounted here */
       }

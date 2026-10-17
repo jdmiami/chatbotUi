@@ -362,7 +362,8 @@ class OrbitIsland extends HTMLElement {
         this.history.set(key, arr);
       };
       const gpu = s?.gpus?.[0];
-      push(`${m.id}:cpu`, s?.cpu?.percent ?? m.live?.cpu);
+      // Runpod's own CPU reading knows the machine's real share of cores; the machine itself may not.
+      push(`${m.id}:cpu`, m.live?.cpu ?? s?.cpu?.percent);
       push(`${m.id}:mem`, s?.memory ? (s.memory.used / s.memory.total) * 100 : m.live?.memory);
       push(`${m.id}:gpu`, gpu?.percent ?? m.live?.gpu);
       push(`${m.id}:vram`, gpu?.memoryTotal ? (gpu.memoryUsed / gpu.memoryTotal) * 100 : m.live?.gpuMemory);
@@ -553,7 +554,7 @@ class OrbitIsland extends HTMLElement {
     };
     if (on) {
       const gpu = s?.gpus?.[0];
-      meter('CPU', 'cpu', pct(s?.cpu?.percent ?? m.live?.cpu));
+      meter('CPU', 'cpu', pct(m.live?.cpu ?? s?.cpu?.percent));
       meter('Memory', 'mem', s?.memory ? `${gb(s.memory.used)} / ${gb(s.memory.total)}` : pct(m.live?.memory));
       if (gpu || m.live?.gpu != null) {
         meter('GPU', 'gpu', `${pct(gpu?.percent ?? m.live?.gpu)}${gpu?.temperature != null ? ` · ${gpu.temperature}°` : ''}`);
