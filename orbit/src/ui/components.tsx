@@ -185,6 +185,8 @@ export function Sheet({
     grab.current = null;
     const sheet = ref.current;
     if (!g || !sheet) return;
+    // A stale sample (finger held still before letting go) means no throw.
+    if (e.timeStamp - g.t > 80) g.v = 0;
     if (g.dy > 110 || g.v > 0.7) return close(g.dy, 600);
     // Spring back with the `flick` spring, starting at the speed your finger was moving.
     const back = springValue({

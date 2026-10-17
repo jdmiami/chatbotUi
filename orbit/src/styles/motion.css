@@ -42,7 +42,6 @@
 :root {
   --sx: calc(var(--tx, 0) * -3px);
   --sy: calc(var(--ty, 0) * -3px);
-  --lit: inset 0 1px 0 rgb(255 255 255 / 0.16), inset 0 -1px 0 rgb(0 0 0 / 0.12);
   --depth-1: var(--lit), calc(1px + var(--sx)) calc(2px + var(--sy)) 4px rgb(0 0 0 / 0.22), calc(2px + var(--sx) * 2) calc(6px + var(--sy) * 2) 14px rgb(0 0 0 / 0.18);
   --depth-1-pressed: var(--lit), 0 1px 2px rgb(0 0 0 / 0.3);
   --depth-2: var(--lit), calc(2px + var(--sx) * 2) calc(4px + var(--sy) * 2) 8px rgb(0 0 0 / 0.22), calc(4px + var(--sx) * 3) calc(14px + var(--sy) * 3) 30px rgb(0 0 0 / 0.24);
@@ -50,7 +49,6 @@
   --depth-4: var(--lit), 3px 10px 20px rgb(0 0 0 / 0.25), 10px 32px 70px rgb(0 0 0 / 0.4);
 }
 :root[data-theme='light'] {
-  --lit: inset 0 1px 0 rgb(255 255 255 / 0.9), inset 0 -1px 0 rgb(15 23 42 / 0.06);
   --depth-1: var(--lit), calc(1px + var(--sx)) calc(2px + var(--sy)) 4px rgb(15 23 42 / 0.1), calc(2px + var(--sx) * 2) calc(6px + var(--sy) * 2) 14px rgb(15 23 42 / 0.1);
   --depth-1-pressed: var(--lit), 0 1px 2px rgb(15 23 42 / 0.14);
   --depth-2: var(--lit), calc(2px + var(--sx) * 2) calc(4px + var(--sy) * 2) 8px rgb(15 23 42 / 0.1), calc(4px + var(--sx) * 3) calc(14px + var(--sy) * 3) 30px rgb(15 23 42 / 0.14);

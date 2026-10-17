@@ -430,6 +430,8 @@ test.describe('AI app with full motion', () => {
     // The orb swells while you type.
     const hello = page.locator('.ai-hello');
     await expect(hello).toHaveAttribute('data-typing', 'false');
+    // On Full motion the orb is the GPU liquid sphere (the CSS orb is the fallback).
+    await expect(page.locator('canvas.ai-orb-gpu[data-live="true"]')).toHaveCount(1);
     await page.getByRole('textbox', { name: 'Message' }).fill('Hello there');
     await expect(hello).toHaveAttribute('data-typing', 'true');
 

@@ -118,6 +118,7 @@ test.describe('motion levels', () => {
     await page.mouse.move(x, y);
     await page.mouse.down();
     await page.mouse.move(x, y + 50, { steps: 6 });
+    await page.waitForTimeout(150); // held still, then let go: no throw
     await page.mouse.up();
     await expect(sheet).toBeVisible();
     await expect.poll(() => page.locator('.sheet').evaluate((el) => el.style.transform)).toBe('');
@@ -163,6 +164,17 @@ test.describe('motion levels', () => {
     expect(after.bg).not.toBe(before.bg);
     expect(after.shadow).not.toBe(before.shadow);
     await expectNoHorizontalOverflow(page);
+  });
+
+  test('liquid glass: floating panes blur what is behind and carry a lit rim', async ({ page }) => {
+    await open(page, 'full');
+    const look = await dock(page).evaluate((el) => {
+      const cs = getComputedStyle(el);
+      return { blur: cs.backdropFilter || (cs as unknown as Record<string, string>).webkitBackdropFilter, shadow: cs.boxShadow, bg: cs.backgroundImage };
+    });
+    expect(look.blur).toContain('blur(26px)');
+    expect(look.shadow).toContain('inset');
+    expect(look.bg).toContain('radial-gradient');
   });
 
   test('full: sheets grow out of the button you tapped', async ({ page }) => {
@@ -220,10 +232,30 @@ test.describe('motion levels', () => {
     await page.getByRole('button', { name: /Show details/ }).click();
     expect(await page.locator('.sheet').evaluate((el) => getComputedStyle(el).animationName)).toBe('mo-xfade');
     await page.keyboard.press('Escape');
+    // Sample the window every frame while it opens: it fades, but never moves or scales.
+    const sampled = page.evaluate(
+      () =>
+        new Promise<{ minOpacity: number; moved: boolean }>((res) => {
+          let minOpacity = 1;
+          let moved = false;
+          const start = performance.now();
+          const tick = () => {
+            const el = document.querySelector('.app-window[data-app="terminal"]');
+            if (el) {
+              const cs = getComputedStyle(el);
+              minOpacity = Math.min(minOpacity, Number(cs.opacity));
+              if (cs.transform !== 'none' && cs.transform !== 'matrix(1, 0, 0, 1, 0, 0)') moved = true;
+            }
+            if (performance.now() - start < 600) requestAnimationFrame(tick);
+            else res({ minOpacity, moved });
+          };
+          requestAnimationFrame(tick);
+        }),
+    );
     await page.getByRole('button', { name: /^Terminal\./ }).click();
-    const t = await terminalWindow(page).evaluate((el) => ({ o: Number(getComputedStyle(el).opacity), tr: getComputedStyle(el).transform }));
-    expect(t.o).toBeLessThan(1);
-    expect(t.tr === 'none' || t.tr === 'matrix(1, 0, 0, 1, 0, 0)').toBe(true);
+    const t = await sampled;
+    expect(t.minOpacity).toBeLessThan(1);
+    expect(t.moved).toBe(false);
     await expect.poll(() => terminalWindow(page).evaluate((el) => getComputedStyle(el).opacity)).toBe('1');
   });
 });

@@ -8,13 +8,17 @@ import { useMotionLevel } from '../motion/MotionProvider';
  * tilt changes, only on the home screen, only on Full motion, and stops when the tab is hidden.
  */
 const VERT = `attribute vec2 p; varying vec2 uv; void main(){ uv = p * 0.5 + 0.5; gl_Position = vec4(p, 0.0, 1.0); }`;
-const FRAG = `precision mediump float;
+const FRAG = `#ifdef GL_FRAGMENT_PRECISION_HIGH
+precision highp float;
+#else
+precision mediump float;
+#endif
 varying vec2 uv;
 uniform vec2 tilt;
 uniform vec2 res;
 uniform vec3 accent;
 uniform float strength;
-float hash(vec2 q){ return fract(sin(dot(q, vec2(12.9898, 78.233))) * 43758.5453); }
+float hash(vec2 q){ vec3 p3 = fract(vec3(q.xyx) * 0.1031); p3 += dot(p3, p3.yzx + 33.33); return fract((p3.x + p3.y) * p3.z); }
 void main(){
   vec2 a = vec2(res.x / res.y, 1.0);
   vec2 q = vec2(uv.x, 1.0 - uv.y) * a;
@@ -78,9 +82,8 @@ export function HomeLight({ active }: { active: boolean }) {
     let w = 0;
     let h = 0;
     const size = () => {
-      const r = canvas.getBoundingClientRect();
-      w = Math.max(1, Math.round(r.width * 0.5));
-      h = Math.max(1, Math.round(r.height * 0.5));
+      w = Math.max(1, Math.round(canvas.clientWidth * 0.5));
+      h = Math.max(1, Math.round(canvas.clientHeight * 0.5));
       canvas.width = w;
       canvas.height = h;
       gl.viewport(0, 0, w, h);
