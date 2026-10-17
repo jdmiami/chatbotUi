@@ -81,9 +81,12 @@ export interface StudioRequest {
   fromItem?: string;
 }
 
+export type ContentPart = { type: 'text'; text: string } | { type: 'image_url'; image_url: { url: string } };
+
 export interface ChatMessage {
   role: 'system' | 'user' | 'assistant';
-  content: string;
+  /** Text, or text plus photos for models that can see. */
+  content: string | ContentPart[];
 }
 
 export interface StreamHandlers {

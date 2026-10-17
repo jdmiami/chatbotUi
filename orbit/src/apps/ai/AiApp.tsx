@@ -6,7 +6,11 @@ import { Icon } from '../../ui/Icon';
 import { AppHeader, ConfirmSheet, IconButton, Segmented, Sheet } from '../../ui/components';
 import { MessageBody } from '../agent/Transcript';
 import { AiError, getLocalAi, type AiMachineStatus, type ChatMessage } from '../../services/ai/LocalAi';
-import { loadChats, saveChats, newChat, titleFrom, type AiChat, type AiChatStore } from './chats';
+import { loadChats, saveChats, newChat, titleFrom, toHistory, shown, branchChat, type AiChat, type AiChatStore, type AiMessage } from './chats';
+import { readAttachment, type Attachment } from './attach';
+import { addFact, loadMemory, personaById, saveMemory, systemPrompt, type MemoryStore } from './memory';
+import { Canvas } from './Canvas';
+import { MemorySheet } from './MemorySheet';
 import { cue } from '../../motion/feedback';
 import { CreateView } from './CreateView';
 import { ModelPicker, ModelStore, useModelList } from './models';
@@ -91,6 +95,21 @@ export default function AiApp({ isActive, compact, placement }: AppProps) {
       return 'chat';
     }
   });
+  const [memory, setMemoryState] = useState<MemoryStore>(() => loadMemory());
+  const setMemory = useCallback((fn: (m: MemoryStore) => MemoryStore) => {
+    setMemoryState((prev) => {
+      const next = fn(prev);
+      saveMemory(next);
+      return next;
+    });
+  }, []);
+  const [memoryOpen, setMemoryOpen] = useState(false);
+  const [attachments, setAttachments] = useState<Attachment[]>([]);
+  const [pictureMode, setPictureMode] = useState(false);
+  const [editing, setEditing] = useState<number | null>(null);
+  const [canvasFor, setCanvasFor] = useState<number | null>(null);
+  const [compareFor, setCompareFor] = useState<number | null>(null);
+  const fileInput = useRef<HTMLInputElement>(null);
   const abort = useRef<AbortController | null>(null);
   const scroller = useRef<HTMLDivElement>(null);
   const input = useRef<HTMLTextAreaElement>(null);
@@ -190,21 +209,45 @@ export default function AiApp({ isActive, compact, placement }: AppProps) {
     setTimeout(() => input.current?.focus(), 0);
   };
 
-  const run = async (chatId: string, history: ChatMessage[], useModel: string) => {
+  /**
+   * Stream a reply. By default it is a new message at the end; with `alt` it is another model's
+   * answer to message `alt.index` (Compare), shown next to the first one.
+   */
+  const run = async (chatId: string, history: ChatMessage[], useModel: string, alt?: { index: number }) => {
     const ctrl = new AbortController();
     abort.current = ctrl;
     setBusy(true);
-    const patchLast = (fn: (m: AiChat['messages'][number]) => AiChat['messages'][number]) =>
+    let altSlot = -1;
+    const patchLast = (fn: (m: AiMessage) => AiMessage) =>
       update((s) => ({
         ...s,
-        chats: s.chats.map((c) => (c.id === chatId ? { ...c, messages: [...c.messages.slice(0, -1), fn(c.messages[c.messages.length - 1])], updatedAt: Date.now() } : c)),
+        chats: s.chats.map((c) => {
+          if (c.id !== chatId) return c;
+          if (!alt) return { ...c, messages: [...c.messages.slice(0, -1), fn(c.messages[c.messages.length - 1])], updatedAt: Date.now() };
+          return {
+            ...c,
+            updatedAt: Date.now(),
+            messages: c.messages.map((m, i) => (i === alt.index ? { ...m, alts: (m.alts ?? []).map((a, j) => (j === altSlot ? fn(a) : a)) } : m)),
+          };
+        }),
       }));
-    update((s) => ({
-      ...s,
-      chats: s.chats.map((c) =>
-        c.id === chatId ? { ...c, messages: [...c.messages, { role: 'assistant', content: '', streaming: true, model: useModel }] } : c,
-      ),
-    }));
+    const fresh: AiMessage = { role: 'assistant', content: '', streaming: true, model: useModel };
+    if (alt) {
+      const target = store.chats.find((c) => c.id === chatId)?.messages[alt.index];
+      altSlot = target?.alts?.length ?? 0;
+      update((s) => ({
+        ...s,
+        chats: s.chats.map((c) =>
+          c.id === chatId
+            ? { ...c, messages: c.messages.map((m, i) => (i === alt.index ? { ...m, alts: [...(m.alts ?? []), fresh], pick: altSlot + 1 } : m)) }
+            : c,
+        ),
+      }));
+    } else
+      update((s) => ({
+        ...s,
+        chats: s.chats.map((c) => (c.id === chatId ? { ...c, messages: [...c.messages, fresh] } : c)),
+      }));
     const t0 = Date.now();
     setStartedAt(t0);
     setNow(t0);
@@ -255,39 +298,90 @@ export default function AiApp({ isActive, compact, placement }: AppProps) {
     }
   };
 
+  const instructions = (c: AiChat | null) => systemPrompt(memory, c?.persona ?? memory.defaultPersona, c?.system);
+
+  /** Create from chat: the message becomes a picture made by the image maker, shown in the chat. */
+  const makePicture = async (chatId: string, prompt: string) => {
+    const ctrl = new AbortController();
+    abort.current = ctrl;
+    setBusy(true);
+    const patchLast = (fn: (m: AiMessage) => AiMessage) =>
+      update((s) => ({
+        ...s,
+        chats: s.chats.map((c) => (c.id === chatId ? { ...c, messages: [...c.messages.slice(0, -1), fn(c.messages[c.messages.length - 1])], updatedAt: Date.now() } : c)),
+      }));
+    update((s) => ({
+      ...s,
+      chats: s.chats.map((c) =>
+        c.id === chatId ? { ...c, messages: [...c.messages, { role: 'assistant', content: '', streaming: true, model: 'Image maker', picture: { url: '', prompt, progress: 0 } }] } : c,
+      ),
+    }));
+    let jobId = '';
+    try {
+      let job = await ai.createStudioJob({ kind: 'image', prompt, size: 'square' });
+      jobId = job.id;
+      const onAbort = () => void ai.cancelStudioJob(jobId).catch(() => {});
+      ctrl.signal.addEventListener('abort', onAbort);
+      while (job.status === 'queued' || job.status === 'running') {
+        patchLast((m) => ({ ...m, picture: { ...m.picture!, jobId, progress: job.progress } }));
+        await new Promise((r) => setTimeout(r, 2000));
+        if (ctrl.signal.aborted) throw new Error('stopped');
+        job = await ai.studioJob(jobId);
+      }
+      if (job.status !== 'done' || !job.item) throw new AiError(job.error || 'The picture could not be made.');
+      const url = job.item.url;
+      cue('done');
+      patchLast((m) => ({ ...m, streaming: false, picture: { url, prompt, jobId, progress: 100 } }));
+    } catch (err) {
+      const stopped = ctrl.signal.aborted;
+      if (!stopped) cue('error');
+      patchLast((m) => ({ ...m, streaming: false, stopped, error: stopped ? undefined : (err as Error).message }));
+    } finally {
+      abort.current = null;
+      setBusy(false);
+    }
+  };
+
   const send = async () => {
     const text = draft.trim();
-    if (!text || busy) return;
+    if ((!text && !attachments.length) || busy) return;
     if (!ready) {
       toast('Turn on your AI machine first.', 'info');
       return;
     }
-    if (!model) {
+    if (!model && !pictureMode) {
       toast('No model yet: the AI machine is still downloading them.', 'info');
+      return;
+    }
+    const images = attachments.flatMap((a) => (a.kind === 'image' ? [a.dataUrl] : []));
+    const files = attachments.flatMap((a) => (a.kind === 'file' ? [{ name: a.name, text: a.text }] : []));
+    if (images.length && !pictureMode && modelInfo && !modelInfo.vision) {
+      const seeing = installed?.find((m) => m.vision)?.name;
+      toast(`${model} can't see photos. ${seeing ? `Switch to ${seeing}` : 'Add a model that sees pictures from the model store'} to ask about them.`, 'info');
       return;
     }
     let target = chat;
     if (!target) {
-      target = newChat(model);
+      target = { ...newChat(model), persona: memory.defaultPersona };
       const created = target;
       update((s) => ({ ...s, chats: [created, ...s.chats], activeId: created.id }));
     }
     const chatId = target.id;
-    const history: ChatMessage[] = [
-      ...(target.system ? [{ role: 'system' as const, content: target.system }] : []),
-      ...target.messages.filter((m) => !m.error && m.content).map((m) => ({ role: m.role, content: m.content })),
-      { role: 'user', content: text },
-    ];
+    // Editing a message: everything from it onwards is replaced by the new version.
+    const before = editing != null ? target.messages.slice(0, editing) : target.messages;
+    const userMsg: AiMessage = { role: 'user', content: text, ...(images.length ? { images } : {}), ...(files.length ? { files } : {}) };
     update((s) => ({
       ...s,
-      model,
+      model: model || s.model,
       chats: s.chats.map((c) =>
         c.id === chatId
-          ? { ...c, model, title: c.messages.length ? c.title : titleFrom(text), messages: [...c.messages, { role: 'user', content: text }], updatedAt: Date.now() }
+          ? { ...c, model: model || c.model, title: before.length ? c.title : titleFrom(text || attachments[0]?.name || 'Photo'), messages: [...before, userMsg], updatedAt: Date.now() }
           : c,
       ),
     }));
     setDraft('');
+    setAttachments([]);
+    setEditing(null);
     cue('send');
     const sendBtn = input.current?.closest('form')?.querySelector<HTMLElement>('.ai-send');
     if (sendBtn) {
@@ -297,18 +391,84 @@ export default function AiApp({ isActive, compact, placement }: AppProps) {
     if (input.current) input.current.style.height = '';
     follow.current = true;
     setAtBottom(true);
-    await run(chatId, history, model);
+    if (pictureMode) return makePicture(chatId, text);
+    await run(chatId, toHistory([...before, userMsg], instructions(target)), model);
+  };
+
+  const addFiles = async (list: FileList | File[] | null) => {
+    const picked = Array.from(list ?? []).slice(0, 6);
+    for (const f of picked) {
+      try {
+        const a = await readAttachment(f);
+        setAttachments((prev) => [...prev, a].slice(0, 6));
+      } catch (err) {
+        toast((err as Error).message, 'error');
+      }
+    }
+  };
+
+  const compareWith = async (other: string) => {
+    if (!chat || compareFor == null || busy) return;
+    const index = compareFor;
+    setCompareFor(null);
+    await run(chat.id, toHistory(chat.messages.slice(0, index), instructions(chat)), other, { index });
+  };
+
+  const pickAnswer = (index: number, pick: number) =>
+    update((s) => ({ ...s, chats: s.chats.map((c) => (c.id === s.activeId ? { ...c, messages: c.messages.map((m, i) => (i === index ? { ...m, pick } : m)) } : c)) }));
+
+  const branchFrom = (index: number) => {
+    if (!chat || busy) return;
+    const b = branchChat(chat, index);
+    update((s) => ({ ...s, chats: [b, ...s.chats], activeId: b.id }));
+    toast('Branched into a new chat. The original is unchanged.', 'success');
+  };
+
+  const editMessage = (index: number) => {
+    if (!chat || busy) return;
+    const m = chat.messages[index];
+    setEditing(index);
+    setDraft(m.content);
+    setAttachments([
+      ...(m.images ?? []).map((dataUrl, i) => ({ kind: 'image' as const, name: `photo ${i + 1}`, dataUrl })),
+      ...(m.files ?? []).map((f) => ({ kind: 'file' as const, ...f })),
+    ]);
+    setTimeout(() => {
+      if (input.current) {
+        input.current.focus();
+        grow(input.current);
+      }
+    }, 0);
+  };
+
+  const saveCanvas = (index: number, text: string) => {
+    update((s) => ({
+      ...s,
+      chats: s.chats.map((c) =>
+        c.id === s.activeId
+          ? {
+              ...c,
+              messages: c.messages.map((m, i) => {
+                if (i !== index) return m;
+                if (m.pick && m.alts?.[m.pick - 1]) return { ...m, alts: m.alts.map((a, j) => (j === m.pick! - 1 ? { ...a, content: text } : a)) };
+                return { ...m, content: text };
+              }),
+            }
+          : c,
+      ),
+    }));
+    setCanvasFor(null);
+    toast('Updated in the chat.', 'success');
   };
 
   const regenerate = async () => {
     if (!chat || busy) return;
-    const msgs = chat.messages[chat.messages.length - 1]?.role === 'assistant' ? chat.messages.slice(0, -1) : chat.messages;
+    const last = chat.messages[chat.messages.length - 1];
+    const msgs = last?.role === 'assistant' ? chat.messages.slice(0, -1) : chat.messages;
     update((s) => ({ ...s, chats: s.chats.map((c) => (c.id === chat.id ? { ...c, messages: msgs } : c)) }));
-    const history: ChatMessage[] = [
-      ...(chat.system ? [{ role: 'system' as const, content: chat.system }] : []),
-      ...msgs.filter((m) => !m.error && m.content).map((m) => ({ role: m.role, content: m.content })),
-    ];
-    await run(chat.id, history, model);
+    const prompt = msgs[msgs.length - 1];
+    if (last?.picture && prompt?.role === 'user') return makePicture(chat.id, prompt.content);
+    await run(chat.id, toHistory(msgs, instructions(chat)), model);
   };
 
   const onKey = (e: KeyboardEvent<HTMLTextAreaElement>) => {
@@ -374,6 +534,7 @@ export default function AiApp({ isActive, compact, placement }: AppProps) {
         actions={
           <>
             {mode === 'chat' && <IconButton icon="plus" label="New chat" onClick={startChat} disabled={busy} />}
+            {mode === 'chat' && <IconButton icon="user" label="Personas & memory" onClick={() => setMemoryOpen(true)} />}
             {mode === 'chat' && <IconButton icon="download" label="Model store" onClick={() => setStoreOpen(true)} disabled={!ready} />}
             <IconButton icon="external" label="Open the full AI playground" onClick={() => window.open('/ai', '_blank', 'noopener')} />
             <IconButton icon="code" label="Code with AI (VS Code)" onClick={() => window.open('/code', '_blank', 'noopener')} />
@@ -459,6 +620,11 @@ export default function AiApp({ isActive, compact, placement }: AppProps) {
               <div className="ai-hello" data-typing={draft.trim().length > 0}>
                 <AiOrb typing={draft.trim().length > 0} />
                 <h2>What can I help with?</h2>
+                {personaById(memory, chat?.persona ?? memory.defaultPersona).id !== 'default' && (
+                  <button type="button" className="ai-persona-badge" onClick={() => setMemoryOpen(true)}>
+                    <Icon name="user" size={14} /> {personaById(memory, chat?.persona ?? memory.defaultPersona).name}
+                  </button>
+                )}
                 <p className="ai-muted">
                   Private chat with your own models on your GPU machine. Nothing leaves it.
                 </p>
@@ -480,18 +646,37 @@ export default function AiApp({ isActive, compact, placement }: AppProps) {
                 </div>
               </div>
             ) : (
-              chat.messages.map((m, i) => {
+              chat.messages.map((orig, i) => {
+                const m = shown(orig);
                 const last = i === chat.messages.length - 1;
-                const waiting = m.streaming && !m.content && !m.reasoning;
+                const waiting = m.streaming && !m.content && !m.reasoning && !m.picture;
                 const waited = last && waiting ? Math.max(0, Math.round((now - startedAt) / 1000)) : 0;
+                const answers = orig.alts?.length ? [orig, ...orig.alts] : null;
                 return (
-                  <article key={i} className={`ai-msg ai-msg-${m.role}`}>
+                  <article key={i} className={`ai-msg ai-msg-${m.role}`} data-editing={editing === i || undefined}>
                     {m.role === 'assistant' && (
                       <div className="ai-msg-from">
                         <span className={`ai-avatar${m.streaming ? ' ai-avatar-live' : ''}`} aria-hidden>
-                          <Icon name="sparkle" size={14} />
+                          <Icon name={m.picture ? 'image' : 'sparkle'} size={14} />
                         </span>
                         <span>{m.model || chat.model || 'AI'}</span>
+                      </div>
+                    )}
+                    {answers && (
+                      <div className="ai-compare" role="tablist" aria-label="Answers from different models">
+                        {answers.map((a, j) => (
+                          <button
+                            key={j}
+                            type="button"
+                            role="tab"
+                            aria-selected={(orig.pick ?? 0) === j}
+                            className="ai-compare-tab"
+                            onClick={() => pickAnswer(i, j)}
+                          >
+                            {a.model || `Answer ${j + 1}`}
+                            {a.streaming && <span className="ai-dot ai-dot-starting" aria-hidden />}
+                          </button>
+                        ))}
                       </div>
                     )}
                     {m.role === 'assistant' && m.reasoning && (
@@ -505,7 +690,30 @@ export default function AiApp({ isActive, compact, placement }: AppProps) {
                       </details>
                     )}
                     {m.role === 'user' ? (
-                      <p className="ai-user-text">{m.content}</p>
+                      <>
+                        {(m.images?.length || m.files?.length) && (
+                          <div className="ai-attached">
+                            {m.images?.map((src, j) => <img key={j} src={src} alt={`Photo ${j + 1} you sent`} className="ai-attached-img" />)}
+                            {m.files?.map((f) => (
+                              <span key={f.name} className="ai-file-chip">
+                                <Icon name="file" size={14} /> {f.name}
+                              </span>
+                            ))}
+                          </div>
+                        )}
+                        {m.content && <p className="ai-user-text">{m.content}</p>}
+                      </>
+                    ) : m.picture ? (
+                      <figure className="ai-picture">
+                        {m.picture.url ? (
+                          <img src={m.picture.url} alt={m.picture.prompt} />
+                        ) : (
+                          <div className="ai-picture-wait" role="status">
+                            <span className="ai-shimmer">Making your picture… {Math.round(m.picture.progress ?? 0)}%</span>
+                          </div>
+                        )}
+                        <figcaption className="ai-muted">{m.picture.prompt}</figcaption>
+                      </figure>
                     ) : waiting ? (
                       <div className="ai-waiting" role="status">
                         <span className="ai-dots" aria-hidden>
@@ -522,16 +730,57 @@ export default function AiApp({ isActive, compact, placement }: AppProps) {
                     )}
                     {m.error && <p className="ai-error">{m.error}</p>}
                     {m.stopped && <p className="ai-muted">Stopped.</p>}
-                    {m.role === 'assistant' && !m.streaming && m.content && (
-                      <div className="ai-msg-actions">
-                        <button type="button" className="btn ghost small" onClick={() => onCopy(m.content, 'reply')}>
-                          <Icon name="copy" size={16} /> Copy
+                    {m.role === 'user' && !busy && (
+                      <div className="ai-msg-actions ai-msg-actions-user">
+                        <button type="button" className="btn ghost small" onClick={() => editMessage(i)}>
+                          <Icon name="pencil" size={16} /> Edit
                         </button>
-                        {last && (
+                        <button type="button" className="btn ghost small" onClick={() => branchFrom(i)}>
+                          <Icon name="split" size={16} /> Branch
+                        </button>
+                        {m.content && (
+                          <button
+                            type="button"
+                            className="btn ghost small"
+                            onClick={() => {
+                              setMemory((mem) => addFact(mem, m.content));
+                              toast('Remembered for future chats.', 'success');
+                            }}
+                          >
+                            <Icon name="history" size={16} /> Remember
+                          </button>
+                        )}
+                      </div>
+                    )}
+                    {m.role === 'assistant' && !m.streaming && (m.content || m.picture?.url) && (
+                      <div className="ai-msg-actions">
+                        {m.picture?.url ? (
+                          <a className="btn ghost small" href={`${m.picture.url}${m.picture.url.includes('?') ? '&' : '?'}download=1`} download>
+                            <Icon name="download" size={16} /> Save
+                          </a>
+                        ) : (
+                          <button type="button" className="btn ghost small" onClick={() => onCopy(m.content, 'reply')}>
+                            <Icon name="copy" size={16} /> Copy
+                          </button>
+                        )}
+                        {last && !orig.alts?.length && (
                           <button type="button" className="btn ghost small" onClick={() => void regenerate()} disabled={busy || !ready}>
                             <Icon name="refresh" size={16} /> Again
                           </button>
                         )}
+                        {!m.picture && (
+                          <>
+                            <button type="button" className="btn ghost small" onClick={() => setCompareFor(i)} disabled={busy || !ready}>
+                              <Icon name="switcher" size={16} /> Compare
+                            </button>
+                            <button type="button" className="btn ghost small" onClick={() => setCanvasFor(i)}>
+                              <Icon name="text" size={16} /> Canvas
+                            </button>
+                          </>
+                        )}
+                        <button type="button" className="btn ghost small" onClick={() => branchFrom(i)} disabled={busy}>
+                          <Icon name="split" size={16} /> Branch
+                        </button>
                         {m.stats && (
                           <span className="ai-stats" title={`${m.stats.tokens} tokens`}>
                             <Icon name="bolt" size={14} /> {Math.round(m.stats.perSecond)} tokens/s
@@ -557,8 +806,64 @@ export default function AiApp({ isActive, compact, placement }: AppProps) {
                 <Icon name="down" size={20} />
               </button>
             )}
-            <div className="ai-composer-card">
+            <div
+              className="ai-composer-card"
+              onDragOver={(e) => {
+                if (e.dataTransfer.types.includes('Files')) e.preventDefault();
+              }}
+              onDrop={(e) => {
+                if (!e.dataTransfer.files.length) return;
+                e.preventDefault();
+                void addFiles(e.dataTransfer.files);
+              }}
+            >
+              {editing != null && (
+                <div className="ai-editing" role="status">
+                  <Icon name="pencil" size={14} /> Editing your message. Sending replaces it and the replies after it.
+                  <button
+                    type="button"
+                    className="btn ghost small"
+                    onClick={() => {
+                      setEditing(null);
+                      setDraft('');
+                      setAttachments([]);
+                    }}
+                  >
+                    Cancel
+                  </button>
+                </div>
+              )}
+              {attachments.length > 0 && (
+                <ul className="ai-attachments" aria-label="Attached">
+                  {attachments.map((a, j) => (
+                    <li key={j} className="ai-attachment">
+                      {a.kind === 'image' ? <img src={a.dataUrl} alt={a.name} /> : <span className="ai-file-chip"><Icon name="file" size={14} /> {a.name}</span>}
+                      <button type="button" className="ai-attachment-x" aria-label={`Remove ${a.name}`} onClick={() => setAttachments((prev) => prev.filter((_, k) => k !== j))}>
+                        <Icon name="close" size={12} />
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+              <input
+                ref={fileInput}
+                type="file"
+                multiple
+                hidden
+                accept="image/*,text/*,.md,.csv,.json,.yaml,.yml,.toml,.xml,.html,.css,.js,.jsx,.ts,.tsx,.py,.rb,.go,.rs,.java,.kt,.swift,.c,.h,.cpp,.cs,.php,.sh,.sql,.log"
+                onChange={(e) => {
+                  void addFiles(e.target.files);
+                  e.target.value = '';
+                }}
+              />
               <textarea
+                onPaste={(e) => {
+                  const files = Array.from(e.clipboardData.files);
+                  if (files.length) {
+                    e.preventDefault();
+                    void addFiles(files);
+                  }
+                }}
                 ref={input}
                 value={draft}
                 onChange={(e) => {
@@ -567,11 +872,21 @@ export default function AiApp({ isActive, compact, placement }: AppProps) {
                 }}
                 onKeyDown={onKey}
                 rows={1}
-                placeholder={ready ? 'Message your model…' : 'Turn on your AI machine to chat'}
+                placeholder={!ready ? 'Turn on your AI machine to chat' : pictureMode ? 'Describe the picture to make…' : 'Message your model…'}
                 aria-label="Message"
                 enterKeyHint="send"
               />
               <div className="ai-composer-bar">
+                <IconButton icon="plus" label="Add photos or files" onClick={() => fileInput.current?.click()} disabled={pictureMode} />
+                <button
+                  type="button"
+                  className="ai-pill-toggle"
+                  aria-pressed={pictureMode}
+                  onClick={() => setPictureMode((v) => !v)}
+                  title="Make a picture from your message"
+                >
+                  <Icon name="image" size={16} /> <span>Picture</span>
+                </button>
                 <button
                   type="button"
                   className="ai-model-chip"
@@ -586,7 +901,7 @@ export default function AiApp({ isActive, compact, placement }: AppProps) {
                 {busy ? (
                   <IconButton icon="stop" label="Stop" className="ai-send ai-send-stop" onClick={() => abort.current?.abort()} />
                 ) : (
-                  <IconButton icon="send" label="Send" className="ai-send" type="submit" disabled={!draft.trim() || !ready} />
+                  <IconButton icon="send" label={pictureMode ? 'Make picture' : 'Send'} className="ai-send" type="submit" disabled={(!draft.trim() && (!attachments.length || pictureMode)) || !ready} />
                 )}
               </div>
             </div>
@@ -611,6 +926,43 @@ export default function AiApp({ isActive, compact, placement }: AppProps) {
             setStoreOpen(true);
           }}
           onClose={() => setPickerOpen(false)}
+        />
+      )}
+      {compareFor != null && (
+        <ModelPicker
+          ai={ai}
+          list={modelStore.list}
+          fallback={models}
+          current={shown(chat?.messages[compareFor] ?? { role: 'assistant', content: '' }).model ?? model}
+          onPick={(m) => void compareWith(m)}
+          onOpenStore={() => {
+            setCompareFor(null);
+            setStoreOpen(true);
+          }}
+          onClose={() => setCompareFor(null)}
+        />
+      )}
+      {canvasFor != null && chat?.messages[canvasFor] && (
+        <Canvas
+          ai={ai}
+          model={model}
+          initial={shown(chat.messages[canvasFor]).content}
+          onCopy={(t) => onCopy(t, 'document')}
+          onSave={(t) => saveCanvas(canvasFor, t)}
+          onClose={() => setCanvasFor(null)}
+        />
+      )}
+      {memoryOpen && (
+        <MemorySheet
+          memory={memory}
+          setMemory={setMemory}
+          chatPersona={chat ? (chat.persona ?? memory.defaultPersona) : null}
+          setChatPersona={
+            chat
+              ? (id) => update((s) => ({ ...s, chats: s.chats.map((c) => (c.id === chat.id ? { ...c, persona: id } : c)) }))
+              : null
+          }
+          onClose={() => setMemoryOpen(false)}
         />
       )}
       {storeOpen && <ModelStore ai={ai} list={modelStore.list} refresh={modelStore.refresh} onClose={() => setStoreOpen(false)} />}

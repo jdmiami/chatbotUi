@@ -458,3 +458,149 @@ test.describe('AI app with full motion', () => {
     expect(errors).toEqual([]);
   });
 });
+
+/** Every chat request the AI machine received, as JSON. */
+async function recordChats(page: Page, reply = REPLY) {
+  const bodies: { model: string; messages: { role: string; content: unknown }[] }[] = [];
+  await page.route('**/fake-ai/v1/chat/completions', (route) => {
+    bodies.push(route.request().postDataJSON());
+    return route.fulfill({ status: 200, headers: { 'content-type': 'text/event-stream' }, body: sse(reply) });
+  });
+  return bodies;
+}
+
+async function sendText(page: Page, text: string) {
+  await page.getByRole('textbox', { name: 'Message' }).fill(text);
+  await page.getByRole('button', { name: 'Send' }).click();
+  await expect(page.locator('.ai-msg-assistant').last()).toContainText('Done.');
+}
+
+test.describe('AI app: chat powers', () => {
+  test('photos and files go with the message; the model sees them', async ({ page }) => {
+    await mockAi(page, 'on');
+    const bodies = await recordChats(page);
+    const errors = await openOrbit(page);
+    await openAi(page);
+    await page.locator('.ai-composer input[type=file]').setInputFiles([
+      { name: 'cat.png', mimeType: 'image/png', buffer: PNG },
+      { name: 'notes.txt', mimeType: 'text/plain', buffer: Buffer.from('Buy milk.\nCall Sam.') },
+    ]);
+    const chips = page.getByRole('list', { name: 'Attached' });
+    await expect(chips.locator('li')).toHaveCount(2);
+    await page.getByRole('textbox', { name: 'Message' }).fill('What is in these?');
+    await page.getByRole('button', { name: 'Send' }).click();
+    await expect(page.locator('.ai-msg-assistant').last()).toContainText('Done.');
+    await expect(page.locator('.ai-msg-user .ai-attached-img')).toHaveCount(1);
+    await expect(page.locator('.ai-msg-user .ai-file-chip')).toContainText('notes.txt');
+    const user = bodies[0].messages.find((m) => m.role === 'user')!;
+    const parts = user.content as { type: string; text?: string; image_url?: { url: string } }[];
+    expect(parts[0].text).toContain('File: notes.txt');
+    expect(parts[0].text).toContain('Call Sam.');
+    expect(parts[0].text).toContain('What is in these?');
+    expect(parts[1].image_url!.url).toMatch(/^data:image\/jpeg;base64,/);
+    await expectNoHorizontalOverflow(page);
+    expect(errors).toEqual([]);
+  });
+
+  test('edit a message to replace the replies after it; branch into a new chat', async ({ page }) => {
+    await mockAi(page, 'on');
+    const bodies = await recordChats(page);
+    await openOrbit(page);
+    await openAi(page);
+    await sendText(page, 'First try');
+    await sendText(page, 'Second question');
+    await expect(page.locator('.ai-msg')).toHaveCount(4);
+
+    await page.locator('.ai-msg-user').first().getByRole('button', { name: 'Edit' }).click();
+    await expect(page.getByText(/Editing your message/)).toBeVisible();
+    await expect(page.getByRole('textbox', { name: 'Message' })).toHaveValue('First try');
+    await sendText(page, 'Better first try');
+    await expect(page.locator('.ai-msg')).toHaveCount(2);
+    await expect(page.locator('.ai-user-text')).toHaveText(['Better first try']);
+    expect(bodies[2].messages.filter((m) => m.role === 'user').map((m) => m.content)).toEqual(['Better first try']);
+
+    await page.locator('.ai-msg-assistant').first().getByRole('button', { name: 'Branch' }).click();
+    await expect(page.getByText('Branched into a new chat.')).toBeVisible();
+    await expect(page.locator('.ai-msg')).toHaveCount(2);
+  });
+
+  test('compare two models on the same question, and pick the answer to keep', async ({ page }) => {
+    await mockAi(page, 'on');
+    const bodies = await recordChats(page);
+    await openOrbit(page);
+    await openAi(page);
+    await sendText(page, 'Which is better?');
+    await page.locator('.ai-msg-assistant').getByRole('button', { name: 'Compare' }).click();
+    const picker = page.getByRole('dialog', { name: 'Choose a model' });
+    await picker.getByRole('button', { name: /^qwen3\.6:35b/ }).click();
+    const tabs = page.getByRole('tablist', { name: 'Answers from different models' });
+    await expect(tabs.getByRole('tab')).toHaveCount(2);
+    await expect(tabs.getByRole('tab', { selected: true })).toContainText('qwen3.6:35b');
+    await expect(page.locator('.ai-msg-assistant .ai-msg-from')).toContainText('qwen3.6:35b');
+    expect(bodies[1].model).toBe('qwen3.6:35b');
+    expect(bodies[1].messages.at(-1)).toMatchObject({ role: 'user', content: 'Which is better?' });
+    await tabs.getByRole('tab').first().click();
+    await expect(tabs.getByRole('tab').first()).toHaveAttribute('aria-selected', 'true');
+    await expectNoHorizontalOverflow(page);
+  });
+
+  test('canvas: rework a reply and put it back in the chat', async ({ page }) => {
+    await mockAi(page, 'on');
+    await recordChats(page, 'A long first draft about the sea.');
+    await openOrbit(page);
+    await openAi(page);
+    await page.getByRole('textbox', { name: 'Message' }).fill('Write about the sea');
+    await page.getByRole('button', { name: 'Send' }).click();
+    await expect(page.locator('.ai-msg-assistant').last()).toContainText('first draft');
+    await page.locator('.ai-msg-assistant').getByRole('button', { name: 'Canvas' }).click();
+    const doc = page.getByRole('textbox', { name: 'Document' });
+    await expect(doc).toHaveValue('A long first draft about the sea.');
+    await recordChats(page, 'Short sea poem.');
+    await page.getByRole('button', { name: 'Shorter' }).click();
+    await expect(doc).toHaveValue('Short sea poem.');
+    await page.getByRole('button', { name: 'Undo' }).click();
+    await expect(doc).toHaveValue('A long first draft about the sea.');
+    await doc.fill('My own edit.');
+    await page.getByRole('button', { name: 'Put back in chat' }).click();
+    await expect(page.locator('.ai-msg-assistant').last()).toContainText('My own edit.');
+  });
+
+  test('personas and memory shape every chat', async ({ page }) => {
+    await mockAi(page, 'on');
+    const bodies = await recordChats(page);
+    await openOrbit(page);
+    await openAi(page);
+    await page.getByRole('button', { name: 'Personas & memory' }).click();
+    const sheet = page.getByRole('dialog', { name: 'Personas & memory' });
+    await sheet.getByRole('radio', { name: /^Coder/ }).click();
+    await sheet.getByRole('textbox', { name: 'Something to remember' }).fill('My name is Johnny');
+    await sheet.getByRole('button', { name: 'Remember' }).click();
+    await expect(sheet.getByText('My name is Johnny')).toBeVisible();
+    await page.keyboard.press('Escape');
+    await expect(page.getByRole('button', { name: 'Coder' })).toBeVisible();
+    await sendText(page, 'Hi');
+    const system = bodies[0].messages[0];
+    expect(system.role).toBe('system');
+    expect(String(system.content)).toContain('senior software engineer');
+    expect(String(system.content)).toContain('My name is Johnny');
+    // Remember straight from a message.
+    await page.locator('.ai-msg-user').getByRole('button', { name: 'Remember' }).click();
+    await expect(page.getByText('Remembered for future chats.')).toBeVisible();
+  });
+
+  test('picture from chat: the image maker answers in the conversation', async ({ page }) => {
+    await mockAi(page, 'on');
+    const studio = await mockStudio(page);
+    await openOrbit(page);
+    await openAi(page);
+    await page.getByRole('button', { name: 'Picture' }).click();
+    await page.getByRole('textbox', { name: 'Message' }).fill('a lighthouse at dusk');
+    await page.getByRole('button', { name: 'Make picture' }).click();
+    const pic = page.locator('.ai-picture img');
+    await expect(pic).toBeVisible({ timeout: 10_000 });
+    await expect(pic).toHaveAttribute('alt', 'a lighthouse at dusk');
+    expect(studio.requests[0]).toMatchObject({ kind: 'image', prompt: 'a lighthouse at dusk' });
+    await expect(page.locator('.ai-msg-assistant').getByRole('link', { name: 'Save' })).toBeVisible();
+    await expectNoHorizontalOverflow(page);
+  });
+});
