@@ -242,3 +242,19 @@ test('gate studio: OpenAI-style image endpoint for the playground returns the pi
   const body = await r.json();
   assert.equal(Buffer.from(body.data[0].b64_json, 'base64').toString(), 'IMG');
 });
+
+test('studio: "make it move" starts a video from a gallery picture without re-uploading it', async () => {
+  const { dir, state, studio } = await newStudio();
+  await fs.mkdir(path.join(dir, 'output', 'orbit'), { recursive: true });
+  await fs.writeFile(path.join(dir, 'output', 'orbit', 'image-abc_00001_.png'), 'PNG');
+  await fs.writeFile(
+    path.join(dir, 'output', 'orbit', 'pic123.json'),
+    JSON.stringify({ id: 'pic123', kind: 'image', prompt: 'a fox', file: 'orbit/image-abc_00001_.png', createdAt: '2026-10-16T00:00:00Z' }),
+  );
+  const job = await studio.createJob({ kind: 'video', prompt: 'the fox runs', fromItem: 'pic123' });
+  assert.equal(job.status, 'queued');
+  const wf = state.prompts[0];
+  assert.equal(wf['20'].class_type, 'LoadImage');
+  assert.equal(await fs.readFile(path.join(dir, 'input', wf['20'].inputs.image), 'utf8'), 'PNG');
+  await assert.rejects(studio.createJob({ kind: 'video', prompt: 'x', fromItem: 'gone99' }), (err) => err.status === 404);
+});

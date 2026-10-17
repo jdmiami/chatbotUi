@@ -256,6 +256,18 @@ export function createStudio(o) {
     };
   }
 
+  /** Use a picture from the gallery as a video's first frame ("make it move"). */
+  async function copyFromGallery(id) {
+    const it = await readItem(id);
+    if (!it || it.kind !== 'image') throw Object.assign(new Error('That picture is no longer in your gallery.'), { status: 404 });
+    const src = path.resolve(path.join(dir, 'output'), it.file);
+    if (!src.startsWith(path.join(dir, 'output') + path.sep)) throw Object.assign(new Error('Not found'), { status: 404 });
+    const name = `orbit-${newId()}${path.extname(src).toLowerCase() || '.png'}`;
+    await fsp.mkdir(path.join(dir, 'input'), { recursive: true });
+    await fsp.copyFile(src, path.join(dir, 'input', name));
+    return name;
+  }
+
   async function saveUpload(dataUrl) {
     const m = /^data:image\/(png|jpe?g|webp);base64,([A-Za-z0-9+/=\s]+)$/.exec(String(dataUrl || ''));
     if (!m) throw Object.assign(new Error('The starting picture must be a PNG, JPEG or WebP image.'), { status: 400 });
@@ -270,7 +282,7 @@ export function createStudio(o) {
   }
 
   /**
-   * Start a job. req: { kind: 'image'|'video', prompt, size?, seconds?, image? (data URL) }.
+   * Start a job. req: { kind: 'image'|'video', prompt, size?, seconds?, image? (data URL), fromItem? (gallery id) }.
    * Throws errors with .status for bad requests.
    */
   async function createJob(req) {
@@ -287,7 +299,7 @@ export function createStudio(o) {
     const [width, height] = sizes[req.size] || Object.values(sizes)[0];
     const seconds = kind === 'video' ? Math.min(10, Math.max(2, Math.round(Number(req.seconds) || 5))) : undefined;
     const id = newId();
-    const image = kind === 'video' && req.image ? await saveUpload(req.image) : null;
+    const image = kind !== 'video' ? null : req.fromItem ? await copyFromGallery(String(req.fromItem)) : req.image ? await saveUpload(req.image) : null;
     const prefix = `orbit/${kind}-${id}`;
     const workflow = kind === 'video' ? videoWorkflow({ prompt, width, height, seconds, image, prefix }) : imageWorkflow({ prompt, width, height, prefix });
 
@@ -441,6 +453,14 @@ export function createStudio(o) {
       t.unref?.();
     },
     busy: () => download.running || active().length > 0,
+    /** A chat needs the GPU: hand it back from ComfyUI now if nothing is being made. */
+    async yieldGpu() {
+      if (!comfyHoldsGpu || active().length) return;
+      comfyHoldsGpu = false;
+      await comfyJson('/free', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ unload_models: true, free_memory: true }) }).catch(
+        () => {},
+      );
+    },
     state,
     createJob,
     job: (id) => (jobs.has(id) ? publicJob(jobs.get(id)) : null),

@@ -143,7 +143,8 @@ test('model API: needs a bearer token, checks the origin, streams through withou
     body: '{"stream":true}',
   });
   assert.equal(res.status, 200);
-  assert.equal(await res.text(), 'data: one\n\ndata: two\n\n');
+  // Starts at once with a keep-alive comment (big models can take a while to load), then the reply.
+  assert.equal(await res.text(), ': loading\n\ndata: one\n\ndata: two\n\n');
   const h = seen.find((s) => s.to === 'ollama').headers;
   assert.equal(h.authorization, undefined);
   assert.equal(h.origin, undefined, 'Ollama would refuse a browser origin');
@@ -342,4 +343,26 @@ test('model keeper: like= gives an outside model the chat format of a library mo
     stream: false,
   });
   assert.ok(have.has('qwen3.8:27b'), 'the library model is kept');
+});
+
+test('model API: an error from the model arrives as a stream error event', async () => {
+  const fake = http.createServer((req, res) => {
+    res.writeHead(404, { 'content-type': 'application/json' });
+    res.end(JSON.stringify({ error: { message: 'model "nope" not found' } }));
+  });
+  const port = await listen(fake);
+  const g = createGate(
+    { secret: SECRET, webui: 'http://127.0.0.1:9', ollama: `http://127.0.0.1:${port}`, allowedOrigins: SITE, siteUrl: SITE, status: async () => ({}) },
+    { warn() {}, info() {} },
+  );
+  const gb = `http://127.0.0.1:${await listen(g)}`;
+  const res = await fetch(`${gb}/v1/chat/completions`, {
+    method: 'POST',
+    headers: { authorization: `Bearer ${apiToken()}`, 'content-type': 'application/json' },
+    body: '{"model":"nope","stream":true}',
+  });
+  assert.equal(res.status, 200);
+  assert.match(await res.text(), /data: \{"error":\{"message":"model \\"nope\\" not found"\}\}/);
+  g.close();
+  fake.close();
 });

@@ -256,6 +256,7 @@ export function createGate(cfg, log = console) {
       delete req.headers.authorization;
       delete req.headers.origin;
       delete req.headers.referer;
+      if (req.method === 'POST' && path === '/v1/chat/completions') return streamChat(req, res);
       return proxy(req, res, ollama, req.url, null);
     }
 
@@ -272,6 +273,66 @@ export function createGate(cfg, log = console) {
     if (req.method !== 'GET' && req.method !== 'HEAD') activity();
     return proxy(req, res, webui, req.url, user);
   });
+
+  // A chat reply. Loading a big model from storage can take longer than Runpod's proxy waits for
+  // a silent connection (100 s), so streamed replies start right away and send SSE comments until
+  // the model answers; errors then arrive as an SSE error event.
+  async function streamChat(req, res) {
+    let raw;
+    try {
+      raw = await readBody(req, 20 * 1024 * 1024);
+    } catch (err) {
+      return send(res, err.status || 400, { error: { message: err.message } });
+    }
+    let streaming = false;
+    try {
+      streaming = JSON.parse(raw || '{}').stream === true;
+    } catch {
+      /* Ollama will say what's wrong */
+    }
+    await studio?.yieldGpu?.().catch(() => {});
+    const headers = { 'content-type': 'application/json', 'content-length': Buffer.byteLength(raw) };
+    if (!streaming) {
+      const up = http.request({ host: ollama.hostname, port: ollama.port, method: 'POST', path: req.url, headers }, (upRes) => {
+        res.writeHead(upRes.statusCode || 502, { 'content-type': upRes.headers['content-type'] || 'application/json' });
+        upRes.pipe(res);
+      });
+      up.on('error', () => (!res.headersSent ? send(res, 502, { error: { message: 'The AI service is still starting. Try again in a moment.' } }) : res.destroy()));
+      res.on('close', () => up.destroy());
+      return up.end(raw);
+    }
+    res.writeHead(200, { 'content-type': 'text/event-stream', 'cache-control': 'no-store', 'x-accel-buffering': 'no' });
+    res.write(': loading\n\n');
+    const ping = setInterval(() => res.write(': loading\n\n'), 10_000);
+    const fail = (message) => {
+      clearInterval(ping);
+      res.end(`data: ${JSON.stringify({ error: { message } })}\n\n`);
+    };
+    const up = http.request({ host: ollama.hostname, port: ollama.port, method: 'POST', path: req.url, headers }, (upRes) => {
+      clearInterval(ping);
+      if ((upRes.statusCode || 500) >= 400) {
+        let body = '';
+        upRes.on('data', (c) => (body += c));
+        upRes.on('end', () => {
+          let message = body.slice(0, 500) || `The model answered ${upRes.statusCode}.`;
+          try {
+            message = JSON.parse(body).error?.message || message;
+          } catch {
+            /* plain text */
+          }
+          fail(message);
+        });
+        return;
+      }
+      upRes.pipe(res);
+    });
+    up.on('error', () => fail('The AI service is still starting. Try again in a moment.'));
+    res.on('close', () => {
+      clearInterval(ping);
+      up.destroy();
+    });
+    up.end(raw);
+  }
 
   async function handleStudio(req, res, url, path) {
     const fileMatch = /^\/_orbit\/studio\/file\/([A-Za-z0-9_-]+)$/.exec(path);
@@ -346,6 +407,9 @@ export function createGate(cfg, log = console) {
     const headers = {
       'content-type': file.type,
       'accept-ranges': 'bytes',
+      // The same file is loaded by <img> (no Origin) and by fetch (with Origin): don't let a cached
+      // copy without CORS headers be reused for the other.
+      vary: 'Origin',
       'cache-control': 'private, max-age=86400',
       'content-disposition': `${download ? 'attachment' : 'inline'}; filename="${file.name}"`,
     };
