@@ -3,10 +3,14 @@ import { createRoot } from 'react-dom/client';
 import '@xterm/xterm/css/xterm.css';
 import './styles/tokens.css';
 import './styles/global.css';
+import './styles/motion.css';
 import { Boot } from './shell/Boot';
+import { MotionProvider } from './motion/MotionProvider';
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
-    <Boot />
+    <MotionProvider>
+      <Boot />
+    </MotionProvider>
   </StrictMode>,
 );

@@ -13,6 +13,9 @@ export const ACCENTS: { id: AccentId; label: string; color: string }[] = [
 ];
 
 /** Control Center: quick settings. Shows only real state (no fake connection or resource metrics). */
+const MOTION_NAME = { system: 'Auto', full: 'Full', lite: 'Lite', reduce: 'Off' } as const;
+const MOTION_NEXT = { system: 'full', full: 'lite', lite: 'reduce', reduce: 'system' } as const;
+
 export function ControlCenter() {
   const { settings, updateSettings, setOverlay, launch, split, setSplit, openSplit, activeApp } = useShell();
   const layout = useLayout();
@@ -56,12 +59,12 @@ export function ControlCenter() {
         <button
           type="button"
           className="cc-tile"
-          aria-pressed={settings.motion === 'reduce'}
-          onClick={() => updateSettings({ motion: settings.motion === 'reduce' ? 'system' : 'reduce' })}
+          aria-label={`Motion: ${MOTION_NAME[settings.motion]}. Tap to change.`}
+          onClick={() => updateSettings({ motion: MOTION_NEXT[settings.motion] })}
         >
           <Icon name="motion" />
-          <span className="cc-label">Reduce motion</span>
-          <span className="cc-value">{settings.motion === 'reduce' ? 'On' : 'System'}</span>
+          <span className="cc-label">Motion</span>
+          <span className="cc-value">{MOTION_NAME[settings.motion]}</span>
         </button>
 
         {layout.canSplit && (

@@ -6,6 +6,7 @@ import { useLayout } from '../state/viewport';
 import { useWorkspace } from '../state/workspace';
 import { Icon } from '../ui/Icon';
 import { IconButton, Sheet } from '../ui/components';
+import { useTilt } from '../motion/useTilt';
 
 /** Home screen: launch apps and resume recent work. No invented health/metrics, only real local data. */
 export function HomeScreen({ hidden }: { hidden: boolean }) {
@@ -13,6 +14,7 @@ export function HomeScreen({ hidden }: { hidden: boolean }) {
   const layout = useLayout();
   const { recentFiles, recentSessions, sendIntent } = useWorkspace();
   const [showConnection, setShowConnection] = useState(false);
+  const tilt = useTilt(5);
 
   return (
     <>
@@ -44,6 +46,8 @@ export function HomeScreen({ hidden }: { hidden: boolean }) {
                     key={id}
                     type="button"
                     className="app-icon"
+                    data-app-id={id}
+                    style={{ '--i': APP_ORDER.indexOf(id) } as React.CSSProperties}
                     onClick={() => launch(id)}
                     aria-label={`${app.name}. ${app.description}`}
                   >
@@ -77,7 +81,7 @@ export function HomeScreen({ hidden }: { hidden: boolean }) {
           </section>
 
           <div className="widgets">
-            <section className="widget glass" aria-labelledby="resume-files">
+            <section {...tilt} className={`widget glass ${tilt.className}`} aria-labelledby="resume-files">
               <h2 id="resume-files">Recent files</h2>
               {recentFiles.length === 0 ? (
                 <p className="muted" style={{ margin: 0 }}>
@@ -107,7 +111,7 @@ export function HomeScreen({ hidden }: { hidden: boolean }) {
               )}
             </section>
 
-            <section className="widget glass" aria-labelledby="resume-sessions">
+            <section {...tilt} className={`widget glass ${tilt.className}`} aria-labelledby="resume-sessions">
               <h2 id="resume-sessions">Recent Antigravity sessions</h2>
               {recentSessions.length === 0 ? (
                 <p className="muted" style={{ margin: 0 }}>
@@ -137,7 +141,7 @@ export function HomeScreen({ hidden }: { hidden: boolean }) {
               )}
             </section>
 
-            <section className="widget glass" aria-labelledby="conn-title">
+            <section {...tilt} className={`widget glass ${tilt.className}`} aria-labelledby="conn-title">
               <h2 id="conn-title">Linux machine</h2>
               <div className="row-inline" style={{ flexWrap: 'nowrap', alignItems: 'flex-start' }}>
                 <Icon name={connection.mode === 'host' ? 'check' : 'wifiOff'} size={22} />

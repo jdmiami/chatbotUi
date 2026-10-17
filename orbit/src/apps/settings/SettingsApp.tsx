@@ -6,6 +6,7 @@ import { formatBytes } from '../../ui/format';
 import { connection, getFileStore, resetDemoData } from '../../services';
 import { AGY_CAPABILITIES } from '../../services/runner/agyCapabilities';
 import type { CapabilityStatus } from '../../services/runner/types';
+import { cue } from '../../motion/feedback';
 import { useShell, type AppId, type MotionPref, type ThemePref, type WallpaperId } from '../../state/shell';
 import { useWorkspace } from '../../state/workspace';
 import { useLayout } from '../../state/viewport';
@@ -38,9 +39,10 @@ const THEMES: { value: ThemePref; label: string }[] = [
   { value: 'light', label: 'Light' },
 ];
 const MOTIONS: { value: MotionPref; label: string }[] = [
-  { value: 'system', label: 'System' },
-  { value: 'reduce', label: 'Reduce' },
+  { value: 'system', label: 'Auto' },
   { value: 'full', label: 'Full' },
+  { value: 'lite', label: 'Lite' },
+  { value: 'reduce', label: 'Off' },
 ];
 const WALLPAPERS: { id: WallpaperId; label: string }[] = [
   { id: 'orbit', label: 'Orbit' },
@@ -557,7 +559,7 @@ function AppearanceSection() {
   return (
     <Section
       title="Appearance"
-      caption="Motion “System” follows your device’s Reduce Motion setting. “Reduce” turns off Orbit’s animations."
+      caption="Motion: Auto picks Full or Lite for your device and follows its Reduce Motion setting. Full is the bounciest. Lite keeps short, light movement. Off turns animation off."
     >
       <div className="list">
         <div className="row st-row st-wrap">
@@ -672,6 +674,34 @@ function AppearanceSection() {
             <Segmented label="Motion" value={settings.motion} options={MOTIONS} onChange={(motion) => updateSettings({ motion })} />
           </div>
         </div>
+        <label className="row st-row st-click">
+          <span className="st-main">
+            <span className="st-label">Sounds</span>
+            <span className="st-sub">Soft pops and chimes when you send, finish or hit a problem.</span>
+          </span>
+          <Toggle
+            checked={settings.sound}
+            label="Play sounds"
+            onChange={(v) => {
+              updateSettings({ sound: v });
+              if (v) cue('pop');
+            }}
+          />
+        </label>
+        <label className="row st-row st-click">
+          <span className="st-main">
+            <span className="st-label">Vibration</span>
+            <span className="st-sub">A light buzz for key moments. Works on Android; on iPhone it is best effort and may do nothing.</span>
+          </span>
+          <Toggle
+            checked={settings.haptics}
+            label="Vibrate"
+            onChange={(v) => {
+              updateSettings({ haptics: v });
+              if (v) cue('pop');
+            }}
+          />
+        </label>
       </div>
     </Section>
   );

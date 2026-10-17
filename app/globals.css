@@ -258,3 +258,90 @@ a.button { text-decoration: none; }
 .ai-speed strong { font-size: 15px; }
 .ai-speed span { font-size: 13px; color: var(--muted); }
 .ai-speed .ai-speed-gpu { font-size: 12px; }
+
+/* ------------------------------------------------------------------ Motion
+   <html data-motion="full | lite | off"> is set from Orbit's Motion setting (see layout.tsx).
+   Only transform / opacity / filter move. Plain CSS, so these pages stay light. */
+:root {
+  --ease-bounce: cubic-bezier(0.34, 1.56, 0.64, 1);
+  --ease-soft: cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+@supports (transition-timing-function: linear(0, 1)) {
+  :root {
+    --ease-bounce: linear(
+      0, 0.009, 0.035 2.1%, 0.141, 0.281 6.7%, 0.723 12.9%, 0.938 16.7%, 1.017, 1.077, 1.121, 1.149 24.3%, 1.159,
+      1.163, 1.161, 1.154 29.9%, 1.129 32.8%, 1.051 39.6%, 1.017 43.1%, 0.991, 0.977 51%, 0.974 53.8%, 0.975 57.1%,
+      0.997 69.8%, 1.003 76.9%, 1.004 83.8%, 1
+    );
+  }
+}
+@keyframes mo-card-in { from { opacity: 0; transform: translateY(34px) scale(0.92); } }
+@keyframes mo-rise { from { opacity: 0; transform: translateY(18px) scale(0.9); } }
+@keyframes mo-fade-up { from { opacity: 0; transform: translateY(10px); } }
+@keyframes mo-wobble { 0%, 100% { transform: rotate(0); } 30% { transform: rotate(-9deg) scale(1.08); } 65% { transform: rotate(6deg) scale(1.04); } }
+@keyframes mo-float { 50% { translate: 0 -3px; } }
+@keyframes mo-shake { 20% { transform: translateX(-8px); } 45% { transform: translateX(7px); } 70% { transform: translateX(-4px); } 90% { transform: translateX(2px); } }
+@keyframes mo-glow { 50% { box-shadow: 0 0 0 6px rgb(37 99 235 / 0.22); } }
+@keyframes mo-aurora {
+  from { transform: translate3d(-5%, -4%, 0) rotate(0deg) scale(1); }
+  to { transform: translate3d(6%, 5%, 0) rotate(20deg) scale(1.15); }
+}
+
+/* A slow glow behind the page (full only). */
+:root[data-motion='full'] body::before {
+  content: '';
+  position: fixed;
+  inset: -25%;
+  z-index: -1;
+  pointer-events: none;
+  background:
+    radial-gradient(36% 36% at 25% 28%, rgb(124 92 255 / 0.28), transparent 70%),
+    radial-gradient(34% 34% at 76% 70%, rgb(6 182 212 / 0.2), transparent 70%);
+  filter: blur(34px);
+  will-change: transform;
+  animation: mo-aurora 24s ease-in-out infinite alternate;
+}
+
+/* Cards arrive with a spring; what is inside follows one after another. */
+:root[data-motion='full'] .center .card { animation: mo-card-in 0.8s var(--ease-bounce) both; }
+:root[data-motion='full'] .card > * { animation: mo-fade-up 0.5s var(--ease-soft) both; }
+:root[data-motion='full'] .card > :nth-child(1) { animation-delay: 0.12s; }
+:root[data-motion='full'] .card > :nth-child(2) { animation-delay: 0.18s; }
+:root[data-motion='full'] .card > :nth-child(3) { animation-delay: 0.24s; }
+:root[data-motion='full'] .card > :nth-child(4) { animation-delay: 0.3s; }
+:root[data-motion='full'] .card > :nth-child(5) { animation-delay: 0.36s; }
+:root[data-motion='full'] .brand svg { animation: mo-wobble 1.4s var(--ease-soft) 0.5s both; transform-origin: 50% 70%; }
+:root[data-motion='lite'] .center .card { animation: mo-fade-up 0.25s var(--ease-soft) both; }
+
+/* Chooser rows pop in one after another, float a little, and squish when pressed. */
+:root[data-motion='full'] .choices .choice { animation: mo-rise 0.7s var(--ease-bounce) both; }
+:root[data-motion='full'] .choices .choice:nth-child(1) { animation-delay: 0.2s; }
+:root[data-motion='full'] .choices .choice:nth-child(2) { animation-delay: 0.27s; }
+:root[data-motion='full'] .choices .choice:nth-child(3) { animation-delay: 0.34s; }
+:root[data-motion='full'] .choices .choice:nth-child(4) { animation-delay: 0.41s; }
+:root[data-motion='full'] .choices .choice:nth-child(5) { animation-delay: 0.48s; }
+:root[data-motion='full'] .choice-icon { animation: mo-float 5s ease-in-out infinite; }
+:root[data-motion='full'] .choice:nth-child(2) .choice-icon { animation-delay: -1s; }
+:root[data-motion='full'] .choice:nth-child(3) .choice-icon { animation-delay: -2s; }
+:root[data-motion='full'] .choice:nth-child(4) .choice-icon { animation-delay: -3s; }
+:root[data-motion='full'] .choice:nth-child(5) .choice-icon { animation-delay: -4s; }
+:root[data-motion='full'] .choice:hover .choice-icon { animation: mo-wobble 0.7s var(--ease-soft); }
+:root[data-motion='lite'] .choices .choice { animation: mo-fade-up 0.25s var(--ease-soft) both; }
+
+/* Pressing: squish, then spring back. */
+:root[data-motion='full'] :is(button, a.button, .machine, .choice) {
+  transition: transform 0.5s var(--ease-bounce), background-color 0.15s, border-color 0.15s, box-shadow 0.2s;
+}
+:root[data-motion='full'] :is(button, a.button, .machine, .choice):active:not(:disabled) { transform: scale(0.94); }
+:root[data-motion='full'] input:focus, :root[data-motion='full'] textarea:focus { animation: mo-glow 1.6s ease-in-out infinite; }
+
+/* Signing in: the button breathes; a wrong password shakes the card. */
+:root[data-motion='full'] form[action] button[type='submit']:disabled { animation: mo-glow 1s ease-in-out infinite; }
+:root[data-motion='full'] .error { animation: mo-shake 0.5s var(--ease-soft); }
+
+:root[data-motion='off'] *, :root[data-motion='off'] *::before, :root[data-motion='off'] *::after {
+  animation-duration: 0.001ms !important;
+  animation-delay: 0ms !important;
+  animation-iteration-count: 1 !important;
+  transition-duration: 0.001ms !important;
+}

@@ -1,10 +1,14 @@
 import {
+  useCallback,
   useEffect,
   useId,
   useRef,
   type ButtonHTMLAttributes,
   type ReactNode,
 } from 'react';
+import { animate } from 'motion/mini';
+import { SPRING } from '../motion/springs';
+import { useMotionLevel } from '../motion/MotionProvider';
 import { Icon, type IconName } from './Icon';
 
 /** Icon-only button. `label` is required: it becomes the accessible name and the tooltip. */
@@ -90,8 +94,64 @@ export function Sheet({
   labelledBy?: string;
 }) {
   const ref = useRef<HTMLDivElement>(null);
+  const scrim = useRef<HTMLDivElement>(null);
   const autoId = useId();
   const titleId = labelledBy ?? `sheet-title-${autoId}`;
+  const level = useMotionLevel();
+  const closing = useRef(false);
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
+
+  /** Close with a short exit animation (sliding down from `fromY`), then tell the parent. */
+  const close = useCallback(
+    (fromY = 0, travel = 48) => {
+      if (closing.current) return;
+      closing.current = true;
+      const sheet = ref.current;
+      if (!sheet || level === 'off') return onCloseRef.current();
+      const done = () => onCloseRef.current();
+      if (scrim.current) animate(scrim.current, { opacity: [1, 0] }, { duration: 0.2 });
+      animate(
+        sheet,
+        { transform: [`translateY(${fromY}px)`, `translateY(${fromY + travel}px)`], opacity: [1, 0] },
+        { duration: level === 'full' ? 0.22 : 0.15, ease: 'easeIn' },
+      ).then(done, done);
+    },
+    [level],
+  );
+
+  /** Drag the handle or title down to dismiss. Past a short distance (or a quick flick) it closes; otherwise it springs back. */
+  const grab = useRef<{ id: number; y0: number; last: number; t: number; v: number; dy: number } | null>(null);
+  const onGripDown = (e: React.PointerEvent) => {
+    if (level === 'off' || e.button > 0 || (e.target as HTMLElement).closest('button')) return;
+    grab.current = { id: e.pointerId, y0: e.clientY, last: e.clientY, t: e.timeStamp, v: 0, dy: 0 };
+    e.currentTarget.setPointerCapture(e.pointerId);
+    ref.current?.getAnimations().forEach((a) => a.cancel());
+  };
+  const onGripMove = (e: React.PointerEvent) => {
+    const g = grab.current;
+    if (!g || g.id !== e.pointerId || !ref.current) return;
+    const raw = e.clientY - g.y0;
+    // Rubber band: a little give upwards, normal travel downwards.
+    g.dy = raw < 0 ? raw * 0.06 : raw;
+    const dt = Math.max(1, e.timeStamp - g.t);
+    g.v = (e.clientY - g.last) / dt;
+    g.last = e.clientY;
+    g.t = e.timeStamp;
+    ref.current.style.transform = `translateY(${g.dy}px)`;
+  };
+  const onGripUp = (e: React.PointerEvent) => {
+    const g = grab.current;
+    grab.current = null;
+    const sheet = ref.current;
+    if (!g || !sheet) return;
+    if (g.dy > 110 || g.v > 0.7) return close(g.dy, 600);
+    animate(sheet, { transform: [`translateY(${g.dy}px)`, 'translateY(0px)'] }, SPRING.bouncy as never).then(
+      () => sheet.style.removeProperty('transform'),
+      () => sheet.style.removeProperty('transform'),
+    );
+    e.currentTarget.releasePointerCapture?.(e.pointerId);
+  };
 
   useEffect(() => {
     const prev = document.activeElement as HTMLElement | null;
@@ -103,7 +163,7 @@ export function Sheet({
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
         e.stopPropagation();
-        onClose();
+        close();
       }
       if (e.key === 'Tab' && el) {
         const focusables = Array.from(
@@ -126,20 +186,30 @@ export function Sheet({
       document.removeEventListener('keydown', onKey, true);
       prev?.focus?.();
     };
-  }, [onClose]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   return (
     <div
       className="sheet-scrim"
+      ref={scrim}
       onMouseDown={(e) => {
-        if (e.target === e.currentTarget) onClose();
+        if (e.target === e.currentTarget) close();
       }}
     >
       <div className="sheet" role="dialog" aria-modal="true" aria-labelledby={titleId} ref={ref} tabIndex={-1}>
-        <div className="sheet-grabber" aria-hidden />
-        <div className="sheet-header">
-          <h2 id={titleId}>{title}</h2>
-          <IconButton icon="close" label="Close" onClick={onClose} data-sheet-close />
+        <div
+          className="sheet-grip"
+          onPointerDown={onGripDown}
+          onPointerMove={onGripMove}
+          onPointerUp={onGripUp}
+          onPointerCancel={onGripUp}
+        >
+          <div className="sheet-grabber" aria-hidden />
+          <div className="sheet-header">
+            <h2 id={titleId}>{title}</h2>
+            <IconButton icon="close" label="Close" onClick={() => close()} data-sheet-close />
+          </div>
         </div>
         <div className="sheet-body">{children}</div>
         {footer && <div style={{ padding: '0 16px 16px' }}>{footer}</div>}
