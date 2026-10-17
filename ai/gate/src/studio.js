@@ -115,6 +115,7 @@ export function createStudio(o) {
   const download = { current: null, done: new Set(), error: null, running: false };
   let lastJobEnd = 0;
   let comfyHoldsGpu = false;
+  let lastMode = null; // what the last job made (video models are huge)
   let ws = null;
 
   const modelPath = (file) => path.join(dir, 'models', file.dir, file.name);
@@ -530,6 +531,16 @@ export function createStudio(o) {
     try {
       connectWs();
       await unloadChatModels();
+      // Video models are huge (~40 GB staged in memory). Keeping the last job's models while
+      // loading the next one runs the machine out of memory, and ComfyUI gets killed (soReal makes
+      // shots back to back). So before a video, or after one, start from a clean slate. ComfyUI
+      // applies this between jobs, never in the middle of one.
+      if (comfyHoldsGpu && (mode === 'video' || lastMode === 'video')) {
+        await comfyJson('/free', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ unload_models: true, free_memory: true }) }).catch(
+          () => {},
+        );
+      }
+      lastMode = mode;
       const r = await comfyJson('/prompt', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
