@@ -16,9 +16,24 @@ export function useApplySettings() {
     root.dataset.reduceMotion = settings.motion === 'system' ? '' : settings.motion === 'reduce' ? 'true' : 'false';
     if (settings.motion === 'system') delete root.dataset.reduceMotion;
     root.style.setProperty('--text-scale', String(settings.textScale));
+    const skin = settings.skin ?? 'classic';
+    root.dataset.skin = skin;
+    if (skin === 'o5') loadEditorialFonts();
     const meta = document.querySelector('meta[name="theme-color"]');
     meta?.setAttribute('content', theme === 'dark' ? '#0b1020' : '#eef1f7');
   }, [settings, systemDark]);
+}
+
+let fontsLoading: Promise<unknown> | null = null;
+/** Orbit 0.5's typefaces (a serif with optical sizes for display, Inter for text). Fetched only for that look. */
+function loadEditorialFonts() {
+  fontsLoading ??= Promise.all([
+    import('@fontsource-variable/fraunces/opsz.css'),
+    import('@fontsource-variable/fraunces/opsz-italic.css'),
+    import('@fontsource-variable/inter/index.css'),
+  ]).catch(() => {
+    fontsLoading = null; // offline: system fonts stand in; try again next time
+  });
 }
 
 export function useMediaQuery(query: string): boolean {

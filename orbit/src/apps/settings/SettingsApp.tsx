@@ -564,6 +564,24 @@ function AppearanceSection() {
     >
       <div className="list">
         <div className="row st-row st-wrap">
+          <div className="st-main st-shrink">
+            <span className="st-label">Look</span>
+            <span className="row-sub">Orbit 0.5: full screen, magazine-style, menus tucked away behind one line at the bottom.</span>
+          </div>
+          <div className="st-control">
+            <Segmented
+              label="Look"
+              value={settings.skin ?? 'classic'}
+              options={[
+                { value: 'classic', label: 'Classic' },
+                { value: 'o5', label: 'Orbit 0.5' },
+              ]}
+              onChange={(skin) => updateSettings({ skin })}
+            />
+          </div>
+        </div>
+
+        <div className="row st-row st-wrap">
           <span className="st-label">Theme</span>
           <div className="st-control">
             <Segmented label="Theme" value={settings.theme} options={THEMES} onChange={(theme) => updateSettings({ theme })} />
