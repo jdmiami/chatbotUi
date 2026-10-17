@@ -1,0 +1,87 @@
+/* soReal: movies shot by shot. Every class is prefixed "sr-"; shares the AI app's banner, gallery and viewer. */
+
+.sr-root { background: var(--bg); }
+.sr-pad { padding: var(--space-2) var(--space-3) 0; }
+.sr-layout { flex: 1; min-height: 0; display: flex; padding-left: var(--safe-left); padding-right: var(--safe-right); }
+
+.sr-side { flex: none; width: clamp(240px, 30%, 320px); border-right: 1px solid var(--border); background: var(--surface); overflow-y: auto; }
+.sr-side-full { width: 100%; border-right: 0; background: transparent; }
+.sr-list { display: flex; flex-direction: column; gap: var(--space-2); padding: var(--space-3); }
+.sr-list ul { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; }
+.sr-list-item {
+  width: 100%; min-height: 56px; display: flex; align-items: center; gap: var(--space-3); text-align: left;
+  padding: 6px 8px; border-radius: var(--radius-sm); border: 0; background: transparent; color: var(--text); font: inherit; cursor: pointer;
+}
+.sr-list-item[aria-current] { background: var(--accent-soft); }
+.sr-list-text { min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+
+.sr-thumb {
+  flex: none; width: 64px; height: 40px; border-radius: 8px; overflow: hidden; display: grid; place-items: center;
+  background: linear-gradient(145deg, #ff5f6d33, #4a148c33); color: var(--text-2);
+}
+.sr-thumb video, .sr-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; pointer-events: none; }
+.sr-thumb-lg { width: 96px; height: 60px; }
+
+.sr-main { flex: 1; min-width: 0; min-height: 0; overflow-y: auto; overscroll-behavior: contain; }
+.sr-editor { max-width: 860px; margin: 0 auto; padding: var(--space-4) var(--space-3) calc(var(--space-6) + var(--safe-bottom)); display: flex; flex-direction: column; gap: var(--space-4); }
+
+.sr-field { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.sr-field > span { font-size: var(--fs-sm); font-weight: 600; color: var(--text-2); }
+.sr-root .input {
+  width: 100%; min-height: var(--tap, 44px); padding: 10px 12px; border-radius: var(--radius-sm);
+  border: 1px solid var(--border-strong); background: var(--surface); resize: vertical; line-height: 1.45;
+}
+.sr-root .input:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.sr-root .input:disabled { opacity: 0.7; }
+.sr-root .segmented { flex-wrap: wrap; }
+.sr-root .segmented button { min-height: var(--tap, 44px); min-width: var(--tap, 44px); }
+
+.sr-options { display: grid; gap: var(--space-3); grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); }
+
+.sr-start { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2) var(--space-3); }
+.sr-start-text { flex: 1 1 180px; font-size: var(--fs-sm); overflow-wrap: anywhere; }
+.sr-start-actions { display: flex; flex-wrap: wrap; gap: var(--space-2); }
+
+.sr-shots-head { display: flex; align-items: center; justify-content: space-between; gap: var(--space-2); }
+.sr-shots-head h2 { margin: 0; font-size: var(--fs-lg); }
+.sr-shots { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: var(--space-3); }
+.sr-shot {
+  display: grid; grid-template-columns: 120px minmax(0, 1fr) auto; gap: var(--space-3); align-items: start;
+  padding: var(--space-3); border-radius: var(--radius-md); background: var(--surface); border: 1px solid var(--border);
+}
+.sr-shot[data-status='making'] { border-color: var(--warning-soft); }
+.sr-shot[data-status='error'] { border-color: var(--danger-soft); }
+.sr-shot-media { aspect-ratio: 16 / 10; border-radius: 10px; overflow: hidden; background: var(--surface-3); display: grid; place-items: center; }
+.sr-shot-media video { width: 100%; height: 100%; object-fit: cover; display: block; }
+.sr-shot-num { font-size: var(--fs-xl); font-weight: 700; color: var(--text-3); }
+.sr-shot-body { min-width: 0; display: flex; flex-direction: column; gap: 6px; }
+.sr-shot-top { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 4px var(--space-2); }
+.sr-shot-label { font-weight: 600; font-size: var(--fs-sm); }
+.sr-badge { font-size: var(--fs-xs); font-weight: 600; padding: 2px 8px; border-radius: 999px; background: var(--surface-3); color: var(--text-2); }
+.sr-badge-done { background: var(--success-soft); color: var(--success); }
+.sr-badge-making { background: var(--warning-soft); color: var(--warning); }
+.sr-badge-error { background: var(--danger-soft); color: var(--danger); }
+.sr-spin { width: 22px; height: 22px; border-radius: 50%; border: 3px solid var(--border-strong); border-top-color: var(--accent); animation: sr-spin 0.9s linear infinite; }
+@keyframes sr-spin { to { transform: rotate(360deg); } }
+.sr-add { width: 100%; }
+
+@media (max-width: 560px) {
+  .sr-shot { grid-template-columns: minmax(0, 1fr) auto; }
+  .sr-shot-media { grid-column: 1 / -1; aspect-ratio: 16 / 9; }
+  .sr-shot-num { font-size: var(--fs-lg); }
+}
+
+.sr-bar {
+  display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2);
+  padding: var(--space-3); border-radius: var(--radius-md); background: var(--surface); border: 1px solid var(--border);
+  box-shadow: 0 8px 24px rgb(0 0 0 / 0.12);
+}
+/* Pinned to the bottom only where there is room; on phones it sits after the shots. */
+@media (min-width: 700px) and (min-height: 700px) { .sr-bar { position: sticky; bottom: 0; } }
+.sr-bar-text { flex: 1 1 100%; margin: 0; }
+.sr-bar .btn { flex: 1 1 auto; }
+
+.sr-pick { margin: 0; }
+.sr-plan { margin: 0; padding-left: 1.4em; display: flex; flex-direction: column; gap: 6px; color: var(--text-2); max-height: 50vh; overflow-y: auto; }
+
+@media (prefers-reduced-motion: reduce) { .sr-spin { animation: none; } }

@@ -10,6 +10,7 @@ const loaders: Record<AppId, () => Promise<{ default: ComponentType<AppProps> }>
   editor: () => import('./editor/EditorApp'),
   agent: () => import('./agent/AgentApp'),
   ai: () => import('./ai/AiApp'),
+  soreal: () => import('./soreal/SoRealApp'),
   settings: () => import('./settings/SettingsApp'),
 };
 
@@ -65,6 +66,15 @@ export const APPS: Record<AppId, AppMeta> = {
     tile: 'linear-gradient(145deg, #8b5cf6, #2563eb 60%, #06b6d4)',
     glyph: '#ffffff',
     component: lazy(loaders.ai),
+  },
+  soreal: {
+    id: 'soreal',
+    name: 'soReal',
+    description: 'Make movies shot by shot; each shot picks up from the last frame of the one before',
+    icon: 'film',
+    tile: 'linear-gradient(145deg, #ff5f6d, #c2185b 55%, #4a148c)',
+    glyph: '#fff1e0',
+    component: lazy(loaders.soreal),
   },
   settings: {
     id: 'settings',

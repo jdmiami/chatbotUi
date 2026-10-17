@@ -35,10 +35,16 @@ fi
 
 log "fetching the gate"
 rm -rf /opt/gate && mkdir -p /opt/gate/src /opt/gate/openwebui
-for f in package.json src/index.js src/gate.js src/jwt.js src/machine.js src/store.js src/studio.js src/sysstats.js src/gpustats.js src/workflows.js src/openwebui.js src/search.js src/voice.js openwebui/studio_pipe.py; do
+for f in package.json src/index.js src/gate.js src/jwt.js src/machine.js src/store.js src/studio.js src/sysstats.js src/gpustats.js src/workflows.js src/openwebui.js src/search.js src/voice.js src/movies.js openwebui/studio_pipe.py; do
   curl -fsSL "${REPO_RAW}/ai/gate/${f}" -o "/opt/gate/${f}"
 done
 curl -fsSL "${REPO_RAW}/ai/studio.sh" -o /opt/gate/studio.sh
+
+# ffmpeg joins soReal shots into one movie and grabs each shot's last frame.
+if ! command -v ffmpeg >/dev/null 2>&1; then
+  log "installing ffmpeg"
+  (apt-get update -qq && DEBIAN_FRONTEND=noninteractive apt-get install -y -qq ffmpeg >/dev/null) || log "ffmpeg install failed; movies can't be joined"
+fi
 
 # A key for Open WebUI to reach the image/video maker through the gate (new on every start).
 STUDIO_KEY=$(od -An -tx1 -N24 /dev/urandom | tr -d ' \n')

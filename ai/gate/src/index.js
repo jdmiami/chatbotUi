@@ -7,6 +7,7 @@ import { createIdleWatch, createModelKeeper, ollamaJson, runpodStopSelf } from '
 import { installStudioFunction } from './openwebui.js';
 import { createModelStore } from './store.js';
 import { createStudio } from './studio.js';
+import { createMovies } from './movies.js';
 import { createSysStats } from './sysstats.js';
 import { createGpuStats } from './gpustats.js';
 import { createSearch } from './search.js';
@@ -30,12 +31,14 @@ const models = createModelKeeper({
 const studio = env.STUDIO_DIR
   ? createStudio({ dir: env.STUDIO_DIR, comfy: env.COMFY_URL || 'http://127.0.0.1:8188', ollama: OLLAMA })
   : null;
+// soReal movies (chained video shots), kept with the studio's files.
+const movies = studio ? createMovies({ dir: env.STUDIO_DIR, studio }) : null;
 
 const idle = createIdleWatch({
   limitMinutes: Number(env.IDLE_MINUTES || 30),
   // Busy while a model is loaded in GPU memory or a download is running.
   busy: async () => {
-    if (models.pulling() || studio?.busy()) return true;
+    if (models.pulling() || studio?.busy() || movies?.busy()) return true;
     const ps = await ollamaJson(OLLAMA, '/api/ps').catch(() => null);
     return Boolean(ps?.models?.length);
   },
@@ -97,6 +100,7 @@ const server = createGate({
   stats,
   keepAwake: (minutes) => idle.extend(minutes),
   studio,
+  movies,
   studioKey: env.STUDIO_KEY || '',
   store: createModelStore({ ollama: OLLAMA, volume: env.PERSIST_DIR || '/workspace' }),
   search: createSearch(),

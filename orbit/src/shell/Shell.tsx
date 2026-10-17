@@ -91,7 +91,7 @@ function useShortcuts() {
         return;
       }
       if (!(e.ctrlKey && e.shiftKey) || e.metaKey || e.altKey) return;
-      const apps: Record<string, AppId> = { Digit1: 'terminal', Digit2: 'editor', Digit3: 'agent', Digit4: 'ai', Comma: 'settings' };
+      const apps: Record<string, AppId> = { Digit1: 'terminal', Digit2: 'editor', Digit3: 'agent', Digit4: 'ai', Digit5: 'soreal', Comma: 'settings' };
       let handled = true;
       if (apps[e.code]) s.launch(apps[e.code]);
       else if (e.code === 'KeyH') s.goHome();
