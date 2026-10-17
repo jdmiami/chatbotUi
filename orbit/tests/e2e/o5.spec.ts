@@ -106,4 +106,29 @@ test.describe('Orbit 0.5', () => {
     await expect(page.locator('html')).toHaveAttribute('data-motion', 'full');
     expect(errors).toEqual([]);
   });
+
+  test('the index asks before closing an app with unsaved work, and keeps keyboard focus inside', async ({ page }) => {
+    await mockAi(page, 'off');
+    await openOrbit(page);
+    await turnOn(page);
+    await page.getByRole('button', { name: /^Index/ }).click();
+    await page.getByRole('dialog', { name: 'Index' }).getByRole('button', { name: /Code/ }).click();
+    const editor = page.locator('.app-window[data-app="editor"] .cm-content');
+    await editor.click();
+    await page.keyboard.type('x');
+    await page.getByRole('button', { name: /^Index/ }).click();
+    const index = page.getByRole('dialog', { name: 'Index' });
+    await expect(index.getByRole('region', { name: 'Open now' })).toContainText('unsaved');
+    // Tab never leaves the index.
+    for (let i = 0; i < 30; i++) await page.keyboard.press('Tab');
+    expect(await index.evaluate((el) => el.contains(document.activeElement))).toBe(true);
+    await index.getByRole('button', { name: 'Close Code' }).click();
+    const ask = page.getByRole('dialog', { name: 'Close Code?' });
+    await expect(ask).toBeVisible();
+    await ask.getByRole('button', { name: 'Cancel' }).click();
+    await expect(page.locator('.app-window[data-app="editor"]')).toHaveCount(1);
+    await index.getByRole('button', { name: 'Close Code' }).click();
+    await page.getByRole('dialog', { name: 'Close Code?' }).getByRole('button', { name: 'Discard and close' }).click();
+    await expect(page.locator('.app-window[data-app="editor"]')).toHaveCount(0);
+  });
 });
