@@ -16,6 +16,7 @@ function sse(text: string) {
     [
       `data: ${JSON.stringify({ choices: [{ delta: { reasoning: 'Thinking about it.' } }] })}`,
       ...parts.map((p) => `data: ${JSON.stringify({ choices: [{ delta: { content: p } }] })}`),
+      `data: ${JSON.stringify({ choices: [], usage: { prompt_tokens: 12, completion_tokens: 80 } })}`,
       'data: [DONE]',
     ].join('\n\n') + '\n\n'
   );
@@ -25,6 +26,67 @@ const TIERS = [
   { id: 'standard', label: 'Standard', gpuName: 'A40 48 GB', pricePerHour: 0.59, idleMinutes: 30, speed: 'normal speed' },
   { id: 'turbo', label: 'Turbo', gpuName: 'H100 80 GB', pricePerHour: 3.99, idleMinutes: 10, speed: 'about 4–6× faster' },
 ];
+
+const INSTALLED = [
+  { name: 'qwen3.6:35b', size: 22.6e9, loaded: false, vision: true, tools: true, thinking: true, family: 'qwen35moe', params: '35.5B', quant: 'Q4_K_M' },
+  { name: 'qwen3.8-obliterated:27b', size: 23.4e9, loaded: false, vision: true, tools: true, thinking: true, family: 'qwen35', params: '27.3B', quant: 'Q6_K' },
+  { name: 'qwen3.8:27b', size: 17.7e9, loaded: true, vision: true, tools: true, thinking: true, family: 'qwen35', params: '27.3B', quant: 'Q4_K_M' },
+];
+
+/** The AI machine's model store, with installs that take three seconds. */
+async function mockStore(page: Page) {
+  const installed = INSTALLED.map((m) => ({ ...m }));
+  const pulls: { name: string; status: string; percent: number; error: null; done: boolean; at: number }[] = [];
+  const calls: { path: string; body?: unknown }[] = [];
+  const featured = [
+    { spec: 'qwen3.8:27b', title: 'Qwen 3.8 27B', blurb: 'Best all-rounder.', tags: ['general'], size: 17.7e9 },
+    { spec: 'defiant-fable:9b=hf.co/x/y:Q6_K', title: 'Defiant Fable 9B', blurb: 'Small, fast storyteller.', tags: ['uncensored', 'fast'], size: 9.5e9 },
+  ];
+  const nameOf = (spec: string) => spec.split('=')[0];
+  await page.route('**/fake-ai/_orbit/models**', async (route) => {
+    const req = route.request();
+    const url = new URL(req.url());
+    const path = url.pathname.replace(/^.*\/_orbit\/models/, '');
+    const body = req.method() === 'POST' ? req.postDataJSON() : undefined;
+    calls.push({ path: `${req.method()} ${path}${url.search}`, body });
+    if (req.method() === 'GET' && path === '') {
+      for (const p of pulls) {
+        p.percent = Math.min(100, Math.floor(((Date.now() - p.at) / 3000) * 100));
+        if (p.percent >= 100 && !installed.some((m) => m.name === p.name)) {
+          installed.push({ ...INSTALLED[0], name: p.name, loaded: false, size: 9.5e9 });
+        }
+      }
+      const live = pulls.filter((p) => p.percent < 100);
+      pulls.splice(0, pulls.length, ...live);
+      return route.fulfill({
+        json: { installed, pulls: pulls.map(({ at: _, ...p }) => p), disk: { total: 150e9, free: 15e9 } },
+      });
+    }
+    if (path === '/featured') {
+      return route.fulfill({ json: { models: featured.map((m) => ({ ...m, name: nameOf(m.spec), installed: installed.some((i) => i.name === nameOf(m.spec)) })) } });
+    }
+    if (path === '/search') return route.fulfill({ json: { results: [{ repo: 'org/Cool-Model-GGUF', downloads: 12000, likes: 300, updatedAt: null }] } });
+    if (path === '/files') {
+      return route.fulfill({
+        json: { files: [{ quant: 'Q4_K_M', file: 'a.gguf', size: 9e9 }, { quant: 'Q8_0', file: 'b.gguf', size: 16e9 }] },
+      });
+    }
+    if (path === '/install') {
+      const b = body as { spec?: string; repo?: string; quant?: string };
+      const name = b.spec ? nameOf(b.spec) : `cool-model:${b.quant!.toLowerCase()}`;
+      pulls.push({ name, status: 'pulling', percent: 0, error: null, done: false, at: Date.now() });
+      return route.fulfill({ status: 202, json: { name } });
+    }
+    if (path === '/load' || path === '/dismiss') return route.fulfill({ json: { ok: true } });
+    if (req.method() === 'DELETE') {
+      const name = decodeURIComponent(path.slice(1));
+      installed.splice(installed.findIndex((m) => m.name === name), 1);
+      return route.fulfill({ json: { ok: true } });
+    }
+    return route.fulfill({ status: 404, json: { error: 'nope' } });
+  });
+  return calls;
+}
 
 async function mockAi(page: Page, initial: 'off' | 'on', powerCalls: Record<string, unknown>[] = []) {
   let state: string = initial;
@@ -54,6 +116,7 @@ async function mockAi(page: Page, initial: 'off' | 'on', powerCalls: Record<stri
   await page.route('**/fake-ai/v1/chat/completions', (route) =>
     route.fulfill({ status: 200, headers: { 'content-type': 'text/event-stream' }, body: sse(REPLY) }),
   );
+  return mockStore(page);
 }
 
 async function openAi(page: Page) {
@@ -106,16 +169,25 @@ test.describe('AI app', () => {
     await mockAi(page, 'on');
     const errors = await openOrbit(page);
     await openAi(page);
-    const picker = page.locator('.app-window[data-app="ai"] .ai-model select');
-    await expect(picker.locator('option')).toHaveCount(MODELS.length);
-    await picker.selectOption('qwen3.8-obliterated:27b');
+    const chip = page.getByRole('button', { name: /^Model: .*Change model$/ });
+    await expect(chip).toBeEnabled();
+    await chip.click();
+    const picker = page.getByRole('dialog', { name: 'Choose a model' });
+    await expect(picker.locator('.ai-model-row')).toHaveCount(INSTALLED.length);
+    await expect(picker.getByRole('button', { pressed: true })).toHaveCount(1);
+    await expect(picker.getByText('in the GPU now')).toBeVisible();
+    await picker.getByRole('button', { name: /^qwen3\.8-obliterated:27b/ }).click();
+    await expect(picker).toHaveCount(0);
+    await expect(chip).toHaveAccessibleName('Model: qwen3.8-obliterated:27b. Change model');
 
     const box = page.getByRole('textbox', { name: 'Message' });
     await box.fill('Show me some code');
     // Touch devices: Return adds a new line, the Send button sends.
     await page.getByRole('button', { name: 'Send' }).click();
     await expect(page.getByText('Done.')).toBeVisible();
-    await expect(page.getByText('Thinking', { exact: true })).toBeVisible();
+    await expect(page.getByText(/^Thought for \d+s$|^Thinking$/)).toBeVisible();
+    await expect(page.getByText(/\d+ tokens\/s/)).toBeVisible();
+    await expect(page.locator('.ai-msg-from').last()).toContainText('qwen3.8-obliterated:27b');
     await expect(box).toHaveValue('');
 
     await expectNoHorizontalOverflow(page);
@@ -166,6 +238,51 @@ test.describe('AI app', () => {
       await page.getByRole('button', { name: 'Chats' }).click();
       await expect(page.getByRole('dialog', { name: 'Chats' }).getByRole('button', { name: /^First question/ })).toBeVisible();
     }
+  });
+
+  test('empty chat: suggestions fill the message box', async ({ page }) => {
+    await mockAi(page, 'on');
+    await openOrbit(page);
+    await openAi(page);
+    await expect(page.getByRole('heading', { name: 'What can I help with?' })).toBeVisible();
+    await page.getByRole('button', { name: 'Write code' }).click();
+    await expect(page.getByRole('textbox', { name: 'Message' })).toHaveValue(/Python script/);
+    await expectNoHorizontalOverflow(page);
+    await expectTappable(page);
+  });
+
+  test('model store: featured install, search a model and pick its size, delete', async ({ page }, testInfo) => {
+    const calls = await mockAi(page, 'on');
+    const errors = await openOrbit(page);
+    await openAi(page);
+    await page.getByRole('button', { name: 'Model store' }).click();
+    const store = page.getByRole('dialog', { name: 'Model store' });
+    await expect(store.getByText('15.0 GB free')).toBeVisible();
+    await expect(store.getByText('Installed', { exact: true })).toBeVisible();
+    await store.getByRole('button', { name: 'Install Defiant Fable 9B' }).click();
+    await expect(store.getByRole('status', { name: 'Installing defiant-fable:9b' })).toBeVisible();
+    await expect(store.getByText('Installed', { exact: true })).toHaveCount(2, { timeout: 10_000 });
+    expect(calls.find((c) => c.path === 'POST /install')?.body).toEqual({ spec: 'defiant-fable:9b=hf.co/x/y:Q6_K' });
+    await expectNoHorizontalOverflow(page);
+    await page.screenshot({ path: testInfo.outputPath('ai-store.png') });
+
+    await store.getByRole('button', { name: 'Search' }).click();
+    await store.getByRole('searchbox', { name: 'Search models' }).fill('cool');
+    await store.getByRole('button', { name: 'Search', exact: true }).last().click();
+    await store.getByRole('button', { name: /^org\/Cool-Model-GGUF/ }).click();
+    await expect(store.getByText('Q8_0')).toBeVisible();
+    // 16 GB doesn't fit in 15 GB free.
+    await expect(store.getByRole('button', { name: 'Install Q8_0' })).toBeDisabled();
+    await store.getByRole('button', { name: 'Install Q4_K_M' }).click();
+    expect(calls.filter((c) => c.path === 'POST /install').pop()?.body).toEqual({ repo: 'org/Cool-Model-GGUF', quant: 'Q4_K_M' });
+
+    await store.getByRole('button', { name: /^Installed/ }).click();
+    await store.getByRole('button', { name: 'Delete qwen3.6:35b' }).click();
+    await page.getByRole('dialog', { name: 'Delete qwen3.6:35b?' }).getByRole('button', { name: 'Delete' }).click();
+    await expect(store.getByRole('button', { name: 'Delete qwen3.6:35b' })).toHaveCount(0);
+    expect(calls.some((c) => c.path === 'DELETE /qwen3.6%3A35b')).toBe(true);
+    await expectTappable(page);
+    expect(errors).toEqual([]);
   });
 });
 

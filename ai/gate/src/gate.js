@@ -238,6 +238,15 @@ export function createGate(cfg, log = console) {
       }
     }
 
+    // ---- model store (chat models)
+    if (cfg.store && (path === '/_orbit/models' || path.startsWith('/_orbit/models/'))) {
+      if (!cors(req, res)) return send(res, 403, { error: 'Origin not allowed' });
+      if (req.method === 'OPTIONS') return send(res, 204, '');
+      if (!apiToken(req) && !session(req)) return send(res, 401, { error: 'Unauthorized' });
+      activity();
+      return handleStore(req, res, url, path);
+    }
+
     // ---- image and video maker
     if (studio && (path === '/v1/images/generations' || path === '/_orbit/studio' || path.startsWith('/_orbit/studio/'))) {
       if (!cors(req, res)) return send(res, 403, { error: 'Origin not allowed' });
@@ -273,6 +282,35 @@ export function createGate(cfg, log = console) {
     if (req.method !== 'GET' && req.method !== 'HEAD') activity();
     return proxy(req, res, webui, req.url, user);
   });
+
+  async function handleStore(req, res, url, path) {
+    const store = cfg.store;
+    try {
+      if (path === '/_orbit/models' && req.method === 'GET') return send(res, 200, await store.list());
+      if (path === '/_orbit/models/featured' && req.method === 'GET') return send(res, 200, { models: await store.featured() });
+      if (path === '/_orbit/models/search' && req.method === 'GET') {
+        const q = (url.searchParams.get('q') || '').trim().slice(0, 100);
+        return send(res, 200, { results: q ? await store.search(q) : [] });
+      }
+      if (path === '/_orbit/models/files' && req.method === 'GET') return send(res, 200, { files: await store.files(url.searchParams.get('repo') || '') });
+      if (req.method === 'POST' && (path === '/_orbit/models/install' || path === '/_orbit/models/load' || path === '/_orbit/models/dismiss')) {
+        const body = JSON.parse((await readBody(req, 64 * 1024)) || '{}');
+        if (path.endsWith('/install')) return send(res, 202, { name: store.install(body) });
+        if (path.endsWith('/dismiss')) return send(res, 200, { ok: store.dismiss(String(body.name || '')) });
+        await studio?.yieldGpu?.().catch(() => {});
+        await store.load(String(body.name || ''));
+        return send(res, 200, { ok: true });
+      }
+      const del = /^\/_orbit\/models\/(.+)$/.exec(path);
+      if (del && req.method === 'DELETE') {
+        await store.remove(decodeURIComponent(del[1]));
+        return send(res, 200, { ok: true });
+      }
+      return send(res, 404, { error: 'Not found' });
+    } catch (err) {
+      return send(res, err.status && err.status < 600 ? err.status : 500, { error: err.message });
+    }
+  }
 
   // A chat reply. Loading a big model from storage can take longer than Runpod's proxy waits for
   // a silent connection (100 s), so streamed replies start right away and send SSE comments until

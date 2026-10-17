@@ -7,6 +7,12 @@ export interface AiMessage {
   streaming?: boolean;
   stopped?: boolean;
   error?: string;
+  /** Which model wrote this reply. */
+  model?: string;
+  /** How long the model thought before answering, in ms. */
+  thinkMs?: number;
+  /** Reply length and speed. */
+  stats?: { tokens: number; perSecond: number };
 }
 
 export interface AiChat {

@@ -90,7 +90,62 @@ export interface StreamHandlers {
   onText(delta: string): void;
   /** The model's visible reasoning ("thinking"), when it sends it. */
   onReasoning?(delta: string): void;
+  /** Token counts, sent once at the end. */
+  onUsage?(usage: { promptTokens: number; completionTokens: number }): void;
 }
+
+// ---- model store
+
+export interface InstalledModel {
+  name: string;
+  size: number;
+  loaded: boolean;
+  vision: boolean;
+  tools: boolean;
+  thinking: boolean;
+  family: string;
+  params: string;
+  quant: string;
+}
+
+export interface ModelPull {
+  name: string;
+  status: string;
+  percent: number;
+  error: string | null;
+  done: boolean;
+}
+
+export interface ModelList {
+  installed: InstalledModel[];
+  pulls: ModelPull[];
+  disk: { total: number; free: number } | null;
+}
+
+export interface FeaturedModel {
+  spec: string;
+  name: string;
+  title: string;
+  blurb: string;
+  tags: string[];
+  size: number;
+  installed: boolean;
+}
+
+export interface HubModel {
+  repo: string;
+  downloads: number;
+  likes: number;
+  updatedAt: string | null;
+}
+
+export interface HubFile {
+  quant: string;
+  file: string;
+  size: number;
+}
+
+export type InstallRequest = { spec: string } | { repo: string; quant: string; name?: string };
 
 export class AiError extends Error {
   constructor(
@@ -138,13 +193,18 @@ export async function readChatStream(body: ReadableStream<Uint8Array>, h: Stream
         if (!line.startsWith('data:')) continue;
         const data = line.slice(5).trim();
         if (data === '[DONE]') return;
-        let msg: { choices?: { delta?: { content?: string; reasoning?: string; reasoning_content?: string } }[]; error?: { message?: string } };
+        let msg: {
+          choices?: { delta?: { content?: string; reasoning?: string; reasoning_content?: string } }[];
+          error?: { message?: string };
+          usage?: { prompt_tokens?: number; completion_tokens?: number };
+        };
         try {
           msg = JSON.parse(data);
         } catch {
           continue;
         }
         if (msg.error) throw new AiError(msg.error.message ?? 'The model reported an error.');
+        if (msg.usage) h.onUsage?.({ promptTokens: msg.usage.prompt_tokens ?? 0, completionTokens: msg.usage.completion_tokens ?? 0 });
         const delta = msg.choices?.[0]?.delta;
         const reasoning = delta?.reasoning ?? delta?.reasoning_content;
         if (reasoning) h.onReasoning?.(reasoning);
@@ -202,6 +262,40 @@ export class LocalAi {
     return (body.data ?? []).map((m) => m.id).sort();
   }
 
+  // ---- model store
+
+  modelList(): Promise<ModelList> {
+    return this.studioCall<ModelList>('/_orbit/models');
+  }
+
+  featuredModels(): Promise<FeaturedModel[]> {
+    return this.studioCall<{ models: FeaturedModel[] }>('/_orbit/models/featured').then((r) => r.models);
+  }
+
+  async searchModels(q: string): Promise<HubModel[]> {
+    return (await this.studioCall<{ results: HubModel[] }>(`/_orbit/models/search?q=${encodeURIComponent(q)}`)).results;
+  }
+
+  async modelFiles(repo: string): Promise<HubFile[]> {
+    return (await this.studioCall<{ files: HubFile[] }>(`/_orbit/models/files?repo=${encodeURIComponent(repo)}`)).files;
+  }
+
+  async installModel(req: InstallRequest): Promise<string> {
+    return (await this.studioCall<{ name: string }>('/_orbit/models/install', { method: 'POST', body: JSON.stringify(req) })).name;
+  }
+
+  async removeModel(name: string): Promise<void> {
+    await this.studioCall(`/_orbit/models/${encodeURIComponent(name)}`, { method: 'DELETE' });
+  }
+
+  async loadModel(name: string): Promise<void> {
+    await this.studioCall('/_orbit/models/load', { method: 'POST', body: JSON.stringify({ name }) });
+  }
+
+  async dismissPull(name: string): Promise<void> {
+    await this.studioCall('/_orbit/models/dismiss', { method: 'POST', body: JSON.stringify({ name }) });
+  }
+
   // ---- image and video maker
 
   private async studioCall<T>(path: string, init: RequestInit = {}): Promise<T> {
@@ -252,7 +346,7 @@ export class LocalAi {
     const res = await this.call('/v1/chat/completions', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ model, messages, stream: true }),
+      body: JSON.stringify({ model, messages, stream: true, stream_options: { include_usage: true } }),
       signal,
     });
     if (!res.ok || !res.body) {
