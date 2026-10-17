@@ -63,6 +63,8 @@ export function CreateView({ ai, machineOn, isActive }: { ai: LocalAi; machineOn
   const [items, setItems] = useState<StudioItem[]>([]);
   const [submitting, setSubmitting] = useState(false);
   const [viewing, setViewing] = useState<StudioItem | null>(null);
+  // The tapped tile, so the viewer grows out of it and the picture appears to fly up.
+  const viewFrom = useRef<DOMRect | null>(null);
   const [confirmDelete, setConfirmDelete] = useState<StudioItem | null>(null);
   const fileInput = useRef<HTMLInputElement>(null);
 
@@ -269,7 +271,10 @@ export function CreateView({ ai, machineOn, isActive }: { ai: LocalAi; machineOn
         <ul className="ai-gallery" aria-label="Your creations">
           {items.map((it, n) => (
             <li key={it.id} style={{ '--i': Math.min(n, 14) } as React.CSSProperties}>
-              <button type="button" className="ai-tile" onClick={() => setViewing(it)} aria-label={`${it.kind === 'video' ? 'Video' : 'Image'}: ${it.prompt}`}>
+              <button type="button" className="ai-tile" onClick={(e) => {
+                viewFrom.current = (e.currentTarget.querySelector('img, video') ?? e.currentTarget).getBoundingClientRect();
+                setViewing(it);
+              }} aria-label={`${it.kind === 'video' ? 'Video' : 'Image'}: ${it.prompt}`}>
                 {it.kind === 'image' ? (
                   <DevelopImg src={it.url} alt="" loading="lazy" />
                 ) : (
@@ -287,7 +292,7 @@ export function CreateView({ ai, machineOn, isActive }: { ai: LocalAi; machineOn
       )}
 
       {viewing && (
-        <Sheet title={viewing.kind === 'image' ? 'Image' : 'Video'} onClose={() => setViewing(null)}>
+        <Sheet title={viewing.kind === 'image' ? 'Image' : 'Video'} origin={viewFrom.current} onClose={() => setViewing(null)}>
           <div className="ai-viewer">
             {viewing.kind === 'image' ? (
               <DevelopImg src={viewing.url} alt={viewing.prompt} />

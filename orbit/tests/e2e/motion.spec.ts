@@ -120,7 +120,7 @@ test.describe('motion levels', () => {
     await page.mouse.move(x, y + 50, { steps: 6 });
     await page.mouse.up();
     await expect(sheet).toBeVisible();
-    await expect.poll(async () => Math.abs((await sheet.boundingBox())!.y - (await page.locator('.sheet').evaluate((el) => el.getBoundingClientRect().y)))).toBeLessThan(1);
+    await expect.poll(() => page.locator('.sheet').evaluate((el) => el.style.transform)).toBe('');
 
     // Big drag: dismisses.
     const now = await page.locator('.sheet-grabber').boundingBox();
@@ -132,10 +132,98 @@ test.describe('motion levels', () => {
     await expect(sheet).toHaveCount(0, { timeout: 3000 });
   });
 
-  test('full: no horizontal overflow on the start screen while icons float and the glow drifts', async ({ page }) => {
+  test('full: nothing drifts on its own; the background, light and shadows follow the tilt', async ({ page }) => {
     await open(page, 'full');
     await page.waitForTimeout(1200);
     await expectNoHorizontalOverflow(page);
-    expect(await page.evaluate(() => getComputedStyle(document.querySelector('.shell')!, '::before').animationName)).toContain('mo-drift');
+    // The decorative float and drift are cut (MOTION.md §5).
+    expect(await page.evaluate(() => getComputedStyle(document.querySelector('.shell')!, '::before').animationName)).toBe('none');
+    expect(await page.locator('.home-grid .app-icon .glyph').first().evaluate((el) => getComputedStyle(el).animationName)).toBe('none');
+    // The one GPU layer is running on the home screen.
+    await expect(page.locator('canvas.home-light[data-live="true"]')).toHaveCount(1);
+
+    const read = () =>
+      page.evaluate(() => ({
+        tx: Number(document.documentElement.style.getPropertyValue('--tx') || 0),
+        bg: getComputedStyle(document.querySelector('.shell')!, '::before').translate,
+        shadow: getComputedStyle(document.querySelector('.home-grid .app-icon .glyph')!).boxShadow,
+      }));
+    const before = await read();
+    // Tilt the phone 15° to the right of how it's held.
+    await page.evaluate(async () => {
+      const tilt = (beta: number, gamma: number) => dispatchEvent(Object.assign(new Event('deviceorientation'), { beta, gamma, alpha: 0 }));
+      tilt(40, 0);
+      for (let i = 0; i < 10; i++) {
+        tilt(40, 15);
+        await new Promise((r) => setTimeout(r, 30));
+      }
+    });
+    await expect.poll(async () => (await read()).tx).toBeGreaterThan(0.3);
+    const after = await read();
+    expect(after.bg).not.toBe(before.bg);
+    expect(after.shadow).not.toBe(before.shadow);
+    await expectNoHorizontalOverflow(page);
+  });
+
+  test('full: sheets grow out of the button you tapped', async ({ page }) => {
+    await open(page, 'full');
+    const chip = page.getByRole('button', { name: /Show details/ });
+    const box = (await chip.boundingBox())!;
+    await chip.click();
+    const sheet = page.locator('.sheet');
+    await expect(sheet).toHaveAttribute('data-grown', '');
+    // Early in the entrance the sheet is small and centred near the chip.
+    const mid = await sheet.evaluate(
+      (el) => new Promise<DOMRect>((res) => requestAnimationFrame(() => requestAnimationFrame(() => res(el.getBoundingClientRect().toJSON())))),
+    );
+    const vp = page.viewportSize()!;
+    expect(mid.width).toBeLessThan(vp.width * 0.8);
+    expect(Math.abs(mid.y + mid.height / 2 - (box.y + box.height / 2))).toBeLessThan(vp.height * 0.45);
+    await expect.poll(() => sheet.evaluate((el) => el.style.transform)).toBe('');
+  });
+
+  test('full: swipe up on the dock to go home; a short swipe springs back', async ({ page }) => {
+    await open(page, 'full');
+    await page.getByRole('button', { name: /^Terminal\./ }).click();
+    const win = terminalWindow(page);
+    await expect(win).toHaveAttribute('data-placement', 'full');
+    await page.waitForTimeout(900);
+    const d = (await dock(page).boundingBox())!;
+    const x = d.x + d.width - 6;
+    const y = d.y + d.height / 2;
+
+    // A short, slow drag: the window follows, then springs back to full size.
+    await page.mouse.move(x, y);
+    await page.mouse.down();
+    await page.mouse.move(x, y - 50, { steps: 8 });
+    const held = await win.evaluate((el) => new DOMMatrix(getComputedStyle(el).transform).a);
+    expect(held).toBeLessThan(0.98);
+    await page.waitForTimeout(150);
+    await page.mouse.up();
+    await expect.poll(() => win.evaluate((el) => el.style.transform)).toBe('');
+    await expect(win).toHaveAttribute('data-placement', 'full');
+
+    // A long throw: it flies home.
+    await page.mouse.move(x, y);
+    await page.mouse.down();
+    await page.mouse.move(x, y - 320, { steps: 5 });
+    await page.mouse.up();
+    await expect(win).toHaveAttribute('data-placement', 'hidden');
+    await expect(page.getByRole('button', { name: /^Terminal\./ })).toBeVisible();
+    await expect.poll(() => win.evaluate((el) => el.style.transform)).toBe('');
+  });
+
+  test('off: designed, not empty — still, but apps and sheets cross-fade', async ({ page }) => {
+    await open(page, 'reduce');
+    expect(await level(page)).toBe('off');
+    await expect(page.locator('canvas.home-light')).toHaveCount(0);
+    await page.getByRole('button', { name: /Show details/ }).click();
+    expect(await page.locator('.sheet').evaluate((el) => getComputedStyle(el).animationName)).toBe('mo-xfade');
+    await page.keyboard.press('Escape');
+    await page.getByRole('button', { name: /^Terminal\./ }).click();
+    const t = await terminalWindow(page).evaluate((el) => ({ o: Number(getComputedStyle(el).opacity), tr: getComputedStyle(el).transform }));
+    expect(t.o).toBeLessThan(1);
+    expect(t.tr === 'none' || t.tr === 'matrix(1, 0, 0, 1, 0, 0)').toBe(true);
+    await expect.poll(() => terminalWindow(page).evaluate((el) => getComputedStyle(el).opacity)).toBe('1');
   });
 });

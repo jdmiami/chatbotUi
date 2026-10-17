@@ -3,6 +3,7 @@ import { useShell } from '../state/shell';
 import { useMediaQuery } from '../hooks/useApplySettings';
 import { cachedProbe, measureFrames, rememberProbe, resolveLevel, type MotionLevel } from './level';
 import { transitionFor, type SpringName } from './springs';
+import { startTilt } from './tilt';
 
 const Ctx = createContext<MotionLevel>('full');
 
@@ -33,6 +34,14 @@ export function MotionProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     document.documentElement.dataset.motion = level;
   }, [level]);
+
+  // Tilt moves the light and the depth layers: Full only.
+  const tilt = useShell((s) => s.settings.tilt);
+  const tiltGranted = useShell((s) => s.settings.tiltGranted);
+  useEffect(() => {
+    if (level !== 'full' || !tilt) return;
+    return startTilt({ askOnTap: Boolean(tiltGranted) });
+  }, [level, tilt, tiltGranted]);
 
   return (
     <Ctx.Provider value={level}>

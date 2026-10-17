@@ -1,5 +1,6 @@
 import { animate } from 'motion/mini';
 import type { MotionLevel } from './level';
+import { springValue } from './physics';
 import { SPRING } from './springs';
 
 /**
@@ -66,7 +67,11 @@ async function run(el: HTMLElement, keyframes: Record<string, string[] | number[
 
 export async function morphIn(el: HTMLElement, id: string, level: MotionLevel) {
   cancelMorph(el);
-  if (level === 'off') return;
+  if (level === 'off') {
+    // Reduce Motion: nothing grows, but the app still cross-fades in so you see it arrive.
+    await run(el, { opacity: [0, 1] }, { duration: 0.15, ease: 'easeOut' });
+    return cancelMorph(el);
+  }
   const icon = iconRect(id);
   if (level === 'full' && icon) {
     const from = frame(el, icon);
@@ -74,7 +79,7 @@ export async function morphIn(el: HTMLElement, id: string, level: MotionLevel) {
     await run(
       el,
       { transform: [from.transform, OPEN.transform], clipPath: [from.clip, OPEN.clip], opacity: [0.2, 1, 1] },
-      { ...SPRING.gentle, opacity: { duration: 0.18 } },
+      { ...SPRING.default, opacity: { duration: 0.18 } },
     );
   } else {
     await run(el, { opacity: [0, 1], transform: ['scale(0.97)', 'scale(1)'] }, { duration: 0.18, ease: [0.2, 0.8, 0.2, 1] });
@@ -84,11 +89,20 @@ export async function morphIn(el: HTMLElement, id: string, level: MotionLevel) {
 
 /** Close into the icon (going home) or just ease away (another app is taking over). */
 export async function morphOut(el: HTMLElement, id: string, level: MotionLevel, toIcon: boolean) {
+  const fling = flung.get(el);
+  flung.delete(el);
   cancelMorph(el);
-  if (level === 'off') return;
   el.style.visibility = 'visible';
   el.style.opacity = '1';
+  if (level === 'off') {
+    await run(el, { opacity: [1, 0] }, { duration: 0.15, ease: 'easeOut' });
+    return cancelMorph(el);
+  }
   const icon = toIcon ? iconRect(id) : null;
+  if (fling && icon && level === 'full') {
+    await flyFromDrag(el, icon, fling);
+    return cancelMorph(el);
+  }
   if (level === 'full' && icon) {
     const to = frame(el, icon);
     el.style.transformOrigin = '0 0';
@@ -101,4 +115,78 @@ export async function morphOut(el: HTMLElement, id: string, level: MotionLevel, 
     await run(el, { opacity: [1, 0], transform: ['scale(1)', 'scale(0.97)'] }, { duration: 0.16, ease: 'easeIn' });
   }
   cancelMorph(el);
+}
+
+/* ---------------------------------------------------------------- Swipe up on the dock to go home
+   The window follows your finger (shrinking towards the bottom), and when you let go it either
+   flies into its icon at your finger's speed or springs back. Grabbing it again stops it mid-way. */
+
+const RADIUS = 28;
+const flung = new WeakMap<HTMLElement, { up: number; v: number }>();
+
+/** The window's pose while dragged `up` pixels: scaled about its bottom centre, lifted a little. */
+function dragPose(el: HTMLElement, up: number) {
+  const w = el.offsetWidth;
+  const h = el.offsetHeight;
+  const s = Math.max(0.4, 1 - (up / h) * 0.9);
+  return { tx: (w * (1 - s)) / 2, ty: h * (1 - s) - up * 0.35, s, crop: 0, r: RADIUS / s };
+}
+
+function apply(el: HTMLElement, p: { tx: number; ty: number; s: number; crop: number; r: number }) {
+  el.style.transformOrigin = '0 0';
+  el.style.transform = `translate(${p.tx}px, ${p.ty}px) scale(${p.s})`;
+  el.style.clipPath = `inset(0px 0px ${p.crop}px 0px round ${p.r}px)`;
+}
+
+export function homeDrag(el: HTMLElement, up: number) {
+  live.get(el)?.cancel();
+  live.delete(el);
+  apply(el, dragPose(el, Math.max(0, up)));
+}
+
+/** Let go fast or far enough: remember where it is and how fast, then the caller goes home. */
+export function homeFling(el: HTMLElement, up: number, velocity: number) {
+  flung.set(el, { up, v: velocity });
+}
+
+/** Let go too early: spring back to full size, starting at the finger's speed. */
+export async function homeCancel(el: HTMLElement, up: number, velocity: number) {
+  const anim = springValue({
+    from: up,
+    to: 0,
+    velocity: velocity * 1000,
+    spring: SPRING.flick,
+    onUpdate: (u) => apply(el, dragPose(el, Math.max(0, u))),
+  });
+  live.set(el, { cancel: anim.stop });
+  if (await anim.finished) cancelMorph(el);
+}
+
+function flyFromDrag(el: HTMLElement, icon: DOMRect, fling: { up: number; v: number }) {
+  const a = dragPose(el, fling.up);
+  const win = el.getBoundingClientRect();
+  const s = Math.min(1, icon.width / win.width);
+  const b = {
+    tx: icon.left - win.left,
+    ty: icon.top - win.top,
+    s,
+    crop: Math.max(0, win.height - icon.height / s),
+    r: (icon.width * 0.225) / s,
+  };
+  // The finger's speed, as progress per second along the flight from here to the icon.
+  apply(el, a);
+  const dist = Math.max(40, Math.hypot(b.tx - a.tx, b.ty - a.ty));
+  const lerp = (x: number, y: number, t: number) => x + (y - x) * t;
+  const anim = springValue({
+    from: 0,
+    to: 1,
+    velocity: Math.min(8, (fling.v * 1000) / dist),
+    spring: SPRING.flick,
+    onUpdate: (t) => {
+      apply(el, { tx: lerp(a.tx, b.tx, t), ty: lerp(a.ty, b.ty, t), s: lerp(a.s, b.s, t), crop: lerp(a.crop, b.crop, Math.min(1, t)), r: lerp(a.r, b.r, t) });
+      el.style.opacity = String(Math.max(0, Math.min(1, (1 - t) / 0.2)));
+    },
+  });
+  live.set(el, { cancel: anim.stop });
+  return anim.finished;
 }
