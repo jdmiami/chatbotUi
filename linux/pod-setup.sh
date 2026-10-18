@@ -31,6 +31,13 @@ CODE_MODEL="${CODE_MODEL:-qwen3.6:35b}"
 export DEBIAN_FRONTEND=noninteractive
 
 log() { echo "[pod-setup] $*"; }
+# Turn this pod off with the key Runpod gives it (used when setup fails, so a broken machine doesn't bill).
+stop_self() {
+  log "stopping the machine: $1"
+  [ -n "${RUNPOD_POD_ID:-}" ] && [ -n "${RUNPOD_API_KEY:-}" ] || { log "no RUNPOD_POD_ID/RUNPOD_API_KEY to stop with"; return 0; }
+  curl -fsS -m 20 -X POST -H "Authorization: Bearer ${RUNPOD_API_KEY}" -H 'content-type: application/json' \
+    -d '{"action":"stop"}' "https://api.runpod.io/v2/pods/${RUNPOD_POD_ID}/action" >/dev/null || log "stop request failed"
+}
 
 if [ ! -f /opt/.desktop-installed ]; then
   log "installing desktop, xrdp and guacd"
@@ -79,11 +86,24 @@ done
 if [ "$fetched" = 1 ]; then
   cp -r /opt/gateway.new/. /opt/gateway/
 elif [ ! -f /opt/gateway/src/index.js ]; then
-  log "ERROR: no gateway code"; exit 1
+  stop_self "no gateway code could be downloaded"
+  exit 1
 fi
 rm -rf /opt/gateway.new
 if [ ! -d /opt/gateway/node_modules ] || ! cmp -s /opt/gateway/package-lock.json /opt/gateway/.installed-lock; then
-  (cd /opt/gateway && npm ci --omit=dev --no-audit --no-fund) && cp /opt/gateway/package-lock.json /opt/gateway/.installed-lock
+  installed=0
+  for attempt in 1 2 3; do
+    if (cd /opt/gateway && npm ci --omit=dev --no-audit --no-fund); then installed=1; break; fi
+    log "npm ci failed (attempt $attempt), retrying in 20s"
+    sleep 20
+  done
+  if [ "$installed" != 1 ]; then
+    # Without its dependencies the gateway can't run, and nor can its idle shut-off: turn the
+    # machine off rather than leave it billing.
+    stop_self "the gateway's dependencies could not be installed"
+    exit 1
+  fi
+  cp /opt/gateway/package-lock.json /opt/gateway/.installed-lock
 fi
 # Lets the owner make new passwords/secrets in a terminal on this machine (see README).
 chmod 755 /opt/gateway/bin/workspace-secrets.mjs
