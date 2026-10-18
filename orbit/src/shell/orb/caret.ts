@@ -131,11 +131,27 @@ export function caretAt(el: HTMLInputElement | HTMLTextAreaElement, pos: number)
 
 /** The position in a text box nearest to the point (x, y): where a cursor dropped there should go. */
 export function offsetAt(el: HTMLInputElement | HTMLTextAreaElement, x: number, y: number): number {
-  // Right-to-left or mixed text: positions don't run left to right, so measure each and take the nearest.
+  // Right-to-left or mixed text: positions don't run left to right within a line, so find the line
+  // (lines do run top to bottom), then measure each position on it and take the nearest.
   if (/[\u0590-\u08ff\ufb1d-\ufdff\ufe70-\ufeff]/.test(el.value) || getComputedStyle(el).direction === 'rtl') {
-    let best = el.value.length;
+    const n = el.value.length;
+    const firstWhere = (test: (c: Caret) => boolean) => {
+      let lo = 0;
+      let hi = n + 1;
+      while (lo < hi) {
+        const mid = (lo + hi) >> 1;
+        const c = caretAt(el, mid);
+        if (c && test(c)) hi = mid;
+        else lo = mid + 1;
+      }
+      return lo;
+    };
+    const single = el instanceof HTMLInputElement;
+    const from = single ? 0 : Math.min(n, firstWhere((c) => c.y + c.h > y));
+    const to = single ? n : Math.min(n, firstWhere((c) => c.y > y) - 1);
+    let best = from;
     let bestD = Infinity;
-    for (let pos = 0; pos <= Math.min(el.value.length, 2000); pos++) {
+    for (let pos = from; pos <= Math.max(from, to); pos++) {
       const c = caretAt(el, pos);
       if (!c) continue;
       const d = Math.abs(c.x - x) + Math.abs(c.y + c.h / 2 - y) * 4;

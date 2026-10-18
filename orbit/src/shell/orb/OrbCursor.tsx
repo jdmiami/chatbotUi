@@ -841,9 +841,9 @@ function Orb() {
       // Letting go after a pinch: the zoom is done (it bounced back); this is not a tap or a throw.
       endPinch();
       if (p.moved) {
-        // It was carried on after the pinch: it stays where it was put down.
-        mode.current = followSetting.current ? 'follow' : 'parked';
-        if (mode.current === 'parked') spot.current = { x: x.target, y: y.target };
+        // It was carried on after the pinch: it stays where it was put down, like any drop.
+        mode.current = 'parked';
+        spot.current = { x: x.target, y: y.target };
       }
       return;
     }
