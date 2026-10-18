@@ -1073,3 +1073,9 @@ a.btn {
   color: var(--text-2);
   text-align: center;
 }
+
+/* Typing in any app: the machine banners at the top (Turn on…, the helper) step aside so
+   what you're writing stays in view (data-typing, set by shell/useTyping.ts). */
+:root[data-typing] .app-window :is(.ai-banner, .sr-helper) {
+  display: none;
+}

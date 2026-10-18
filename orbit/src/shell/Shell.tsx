@@ -3,6 +3,7 @@ import { useShell, type AppId } from '../state/shell';
 import { useLayout } from '../state/viewport';
 import { useVisualViewport } from '../hooks/useVisualViewport';
 import { useApplySettings } from '../hooks/useApplySettings';
+import { useTyping } from '../hooks/useTyping';
 import { HomeScreen } from './HomeScreen';
 import { HomeLight } from './HomeLight';
 import { Dock } from './Dock';
@@ -24,6 +25,7 @@ import { OrbCursor } from './orb/OrbCursor';
 export function Shell() {
   useVisualViewport();
   useApplySettings();
+  useTyping();
   const { activeApp, overlay, settings } = useShell();
   const layout = useLayout();
   useShortcuts();
