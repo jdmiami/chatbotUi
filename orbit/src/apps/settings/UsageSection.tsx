@@ -1,0 +1,220 @@
+import { useCallback, useEffect, useState } from 'react';
+import { useShell } from '../../state/shell';
+import { Toggle } from '../../ui/components';
+import { Section } from './parts';
+
+/**
+ * What the status pill used to show at the top of every screen, now here: money (balance, spending
+ * right now, today), and each machine (on or off, cost per hour, how long it has been on, when it
+ * turns itself off, how busy it is), with the switches. Read from the site's /api/status.
+ */
+
+interface Machine {
+  id: 'ai' | 'linux';
+  name: string;
+  state: string;
+  detail?: string;
+  costPerHour: number | null;
+  uptimeSeconds: number | null;
+  offAt: string | null;
+  autoOff: boolean;
+  gpuName?: string | null;
+  live: { cpu: number | null; memory: number | null; gpu: number | null; gpuMemory: number | null } | null;
+}
+interface Status {
+  money: { balance: number | null; spendPerHour: number | null; today: number | null; spendLimit: number | null } | null;
+  machines: Machine[];
+  canPower?: boolean;
+}
+
+const usd = (n: number | null | undefined, digits = 2) => (typeof n === 'number' ? `$${n.toFixed(digits)}` : '—');
+const STATE: Record<string, string> = { on: 'On', off: 'Off', starting: 'Starting', downloading: 'Getting models', error: 'Problem', unknown: 'Unknown' };
+
+function duration(seconds: number) {
+  const m = Math.floor(seconds / 60);
+  return m < 60 ? `${m} min` : `${Math.floor(m / 60)} h ${m % 60} min`;
+}
+
+function untilText(iso: string | null, now: number) {
+  if (!iso) return null;
+  const min = Math.round((Date.parse(iso) - now) / 60_000);
+  return min <= 0 ? 'turning itself off now' : `turns itself off in ${min} min if unused`;
+}
+
+export function UsageSection({ active }: { active: boolean }) {
+  const toast = useShell((s) => s.toast);
+  const [status, setStatus] = useState<Status | null>(null);
+  const [unavailable, setUnavailable] = useState(false);
+  const [busy, setBusy] = useState<string | null>(null);
+  const [now, setNow] = useState(() => Date.now());
+
+  const load = useCallback(async () => {
+    try {
+      const res = await fetch('/api/status', { credentials: 'same-origin', cache: 'no-store' });
+      if (!res.ok || !(res.headers.get('content-type') ?? '').includes('json')) throw new Error(String(res.status));
+      setStatus((await res.json()) as Status);
+      setUnavailable(false);
+    } catch {
+      setUnavailable(true);
+    }
+    setNow(Date.now());
+  }, []);
+
+  useEffect(() => {
+    if (!active) return;
+    void load();
+    const t = setInterval(() => document.visibilityState === 'visible' && void load(), 15_000);
+    return () => clearInterval(t);
+  }, [active, load]);
+
+  const act = async (machine: 'ai' | 'linux', action: 'start' | 'stop' | 'extend') => {
+    setBusy(`${machine}:${action}`);
+    try {
+      const res = await fetch('/api/status', {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ machine, action, minutes: 30 }),
+      });
+      const body = (await res.json().catch(() => ({}))) as Status & { error?: string };
+      if (!res.ok) throw new Error(body.error ?? `Request failed (${res.status})`);
+      setStatus(body);
+      if (action === 'extend') toast('The AI machine stays on 30 more minutes.', 'success');
+    } catch (err) {
+      toast((err as Error).message, 'error');
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  return (
+    <Section title="Usage" caption="Each machine also turns itself off after 20 minutes without a job or your input, and the site checks every 10 minutes.">
+      <div className="list st-usage-list" aria-busy={!status && !unavailable}>
+        {unavailable ? (
+          <div className="row st-row">
+            <p className="st-text">Money and machines show here when Orbit is opened from your workspace site.</p>
+          </div>
+        ) : !status ? (
+          <div className="row st-row">
+            <p className="st-text">Loading…</p>
+          </div>
+        ) : (
+          <>
+            <div className="row st-row st-col" aria-label="Money">
+              <span className="st-label">Money</span>
+              <dl className="st-money">
+                <div>
+                  <dt>Balance</dt>
+                  <dd>{usd(status.money?.balance)}</dd>
+                </div>
+                <div>
+                  <dt>Spending now</dt>
+                  <dd>{usd(status.money?.spendPerHour, 3)}/h</dd>
+                </div>
+                <div>
+                  <dt>Today</dt>
+                  <dd>{usd(status.money?.today)}</dd>
+                </div>
+              </dl>
+            </div>
+            {status.machines.map((m) => {
+              const on = m.state === 'on' || m.state === 'downloading';
+              const until = m.autoOff && on ? untilText(m.offAt, now) : null;
+              return (
+                <div key={m.id} className="row st-row st-col st-machine" data-state={m.state} aria-label={m.name}>
+                  <div className="st-line">
+                    <span className="st-label">{m.name}</span>
+                    <span className="st-chip" data-state={m.state}>
+                      {STATE[m.state] ?? m.state}
+                    </span>
+                  </div>
+                  <p className="st-sub">
+                    {[
+                      on && m.costPerHour ? `${usd(m.costPerHour)}/h` : null,
+                      on && m.uptimeSeconds ? `on for ${duration(m.uptimeSeconds)}` : null,
+                      until,
+                      m.gpuName,
+                      m.detail,
+                    ]
+                      .filter(Boolean)
+                      .join(' · ') || (on ? 'Running' : 'Not running, costs nothing per hour')}
+                  </p>
+                  {on && m.live && (
+                    <div className="st-meters">
+                      {(
+                        [
+                          ['CPU', m.live.cpu],
+                          ['Memory', m.live.memory],
+                          ['GPU', m.live.gpu],
+                          ['GPU memory', m.live.gpuMemory],
+                        ] as const
+                      )
+                        .filter(([, v]) => v != null)
+                        .map(([k, v]) => (
+                          <div key={k} className="st-meter">
+                            <span>{k}</span>
+                            <meter min={0} max={100} value={v ?? 0} aria-label={`${m.name} ${k}`} />
+                            <span>{Math.round(v ?? 0)}%</span>
+                          </div>
+                        ))}
+                    </div>
+                  )}
+                  {status.canPower !== false && (
+                    <div className="st-banner-actions">
+                      {on || m.state === 'starting' ? (
+                        <button type="button" className="btn small" disabled={busy !== null} onClick={() => void act(m.id, 'stop')}>
+                          Turn off
+                        </button>
+                      ) : (
+                        <button type="button" className="btn small primary" disabled={busy !== null} onClick={() => void act(m.id, 'start')}>
+                          Turn on
+                        </button>
+                      )}
+                      {m.id === 'ai' && on && (
+                        <button type="button" className="btn small ghost" disabled={busy !== null} onClick={() => void act('ai', 'extend')}>
+                          Keep on 30 more min
+                        </button>
+                      )}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </>
+        )}
+      </div>
+    </Section>
+  );
+}
+
+/** The orb: on or off, and whether it follows what matters or stays where you put it. */
+export function OrbSection() {
+  const settings = useShell((s) => s.settings);
+  const updateSettings = useShell((s) => s.updateSettings);
+  const on = settings.orb !== false;
+  return (
+    <Section
+      title="Orb"
+      caption="Tap the orb to talk. Hold it (or press hard) to tell it what to do: it uses Orbit for you and asks before anything that costs money or can't be undone. Fling it to a side to park it, throw it off the bottom to tuck it away, shake your phone to call it back or stop it. Ctrl ⇧ Space opens it from a keyboard."
+    >
+      <div className="list">
+        <label className="row st-row st-click">
+          <span className="st-main">
+            <span className="st-label">Show the orb</span>
+            <span className="st-sub">On every screen, beside what matters most.</span>
+          </span>
+          <Toggle checked={on} label="Show the orb" onChange={(v) => updateSettings({ orb: v })} />
+        </label>
+        {on && (
+          <label className="row st-row st-click">
+            <span className="st-main">
+              <span className="st-label">Follow what matters</span>
+              <span className="st-sub">Off: it stays where you put it.</span>
+            </span>
+            <Toggle checked={settings.orbFollow !== false} label="Orb follows what matters" onChange={(v) => updateSettings({ orbFollow: v })} />
+          </label>
+        )}
+      </div>
+    </Section>
+  );
+}
