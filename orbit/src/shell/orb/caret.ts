@@ -97,10 +97,13 @@ export function caretOf(el: HTMLElement): Caret | null {
   return { x: r.left, y: r.top, h: Math.max(r.height, h * 0.8) };
 }
 
-/** Where the caret of a text box would be with the cursor at `pos` (a hidden, identical copy is measured). */
-export function caretAt(el: HTMLInputElement | HTMLTextAreaElement, pos: number): Caret | null {
+/**
+ * Where the caret of a text box would be at each position from `from` to `to`, measured in one
+ * pass: a hidden, identical copy of the box is laid out once with a marker at every position.
+ */
+export function caretsAt(el: HTMLInputElement | HTMLTextAreaElement, from: number, to: number): (Caret | null)[] {
   const box = el.getBoundingClientRect();
-  if (box.width < 2 || box.height < 2) return null;
+  if (box.width < 2 || box.height < 2) return Array.from({ length: Math.max(0, to - from + 1) }, () => null);
   const s = getComputedStyle(el);
   const h = Math.min(lineHeight(s), box.height);
   const copy = document.createElement('div');
@@ -115,32 +118,69 @@ export function caretAt(el: HTMLInputElement | HTMLTextAreaElement, pos: number)
   copy.style.whiteSpace = el instanceof HTMLInputElement ? 'pre' : 'pre-wrap';
   if (el instanceof HTMLTextAreaElement) copy.style.overflowWrap = 'break-word';
   const value = el instanceof HTMLInputElement && el.type === 'password' ? '•'.repeat(el.value.length) : el.value;
-  copy.textContent = value.slice(0, pos);
-  const mark = document.createElement('span');
-  mark.textContent = '\u200b';
-  copy.append(mark);
+  copy.append(value.slice(0, from));
+  // A marker before each character (whole characters: never between the two halves of an emoji).
+  const marks: (HTMLSpanElement | null)[] = [];
+  for (let pos = from; pos <= to; ) {
+    const mark = document.createElement('span');
+    mark.textContent = '\u200b';
+    copy.append(mark);
+    marks.push(mark);
+    if (pos >= to) break;
+    const len = (value.codePointAt(pos) ?? 0) > 0xffff ? 2 : 1;
+    copy.append(value.slice(pos, pos + len));
+    if (len === 2) marks.push(null); // no caret position inside a character
+    pos += len;
+  }
+  copy.append(value.slice(to));
   document.body.append(copy);
-  const m = mark.getBoundingClientRect();
+  const out = marks.map((mark) => {
+    if (!mark) return null;
+    const m = mark.getBoundingClientRect();
+    // A single-line input centres its text vertically; a text area starts at the top padding.
+    const top = el instanceof HTMLInputElement ? box.top + (box.height - h) / 2 : m.top - el.scrollTop;
+    const x = Math.min(box.right - 2, Math.max(box.left, m.left - el.scrollLeft));
+    const y = Math.min(box.bottom - h, Math.max(box.top, top));
+    return { x, y, h };
+  });
   copy.remove();
-  // A single-line input centres its text vertically; a text area starts at the top padding.
-  const top = el instanceof HTMLInputElement ? box.top + (box.height - h) / 2 : m.top - el.scrollTop;
-  const x = Math.min(box.right - 2, Math.max(box.left, m.left - el.scrollLeft));
-  const y = Math.min(box.bottom - h, Math.max(box.top, top));
-  return { x, y, h };
+  return out;
+}
+
+/** Where the caret of a text box would be with the cursor at `pos`. */
+export function caretAt(el: HTMLInputElement | HTMLTextAreaElement, pos: number): Caret | null {
+  return caretsAt(el, pos, pos)[0];
 }
 
 /** The position in a text box nearest to the point (x, y): where a cursor dropped there should go. */
 export function offsetAt(el: HTMLInputElement | HTMLTextAreaElement, x: number, y: number): number {
-  // Right-to-left or mixed text: positions don't run left to right, so measure each and take the nearest.
+  // Right-to-left or mixed text: positions don't run left to right within a line, so find the line
+  // (lines do run top to bottom), then measure each position on it and take the nearest.
   if (/[\u0590-\u08ff\ufb1d-\ufdff\ufe70-\ufeff]/.test(el.value) || getComputedStyle(el).direction === 'rtl') {
-    let best = el.value.length;
+    const n = el.value.length;
+    const firstWhere = (test: (c: Caret) => boolean) => {
+      let lo = 0;
+      let hi = n + 1;
+      while (lo < hi) {
+        const mid = (lo + hi) >> 1;
+        const c = caretAt(el, mid);
+        if (c && test(c)) hi = mid;
+        else lo = mid + 1;
+      }
+      return lo;
+    };
+    const single = el instanceof HTMLInputElement;
+    const from = single ? 0 : Math.min(n, firstWhere((c) => c.y + c.h > y));
+    const to = single ? n : Math.min(n, firstWhere((c) => c.y > y) - 1);
+    // Every position on that line, measured in one layout pass (not one per position).
+    const all = caretsAt(el, from, Math.max(from, to));
+    let best = from;
     let bestD = Infinity;
-    for (let pos = 0; pos <= Math.min(el.value.length, 2000); pos++) {
-      const c = caretAt(el, pos);
-      if (!c) continue;
+    all.forEach((c, i) => {
+      if (!c) return;
       const d = Math.abs(c.x - x) + Math.abs(c.y + c.h / 2 - y) * 4;
-      if (d < bestD) ((bestD = d), (best = pos));
-    }
+      if (d < bestD) ((bestD = d), (best = from + i));
+    });
     return best;
   }
   const single = el instanceof HTMLInputElement;
