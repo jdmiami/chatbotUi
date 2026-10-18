@@ -339,6 +339,9 @@
 :root[data-motion='full'] .ai-voice { animation: mo-xfade 0.3s ease-out both; }
 .ai-voice-orb { border: 0; background: none; padding: 0; cursor: pointer; border-radius: 50%; }
 .ai-voice-orb .ai-orb { width: 180px; height: 180px; }
+/* Where the one orb comes to rest (it is the voice orb and the AI's face; see shell/orb). */
+.ai-voice-spot { display: block; width: 180px; height: 180px; border-radius: 50%; }
+.ai-hello-spot { width: 76px; height: 76px; flex: none; }
 .ai-voice-orb .ai-orb-gpu { width: 240px; height: 240px; margin: -30px; }
 .ai-voice-state { margin: 0; font-size: var(--fs-lg, 20px); font-weight: 600; }
 .ai-voice-state[data-phase='speaking'] { color: var(--text-muted, var(--text)); font-weight: 500; font-size: var(--fs-sm); }

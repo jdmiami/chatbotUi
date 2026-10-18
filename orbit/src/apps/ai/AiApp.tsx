@@ -86,6 +86,8 @@ export default function AiApp({ isActive, compact, placement }: AppProps) {
   const toast = useShell((s) => s.toast);
   // Orbit 0.5: no header or tabs, just "Talk · Make" and the orb; everything else is behind the orb.
   const o5 = useShell((s) => s.settings.skin === 'o5');
+  // There is only ever one orb: with the orb on, it comes to rest where the AI's face was.
+  const orbOn = useShell((s) => s.settings.orb !== false);
   const [orbMenu, setOrbMenu] = useState(false);
   const [toolsOpen, setToolsOpen] = useState(false);
   const setSummary = useWorkspace((s) => s.setSummary);
@@ -608,7 +610,8 @@ export default function AiApp({ isActive, compact, placement }: AppProps) {
             aria-label={`Your AI: ${STATE_TEXT[machine.state]}${busy ? ', answering' : ''}. Open its menu.`}
             onClick={() => setOrbMenu(true)}
           >
-            <AiOrb typing={busy} className="o5-orb-mini" />
+            <span className={`ai-dot ai-dot-${machine.state}`} aria-hidden />
+            <span className="o5-ai-menu-label">Menu</span>
           </button>
         </div>
       ) : (
@@ -727,7 +730,11 @@ export default function AiApp({ isActive, compact, placement }: AppProps) {
           >
             {!chat || chat.messages.length === 0 ? (
               <div className="ai-hello" data-typing={draft.trim().length > 0}>
-                <AiOrb typing={draft.trim().length > 0} />
+                {orbOn ? (
+                  <div className="ai-hello-spot" data-orb-spot="hello" data-orb-size="76" />
+                ) : (
+                  <AiOrb typing={draft.trim().length > 0} />
+                )}
                 <h2>What can I help with?</h2>
                 {personaById(memory, chat?.persona ?? memory.defaultPersona).id !== 'default' && (
                   <button type="button" className="ai-persona-badge" onClick={() => setMemoryOpen(true)}>

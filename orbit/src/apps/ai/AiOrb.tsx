@@ -49,13 +49,22 @@ void main(){
   gl_FragColor = vec4(col * edge, edge);
 }`;
 
-/** `energy` (0…1), when given, drives the orb directly, e.g. from the microphone level in a voice chat. */
-export function AiOrb({ typing, energy: drive, className = '' }: { typing: boolean; energy?: number; className?: string }) {
+/**
+ * `energy` (0…1), when given, drives the orb directly, e.g. from the microphone level in a voice chat.
+ * `resolution` draws it sharper than its box, for an orb that is scaled up on screen (the cursor orb
+ * growing into the voice orb).
+ */
+export function AiOrb({ typing, energy: drive, className = '', resolution = 1 }: { typing: boolean; energy?: number; className?: string; resolution?: number }) {
   const level = useMotionLevel();
   const ref = useRef<HTMLCanvasElement>(null);
   const target = useRef(0.25);
   target.current = drive != null ? Math.max(0.15, Math.min(1, drive)) : typing ? 1 : 0.25;
   const gpu = level === 'full' && typeof WebGLRenderingContext !== 'undefined';
+  // Sharper only while it needs to be (drawing is the cost): changing it resizes, never rebuilds.
+  const res = useRef(resolution);
+  res.current = resolution;
+  const resize = useRef<(() => void) | null>(null);
+  useEffect(() => resize.current?.(), [resolution]);
 
   useEffect(() => {
     const canvas = ref.current;
@@ -86,10 +95,11 @@ export function AiOrb({ typing, energy: drive, className = '' }: { typing: boole
     const dpr = Math.min(2, devicePixelRatio || 1);
     const size = () => {
       // clientWidth, not the on-screen box: the window may still be scaled mid-animation.
-      canvas.width = Math.max(1, Math.round(canvas.clientWidth * dpr));
-      canvas.height = Math.max(1, Math.round(canvas.clientHeight * dpr));
+      canvas.width = Math.max(1, Math.round(canvas.clientWidth * dpr * res.current));
+      canvas.height = Math.max(1, Math.round(canvas.clientHeight * dpr * res.current));
       gl.viewport(0, 0, canvas.width, canvas.height);
     };
+    resize.current = size;
     const ro = new ResizeObserver(size);
     ro.observe(canvas);
     size();

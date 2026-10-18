@@ -87,3 +87,8 @@ export function cue(name: Cue) {
   if (sound) playSound(name);
   if (haptics) buzz(name);
 }
+
+/** The lightest touch (vibration only, no sound): the orb passing over something it can press. */
+export function tick() {
+  if (useShell.getState().settings.haptics) buzz('tap');
+}
