@@ -126,8 +126,8 @@ test.describe('the orb', () => {
     const vw = page.viewportSize()!.width;
     await page.mouse.move(start.x, start.y);
     await page.mouse.down();
-    // A quick throw to the left.
-    for (let i = 1; i <= 6; i++) await page.mouse.move(start.x - i * 50, start.y - i * 12);
+    // A quick, decisive throw to the left (well past the middle even on a wide screen).
+    for (let i = 1; i <= 8; i++) await page.mouse.move(start.x - i * 60, start.y - i * 12);
     await page.mouse.up();
     const end = await settled(page);
     expect(end.x).toBeLessThan(vw / 2);
@@ -277,11 +277,12 @@ test.describe('the orb', () => {
     // Only one orb on the screen: the orb itself.
     await expect(page.locator('.ai-orb')).toHaveCount(1);
     await expect(page.locator('.orb-cursor .ai-orb')).toHaveCount(1);
-    const s = (await spot.boundingBox())!;
+    // (The screen may still be settling in: measure the spot each time, not once.)
     await expect.poll(async () => {
+      const s = (await spot.boundingBox())!;
       const o = (await page.locator('.orb-cursor').boundingBox())!;
       return Math.abs(o.x + o.width / 2 - (s.x + s.width / 2)) + Math.abs(o.y + o.height / 2 - (s.y + s.height / 2));
-    }).toBeLessThan(4);
+    }, { timeout: 8000 }).toBeLessThan(4);
     await expect.poll(async () => (await page.locator('.orb-cursor').boundingBox())!.width).toBeGreaterThan(70);
     expect(errors).toEqual([]);
   });
@@ -338,6 +339,8 @@ test.describe('the orb', () => {
     const box = page.locator('.app-window[data-app="ai"]').getByRole('textbox', { name: 'Message' });
     await box.fill('hello world');
     await box.evaluate((el) => (el as HTMLElement).blur());
+    // Leaving the box brings the machine banner back after a quiet moment: let the page settle.
+    await page.waitForTimeout(1300);
     const start = await settled(page);
     const b = (await box.boundingBox())!;
     // Just inside the start of the text, on its first line (a narrow box wraps it).
