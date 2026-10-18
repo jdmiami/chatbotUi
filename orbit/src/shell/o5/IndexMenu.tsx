@@ -5,7 +5,7 @@ import { useWorkspace } from '../../state/workspace';
 import { Icon } from '../../ui/Icon';
 import { ConfirmSheet } from '../../ui/components';
 
-const ENTRIES: { id: AppId; title: string; line: string }[] = [
+export const ENTRIES: { id: AppId; title: string; line: string }[] = [
   { id: 'ai', title: 'Talk', line: 'Your own models' },
   { id: 'soreal', title: 'soReal', line: 'Movies, shot by shot' },
   { id: 'editor', title: 'Code', line: 'Your projects' },
@@ -13,6 +13,11 @@ const ENTRIES: { id: AppId; title: string; line: string }[] = [
   { id: 'agent', title: 'Antigravity', line: 'The coding agent' },
   { id: 'settings', title: 'Settings', line: 'Make it yours' },
 ];
+/** The folio for an app, as on the contents page: "04 · Terminal". */
+export function folioOf(app: AppId | null): string | null {
+  const i = ENTRIES.findIndex((e) => e.id === app);
+  return i < 0 ? null : `${String(i + 1).padStart(2, '0')} · ${ENTRIES[i].title}`;
+}
 const MOTION_NAME = { system: 'Auto', full: 'Full', lite: 'Lite', reduce: 'Off' } as const;
 const MOTION_NEXT = { full: 'lite', lite: 'reduce', reduce: 'system', system: 'full' } as const;
 
