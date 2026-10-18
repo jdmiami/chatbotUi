@@ -9,7 +9,7 @@ async function openO5Ai(page: Page) {
   page.on('pageerror', (e) => errors.push(e.message));
   await page.addInitScript(() => {
     if (!localStorage.getItem('orbit:shell:v1'))
-      localStorage.setItem('orbit:shell:v1', JSON.stringify({ state: { settings: { motion: 'reduce', motionPicked: true, skin: 'o5', introSeen: true } }, version: 0 }));
+      localStorage.setItem('orbit:shell:v1', JSON.stringify({ state: { settings: { orb: false, motion: 'reduce', motionPicked: true, skin: 'o5', introSeen: true } }, version: 0 }));
   });
   await page.goto('/');
   await page.getByRole('button', { name: /^Index/ }).click();

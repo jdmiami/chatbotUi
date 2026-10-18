@@ -25,6 +25,8 @@ import {
   parseImport,
   type OrbitExport,
 } from './dataTransfer';
+import { Section, chapterId } from './parts';
+import { OrbSection, UsageSection } from './UsageSection';
 import './settings.css';
 
 const VERSION = '0.2';
@@ -292,9 +294,11 @@ export default function SettingsApp({ isActive }: AppProps) {
           )}
           <ConnectionSection onReconnect={reconnect} />
           <AppearanceSection />
+          <OrbSection />
           <TerminalSection />
           <SplitSection />
           <ShortcutsSection />
+          <UsageSection active={isActive} />
 
           <Section title="Data & storage">
             <div className="list">
@@ -440,21 +444,7 @@ export default function SettingsApp({ isActive }: AppProps) {
 
 /* ------------------------------------------------------------------ Building blocks */
 
-const chapterId = (title: string) => `st-${title.toLowerCase().replace(/[^a-z]+/g, '-').replace(/-$/, '')}`;
-const CHAPTERS = ['Connection', 'Appearance', 'Terminal', 'Split view (iPad)', 'Keyboard shortcuts', 'Data & storage', 'About'];
-
-function Section({ title, children, caption }: { title: string; children: ReactNode; caption?: ReactNode }) {
-  const id = useId();
-  return (
-    <section className="st-section" id={chapterId(title)} aria-labelledby={id}>
-      <h2 className="list-title st-heading" id={id}>
-        {title}
-      </h2>
-      {children}
-      {caption && <p className="list-caption st-caption">{caption}</p>}
-    </section>
-  );
-}
+const CHAPTERS = ['Connection', 'Appearance', 'Orb', 'Terminal', 'Split view (iPad)', 'Keyboard shortcuts', 'Usage', 'Data & storage', 'About'];
 
 function ActionRow({
   icon,

@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect } from 'react';
 import { useShell, type AppId } from '../state/shell';
 import { useLayout } from '../state/viewport';
 import { useVisualViewport } from '../hooks/useVisualViewport';
@@ -15,6 +15,7 @@ import { Path } from './o5/Path';
 import { Handle } from './o5/Handle';
 import { IndexMenu } from './o5/IndexMenu';
 import { useChromeOnScroll } from './o5/chrome';
+import { OrbCursor } from './orb/OrbCursor';
 
 /**
  * Root of Orbit. Owns global layout concerns: visual viewport (keyboard), theme, overlays,
@@ -28,13 +29,11 @@ export function Shell() {
   useShortcuts();
 
   const inApp = activeApp !== null;
-  const island = useIsland();
   const o5 = settings.skin === 'o5';
   useChromeOnScroll(o5);
   return (
     <div
       className="shell"
-      data-island={island}
       data-in-app={inApp}
       data-compact={layout.compact}
       data-keyboard={layout.keyboardOpen}
@@ -64,31 +63,9 @@ export function Shell() {
       {overlay === 'control-center' && <ControlCenter />}
       {!settings.introSeen && <IntroSheet />}
       <Toasts />
-      <orbit-island api="/api/status" place="orbit" />
+      <OrbCursor />
     </div>
   );
-}
-
-/**
- * The glass status pill (money, auto-off timers, machine stats) lives in public/island.js, shared
- * with the site's pages and the machines' pages. Orbit loads it and makes room at the top while it
- * is showing (it hides itself where there is no site behind Orbit, e.g. the demo preview).
- */
-function useIsland() {
-  const [shown, setShown] = useState(false);
-  useEffect(() => {
-    const onVisible = (e: Event) => setShown(Boolean((e as CustomEvent<{ visible: boolean }>).detail?.visible));
-    document.addEventListener('island-visible', onVisible);
-    if (!document.querySelector('script[data-orbit-island]')) {
-      const s = document.createElement('script');
-      s.type = 'module';
-      s.src = `${import.meta.env.BASE_URL}island.js`;
-      s.dataset.orbitIsland = '';
-      document.head.append(s);
-    }
-    return () => document.removeEventListener('island-visible', onVisible);
-  }, []);
-  return shown;
 }
 
 /**
@@ -136,5 +113,6 @@ export const SHORTCUTS: { keys: string; action: string }[] = [
   { keys: 'Ctrl ⇧ A', action: 'App Switcher' },
   { keys: 'Ctrl ⇧ .', action: 'Control Center' },
   { keys: 'Ctrl ⇧ \\', action: 'Toggle Code + Chat split (iPad)' },
+  { keys: 'Ctrl ⇧ Space', action: 'Ask the orb to do something' },
   { keys: 'Esc', action: 'Close an overlay or sheet' },
 ];

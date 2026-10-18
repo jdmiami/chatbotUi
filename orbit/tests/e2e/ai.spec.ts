@@ -307,7 +307,7 @@ test.describe('AI app with full motion', () => {
 
   test('messages pop in, the send button launches, the orb reacts to typing, pictures develop', async ({ page }, testInfo) => {
     await page.addInitScript(() =>
-      localStorage.setItem('orbit:shell:v1', JSON.stringify({ state: { settings: { motion: 'full', introSeen: true } }, version: 0 })),
+      localStorage.setItem('orbit:shell:v1', JSON.stringify({ state: { settings: { orb: false, motion: 'full', introSeen: true } }, version: 0 })),
     );
     await mockAi(page, 'on');
     await mockStudio(page);

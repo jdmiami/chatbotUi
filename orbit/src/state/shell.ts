@@ -43,6 +43,10 @@ export interface Settings {
   haptics: boolean;
   /** The look: classic or Orbit 0.5. Unset = classic. */
   skin?: SkinId;
+  /** The orb on every screen (tap to talk, hold to ask it to do something). Unset = on. */
+  orb?: boolean;
+  /** The orb drifts to what matters on screen; false = it stays where you put it. Unset = follows. */
+  orbFollow?: boolean;
   /** Seen the first-run "what is simulated" sheet. */
   introSeen: boolean;
 }

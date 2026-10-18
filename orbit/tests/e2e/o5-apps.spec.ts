@@ -8,7 +8,7 @@ async function openO5(page: Page, entry: RegExp, app: string) {
   page.on('pageerror', (e) => errors.push(e.message));
   await page.addInitScript(() => {
     if (!localStorage.getItem('orbit:shell:v1'))
-      localStorage.setItem('orbit:shell:v1', JSON.stringify({ state: { settings: { motion: 'reduce', motionPicked: true, skin: 'o5', introSeen: true } }, version: 0 }));
+      localStorage.setItem('orbit:shell:v1', JSON.stringify({ state: { settings: { orb: false, motion: 'reduce', motionPicked: true, skin: 'o5', introSeen: true } }, version: 0 }));
   });
   await page.goto('/');
   await page.getByRole('button', { name: /^Index/ }).click();
@@ -22,7 +22,7 @@ test.describe('Orbit 0.5: the other apps', () => {
   test('settings: a contents page that walks to each numbered chapter', async ({ page }) => {
     const { errors, win } = await openO5(page, /Settings/, 'settings');
     const chapters = win.getByRole('navigation', { name: 'Chapters' });
-    await expect(chapters.getByRole('button')).toHaveCount(7);
+    await expect(chapters.getByRole('button')).toHaveCount(9);
     await chapters.getByRole('button', { name: /Data & storage/ }).click();
     await expect(win.getByRole('heading', { name: 'Data & storage' })).toBeInViewport();
     await expectNoHorizontalOverflow(page);
