@@ -52,6 +52,8 @@
 }
 /* AiOrb's CSS fallback fills the button. */
 .orb-cursor .orb-cursor-face:not(canvas) { width: 100%; height: 100%; }
+/* The AI app's own sizes for its orbs (loaded with that app) must not resize the cursor's face. */
+.orb-cursor canvas.orb-cursor-face { width: 100%; height: 100%; margin: 0; }
 .orb-cursor-ring {
   position: absolute;
   inset: -5px;
@@ -156,4 +158,18 @@
 }
 @media (prefers-reduced-motion: reduce) {
   .orb-layer[data-caret][data-slim] .orb-cursor-face { animation: none; }
+}
+
+/* ---------------------------------------------------------------- the orb as a touch cursor */
+/* What it passes over lights up, as under a mouse (the outline follows each control's own corners);
+   set down on it, it is pressed. */
+[data-orb-hover] {
+  outline: 2px solid color-mix(in srgb, var(--accent) 60%, transparent);
+  outline-offset: 3px;
+  transition: outline-offset 0.18s cubic-bezier(0.22, 1, 0.36, 1);
+}
+:root[data-skin='o5'] [data-orb-hover] { outline-color: color-mix(in srgb, var(--text) 45%, transparent); outline-width: 1.5px; }
+[data-orb-pressed] { scale: 0.96; transition: scale 0.12s ease-out; }
+@media (prefers-reduced-motion: reduce) {
+  [data-orb-hover], [data-orb-pressed] { transition: none; scale: none; }
 }

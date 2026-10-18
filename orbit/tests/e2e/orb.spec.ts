@@ -267,4 +267,109 @@ test.describe('the orb', () => {
     }).toBeLessThan(6);
     expect(errors).toEqual([]);
   });
+
+  test('one orb: the AI has no orb of its own, the orb rests on its face, grown', async ({ page }) => {
+    await mockAi(page, 'off');
+    const { errors } = await openWithOrb(page);
+    await page.getByRole('button', { name: /^AI\./ }).click();
+    const spot = page.locator('.app-window[data-app="ai"] .ai-hello-spot');
+    await expect(spot).toBeVisible();
+    // Only one orb on the screen: the orb itself.
+    await expect(page.locator('.ai-orb')).toHaveCount(1);
+    await expect(page.locator('.orb-cursor .ai-orb')).toHaveCount(1);
+    const s = (await spot.boundingBox())!;
+    await expect.poll(async () => {
+      const o = (await page.locator('.orb-cursor').boundingBox())!;
+      return Math.abs(o.x + o.width / 2 - (s.x + s.width / 2)) + Math.abs(o.y + o.height / 2 - (s.y + s.height / 2));
+    }).toBeLessThan(4);
+    await expect.poll(async () => (await page.locator('.orb-cursor').boundingBox())!.width).toBeGreaterThan(70);
+    expect(errors).toEqual([]);
+  });
+
+  test('on a stage (the voice orb) it shows through the dialog, grows, and taps go to the stage', async ({ page }) => {
+    const { errors } = await openWithOrb(page);
+    await page.evaluate(() => {
+      const d = document.createElement('div');
+      d.setAttribute('role', 'dialog');
+      d.setAttribute('aria-modal', 'true');
+      d.innerHTML = '<button type="button" data-orb-spot="stage" data-orb-size="180" aria-label="Voice orb" style="position:fixed;left:60px;top:160px;width:180px;height:180px;border:0;background:none"></button>';
+      // Where the real one lives: inside Orbit, under the orb.
+      document.querySelector('.shell')!.append(d);
+      const w = window as unknown as { taps: number };
+      w.taps = 0;
+      d.querySelector('button')!.addEventListener('click', () => w.taps++);
+    });
+    await expect.poll(async () => {
+      const o = (await page.locator('.orb-cursor').boundingBox())!;
+      return Math.abs(o.x + o.width / 2 - 150) + Math.abs(o.y + o.height / 2 - 250);
+    }, { timeout: 8000 }).toBeLessThan(4);
+    await expect.poll(async () => (await page.locator('.orb-cursor').boundingBox())!.width).toBeGreaterThan(170);
+    // (Inside a modal dialog only the dialog is in the accessibility tree; the orb is found by its look.)
+    const ball = page.locator('.orb-cursor');
+    await expect(ball).toBeVisible();
+    await ball.click();
+    await expect.poll(() => page.evaluate(() => (window as unknown as { taps: number }).taps)).toBe(1);
+    // Off the stage it goes back to a cursor's size.
+    await page.evaluate(() => document.querySelector('[data-orb-spot="stage"]')!.closest('[role="dialog"]')!.remove());
+    await expect.poll(async () => (await page.locator('.orb-cursor').boundingBox())!.width, { timeout: 8000 }).toBeLessThan(60);
+    expect(errors).toEqual([]);
+  });
+
+  test('as a cursor: what it passes over lights up, and setting it down there presses it', async ({ page }) => {
+    const { errors } = await openWithOrb(page, { orbFollow: false });
+    const start = await settled(page);
+    const icon = page.getByRole('button', { name: /^Terminal\./ });
+    const r = (await icon.boundingBox())!;
+    await page.mouse.move(start.x, start.y);
+    await page.mouse.down();
+    await page.mouse.move(r.x + r.width / 2, r.y + r.height / 2, { steps: 12 });
+    await expect(icon).toHaveAttribute('data-orb-hover', '');
+    await page.waitForTimeout(350);
+    await page.mouse.up();
+    await expect(page.locator('.app-window[data-app="terminal"]')).toBeVisible();
+    await expect(page.locator('[data-orb-hover]')).toHaveCount(0);
+    expect(errors).toEqual([]);
+  });
+
+  test('as a cursor: set down on a text box, you type right where it landed', async ({ page }) => {
+    await mockAi(page, 'off');
+    const { errors } = await openWithOrb(page, { orbFollow: false });
+    await page.getByRole('button', { name: /^AI\./ }).click();
+    const box = page.locator('.app-window[data-app="ai"]').getByRole('textbox', { name: 'Message' });
+    await box.fill('hello world');
+    await box.evaluate((el) => (el as HTMLElement).blur());
+    const start = await settled(page);
+    const b = (await box.boundingBox())!;
+    // Just inside the start of the text, on its first line (a narrow box wraps it).
+    await page.mouse.move(start.x, start.y);
+    await page.mouse.down();
+    await page.mouse.move(b.x + 14, b.y + 18, { steps: 14 });
+    await page.waitForTimeout(350);
+    await page.mouse.up();
+    await expect(box).toBeFocused();
+    await expect(page.locator('.orb-layer')).toHaveAttribute('data-caret', 'true');
+    expect(await box.evaluate((el) => (el as HTMLTextAreaElement).selectionStart)).toBeLessThan(3);
+    await page.keyboard.type('>');
+    await expect(box).toHaveValue(/^.{0,2}>/);
+    expect(errors).toEqual([]);
+  });
+
+  test('pinch it: stretched it zooms in, then bounces back to its own size', async ({ page }) => {
+    const { errors } = await openWithOrb(page, { orbFollow: false });
+    const c = await settled(page);
+    const cdp = await page.context().newCDPSession(page);
+    const touch = (type: 'touchStart' | 'touchMove' | 'touchEnd', points: { x: number; y: number; id: number }[]) => cdp.send('Input.dispatchTouchEvent', { type, touchPoints: points });
+    const f1 = { x: Math.round(c.x), y: Math.round(c.y), id: 0 };
+    await touch('touchStart', [f1]);
+    await touch('touchStart', [f1, { x: f1.x - 60, y: f1.y, id: 1 }]);
+    for (let i = 1; i <= 6; i++) await touch('touchMove', [f1, { x: f1.x - 60 - i * 18, y: f1.y - i * 6, id: 1 }]);
+    // Stretched while the fingers spread.
+    expect((await page.locator('.orb-cursor').boundingBox())!.width).toBeGreaterThan(80);
+    await touch('touchEnd', [f1]);
+    await touch('touchEnd', []);
+    // Text is bigger now, and the orb springs back to its size.
+    await expect.poll(() => page.evaluate(() => Number(getComputedStyle(document.documentElement).getPropertyValue('--text-scale')))).toBeGreaterThan(1.05);
+    await expect.poll(async () => Math.abs((await page.locator('.orb-cursor').boundingBox())!.width - 56), { timeout: 6000 }).toBeLessThan(3);
+    expect(errors).toEqual([]);
+  });
 });

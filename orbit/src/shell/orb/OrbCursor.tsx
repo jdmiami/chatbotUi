@@ -1,14 +1,14 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { useShell, type AppId } from '../../state/shell';
 import { useMotionLevel } from '../../motion/MotionProvider';
-import { cue } from '../../motion/feedback';
+import { cue, tick } from '../../motion/feedback';
 import { getLocalAi } from '../../services/ai/LocalAi';
 import { AiOrb } from '../../apps/ai/AiOrb';
 import { canSpeak, createSpeaker } from '../../apps/ai/speech';
 import { Icon } from '../../ui/Icon';
 import { DEEP_PRESS, SPRINGS, ShakeDetector, SpringValue, VelocityTracker, landing, rubberClamp, spring, stretchFor, type Rect } from './physics';
 import { findFocus, restSpot } from './attention';
-import { caretField, caretOf } from './caret';
+import { caretField, caretOf, offsetAt } from './caret';
 import {
   PLANNER_PROMPT,
   describe,
@@ -35,6 +35,31 @@ const CARET = spring(0.075, 1);
 const MORPH = spring(0.34, 0.9);
 /** Gliding over to become the caret (from wherever it is), or back home: unhurried, no overshoot. */
 const GLIDE = spring(0.48, 0.96);
+/** Growing into a spot or a stage (the AI's face, the voice orb) and back: a slow swell with some give. */
+const GROW = spring(0.55, 0.72);
+/** Pinched: its size follows the fingers closely, without lag or wobble. */
+const PINCH_TRACK = spring(0.09, 1);
+/** Let go after a stretch or a squeeze: it bounces back to its own size, overshooting a few times. */
+const BOUNCE = spring(0.6, 0.34);
+/** Text size steps a pinch moves through (the same range as Settings → Text size). */
+const ZOOM = { min: 0.9, max: 1.3, step: 0.05, per: 1.2 } as const;
+/** What the orb can press as a cursor (dropped on it), and lights up while it passes over. */
+const PRESSABLE =
+  'button, a[href], input, textarea, select, label, summary, [role="button"], [role="tab"], [role="link"], [role="menuitem"], [role="option"], [role="switch"], [role="checkbox"], [role="radio"], [contenteditable="true"]';
+const TEXT_TYPES = new Set(['text', 'search', 'url', 'email', 'tel', 'password', 'number', '']);
+const isText = (el: Element) =>
+  el instanceof HTMLTextAreaElement || (el instanceof HTMLInputElement && TEXT_TYPES.has(el.type)) || (el as HTMLElement).isContentEditable;
+
+/** How big it looks while pinched (r = finger distance now / at the start), rubber-banded at the ends. */
+function stretchOf(r: number) {
+  const s = Math.pow(r, 0.75);
+  return s > 2 ? 2 + (s - 2) * 0.2 : s < 0.5 ? 0.5 - (0.5 - s) * 0.2 : s;
+}
+/** The text size a pinch of `r` lands on, from `now`. */
+function zoomFor(r: number, now: number) {
+  const steps = Math.round(Math.log(r) / Math.log(ZOOM.per));
+  return Math.min(ZOOM.max, Math.max(ZOOM.min, Math.round((now + steps * ZOOM.step) * 100) / 100));
+}
 const CARET_W = 2.5;
 
 type Mode = 'follow' | 'parked' | 'tucked' | 'drag' | 'acting' | 'caret';
@@ -77,6 +102,22 @@ function Orb() {
   /** 0 = orb, 1 = text cursor. */
   const morph = useRef(new SpringValue(0, MORPH)).current;
   const caretH = useRef(20);
+  /** Its size: grown on a spot or a stage (1 = the cursor's own size). */
+  const grow = useRef(new SpringValue(1, GROW)).current;
+  /** Stretched (pinched apart) or squeezed (pinched together); 1 = its own size. */
+  const pinch = useRef(new SpringValue(1, BOUNCE)).current;
+  /** The spot or stage it is sitting on: taps on the orb go to it when it is a button. */
+  const seat = useRef<HTMLElement | null>(null);
+  const onStage = useRef(false);
+  /** How sharply its face is drawn: more only while it is grown (drawing is what costs). */
+  const [faceRes, setFaceRes] = useState(1);
+  const sizeTo = useCallback(
+    (g: number) => {
+      grow.target = g;
+      setFaceRes(g > 1.2 ? Math.min(3.5, Math.ceil(g * 2) / 2) : 1);
+    },
+    [grow],
+  );
   /** On its way to become the caret: how far it had to go (its shape follows the trip's progress). */
   const flight = useRef<{ d0: number } | null>(null);
   /** What the layer's attributes last said (written only when they change). */
@@ -95,6 +136,13 @@ function Orb() {
   const [panel, setPanel] = useState(false);
   const [listening, setListening] = useState(false);
   const [energy, setEnergy] = useState<number | undefined>(undefined);
+  // A stage (the voice conversation) drives it with your voice and the replies.
+  const [stageEnergy, setStageEnergy] = useState<number | undefined>(undefined);
+  useEffect(() => {
+    const on = (e: Event) => setStageEnergy((e as CustomEvent<number | null>).detail ?? undefined);
+    window.addEventListener('orb:energy', on);
+    return () => window.removeEventListener('orb:energy', on);
+  }, []);
   const [caption, setCaption] = useState<string | null>(null);
   const [lines, setLines] = useState<Line[]>([]);
   const [running, setRunning] = useState(false);
@@ -147,6 +195,8 @@ function Orb() {
         }
       }
       morph.step(dt);
+      grow.step(dt);
+      pinch.step(dt);
       // Stretch along its speed (the finger's while dragging), wobbling back on the jelly spring.
       const v = mode.current === 'drag' ? tracker.velocity() : { x: x.velocity, y: y.velocity };
       const { stretch, angle } = full && mode.current !== 'caret' ? stretchFor(v.x, v.y) : { stretch: 1, angle: 0 };
@@ -158,8 +208,9 @@ function Orb() {
       if (el) {
         // As a text cursor it narrows to a sliver and stretches to the line's height (squash, not a swap).
         const m = Math.max(0, Math.min(1.15, morph.value));
-        const cw = 1 + (CARET_W / SIZE - 1) * m;
-        const ch = 1 + (caretH.current / SIZE - 1) * m;
+        const g = Math.max(0.2, grow.value * pinch.value);
+        const cw = (1 + (CARET_W / SIZE - 1) * m) * g;
+        const ch = (1 + (caretH.current / SIZE - 1) * m) * g;
         el.style.transform = `translate3d(${x.value - R}px, ${y.value - R}px, 0) scale(${cw}, ${ch}) rotate(${angle}rad) scale(${s * press}, ${press / s}) rotate(${-angle}rad)`;
         el.style.setProperty('--depth', Math.max(0, depth.value).toFixed(3));
       }
@@ -175,10 +226,10 @@ function Orb() {
         flyingShown.current = !!flight.current;
         layer.current?.toggleAttribute('data-flying', flyingShown.current);
       }
-      const still = !flight.current && x.resting() && y.resting() && depth.resting(0.002) && jelly.resting(0.002) && morph.resting(0.002);
+      const still = !flight.current && x.resting() && y.resting() && depth.resting(0.002) && jelly.resting(0.002) && morph.resting(0.002) && grow.resting(0.002) && pinch.resting(0.002);
       raf.current = mode.current === 'drag' || !still ? requestAnimationFrame(frame) : 0;
     },
-    [x, y, depth, jelly, morph, tracker],
+    [x, y, depth, jelly, morph, grow, pinch, tracker],
   );
   const kick = useCallback(() => {
     if (!raf.current) {
@@ -206,18 +257,47 @@ function Orb() {
 
   // ---- following what matters
   const lastFocus = useRef<Element | null>(null);
+  /** Where it was put down (parked or tucked), to go back to after doing something. */
+  const spot = useRef<{ x: number; y: number } | null>(null);
   const refocus = useCallback(() => {
-    const modal = [...document.querySelectorAll('[aria-modal="true"]')].some((d) => !layer.current?.contains(d));
+    // A dialog covers it, unless the dialog is a stage for it (the voice conversation).
+    const modal = [...document.querySelectorAll('[aria-modal="true"]')].some((d) => !layer.current?.contains(d) && !d.querySelector('[data-orb-spot="stage"]'));
     setHidden(modal || overlay === 'index');
-    if (mode.current !== 'follow' || leaving.current) return;
+    if (leaving.current) return;
+    const free = mode.current !== 'drag' && mode.current !== 'caret' && mode.current !== 'acting';
     const f = findFocus(viewport(), SIZE, layer.current);
+    // A stage takes it whatever the mode: there it is the voice orb, centred and grown.
+    if (f.kind === 'stage' && free) {
+      if (!onStage.current) jelly.velocity += 1.2;
+      onStage.current = true;
+      seat.current = f.el as HTMLElement;
+      sizeTo((f.size ?? SIZE) / SIZE);
+      moveTo(f.x, f.y, GLIDE);
+      return;
+    }
+    if (onStage.current) {
+      onStage.current = false;
+      seat.current = null;
+      sizeTo(1);
+      if (mode.current !== 'follow') {
+        const p = spot.current ?? restSpot(viewport(), SIZE);
+        moveTo(p.x, p.y, GLIDE);
+      }
+    }
+    if (mode.current !== 'follow') {
+      if (free && grow.target !== 1) sizeTo(1);
+      return;
+    }
     if (f.el !== lastFocus.current) {
       lastFocus.current = f.el;
       // A little nod when it turns to something new.
       if (f.el && levelRef.current === 'full') jelly.velocity += 1.6;
     }
+    // On a spot kept for it (the AI's face on an empty chat) it sits centred, grown to the spot.
+    seat.current = f.kind === 'spot' ? (f.el as HTMLElement) : null;
+    sizeTo(f.kind === 'spot' && f.size ? f.size / SIZE : 1);
     moveTo(f.x, f.y);
-  }, [overlay, moveTo, jelly]);
+  }, [overlay, moveTo, jelly, sizeTo]);
 
   // Only a change of the setting itself switches between following and staying put.
   const followSetting = useRef(follow);
@@ -227,8 +307,6 @@ function Orb() {
     mode.current = follow ? 'follow' : 'parked';
     refocus();
   }, [follow, refocus]);
-  /** Where it was put down (parked or tucked), to go back to after doing something. */
-  const spot = useRef<{ x: number; y: number } | null>(null);
   const rest = useCallback(() => {
     if (mode.current === 'follow') return refocus();
     const p = spot.current ?? restSpot(viewport(), SIZE);
@@ -256,6 +334,8 @@ function Orb() {
         document.documentElement.dataset.orbCaret = '';
       }
       caretH.current = Math.max(12, Math.min(48, c.h));
+      sizeTo(1);
+      seat.current = null;
       // Centre of the caret: on the gap before the next letter, halfway down the line.
       const cx = c.x + CARET_W / 2;
       const cy = c.y + c.h / 2;
@@ -312,7 +392,7 @@ function Orb() {
       };
       home();
     }
-  }, [morph, x, y, kick, rest]);
+  }, [morph, x, y, sizeTo, kick, rest]);
   useEffect(() => {
     let frameReq = 0;
     const soon = () => {
@@ -422,7 +502,232 @@ function Orb() {
   }, [summon]);
 
   // ---- touch: tap, deep press (pressure or hold), drag, fling
-  const press = useRef<{ id: number; x0: number; y0: number; dx: number; dy: number; t0: number; moved: boolean; deep: boolean; holdTimer: number } | null>(null);
+  const press = useRef<{
+    id: number;
+    x0: number;
+    y0: number;
+    /** Where that finger is now, and when it last moved. */
+    cx: number;
+    cy: number;
+    tMove: number;
+    dx: number;
+    dy: number;
+    t0: number;
+    moved: boolean;
+    deep: boolean;
+    /** A second finger is pinching it now / did during this press (then letting go is not a tap). */
+    pinching: boolean;
+    pinched: boolean;
+    holdTimer: number;
+  } | null>(null);
+
+  // ---- as a cursor: what it passes over lights up (as under a mouse), dropped on something it presses it
+  const hover = useRef<{ el: HTMLElement; since: number } | null>(null);
+  const pressableAt = (px: number, py: number): HTMLElement | null => {
+    if (typeof document.elementsFromPoint !== 'function') return null;
+    const hit = document.elementsFromPoint(px, py).find((e) => !layer.current?.contains(e));
+    const cm = hit?.closest('.cm-editor')?.querySelector<HTMLElement>('.cm-content');
+    const el = cm ?? hit?.closest<HTMLElement>(PRESSABLE) ?? null;
+    if (!el || (el as HTMLButtonElement).disabled || el.getAttribute('aria-disabled') === 'true') return null;
+    if (el.closest('[inert], [aria-hidden="true"]')) return null;
+    return el;
+  };
+  const setHover = (el: HTMLElement | null) => {
+    const prev = hover.current?.el ?? null;
+    if (prev === el) return;
+    const Pointer = typeof PointerEvent === 'function' ? PointerEvent : MouseEvent;
+    if (prev) {
+      prev.removeAttribute('data-orb-hover');
+      prev.dispatchEvent(new Pointer('pointerout', { bubbles: true, relatedTarget: el }));
+      prev.dispatchEvent(new MouseEvent('mouseout', { bubbles: true, relatedTarget: el }));
+    }
+    hover.current = el ? { el, since: performance.now() } : null;
+    if (captionTimer.current) clearTimeout(captionTimer.current);
+    if (el) {
+      el.setAttribute('data-orb-hover', '');
+      el.dispatchEvent(new Pointer('pointerover', { bubbles: true, relatedTarget: prev }));
+      el.dispatchEvent(new MouseEvent('mouseover', { bubbles: true, relatedTarget: prev }));
+      tick();
+      // It leans in a little, and says what it is over.
+      grow.target = 1.12;
+      jelly.velocity += 1.4;
+      // Lingering on it a moment, it says what it is (not while just passing over).
+      const label = (el.getAttribute('aria-label') || (el as HTMLInputElement).placeholder || el.textContent || '').replace(/\s+/g, ' ').trim();
+      captionTimer.current = setTimeout(() => setCaption(label ? (label.length > 48 ? `${label.slice(0, 47)}…` : label) : null), 240);
+    } else {
+      grow.target = 1;
+      setCaption(null);
+    }
+    kick();
+  };
+  /** Dropped on `el` at (px, py): a text box gets the caret right there, anything else is pressed. */
+  const activate = (el: HTMLElement, px: number, py: number) => {
+    mode.current = followSetting.current ? 'follow' : 'parked';
+    x.spring = SPRINGS.land;
+    y.spring = SPRINGS.land;
+    depth.target = 0.9;
+    jelly.velocity += 2;
+    kick();
+    window.setTimeout(() => ((depth.target = 0), kick()), 140);
+    cue('tap');
+    if ((el instanceof HTMLTextAreaElement || el instanceof HTMLInputElement) && isText(el)) {
+      // Where it landed, measured before focusing (focusing can move things: banners fold away).
+      const at = offsetAt(el, px, py);
+      el.focus({ preventScroll: true });
+      try {
+        el.setSelectionRange(at, at);
+      } catch {
+        /* type=number has no selection */
+      }
+      return; // it becomes the caret from here
+    }
+    if (el.isContentEditable) {
+      el.focus({ preventScroll: true });
+      const doc = document as Document & { caretPositionFromPoint?: (x: number, y: number) => { offsetNode: Node; offset: number } | null };
+      const pos = doc.caretPositionFromPoint?.(px, py);
+      const range = pos ? document.createRange() : document.caretRangeFromPoint?.(px, py);
+      if (pos && range) range.setStart(pos.offsetNode, pos.offset);
+      if (range && el.contains(range.startContainer)) {
+        range.collapse(true);
+        const sel = window.getSelection();
+        sel?.removeAllRanges();
+        sel?.addRange(range);
+      }
+      return;
+    }
+    el.setAttribute('data-orb-pressed', '');
+    window.setTimeout(() => el.removeAttribute('data-orb-pressed'), 260);
+    if (el instanceof HTMLSelectElement) {
+      el.focus();
+      (el as HTMLSelectElement & { showPicker?: () => void }).showPicker?.();
+    } else el.click();
+    // Then back where it lives.
+    window.setTimeout(() => {
+      if (mode.current === 'follow' || mode.current === 'parked') rest();
+    }, 320);
+  };
+
+  // ---- pinch: a second finger anywhere while one holds the orb stretches it (zoom in) or squeezes it
+  // (zoom out); let go and the text size steps, and the orb bounces back to its own size.
+  const pinchRef = useRef<{ id: number; x: number; y: number; d0: number; r: number } | null>(null);
+  const unbind = useRef<(() => void) | null>(null);
+  const zoomCaption = (r: number) => {
+    const now = useShell.getState().settings.textScale;
+    const next = zoomFor(r, now);
+    if (captionTimer.current) clearTimeout(captionTimer.current);
+    setCaption(`${r >= 1 ? 'Zoom in' : 'Zoom out'} · text ${Math.round(next * 100)}%`);
+  };
+  const pinchUpdate = () => {
+    const p = press.current;
+    const q = pinchRef.current;
+    if (!p || !q) return;
+    q.r = Math.max(0.2, Math.hypot(q.x - p.cx, q.y - p.cy) / q.d0);
+    pinch.spring = PINCH_TRACK;
+    pinch.target = stretchOf(q.r);
+    zoomCaption(q.r);
+    kick();
+  };
+  /** A pinch (or a trackpad pinch) of `r` is over: step the text size, bounce back. */
+  const finishZoom = (r: number) => {
+    const { settings, updateSettings } = useShell.getState();
+    const next = zoomFor(r, settings.textScale);
+    if (next !== settings.textScale) updateSettings({ textScale: next });
+    cue('pop');
+    pinch.spring = BOUNCE;
+    pinch.target = 1;
+    jelly.velocity += 2.5;
+    kick();
+    if (captionTimer.current) clearTimeout(captionTimer.current);
+    setCaption(next === settings.textScale ? (r >= 1 ? 'Already the biggest text' : 'Already the smallest text') : `Text ${Math.round(next * 100)}%`);
+    captionTimer.current = setTimeout(() => setCaption(null), 1600);
+  };
+  const endPinch = () => {
+    const q = pinchRef.current;
+    if (!q) return;
+    pinchRef.current = null;
+    if (press.current) press.current.pinching = false;
+    finishZoom(q.r);
+    // The second finger's touch must not also tap whatever it landed on.
+    const swallow = (e: Event) => (e.preventDefault(), e.stopPropagation());
+    window.addEventListener('click', swallow, { capture: true, once: true });
+    window.setTimeout(() => window.removeEventListener('click', swallow, true), 500);
+  };
+  const bindOthers = () => {
+    const down = (e: PointerEvent) => {
+      const p = press.current;
+      if (!p || e.pointerId === p.id || pinchRef.current) return;
+      e.preventDefault();
+      e.stopPropagation();
+      pinchRef.current = { id: e.pointerId, x: e.clientX, y: e.clientY, d0: Math.max(24, Math.hypot(e.clientX - p.cx, e.clientY - p.cy)), r: 1 };
+      p.pinching = true;
+      p.pinched = true;
+      clearTimeout(p.holdTimer);
+      setHover(null);
+      depth.target = 0.2;
+      kick();
+    };
+    const move = (e: PointerEvent) => {
+      const q = pinchRef.current;
+      if (!q || e.pointerId !== q.id) return;
+      e.preventDefault();
+      q.x = e.clientX;
+      q.y = e.clientY;
+      pinchUpdate();
+    };
+    const up = (e: PointerEvent) => {
+      if (pinchRef.current?.id === e.pointerId) endPinch();
+    };
+    // While it is held, the page must not scroll or zoom under a second finger.
+    const still = (e: Event) => {
+      if (pinchRef.current || (e as TouchEvent).touches?.length > 1) e.preventDefault();
+    };
+    window.addEventListener('pointerdown', down, true);
+    window.addEventListener('pointermove', move, true);
+    window.addEventListener('pointerup', up, true);
+    window.addEventListener('pointercancel', up, true);
+    document.addEventListener('touchmove', still, { passive: false });
+    document.addEventListener('gesturestart', still as EventListener);
+    document.addEventListener('gesturechange', still as EventListener);
+    unbind.current = () => {
+      window.removeEventListener('pointerdown', down, true);
+      window.removeEventListener('pointermove', move, true);
+      window.removeEventListener('pointerup', up, true);
+      window.removeEventListener('pointercancel', up, true);
+      document.removeEventListener('touchmove', still);
+      document.removeEventListener('gesturestart', still as EventListener);
+      document.removeEventListener('gesturechange', still as EventListener);
+      unbind.current = null;
+    };
+  };
+  useEffect(() => () => unbind.current?.(), []);
+
+  // A trackpad pinch (or Ctrl + scroll) over the orb does the same.
+  useEffect(() => {
+    const el = body.current;
+    if (!el) return;
+    let acc = 1;
+    let timer = 0;
+    const onWheel = (e: WheelEvent) => {
+      if (!e.ctrlKey) return;
+      e.preventDefault();
+      acc = Math.min(4, Math.max(0.25, acc * Math.exp(-e.deltaY * 0.01)));
+      pinch.spring = PINCH_TRACK;
+      pinch.target = stretchOf(acc);
+      zoomCaption(acc);
+      kick();
+      clearTimeout(timer);
+      timer = window.setTimeout(() => {
+        finishZoom(acc);
+        acc = 1;
+      }, 200);
+    };
+    el.addEventListener('wheel', onWheel, { passive: false });
+    return () => {
+      clearTimeout(timer);
+      el.removeEventListener('wheel', onWheel);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const askMotionPermission = () => {
     const DME = DeviceMotionEvent as unknown as { requestPermission?: () => Promise<string> };
@@ -440,14 +745,21 @@ function Orb() {
       id: e.pointerId,
       x0: e.clientX,
       y0: e.clientY,
+      cx: e.clientX,
+      cy: e.clientY,
+      tMove: e.timeStamp,
       dx: x.value - e.clientX,
       dy: y.value - e.clientY,
       t0: e.timeStamp,
       moved: false,
       deep: false,
+      pinching: false,
+      pinched: false,
       holdTimer: 0,
     };
     press.current = p;
+    unbind.current?.();
+    bindOthers();
     depth.target = 0.35;
     kick();
     // Holding still for a moment counts as a deep press (devices without pressure).
@@ -471,6 +783,10 @@ function Orb() {
     const p = press.current;
     if (!p || e.pointerId !== p.id) return;
     tracker.add(e.timeStamp, e.clientX, e.clientY);
+    p.cx = e.clientX;
+    p.cy = e.clientY;
+    p.tMove = e.timeStamp;
+    if (p.pinching) return pinchUpdate();
     // Real pressure (3D Touch, Pencil, force trackpads) presses it in; a hard press acts like a hold.
     if (e.pressure > 0 && e.pressure !== 0.5 && !p.moved) {
       depth.target = 0.35 + e.pressure * 0.6;
@@ -481,15 +797,32 @@ function Orb() {
       p.moved = true;
       clearTimeout(p.holdTimer);
       mode.current = 'drag';
+      // Picked up off a spot or a stage: back to a cursor's size in the hand.
+      sizeTo(1);
+      seat.current = null;
+      onStage.current = false;
       depth.target = 0.12;
       x.spring = SPRINGS.track;
       y.spring = SPRINGS.track;
     }
     if (p.moved) {
       const v = viewport();
+      let tx = e.clientX + p.dx;
+      let ty = e.clientY + p.dy;
+      // As a cursor: what is under it lights up, and small things pull it in a little (magnetic).
+      const over = pressableAt(tx, ty);
+      setHover(over);
+      // (Not text: there it goes exactly where you put it, between the letters you choose.)
+      if (over && !isText(over)) {
+        const r = over.getBoundingClientRect();
+        if (r.width < 240 && r.height < 120) {
+          tx += (r.left + r.width / 2 - tx) * 0.3;
+          ty += (r.top + r.height / 2 - ty) * 0.3;
+        }
+      }
       // Past the edges it pulls back like a rubber band.
-      x.target = rubberClamp(e.clientX + p.dx, v.x + R, v.x + v.w - R, v.w * 0.25);
-      y.target = rubberClamp(e.clientY + p.dy, v.y + R, v.y + v.h - R, v.h * 0.25);
+      x.target = rubberClamp(tx, v.x + R, v.x + v.w - R, v.w * 0.25);
+      y.target = rubberClamp(ty, v.y + R, v.y + v.h - R, v.h * 0.25);
       kick();
     }
   };
@@ -499,12 +832,29 @@ function Orb() {
     if (!p || e.pointerId !== p.id) return;
     press.current = null;
     clearTimeout(p.holdTimer);
+    unbind.current?.();
     depth.target = 0;
     kick();
+    const over = hover.current;
+    setHover(null);
+    if (p.pinched) {
+      // Letting go after a pinch: the zoom is done (it bounced back); this is not a tap or a throw.
+      endPinch();
+      if (p.moved) mode.current = followSetting.current ? 'follow' : 'parked';
+      return;
+    }
     if (p.moved) {
-      const vel = tracker.velocity();
+      // A finger that stopped before letting go set it down; it did not throw it.
+      const stopped = e.timeStamp - p.tMove > 150;
+      const vel = stopped ? { x: 0, y: 0 } : tracker.velocity();
       const v = viewport();
       const speed = Math.hypot(vel.x, vel.y);
+      // Set down on something (the finger rested on it a moment): it presses it, or types there.
+      // A throw that happens to end over a button never presses it.
+      if (over && stopped && performance.now() - over.since > 160) {
+        activate(over.el, x.target, y.target);
+        return;
+      }
       x.spring = SPRINGS.land;
       y.spring = SPRINGS.land;
       // The spring starts at the finger's speed, so the throw carries on naturally.
@@ -535,7 +885,13 @@ function Orb() {
       return;
     }
     if (p.deep) return;
-    // A tap.
+    // A tap. On a stage that is a button (the voice orb), the tap is that button's.
+    if (onStage.current && seat.current instanceof HTMLButtonElement) {
+      jelly.velocity += 2.5;
+      kick();
+      seat.current.click();
+      return;
+    }
     if (mode.current === 'tucked') {
       mode.current = follow ? 'follow' : 'parked';
       spot.current = null;
@@ -552,6 +908,11 @@ function Orb() {
     const p = press.current;
     if (p) clearTimeout(p.holdTimer);
     press.current = null;
+    unbind.current?.();
+    pinchRef.current = null;
+    pinch.spring = BOUNCE;
+    pinch.target = 1;
+    setHover(null);
     depth.target = 0;
     if (mode.current === 'drag') mode.current = 'parked';
     kick();
@@ -871,6 +1232,7 @@ function Orb() {
           if (e.key === 'Enter' || e.key === ' ') {
             e.preventDefault();
             if (e.shiftKey) openPanel();
+            else if (onStage.current && seat.current instanceof HTMLButtonElement) seat.current.click();
             else toggleVoice();
           }
         }}
@@ -879,7 +1241,7 @@ function Orb() {
           if (e.detail === 0) e.preventDefault();
         }}
       >
-        <AiOrb typing={running} energy={energy ?? (running ? 0.8 : undefined)} className="orb-cursor-face" />
+        <AiOrb typing={running} energy={energy ?? stageEnergy ?? (running ? 0.8 : undefined)} resolution={faceRes} className="orb-cursor-face" />
         <span className="orb-cursor-ring" aria-hidden />
       </button>
 

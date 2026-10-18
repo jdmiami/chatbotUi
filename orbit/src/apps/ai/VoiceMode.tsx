@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Icon } from '../../ui/Icon';
 import type { LocalAi } from '../../services/ai/LocalAi';
 import { AiOrb } from './AiOrb';
+import { useShell } from '../../state/shell';
 import { canSpeak, createSpeaker } from './speech';
 
 type Phase = 'starting' | 'listening' | 'hearing' | 'transcribing' | 'thinking' | 'speaking' | 'paused' | 'error';
@@ -183,11 +184,17 @@ export function VoiceMode({
   };
 
   const energy = phase === 'speaking' ? 0.75 : phase === 'thinking' || phase === 'transcribing' ? 0.5 : phase === 'paused' ? 0.15 : 0.2 + level * 0.8;
+  // The one orb comes to centre stage and is the voice orb: it breathes with your voice.
+  const orbOn = useShell((st) => st.settings.orb !== false);
+  useEffect(() => {
+    if (orbOn) window.dispatchEvent(new CustomEvent('orb:energy', { detail: energy }));
+  }, [orbOn, energy]);
+  useEffect(() => () => void window.dispatchEvent(new CustomEvent('orb:energy', { detail: null })), []);
 
   return (
     <div className="ai-voice" role="dialog" aria-modal="true" aria-label="Voice chat">
-      <button type="button" className="ai-voice-orb" onClick={tapOrb} aria-label={phase === 'hearing' ? 'Done talking' : phase === 'speaking' ? 'Interrupt' : 'Voice orb'}>
-        <AiOrb typing={false} energy={energy} className="ai-orb-voice" />
+      <button type="button" className="ai-voice-orb" data-orb-spot={orbOn ? 'stage' : undefined} data-orb-size="180" onClick={tapOrb} aria-label={phase === 'hearing' ? 'Done talking' : phase === 'speaking' ? 'Interrupt' : 'Voice orb'}>
+        {orbOn ? <span className="ai-voice-spot" aria-hidden /> : <AiOrb typing={false} energy={energy} className="ai-orb-voice" />}
       </button>
       <p className="ai-voice-state" role="status" aria-live="polite" data-phase={phase}>
         {LABEL[phase]}

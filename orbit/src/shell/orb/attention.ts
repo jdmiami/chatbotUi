@@ -2,14 +2,17 @@
  * Where the orb should hover: next to the most important thing on the screen, never on top of it.
  *
  * What matters, in order:
+ *  0. A stage (data-orb-spot="stage", e.g. the voice conversation): the orb is the voice orb there.
  *  1. Anything an app marks with data-orb-focus (the newest answer, the step you're on…).
  *  2. The field you're typing in.
- *  3. The main action on screen (the primary button that is visible and enabled).
- *  4. The newest message in a conversation.
- *  5. Otherwise a quiet spot low on the right, out of the way of thumbs and content.
+ *  3. A spot an app keeps for it (data-orb-spot, e.g. the AI's face on an empty chat).
+ *  4. The main action on screen (the primary button that is visible and enabled).
+ *  5. The newest message in a conversation.
+ *  6. Otherwise a quiet spot low on the right, out of the way of thumbs and content.
  *
  * The orb sits beside its target (to the right, else above, else to the left) so it points at it
- * without covering it, and never over another control.
+ * without covering it, and never over another control. On a spot or a stage it sits centred on it
+ * instead, grown to its size (data-orb-size, in px).
  */
 import type { Rect } from './physics';
 
@@ -19,7 +22,9 @@ export interface Focus {
   y: number;
   /** What it is looking at (for the glance and for tests); null at the resting spot. */
   el: Element | null;
-  kind: 'marked' | 'typing' | 'action' | 'latest' | 'rest';
+  kind: 'stage' | 'marked' | 'typing' | 'spot' | 'action' | 'latest' | 'rest';
+  /** On a spot or a stage: how big it should be there (px). */
+  size?: number;
 }
 
 const PRIMARY = '[data-orb-focus], .btn.primary, button[type="submit"], .ai-make, .ai-send';
@@ -81,6 +86,16 @@ export function findFocus(view: Rect, size: number, self: Element | null, root: 
     return spot ? { ...spot, el, kind } : null;
   };
 
+  const centred = (kind: 'stage' | 'spot'): Focus | null => {
+    for (const el of root.querySelectorAll(kind === 'stage' ? '[data-orb-spot="stage"]' : '[data-orb-spot]:not([data-orb-spot="stage"])')) {
+      const r = visible(el, view);
+      if (r) return { x: r.left + r.width / 2, y: r.top + r.height / 2, el, kind, size: Number((el as HTMLElement).dataset.orbSize) || r.width };
+    }
+    return null;
+  };
+  // 0. A stage.
+  const stage = centred('stage');
+  if (stage) return stage;
   // 1. Marked by an app, newest first.
   const marked = [...root.querySelectorAll('[data-orb-focus]')].reverse();
   for (const el of marked) {
@@ -93,14 +108,17 @@ export function findFocus(view: Rect, size: number, self: Element | null, root: 
     const f = place(active, 'typing');
     if (f) return f;
   }
-  // 3. The main action (topmost app window's own first; the lowest one on screen is usually "the next step").
+  // 3. A spot kept for it.
+  const spot = centred('spot');
+  if (spot) return spot;
+  // 4. The main action (topmost app window's own first; the lowest one on screen is usually "the next step").
   const actions = [...root.querySelectorAll(PRIMARY)].filter((el) => !(el as HTMLButtonElement).disabled && !self?.contains(el));
   actions.sort((a, b) => b.getBoundingClientRect().top - a.getBoundingClientRect().top);
   for (const el of actions) {
     const f = place(el, 'action');
     if (f) return f;
   }
-  // 4. The newest message or step.
+  // 5. The newest message or step.
   const latest = [...root.querySelectorAll(LATEST)].reverse();
   for (const el of latest.slice(0, 4)) {
     const f = place(el, 'latest');

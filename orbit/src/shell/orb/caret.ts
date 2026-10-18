@@ -73,30 +73,7 @@ export function caretOf(el: HTMLElement): Caret | null {
     } catch {
       pos = el.value.length; // type=number has no selection API
     }
-    const copy = document.createElement('div');
-    const cs = copy.style as unknown as Record<string, string>;
-    for (const p of COPY) cs[p] = (s as unknown as Record<string, string>)[p];
-    copy.style.position = 'fixed';
-    copy.style.left = `${box.left}px`;
-    copy.style.top = `${box.top}px`;
-    copy.style.visibility = 'hidden';
-    copy.style.pointerEvents = 'none';
-    copy.style.overflow = 'hidden';
-    copy.style.whiteSpace = el instanceof HTMLInputElement ? 'pre' : 'pre-wrap';
-    if (el instanceof HTMLTextAreaElement) copy.style.overflowWrap = 'break-word';
-    const value = el instanceof HTMLInputElement && el.type === 'password' ? '•'.repeat(el.value.length) : el.value;
-    copy.textContent = value.slice(0, pos);
-    const mark = document.createElement('span');
-    mark.textContent = '​';
-    copy.append(mark);
-    document.body.append(copy);
-    const m = mark.getBoundingClientRect();
-    copy.remove();
-    // A single-line input centres its text vertically; a text area starts at the top padding.
-    const top = el instanceof HTMLInputElement ? box.top + (box.height - h) / 2 : m.top - el.scrollTop;
-    const x = Math.min(box.right - 2, Math.max(box.left, m.left - el.scrollLeft));
-    const y = Math.min(box.bottom - h, Math.max(box.top, top));
-    return { x, y, h };
+    return caretAt(el, pos);
   }
 
   const sel = window.getSelection();
@@ -118,4 +95,63 @@ export function caretOf(el: HTMLElement): Caret | null {
     return { x: box.left + parseFloat(s.paddingLeft || '0'), y: box.top + parseFloat(s.paddingTop || '0'), h };
   }
   return { x: r.left, y: r.top, h: Math.max(r.height, h * 0.8) };
+}
+
+/** Where the caret of a text box would be with the cursor at `pos` (a hidden, identical copy is measured). */
+export function caretAt(el: HTMLInputElement | HTMLTextAreaElement, pos: number): Caret | null {
+  const box = el.getBoundingClientRect();
+  if (box.width < 2 || box.height < 2) return null;
+  const s = getComputedStyle(el);
+  const h = Math.min(lineHeight(s), box.height);
+  const copy = document.createElement('div');
+  const cs = copy.style as unknown as Record<string, string>;
+  for (const p of COPY) cs[p] = (s as unknown as Record<string, string>)[p];
+  copy.style.position = 'fixed';
+  copy.style.left = `${box.left}px`;
+  copy.style.top = `${box.top}px`;
+  copy.style.visibility = 'hidden';
+  copy.style.pointerEvents = 'none';
+  copy.style.overflow = 'hidden';
+  copy.style.whiteSpace = el instanceof HTMLInputElement ? 'pre' : 'pre-wrap';
+  if (el instanceof HTMLTextAreaElement) copy.style.overflowWrap = 'break-word';
+  const value = el instanceof HTMLInputElement && el.type === 'password' ? '•'.repeat(el.value.length) : el.value;
+  copy.textContent = value.slice(0, pos);
+  const mark = document.createElement('span');
+  mark.textContent = '\u200b';
+  copy.append(mark);
+  document.body.append(copy);
+  const m = mark.getBoundingClientRect();
+  copy.remove();
+  // A single-line input centres its text vertically; a text area starts at the top padding.
+  const top = el instanceof HTMLInputElement ? box.top + (box.height - h) / 2 : m.top - el.scrollTop;
+  const x = Math.min(box.right - 2, Math.max(box.left, m.left - el.scrollLeft));
+  const y = Math.min(box.bottom - h, Math.max(box.top, top));
+  return { x, y, h };
+}
+
+/** The position in a text box nearest to the point (x, y): where a cursor dropped there should go. */
+export function offsetAt(el: HTMLInputElement | HTMLTextAreaElement, x: number, y: number): number {
+  const single = el instanceof HTMLInputElement;
+  // True while the caret at `pos` is still before the point (reading order: line, then across).
+  const before = (pos: number) => {
+    const c = caretAt(el, pos);
+    if (!c) return true;
+    if (!single && y < c.y) return false;
+    if (!single && y > c.y + c.h) return true;
+    return c.x <= x;
+  };
+  let lo = 0;
+  let hi = el.value.length;
+  while (lo < hi) {
+    const mid = (lo + hi + 1) >> 1;
+    if (before(mid)) lo = mid;
+    else hi = mid - 1;
+  }
+  // Between two letters: the nearer gap.
+  if (lo < el.value.length) {
+    const a = caretAt(el, lo);
+    const b = caretAt(el, lo + 1);
+    if (a && b && Math.abs(b.y - a.y) < 1 && Math.abs(b.x - x) < Math.abs(a.x - x)) return lo + 1;
+  }
+  return lo;
 }
