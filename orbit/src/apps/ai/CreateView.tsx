@@ -5,6 +5,7 @@ import { Icon } from '../../ui/Icon';
 import { ConfirmSheet, EmptyState, IconButton, Segmented, Sheet } from '../../ui/components';
 import { AiError, type LocalAi, type StudioItem, type StudioJob, type StudioKind, type StudioMakerInfo, type StudioState } from '../../services/ai/LocalAi';
 import { MakersSheet } from './Makers';
+import { MAKER_CATALOG, rememberMakers, rememberedMakers } from './makerCatalog';
 
 type Mode = StudioKind | 'edit';
 const DEFAULT_PICK: Record<Mode, string> = { image: 'qwen', video: 'ltx', edit: 'edit' };
@@ -62,7 +63,7 @@ const active = (j: StudioJob) => j.status === 'queued' || j.status === 'running'
  * Create: make images and videos (with sound) on the AI machine. Results stay on the machine's
  * storage and show in the gallery on every device.
  */
-export function CreateView({ ai, machineOn, isActive }: { ai: LocalAi; machineOn: boolean; isActive: boolean }) {
+export function CreateView({ ai, machineOn, isActive, onTurnOn }: { ai: LocalAi; machineOn: boolean; isActive: boolean; onTurnOn?: () => void }) {
   const toast = useShell((s) => s.toast);
   const o5 = useShell((s) => s.settings.skin === 'o5');
   // The next step glides into view once this one is answered.
@@ -78,7 +79,16 @@ export function CreateView({ ai, machineOn, isActive }: { ai: LocalAi; machineOn
   const [editImages, setEditImages] = useState<{ src: string; item?: string }[]>([]);
   const [studio, setStudio] = useState<StudioState | null>(null);
   const [studioError, setStudioError] = useState<string | null>(null);
-  const [makers, setMakers] = useState<StudioMakerInfo[] | null>(null);
+  const [makers, setMakersState] = useState<StudioMakerInfo[] | null>(null);
+  const [makersError, setMakersError] = useState<string | null>(null);
+  // Until the machine answers (or while it is off): the makers it last had, else what it offers.
+  const [offline] = useState(() => rememberedMakers() ?? MAKER_CATALOG);
+  const known = makers ?? offline;
+  const setMakers = useCallback((list: StudioMakerInfo[]) => {
+    setMakersState(list);
+    setMakersError(null);
+    rememberMakers(list);
+  }, []);
   const [makersOpen, setMakersOpen] = useState(false);
   const [makerBusy, setMakerBusy] = useState<string | null>(null);
   const [pick, setPickState] = useState<Record<Mode, string>>(loadPick);
@@ -120,11 +130,13 @@ export function CreateView({ ai, machineOn, isActive }: { ai: LocalAi; machineOn
         for (const j of s.jobs) known.set(j.id, j);
         return [...known.values()].filter((j) => active(j) || j.status === 'error').slice(-6);
       });
-      ai.studioMakers().then(setMakers, () => {});
+      ai.studioMakers().then(setMakers, (err: Error) => setMakersError(err.message));
     } catch (err) {
-      setStudioError(err instanceof AiError && err.status === 404 ? 'The image and video maker is not installed on your AI machine yet.' : (err as Error).message);
+      const msg = err instanceof AiError && err.status === 404 ? 'The image and video maker is not installed on your AI machine yet.' : (err as Error).message;
+      setStudioError(msg);
+      setMakersError(msg);
     }
-  }, [ai]);
+  }, [ai, setMakers]);
 
   // Machine state and the gallery while this view is open.
   useEffect(() => {
@@ -149,10 +161,10 @@ export function CreateView({ ai, machineOn, isActive }: { ai: LocalAi; machineOn
 
   // Makers for this mode: the installed ones, plus the one picked (even while it downloads).
   const kindsFor = (m: Mode): StudioMakerInfo['kind'][] => (m === 'edit' ? ['edit', 'upscale'] : [m]);
-  const choices = (makers ?? []).filter((m) => kindsFor(kind).includes(m.kind) && (m.installed || m.wanted));
-  const chosen = (makers ?? []).find((m) => m.id === pick[kind]) ?? (makers ?? []).find((m) => m.id === DEFAULT_PICK[kind]) ?? null;
+  const choices = known.filter((m) => kindsFor(kind).includes(m.kind) && (m.installed || m.wanted));
+  const chosen = known.find((m) => m.id === pick[kind]) ?? known.find((m) => m.id === DEFAULT_PICK[kind]) ?? null;
   const chosenId = chosen?.id ?? DEFAULT_PICK[kind];
-  const styles = (makers ?? []).filter((m) => m.kind === 'style' && m.for === chosenId && m.installed);
+  const styles = known.filter((m) => m.kind === 'style' && m.for === chosenId && m.installed);
   const sharpen = chosen?.kind === 'upscale';
   const needImages = kind === 'edit' ? (chosen?.twoImages ? 2 : 1) : 0;
   const builtInMaker = studio?.[kind === 'video' ? 'video' : 'image'];
@@ -319,7 +331,7 @@ export function CreateView({ ai, machineOn, isActive }: { ai: LocalAi; machineOn
               {!m.installed && <span className="ai-muted"> {m.percent}%</span>}
             </button>
           ))}
-          <button type="button" className="ai-maker-chip ai-maker-more" onClick={() => setMakersOpen(true)} disabled={!machineOn}>
+          <button type="button" className="ai-maker-chip ai-maker-more" onClick={() => setMakersOpen(true)}>
             <Icon name="plus" size={14} /> Makers
           </button>
         </div>
@@ -563,7 +575,11 @@ export function CreateView({ ai, machineOn, isActive }: { ai: LocalAi; machineOn
       )}
       {makersOpen && (
         <MakersSheet
-          makers={makers}
+          makers={makers ?? (machineOn ? null : offline)}
+          machineOn={machineOn}
+          error={machineOn ? makersError : null}
+          onRetry={() => void refresh()}
+          onTurnOn={onTurnOn}
           busy={makerBusy}
           onInstall={(id) => void changeMaker(() => ai.installStudioMaker(id), id)}
           onRemove={(id) => void changeMaker(() => ai.removeStudioMaker(id), id)}

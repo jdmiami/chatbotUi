@@ -95,4 +95,29 @@ test.describe('Orbit 0.5: AI', () => {
     await expectTappable(page);
     expect(errors).toEqual([]);
   });
+
+  test('make with the machine off: the built-in makers are still pickable, and Makers opens with a way to turn it on', async ({ page }, testInfo) => {
+    const powerCalls: Record<string, unknown>[] = [];
+    await mockAi(page, 'off', powerCalls);
+    const errors = await openO5Ai(page);
+    const win = page.locator('.app-window[data-app="ai"]');
+    await win.getByRole('button', { name: 'Make', exact: true }).click();
+    await win.getByRole('radio', { name: /A picture/ }).click();
+    const picks = win.getByRole('radiogroup', { name: 'Maker' });
+    const qwen = picks.getByRole('radio', { name: 'Qwen Uncensored' });
+    await expect(qwen).toHaveAttribute('aria-checked', 'true');
+    await qwen.click();
+    await expect(win.getByRole('textbox', { name: 'Describe it' })).toBeInViewport();
+    await picks.getByRole('button', { name: 'Makers' }).click();
+    const sheet = page.getByRole('dialog', { name: 'Makers' });
+    await expect(sheet.getByText('The machine is resting')).toBeVisible();
+    await expect(sheet.getByRole('region', { name: 'Video' })).toContainText('H3 Max');
+    await expect(sheet.getByRole('button', { name: /^Install/ })).toHaveCount(0);
+    await expectNoHorizontalOverflow(page);
+    await page.screenshot({ path: testInfo.outputPath('makers-off.png') });
+    await sheet.getByRole('button', { name: 'Turn on' }).click();
+    await expect.poll(() => powerCalls.length).toBe(1);
+    expect(powerCalls[0]).toMatchObject({ action: 'start' });
+    expect(errors).toEqual([]);
+  });
 });
