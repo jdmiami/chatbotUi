@@ -37,15 +37,15 @@ test.describe('Orbit 0.5: the other apps', () => {
     expect(errors).toEqual([]);
   });
 
-  test('terminal: copy, paste and history live in More; the header keeps the keyboard', async ({ page }) => {
+  test('terminal: copy and paste live in More; the header keeps the keyboard', async ({ page }) => {
     const { errors, win } = await openO5(page, /Terminal/, 'terminal');
     const header = win.locator('.app-header');
     await expect(header.getByRole('button', { name: 'Keyboard' })).toBeVisible();
     await expect(header.getByRole('button', { name: 'Copy selection' })).toHaveCount(0);
     await header.getByRole('button', { name: 'More terminal options' }).click();
     const sheet = page.getByRole('dialog', { name: 'Terminal options' });
-    for (const name of ['Copy selection', 'Paste', 'History']) await expect(sheet.getByRole('button', { name })).toBeVisible();
-    await sheet.getByRole('button', { name: 'History' }).click();
+    for (const name of ['Copy selection', 'Paste', /Show history/]) await expect(sheet.getByRole('button', { name, exact: true })).toBeVisible();
+    await sheet.getByRole('button', { name: /Show history/ }).click();
     await expect(page.getByRole('dialog')).toBeVisible();
     expect(errors).toEqual([]);
   });

@@ -146,7 +146,7 @@ export default function TerminalApp({ placement, isActive, compact }: AppProps) 
   /** The shell is asking for a password: the typing box hides what is typed. */
   const [secretPrompt, setSecretPrompt] = useState(false);
   const accent = useShell((s) => s.settings.accent);
-  // Orbit 0.5: the header keeps only the keyboard and More; copy, paste and history move into More.
+  // Orbit 0.5: the header keeps only the keyboard and More; copy and paste move into More (history is there already).
   const o5 = useShell((s) => s.settings.skin === 'o5');
   const themePref = useShell((s) => s.settings.theme);
   const updateSettings = useShell((s) => s.updateSettings);
@@ -1079,10 +1079,6 @@ export default function TerminalApp({ placement, isActive, compact }: AppProps) 
                 >
                   <Icon name="paste" />
                   <span className="row-main">Paste</span>
-                </button>
-                <button type="button" className="row" onClick={openHistory}>
-                  <Icon name="history" />
-                  <span className="row-main">History</span>
                 </button>
               </div>
             )}
