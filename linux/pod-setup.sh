@@ -31,6 +31,13 @@ CODE_MODEL="${CODE_MODEL:-qwen3.6:35b}"
 export DEBIAN_FRONTEND=noninteractive
 
 log() { echo "[pod-setup] $*"; }
+# Turn this pod off with the key Runpod gives it (used when setup fails, so a broken machine doesn't bill).
+stop_self() {
+  log "stopping the machine: $1"
+  [ -n "${RUNPOD_POD_ID:-}" ] && [ -n "${RUNPOD_API_KEY:-}" ] || { log "no RUNPOD_POD_ID/RUNPOD_API_KEY to stop with"; return 0; }
+  curl -fsS -m 20 -X POST -H "Authorization: Bearer ${RUNPOD_API_KEY}" -H 'content-type: application/json' \
+    -d '{"action":"stop"}' "https://api.runpod.io/v2/pods/${RUNPOD_POD_ID}/action" >/dev/null || log "stop request failed"
+}
 
 if [ ! -f /opt/.desktop-installed ]; then
   log "installing desktop, xrdp and guacd"
@@ -56,19 +63,6 @@ if [ ! -f /opt/.desktop-installed ]; then
   curl -fsSL "https://nodejs.org/dist/v${NODE_VERSION}/node-v${NODE_VERSION}-linux-${arch}.tar.xz" \
     | tar -xJ -C /usr/local --strip-components=1
 
-  log "installing the gateway and Orbit host"
-  mkdir -p /opt/gateway/src/orbit /opt/gateway/bin
-  for f in package.json package-lock.json src/index.js src/server.js src/protocol.js src/origins.js \
-    src/code.js src/ai-local.js src/sysstats.js src/orbit/auth.js src/orbit/files.js src/orbit/pty.js src/orbit/agent.js src/orbit/http.js src/orbit/seed.js \
-    bin/workspace-secrets.mjs; do
-    curl -fsSL "${REPO_RAW}/gateway/${f}" -o "/opt/gateway/${f}"
-  done
-  (cd /opt/gateway && npm ci --omit=dev --no-audit --no-fund)
-  # Lets the owner make new passwords/secrets in a terminal on this machine (see README).
-  chmod 755 /opt/gateway/bin/workspace-secrets.mjs
-  ln -sf /opt/gateway/bin/workspace-secrets.mjs /usr/local/bin/workspace-secrets
-  node -e "require('/opt/gateway/node_modules/node-pty')" && log "node-pty ok" || log "WARNING: node-pty failed to load (Orbit terminal unavailable)"
-
   log "installing VS Code (code-server ${CODE_SERVER_VERSION}) and the Kilo Code agent"
   curl -fsSL "https://github.com/coder/code-server/releases/download/v${CODE_SERVER_VERSION}/code-server-${CODE_SERVER_VERSION}-linux-amd64.tar.gz" \
     | tar -xz -C /opt && ln -sfn "/opt/code-server-${CODE_SERVER_VERSION}-linux-amd64" /opt/code-server
@@ -78,6 +72,43 @@ if [ ! -f /opt/.desktop-installed ]; then
 
   touch /opt/.desktop-installed
 fi
+
+# The gateway and Orbit host are fetched on every start, so a restart picks up fixes (such as the
+# idle shut-off). A failed download keeps the copy from the last start.
+log "updating the gateway and Orbit host"
+rm -rf /opt/gateway.new && mkdir -p /opt/gateway.new/src/orbit /opt/gateway.new/bin /opt/gateway
+fetched=1
+for f in package.json package-lock.json src/index.js src/server.js src/protocol.js src/origins.js \
+  src/code.js src/ai-local.js src/sysstats.js src/idle.js src/orbit/auth.js src/orbit/files.js src/orbit/pty.js src/orbit/agent.js src/orbit/http.js src/orbit/seed.js \
+  bin/workspace-secrets.mjs; do
+  curl -fsSL "${REPO_RAW}/gateway/${f}" -o "/opt/gateway.new/${f}" || { fetched=0; log "could not fetch gateway/${f}"; break; }
+done
+if [ "$fetched" = 1 ]; then
+  cp -r /opt/gateway.new/. /opt/gateway/
+elif [ ! -f /opt/gateway/src/index.js ]; then
+  stop_self "no gateway code could be downloaded"
+  exit 1
+fi
+rm -rf /opt/gateway.new
+if [ ! -d /opt/gateway/node_modules ] || ! cmp -s /opt/gateway/package-lock.json /opt/gateway/.installed-lock; then
+  installed=0
+  for attempt in 1 2 3; do
+    if (cd /opt/gateway && npm ci --omit=dev --no-audit --no-fund); then installed=1; break; fi
+    log "npm ci failed (attempt $attempt), retrying in 20s"
+    sleep 20
+  done
+  if [ "$installed" != 1 ]; then
+    # Without its dependencies the gateway can't run, and nor can its idle shut-off: turn the
+    # machine off rather than leave it billing.
+    stop_self "the gateway's dependencies could not be installed"
+    exit 1
+  fi
+  cp /opt/gateway/package-lock.json /opt/gateway/.installed-lock
+fi
+# Lets the owner make new passwords/secrets in a terminal on this machine (see README).
+chmod 755 /opt/gateway/bin/workspace-secrets.mjs
+ln -sf /opt/gateway/bin/workspace-secrets.mjs /usr/local/bin/workspace-secrets
+node -e "require('/opt/gateway/node_modules/node-pty')" && log "node-pty ok" || log "WARNING: node-pty failed to load (Orbit terminal unavailable)"
 
 # Desktop user, with its home on the persistent volume when there is one.
 home_root=/home
@@ -195,6 +226,8 @@ gateway_env=(
   "RDP_SECURITY=${RDP_SECURITY:-any}" "RDP_IGNORE_CERT=true" "GUACD_HOST=127.0.0.1" "GUACD_PORT=4822" "PORT=8080"
   "ORBIT_HOST=1" "ORBIT_PROJECTS_DIR=$user_home/projects" "AGY_PATH=$user_home/.local/bin/agy"
   "CODE_SERVER_URL=http://127.0.0.1:8443" "AI_LOCAL_PORT=8090" "SITE_URL=${SITE_URL:-}"
+  # Runpod's key for this pod only: the gateway turns the machine off after 20 minutes without input.
+  "RUNPOD_POD_ID=${RUNPOD_POD_ID:-}" "RUNPOD_API_KEY=${RUNPOD_API_KEY:-}" "IDLE_MINUTES=${IDLE_MINUTES:-20}"
 )
 unset DESKTOP_PASSWORD
 cd /opt/gateway

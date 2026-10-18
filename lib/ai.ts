@@ -65,7 +65,8 @@ const env = () => ({
   dataCenter: process.env.AI_DATA_CENTER || 'CA-MTL-1',
   gpuTypes: (process.env.AI_GPU_TYPES || 'NVIDIA A40').split(',').map((s) => s.trim()).filter(Boolean),
   image: process.env.AI_IMAGE || 'ghcr.io/open-webui/open-webui:0.12.2-ollama',
-  idleMinutes: process.env.AI_IDLE_MINUTES || '30',
+  // The machines never wait longer than 20 minutes without a job (the gate enforces it too).
+  idleMinutes: String(Math.min(Number(process.env.AI_IDLE_MINUTES) || 20, 20)),
   models: process.env.AI_MODELS || 'qwen3.8:27b,qwen3.6:35b,qwen3.8-obliterated:27b=hf.co/OBLITERATUS/Qwen3.8-27B-OBLITERATED:Q6_K|like=qwen3.8:27b|temperature=0|repeat_penalty=1.15',
   secret: process.env.LINUX_GATEWAY_SECRET || '',
 });
@@ -82,7 +83,7 @@ export function aiTiers(): AiTier[] {
     /* fall back to the defaults */
   }
   return [
-    { id: 'standard', label: 'Standard', gpu: env().gpuTypes[0] || 'NVIDIA A40', gpuName: 'A40 48 GB', pricePerHour: 0.59, idleMinutes: Number(env().idleMinutes) || 30, speed: 'normal speed' },
+    { id: 'standard', label: 'Standard', gpu: env().gpuTypes[0] || 'NVIDIA A40', gpuName: 'A40 48 GB', pricePerHour: 0.59, idleMinutes: Number(env().idleMinutes) || 20, speed: 'normal speed' },
     { id: 'turbo', label: 'Turbo', gpu: 'NVIDIA H100 80GB HBM3', gpuName: 'H100 80 GB', pricePerHour: 3.99, idleMinutes: 10, speed: 'about 4–6× faster' },
   ];
 }

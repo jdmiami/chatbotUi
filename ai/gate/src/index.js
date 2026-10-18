@@ -37,14 +37,12 @@ const studio = env.STUDIO_DIR
 // soReal movies (chained video shots), kept with the studio's files.
 const movies = studio ? createMovies({ dir: env.STUDIO_DIR, studio, machine: HELPER ? 'helper' : 'main' }) : null;
 
+// Turns itself off after 20 minutes without a job (IDLE_MINUTES can only make that shorter).
 const idle = createIdleWatch({
-  limitMinutes: Number(env.IDLE_MINUTES || 30),
-  // Busy while a model is loaded in GPU memory or a download is running.
-  busy: async () => {
-    if (models.pulling() || studio?.busy() || movies?.busy()) return true;
-    const ps = await ollamaJson(OLLAMA, '/api/ps').catch(() => null);
-    return Boolean(ps?.models?.length);
-  },
+  limitMinutes: Math.min(Number(env.IDLE_MINUTES) || 20, 20),
+  // Busy while a picture, video or movie shot is being made or a download is running. A model merely
+  // sitting in GPU memory is not a job.
+  busy: async () => Boolean(models.pulling() || studio?.busy()),
   stop: () => runpodStopSelf({ podId: env.RUNPOD_POD_ID, apiKey: env.RUNPOD_API_KEY }),
   log: console,
 });
@@ -120,6 +118,10 @@ const server = createGate({
   status,
   stats,
   keepAwake: (minutes) => idle.extend(minutes),
+  idleState: () => {
+    const s = idle.state();
+    return { role: HELPER ? 'helper' : 'main', limitMinutes: s.limitMinutes, idleMinutes: s.idleMinutes, offAt: s.offAt, heldUntil: s.heldUntil, uptimeMinutes: Math.round((Date.now() - startedAt) / 60000) };
+  },
   studio,
   movies,
   studioKey: env.STUDIO_KEY || '',

@@ -106,5 +106,13 @@ export async function machineStatus(): Promise<MachineStatus> {
 export async function setMachinePower(action: 'start' | 'stop'): Promise<void> {
   const id = podId();
   if (!id) throw new Error('LINUX_POD_ID is not set');
+  if (action === 'start' && process.env.VERCEL_GIT_COMMIT_SHA) {
+    // Start on this deployment's code, so fixes (like the idle shut-off) reach the machine.
+    const repoRaw = `https://raw.githubusercontent.com/jdmiami/chatbotUi/${process.env.VERCEL_GIT_COMMIT_SHA}`;
+    const pod = (await runpod(`/pods/${encodeURIComponent(id)}`).catch(() => null)) as { env?: Record<string, string> } | null;
+    if (pod?.env && (pod.env.REPO_RAW !== repoRaw || pod.env.IDLE_MINUTES !== '20')) {
+      await runpod(`/pods/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify({ env: { ...pod.env, REPO_RAW: repoRaw, IDLE_MINUTES: '20' } }) }).catch(() => {});
+    }
+  }
   await runpod(`/pods/${encodeURIComponent(id)}/action`, { method: 'POST', body: JSON.stringify({ action }) });
 }

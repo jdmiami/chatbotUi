@@ -174,38 +174,61 @@ export function createModelKeeper({ ollama, wanted: specs, retryMs = 60_000, fet
 }
 
 /**
- * Stops the machine after `limitMinutes` without use. "Use" = activity reported by the gate
- * (chat requests, page loads that change something, API calls) or busy() saying a model is loaded /
- * a download is running. Never stops sooner than limitMinutes after boot.
+ * Stops the machine after `limitMinutes` without a job. A job = a request for real work reported by
+ * the gate (a chat answer, a picture or video, a download) or busy() saying one is still running.
+ * Open pages and polling never count. Never stops sooner than limitMinutes after boot.
+ *
+ * Fail-safes: busy() can't hold the machine on for more than `maxBusyMinutes` without a new request
+ * (a job that never finishes), "keep awake" is capped at `maxHoldMinutes`, and a failed stop is
+ * retried every `retryMinutes` instead of waiting out another idle period.
  */
-export function createIdleWatch({ limitMinutes, busy, stop, log = console, now = Date.now, everyMs = 60_000 }) {
-  let last = now();
+export function createIdleWatch({
+  limitMinutes,
+  busy,
+  stop,
+  log = console,
+  now = Date.now,
+  everyMs = 60_000,
+  maxBusyMinutes = 180,
+  maxHoldMinutes = 120,
+  retryMinutes = 2,
+}) {
+  let last = now(); // last request for work (or boot)
+  let lastBusy = 0; // last time busy() said a job was running
   let hold = 0; // "keep awake" until this time, whatever the activity
   let stopping = null; // last stop attempt result
+  let retryAt = 0;
   let timer = null;
   const limitMs = limitMinutes * 60_000;
+  // Busy only counts while the last real request is recent enough.
+  const busyCounts = () => now() - last < maxBusyMinutes * 60_000;
+  const idleSince = () => (busyCounts() ? Math.max(last, lastBusy) : last);
 
   async function check() {
     if (!(limitMinutes > 0)) return;
-    if (await busy().catch(() => false)) last = now();
-    if (now() - last < limitMs || now() < hold) return;
-    log.info?.(`[gate] idle for ${limitMinutes} min, stopping the machine`);
+    if (await busy().catch(() => false)) {
+      if (busyCounts()) lastBusy = now();
+      else log.warn?.(`[gate] a job has kept the machine busy for over ${maxBusyMinutes} min with no new request; ignoring it`);
+    }
+    const t = now();
+    if (t - idleSince() < limitMs || t < hold || t < retryAt) return;
+    log.info?.(`[gate] no job for ${limitMinutes} min, stopping the machine`);
     try {
       await stop();
-      stopping = { ok: true, at: new Date(now()).toISOString() };
+      stopping = { ok: true, at: new Date(t).toISOString() };
     } catch (err) {
-      stopping = { ok: false, at: new Date(now()).toISOString(), error: err.message };
-      log.warn?.(`[gate] could not stop the machine: ${err.message}`);
-      last = now(); // try again after another idle period rather than every minute
+      stopping = { ok: false, at: new Date(t).toISOString(), error: err.message };
+      log.warn?.(`[gate] could not stop the machine: ${err.message}; trying again in ${retryMinutes} min`);
+      retryAt = t + retryMinutes * 60_000;
     }
   }
 
   return {
     touch: () => (last = now()),
-    /** Push the turn-off time back by `minutes` (up to 4 hours at a time). Returns the new turn-off time. */
+    /** Push the turn-off time back by `minutes`, never more than `maxHoldMinutes` from now. Returns the new turn-off time. */
     extend: (minutes) => {
-      const offAt = Math.max(last + limitMs, hold, now());
-      hold = offAt + Math.max(0, Math.min(240, minutes)) * 60_000;
+      const offAt = Math.max(idleSince() + limitMs, hold, now());
+      hold = Math.min(offAt + Math.max(0, Math.min(240, minutes)) * 60_000, now() + maxHoldMinutes * 60_000);
       return hold;
     },
     check,
@@ -215,10 +238,10 @@ export function createIdleWatch({ limitMinutes, busy, stop, log = console, now =
     },
     state: () => ({
       limitMinutes,
-      idleMinutes: Math.floor((now() - last) / 60_000),
-      idleSeconds: Math.floor((now() - last) / 1000),
+      idleMinutes: Math.floor((now() - idleSince()) / 60_000),
+      idleSeconds: Math.floor((now() - idleSince()) / 1000),
       // When it will turn itself off if nobody uses it (the check runs every minute).
-      offAt: limitMinutes > 0 ? new Date(Math.max(last + limitMs, hold)).toISOString() : null,
+      offAt: limitMinutes > 0 ? new Date(Math.max(idleSince() + limitMs, hold)).toISOString() : null,
       heldUntil: hold > now() ? new Date(hold).toISOString() : null,
       lastStop: stopping,
     }),

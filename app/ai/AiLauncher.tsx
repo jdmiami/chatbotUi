@@ -187,7 +187,7 @@ export default function AiLauncher({ target, next }: { target: 'chat' | 'code'; 
                     : ''}
             </p>
             <p className="muted small">
-              {cost}. It turns itself off after {status?.idle?.limitMinutes ?? current?.idleMinutes ?? 30} minutes unused; your chats and models are kept.
+              {cost}. It turns itself off after {status?.idle?.limitMinutes ?? current?.idleMinutes ?? 20} minutes unused; your chats and models are kept.
             </p>
             <AiSpeed tiers={tiers} value={chosen} onChange={setSpeed} disabled={switching} />
             {current && chosen !== current.id && (

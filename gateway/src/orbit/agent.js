@@ -451,6 +451,6 @@ function redactArgs(args) {
 
 function cleanEnv() {
   const env = { ...process.env };
-  for (const k of ['GATEWAY_SECRET', 'RDP_PASSWORD', 'DESKTOP_PASSWORD']) delete env[k];
+  for (const k of ['GATEWAY_SECRET', 'RDP_PASSWORD', 'DESKTOP_PASSWORD', 'RUNPOD_API_KEY']) delete env[k];
   return env;
 }

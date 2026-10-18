@@ -1,9 +1,19 @@
 import os from 'node:os';
 import path from 'node:path';
 import { createGateway, loadConfig } from './server.js';
+import { createInputWatch, runpodStopSelf } from './idle.js';
 
 const config = loadConfig();
 const log = console;
+
+// Turns the machine off after 20 minutes without touch, mouse or keyboard input while no Antigravity
+// turn runs (IDLE_MINUTES can only make that shorter; 0 is not allowed: this is the money fail-safe).
+const idle = createInputWatch({
+  limitMinutes: Math.min(Number(process.env.IDLE_MINUTES) || 20, 20),
+  busy: () => Boolean(orbit?.agent.running.size),
+  stop: () => runpodStopSelf({ podId: process.env.RUNPOD_POD_ID, apiKey: process.env.RUNPOD_API_KEY }),
+  log,
+});
 
 // Orbit host (real terminal, files and Antigravity for the Orbit workspace) is opt-in.
 let orbit = null;
@@ -24,7 +34,8 @@ if (/^(1|true|yes)$/i.test(process.env.ORBIT_HOST || '')) {
   });
   await agent.init();
   orbit = {
-    api: createOrbitApi({ secret: config.secret, allowedOrigins: config.allowedOrigins, files, agent, log }),
+    agent,
+    api: createOrbitApi({ secret: config.secret, allowedOrigins: config.allowedOrigins, files, agent, log, onInput: () => idle.input() }),
     pty: { cwd: projectsDir },
   };
   log.info(`[orbit] host enabled: projects at ${projectsDir}`);
@@ -37,7 +48,7 @@ const siteUrl = (process.env.SITE_URL || config.allowedOriginsRaw.find((o) => !o
 let code = null;
 if (process.env.CODE_SERVER_URL) {
   const { createCodeProxy } = await import('./code.js');
-  code = createCodeProxy({ secret: config.secret, upstream: process.env.CODE_SERVER_URL, siteUrl, log });
+  code = createCodeProxy({ secret: config.secret, upstream: process.env.CODE_SERVER_URL, siteUrl, log, onInput: () => idle.input() });
   log.info(`[code] VS Code at /code/ -> ${process.env.CODE_SERVER_URL}`);
 }
 
@@ -49,7 +60,8 @@ if (process.env.AI_LOCAL_PORT && siteUrl) {
   );
 }
 
-const server = createGateway(config, log, orbit, code);
+const server = createGateway(config, log, orbit, code, idle);
+idle.start();
 
 server.listen(config.port, () => {
   console.log(`[gateway] listening on :${config.port}, guacd at ${config.guacd.host}:${config.guacd.port}`);

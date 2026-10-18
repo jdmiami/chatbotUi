@@ -11,7 +11,7 @@ import { createSysStats } from '../sysstats.js';
 
 const MAX_BODY = 5 * 1024 * 1024;
 
-export function createOrbitApi({ secret, allowedOrigins, files, agent, log, stats = createSysStats({ volume: files.root }) }) {
+export function createOrbitApi({ secret, allowedOrigins, files, agent, log, stats = createSysStats({ volume: files.root }), onInput = () => {} }) {
   return async function handle(req, res, url) {
     if (!applyCors(req, res, allowedOrigins)) return json(res, 403, { error: 'Origin not allowed' });
     if (req.method === 'OPTIONS') {
@@ -23,6 +23,15 @@ export function createOrbitApi({ secret, allowedOrigins, files, agent, log, stat
       const route = url.pathname.replace(/^\/orbit\/api/, '') || '/';
       const m = (re) => route.match(re);
       let match;
+
+      // ---- a person is using Orbit (it reports touches, clicks and typing at most once a minute);
+      // saving, sending a prompt and other changes count too. Polling (GET) never does.
+      if (req.method === 'POST' && route === '/input') {
+        onInput();
+        res.writeHead(204);
+        return res.end();
+      }
+      if (req.method !== 'GET') onInput();
 
       // ---- general
       if (req.method === 'GET' && route === '/info') {

@@ -15,6 +15,7 @@ import { WebSocketServer } from 'ws';
 import { jwtVerify } from 'jose';
 import { encodeInstruction, InstructionParser } from './protocol.js';
 import { handlePtySocket } from './orbit/pty.js';
+import { GUAC_INPUT } from './idle.js';
 
 export function loadConfig(env = process.env) {
   const required = ['GATEWAY_SECRET', 'RDP_HOST'];
@@ -146,11 +147,18 @@ function connectToGuacd(config, display) {
  *   also serves Orbit's authenticated API (/orbit/api/*) and terminal WebSocket (/orbit/pty).
  * @param code optional coding workspace proxy (./code.js): VS Code in the browser at /code/.
  */
-export function createGateway(config, log = console, orbit = null, code = null) {
+export function createGateway(config, log = console, orbit = null, code = null, idle = null) {
+  const onInput = idle ? () => idle.input() : () => {};
   const server = http.createServer((req, res) => {
     if (req.url === '/healthz') {
       res.writeHead(200, { 'content-type': 'text/plain' });
       return res.end('ok');
+    }
+    // Minutes since the last input: read by the site's watchdog, which turns off a machine whose own
+    // timer has failed. Only numbers, so no sign-in.
+    if (req.url === '/idle' && idle) {
+      res.writeHead(200, { 'content-type': 'application/json', 'cache-control': 'no-store' });
+      return res.end(JSON.stringify(idle.state()));
     }
     const url = new URL(req.url, 'http://gateway.local');
     if (orbit && url.pathname.startsWith('/orbit/api')) return orbit.api(req, res, url);
@@ -187,7 +195,7 @@ export function createGateway(config, log = console, orbit = null, code = null) 
     if (orbit && url.pathname === '/orbit/pty') {
       // Auth happens on the first message (browsers can't set headers on WebSockets).
       return orbitWss.handleUpgrade(req, socket, head, (ws) =>
-        handlePtySocket(ws, url, { secret: config.secret, cwd: orbit.pty.cwd, log }),
+        handlePtySocket(ws, url, { secret: config.secret, cwd: orbit.pty.cwd, log, onInput }),
       );
     }
     const token = url.searchParams.get('token');
@@ -255,6 +263,7 @@ export function createGateway(config, log = console, orbit = null, code = null) 
         if (text.startsWith('0.,4.ping,')) ws.send(text);
         return;
       }
+      if (GUAC_INPUT.test(text)) onInput();
       socket.write(text);
     };
 

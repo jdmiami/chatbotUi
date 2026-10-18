@@ -51,6 +51,7 @@ before(async () => {
       status: async () => ({ ready: true }),
       stats: async () => ({ cpu: { percent: 12 }, gpus: [{ name: 'A40' }] }),
       keepAwake: (m) => Date.UTC(2030, 0, 1) + m * 60_000,
+      idleState: () => ({ limitMinutes: 20, idleMinutes: 3 }),
     },
     { warn() {}, info() {} },
   );
@@ -423,4 +424,41 @@ test('idle watch: keep awake pushes the turn-off time and offAt reports it', asy
   t = 61 * 60_000;
   await w.check();
   assert.equal(stops, 1);
+});
+
+test('idle watch fail-safes: a job that never ends stops counting, failed stops retry in minutes, keep awake is capped', async () => {
+  let t = 0;
+  let stops = 0;
+  const w = createIdleWatch({ limitMinutes: 20, busy: async () => true, stop: async () => void stops++, now: () => t, log: {} });
+  t = 170 * 60_000;
+  await w.check();
+  assert.equal(stops, 0, 'a running job keeps it on');
+  t = 185 * 60_000;
+  await w.check();
+  assert.equal(stops, 1, 'a job busy for three hours with no new request no longer holds the machine on');
+
+  let tries = 0;
+  t = 0;
+  const f = createIdleWatch({ limitMinutes: 20, busy: async () => false, stop: async () => { tries++; throw new Error('api down'); }, now: () => t, log: {} });
+  t = 21 * 60_000;
+  await f.check();
+  t = 22 * 60_000;
+  await f.check();
+  assert.equal(tries, 1, 'waits before retrying');
+  t = 24 * 60_000;
+  await f.check();
+  assert.equal(tries, 2, 'retries within minutes, not another idle period');
+
+  t = 0;
+  const k = createIdleWatch({ limitMinutes: 20, busy: async () => false, stop: async () => {}, now: () => t, log: {} });
+  k.extend(240);
+  assert.equal(k.state().offAt, new Date(120 * 60_000).toISOString(), 'keep awake is capped at two hours');
+});
+
+test('only real work keeps the machine on: polling, browsing and open pages do not', async () => {
+  const before = activity;
+  await fetch(`${base}/v1/models`, { headers: { authorization: `Bearer ${apiToken()}`, origin: SITE } });
+  assert.equal(activity, before, 'listing models is not a job');
+  const idle = await fetch(`${base}/_orbit/idle`);
+  assert.equal(idle.status, 200, 'the watchdog can read idle time without signing in');
 });
