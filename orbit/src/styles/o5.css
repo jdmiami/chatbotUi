@@ -928,7 +928,7 @@
 
 /* ---------------------------------------------------------------- MagStyle: pull quotes and drop caps
    In Talk, what you wrote is a pull quote (as in Antigravity), and the first reply of a
-   conversation opens with a drop cap, like the first paragraph of an article. */
+   conversation opens with a raised initial (it works for a one-line paragraph too). */
 :root[data-skin='o5'] .ai-msg-user { align-items: stretch; }
 :root[data-skin='o5'] .ai-user-text {
   max-width: none;
@@ -943,16 +943,19 @@
   letter-spacing: -0.01em;
 }
 :root[data-skin='o5'] :is(.ai-msg-assistant, .ag-msg-assistant):nth-child(1 of .ai-msg-assistant, .ag-msg-assistant) :is(.ai-body-text, .ag-body-text) > p:first-child::first-letter {
-  float: left;
-  margin: 0.06em 0.1em 0 0;
+  margin-right: 0.03em;
   font-family: var(--font-display);
   font-weight: 400;
-  font-size: 3.3em;
-  line-height: 0.82;
+  font-size: 2.6em;
+  line-height: 0.7;
   color: var(--text);
 }
 
 /* ---------------------------------------------------------------- MagStyle: the folio
    Inside an app the line at the bottom carries its folio, like the foot of a magazine page. */
-.o5-folio { font-size: calc(9.5px * var(--text-scale)); letter-spacing: 0.24em; color: var(--text-3); }
+.o5-folio { font-size: calc(9.5px * var(--text-scale)); letter-spacing: 0.24em; color: var(--text-3); white-space: nowrap; }
+/* Just left of the line (which stays centred), level with it, so it never sits on a message box or
+   the terminal's keys. Phones have no room for it at the foot of the page. */
+.o5-folio { position: absolute; right: calc(50% + 64px + 16px); bottom: 7px; }
+@media (max-width: 700px) { .o5-folio { display: none; } }
 

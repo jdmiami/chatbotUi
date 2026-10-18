@@ -277,6 +277,8 @@ test.describe('the orb', () => {
     // Only one orb on the screen: the orb itself.
     await expect(page.locator('.ai-orb')).toHaveCount(1);
     await expect(page.locator('.orb-cursor .ai-orb')).toHaveCount(1);
+    // On a short screen the face may be scrolled away (then the orb rests elsewhere): bring it into view.
+    await spot.scrollIntoViewIfNeeded();
     // (The screen may still be settling in: measure the spot each time, not once.)
     await expect.poll(async () => {
       const s = (await spot.boundingBox())!;

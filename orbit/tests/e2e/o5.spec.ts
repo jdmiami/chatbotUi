@@ -29,7 +29,7 @@ async function expectTappable(page: Page, scope: string) {
 test.describe('Orbit 0.5', () => {
   test('MagStyle is the only look: a saved classic look moves over, and there is no switch back', async ({ browser }) => {
     // A browser without the test suite's classic flag: what people get.
-    const ctx = await browser.newContext({ reducedMotion: 'reduce' });
+    const ctx = await browser.newContext({ reducedMotion: 'reduce', storageState: { cookies: [], origins: [] } });
     await ctx.addInitScript(() =>
       localStorage.setItem('orbit:shell:v1', JSON.stringify({ state: { settings: { orb: false, skin: 'classic', introSeen: true } }, version: 0 })),
     );
