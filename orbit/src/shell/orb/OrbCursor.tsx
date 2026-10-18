@@ -843,7 +843,12 @@ function Orb() {
       if (p.moved) {
         // It was carried on after the pinch: it stays where it was put down, like any drop.
         mode.current = 'parked';
+        // Inside the screen (a drag past the edge only rubber-bands).
+        const v = viewport();
+        x.target = Math.min(v.x + v.w - R, Math.max(v.x + R, x.target));
+        y.target = Math.min(v.y + v.h - R, Math.max(v.y + R, y.target));
         spot.current = { x: x.target, y: y.target };
+        kick();
       }
       return;
     }

@@ -119,17 +119,23 @@ export function caretsAt(el: HTMLInputElement | HTMLTextAreaElement, from: numbe
   if (el instanceof HTMLTextAreaElement) copy.style.overflowWrap = 'break-word';
   const value = el instanceof HTMLInputElement && el.type === 'password' ? '•'.repeat(el.value.length) : el.value;
   copy.append(value.slice(0, from));
-  const marks: HTMLSpanElement[] = [];
-  for (let pos = from; pos <= to; pos++) {
+  // A marker before each character (whole characters: never between the two halves of an emoji).
+  const marks: (HTMLSpanElement | null)[] = [];
+  for (let pos = from; pos <= to; ) {
     const mark = document.createElement('span');
     mark.textContent = '\u200b';
     copy.append(mark);
     marks.push(mark);
-    if (pos < to) copy.append(value.charAt(pos));
+    if (pos >= to) break;
+    const len = (value.codePointAt(pos) ?? 0) > 0xffff ? 2 : 1;
+    copy.append(value.slice(pos, pos + len));
+    if (len === 2) marks.push(null); // no caret position inside a character
+    pos += len;
   }
   copy.append(value.slice(to));
   document.body.append(copy);
   const out = marks.map((mark) => {
+    if (!mark) return null;
     const m = mark.getBoundingClientRect();
     // A single-line input centres its text vertically; a text area starts at the top padding.
     const top = el instanceof HTMLInputElement ? box.top + (box.height - h) / 2 : m.top - el.scrollTop;
