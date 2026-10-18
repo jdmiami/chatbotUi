@@ -1,0 +1,15 @@
+# The money fail-safe: every 10 minutes, ask the site to turn off any machine that has gone 20+
+# minutes without a job or input but didn't turn itself off. See lib/watchdog.ts.
+name: Machine watchdog
+on:
+  schedule:
+    - cron: '*/10 * * * *'
+  workflow_dispatch:
+permissions: {}
+jobs:
+  watchdog:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - name: Turn off idle machines
+        run: curl -fsS --max-time 60 https://chatbot-ui-62nj.vercel.app/api/watchdog

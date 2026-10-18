@@ -99,11 +99,17 @@ const bearer = (req) => {
  *   siteUrl                 where to send people who aren't signed in
  *   userEmail, userName     identity given to Open WebUI
  *   trustedEmailHeader, trustedNameHeader
- *   activity()              called whenever someone uses the AI (keeps the machine on)
+ *   activity()              called when someone asks for real work (a chat answer, a picture, a download);
+ *                           open pages, polling and live connections never count, so a forgotten tab can't
+ *                           keep the machine on
+ *   idleState()             numbers for the unauthenticated /_orbit/idle (the site's watchdog reads it)
  *   status()                async () => object for /_orbit/status
  *   studio                  image/video maker (studio.js), optional
  *   studioKey               key Open WebUI uses for the studio from inside the machine (loopback only)
  */
+// Open WebUI requests that ask a model for something (chat, images, speech, title/tag tasks).
+const WEBUI_WORK = /\/(chat\/completions|api\/chat|api\/generate|images|audio|tasks)(\/|$)/;
+
 export function createGate(cfg, log = console) {
   const secret = cfg.secret;
   // The cookie is signed with a key derived from the shared secret, so a cookie can't be used as a token.
@@ -239,6 +245,9 @@ export function createGate(cfg, log = console) {
     const path = url.pathname;
 
     if (path === '/healthz') return send(res, 200, 'ok', 'text/plain');
+    // How long since the last real job: read by the site's watchdog, which turns off machines whose own
+    // idle timer has failed. Only numbers, no names or content, so it needs no sign-in.
+    if (path === '/_orbit/idle' && req.method === 'GET' && cfg.idleState) return send(res, 200, cfg.idleState());
 
     // ---- sign-in hand-off from the web app
     if (path === '/_orbit/login') {
@@ -341,7 +350,7 @@ export function createGate(cfg, log = console) {
       if (!cors(req, res)) return send(res, 403, { error: 'Origin not allowed' });
       if (req.method === 'OPTIONS') return send(res, 204, '');
       if (!apiToken(req) && !session(req)) return send(res, 401, { error: 'Unauthorized' });
-      activity();
+      if (req.method !== 'GET') activity();
       return handleStore(req, res, url, path);
     }
 
@@ -357,7 +366,7 @@ export function createGate(cfg, log = console) {
       if (!cors(req, res)) return send(res, 403, { error: { message: 'Origin not allowed' } });
       if (req.method === 'OPTIONS') return send(res, 204, '');
       if (!apiToken(req)) return send(res, 401, { error: { message: 'Unauthorized' } });
-      activity();
+      if (req.method === 'POST') activity();
       // Ollama doesn't need the token, and refuses browser origins it doesn't know: the origin was
       // checked above, so it isn't passed on.
       delete req.headers.authorization;
@@ -377,7 +386,7 @@ export function createGate(cfg, log = console) {
       }
       return send(res, 401, { detail: 'Sign in through your workspace site first.' });
     }
-    if (req.method !== 'GET' && req.method !== 'HEAD') activity();
+    if (req.method === 'POST' && WEBUI_WORK.test(url.pathname)) activity();
     const page = req.method === 'GET' && /text\/html/.test(req.headers.accept || '') && cfg.siteUrl;
     return proxy(req, res, webui, req.url, user, page ? islandSnippet(user) : null);
   });
@@ -484,7 +493,7 @@ export function createGate(cfg, log = console) {
       return sendFile(req, res, await studio.file(fileMatch[1]), url.searchParams.has('download'));
     }
     if (!signedIn) return send(res, 401, { error: { message: 'Unauthorized' } });
-    activity();
+    if (req.method !== 'GET' && req.method !== 'HEAD') activity();
     // Results carry a link; API callers (Orbit) get one that works in <img>/<video> tags.
     const withUrl = (it) => (it ? { ...it, url: `/_orbit/studio/file/${it.id}${viaApi ? `?t=${fileToken(it.id)}` : ''}` } : it);
     const withJobUrl = (j) => (j ? { ...j, item: withUrl(j.item) } : j);
@@ -612,7 +621,6 @@ export function createGate(cfg, log = console) {
       socket.end('HTTP/1.1 401 Unauthorized\r\nConnection: close\r\n\r\n');
       return;
     }
-    activity();
     const headers = upstreamHeaders(req, user);
     headers.connection = 'Upgrade';
     headers.upgrade = req.headers.upgrade;

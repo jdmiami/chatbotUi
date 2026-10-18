@@ -18,6 +18,7 @@ import { ServerFileStore } from './files/server/ServerFileStore';
 import { PtyBackend } from './terminal/pty/PtyBackend';
 import { HostRunner } from './runner/host/HostRunner';
 import { HostClient, TokenSource, type HostSession } from './host/connection';
+import { startInputReport } from './host/inputReport';
 
 export type ConnectionMode = 'demo' | 'host';
 
@@ -37,6 +38,7 @@ export const connection: ConnectionInfo = {
 };
 
 let host: HostClient | null = null;
+let stopInputReport: (() => void) | null = null;
 let fileStore: (FileStore & { reset(): void }) | null = null;
 let runner: (RunnerAdapter & { reset(): void }) | null = null;
 
@@ -48,8 +50,11 @@ export function configureServices(
   fileStore = null;
   runner = null;
   host = null;
+  stopInputReport?.();
+  stopInputReport = null;
   if (mode === 'host' && opts.session) {
     host = new HostClient(new TokenSource(opts.session));
+    stopInputReport = startInputReport(host);
     Object.assign(connection, {
       mode: 'host',
       label: 'Linux machine',

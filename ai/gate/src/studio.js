@@ -23,6 +23,9 @@ import {
   videoWorkflow,
 } from './workflows.js';
 
+/** Longest a single job may keep the machine awake (the slowest videos take about 20 minutes). */
+const STUCK_JOB_MS = 60 * 60_000;
+
 // ---------------------------------------------------------------- content rule
 
 const MINOR = [
@@ -705,7 +708,9 @@ export function createStudio(o) {
       const t = setInterval(() => void poll().catch(() => {}), o.pollMs ?? 3000);
       t.unref?.();
     },
-    busy: () => download.running || active().length > 0,
+    // A job counts for an hour at most: one that never finishes (the maker crashed under it) must not
+    // keep the machine on all night.
+    busy: () => download.running || active().some((j) => now() - Date.parse(j.createdAt) < STUCK_JOB_MS),
     /** A chat needs the GPU: hand it back from ComfyUI now if nothing is being made. */
     async yieldGpu() {
       if (!comfyHoldsGpu || active().length) return;

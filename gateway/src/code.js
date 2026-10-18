@@ -34,7 +34,19 @@ function withoutOurCookie(header) {
  * @param upstream code-server base URL (http://127.0.0.1:8443)
  * @param siteUrl  the web app, for people who aren't signed in
  */
-export function createCodeProxy({ secret, upstream, siteUrl, log = console }) {
+// Reports that a person is using the editor (at most once a minute), so the machine's idle timer
+// sees real typing, clicks and touches rather than the editor's own background traffic.
+const INPUT_TAG = '<script src="/code/_input.js"></script>';
+const INPUT_JS = `(() => {
+  let seen = false, sent = 0;
+  const mark = () => { seen = true; if (Date.now() - sent > 60000) flush(); };
+  const flush = () => { if (!seen) return; seen = false; sent = Date.now(); fetch('/code/_input', { method: 'POST', credentials: 'same-origin', keepalive: true }).catch(() => {}); };
+  for (const t of ['keydown', 'pointerdown', 'touchstart', 'wheel']) addEventListener(t, mark, { capture: true, passive: true });
+  setInterval(flush, 60000);
+})();
+`;
+
+export function createCodeProxy({ secret, upstream, siteUrl, log = console, onInput = () => {} }) {
   const cookieKey = crypto.createHmac('sha256', Buffer.from(secret)).update('orbit-code-cookie').digest();
   const target = new URL(upstream);
   const used = new Map();
@@ -107,6 +119,16 @@ export function createCodeProxy({ secret, upstream, siteUrl, log = console }) {
     }
     // The status pill's script, served from this address so the editor's security rules allow it.
     if (url.pathname === '/code/_island.js') return serveIsland(res);
+    // Typing, clicks and touches in the editor keep the machine on (see INPUT_JS).
+    if (url.pathname === '/code/_input.js') {
+      res.writeHead(200, { 'content-type': 'text/javascript; charset=utf-8', 'cache-control': 'max-age=300' });
+      return res.end(INPUT_JS);
+    }
+    if (url.pathname === '/code/_input' && req.method === 'POST') {
+      onInput();
+      res.writeHead(204);
+      return res.end();
+    }
     // Assets are relative to the page, so the editor must live at /code/ (with the slash).
     if (url.pathname === '/code') {
       res.writeHead(302, { location: '/code/' + url.search });
@@ -128,7 +150,7 @@ export function createCodeProxy({ secret, upstream, siteUrl, log = console }) {
           const chunks = [];
           upRes.on('data', (c) => chunks.push(c));
           upRes.on('end', async () => {
-            const snippet = await islandSnippet().catch(() => '');
+            const snippet = INPUT_TAG + (await islandSnippet().catch(() => ''));
             let body = Buffer.concat(chunks).toString('utf8');
             body = body.includes('</body>') ? body.replace(/<\/body>(?![\s\S]*<\/body>)/, `${snippet}</body>`) : body + snippet;
             delete headers['content-length'];

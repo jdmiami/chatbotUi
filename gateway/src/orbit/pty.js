@@ -61,7 +61,7 @@ export async function hasTmux() {
 const SESSION_RE = /^[a-zA-Z0-9_-]{1,32}$/;
 const clamp = (n, lo, hi, d) => (Number.isFinite(+n) ? Math.min(hi, Math.max(lo, Math.floor(+n))) : d);
 
-export function handlePtySocket(ws, url, { secret, cwd, log }) {
+export function handlePtySocket(ws, url, { secret, cwd, log, onInput = () => {} }) {
   let authed = false;
   let term = null;
   const authTimer = setTimeout(() => {
@@ -92,6 +92,7 @@ export function handlePtySocket(ws, url, { secret, cwd, log }) {
     }
     if (!term) return;
     if (msg.type === 'input' && typeof msg.data === 'string') {
+      onInput();
       // After a swipe into tmux's history, typing first returns to the live screen (otherwise
       // tmux's history view would swallow the keys). Kept in order with pending scrolls.
       if (scrolledBack || queued) {
@@ -106,6 +107,7 @@ export function handlePtySocket(ws, url, { secret, cwd, log }) {
         });
       } else term.write(msg.data);
     } else if (msg.type === 'scroll' && tmuxTarget) {
+      onInput();
       const toLatest = msg.to === 'bottom';
       const lines = clamp(msg.lines, -500, 500, 0);
       if (!toLatest && !lines) return;
@@ -172,7 +174,7 @@ export function handlePtySocket(ws, url, { secret, cwd, log }) {
       : [process.env.SHELL || '/bin/bash', ['-l']];
     const env = { ...process.env, TERM: 'xterm-256color', COLORTERM: 'truecolor', LANG: process.env.LANG || 'C.UTF-8' };
     // Never leak the gateway's own secrets into the user's shell.
-    for (const k of ['GATEWAY_SECRET', 'RDP_PASSWORD', 'DESKTOP_PASSWORD']) delete env[k];
+    for (const k of ['GATEWAY_SECRET', 'RDP_PASSWORD', 'DESKTOP_PASSWORD', 'RUNPOD_API_KEY']) delete env[k];
     const p = pty.spawn(file, args, { name: 'xterm-256color', cols, rows, cwd, env });
     log?.info?.(`[orbit] terminal ${session} started (pid ${p.pid}, ${persistent ? 'tmux' : 'no tmux'})`);
     p.onData((data) => send({ type: 'output', data }));
