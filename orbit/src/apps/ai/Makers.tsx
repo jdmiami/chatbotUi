@@ -14,12 +14,21 @@ const gb = (bytes: number) => (bytes >= 1e9 ? `${(bytes / 1e9).toFixed(bytes >= 
 /** The studio's store: install or remove image, video and editing makers and styles. */
 export function MakersSheet({
   makers,
+  machineOn = true,
+  error,
+  onRetry,
+  onTurnOn,
   busy,
   onInstall,
   onRemove,
   onClose,
 }: {
   makers: StudioMakerInfo[] | null;
+  /** Off: the list is what the machine last had (or offers); adding and removing wait for it. */
+  machineOn?: boolean;
+  error?: string | null;
+  onRetry?: () => void;
+  onTurnOn?: () => void;
   busy: string | null;
   onInstall: (id: string) => void;
   onRemove: (id: string) => void;
@@ -31,7 +40,29 @@ export function MakersSheet({
         <p className="ai-muted">
           More ways to make pictures and videos on your AI machine. Each downloads once onto its storage; shared parts are only downloaded once.
         </p>
-        {!makers && <p className="ai-muted">Loading…</p>}
+        {!machineOn && (
+          <div className="ai-banner ai-banner-off ai-makers-off" role="status">
+            <p className="ai-banner-kicker">The machine is resting</p>
+            <p>Makers live on your AI machine. Turn it on to add or remove them; you can still pick one now.</p>
+            {onTurnOn && (
+              <button type="button" className="btn primary" onClick={onTurnOn}>
+                Turn on
+              </button>
+            )}
+          </div>
+        )}
+        {!makers && error && (
+          <div className="ai-banner ai-banner-error" role="alert">
+            <p className="ai-banner-kicker">A problem</p>
+            <p>The makers could not be loaded: {error}</p>
+            {onRetry && (
+              <button type="button" className="btn" onClick={onRetry}>
+                Try again
+              </button>
+            )}
+          </div>
+        )}
+        {!makers && !error && <p className="ai-muted">Loading…</p>}
         {makers &&
           GROUPS.map((g) => {
             const list = makers.filter((m) => g.kinds.includes(m.kind));
@@ -56,7 +87,9 @@ export function MakersSheet({
                             </div>
                           )}
                         </div>
-                        {m.installed ? (
+                        {!machineOn ? (
+                          <span className="ai-maker-ok">{m.installed ? 'On your machine' : m.wanted ? `${m.percent}%` : 'Not added'}</span>
+                        ) : m.installed ? (
                           m.builtIn ? (
                             <span className="ai-maker-ok">
                               <Icon name="check" size={16} /> Ready
@@ -72,7 +105,7 @@ export function MakersSheet({
                           </span>
                         ) : (
                           <button type="button" className="btn small primary" onClick={() => onInstall(m.id)} disabled={busy === m.id} aria-label={`Install ${m.name}, ${gb(m.size)}`}>
-                            <Icon name="download" size={14} /> {gb(m.size)}
+                            <Icon name="download" size={14} /> Add · {gb(m.size)}
                           </button>
                         )}
                       </li>

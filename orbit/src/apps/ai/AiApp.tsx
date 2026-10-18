@@ -710,7 +710,7 @@ export default function AiApp({ isActive, compact, placement }: AppProps) {
         </div>
       )}
 
-      {mode === 'create' && <CreateView ai={ai} machineOn={ready} isActive={isActive} />}
+      {mode === 'create' && <CreateView ai={ai} machineOn={ready} isActive={isActive} onTurnOn={machine.state === 'off' && !powering ? () => void power('start', chosenTier?.id) : undefined} />}
 
       <div className="ag-layout ai-layout" hidden={mode !== 'chat'}>
         {!compact && !o5 && <aside className="ai-side">{list}</aside>}

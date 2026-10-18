@@ -635,6 +635,55 @@
   box-shadow: none;
 }
 :root[data-skin='o5'] .ai-maker-chip[aria-checked='true'] { color: var(--text); font-style: italic; text-decoration: underline; text-decoration-thickness: 1px; text-underline-offset: 7px; }
+/* The Makers list reads like a catalogue page: small-caps section heads, serif names over a
+   one-line description, hairlines between entries, and the action as underlined small caps. */
+:root[data-skin='o5'] .ai-makers .ai-banner.ai-banner { margin: 0; }
+:root[data-skin='o5'] .ai-makers h3 {
+  margin: 6px 0 2px;
+  font: 600 calc(11px * var(--text-scale)) / 1.4 var(--font-ui);
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--text-3, var(--text-2));
+}
+:root[data-skin='o5'] .ai-makers ul { gap: 0; }
+:root[data-skin='o5'] .ai-maker-row,
+:root[data-skin='o5'] .ai-maker-row[data-installed='true'] {
+  padding: 14px 0;
+  border: 0;
+  border-bottom: 1px solid var(--o5-hair);
+  border-radius: 0;
+  background: none;
+  align-items: baseline;
+}
+:root[data-skin='o5'] .ai-maker-name { font-family: var(--font-display); font-weight: 400; font-size: calc(20px * var(--text-scale)); letter-spacing: -0.01em; gap: 10px; }
+:root[data-skin='o5'] .ai-maker-row[data-installed='true'] .ai-maker-name { font-style: italic; }
+:root[data-skin='o5'] .ai-maker-tag {
+  padding: 0;
+  border-radius: 0;
+  background: none;
+  color: var(--text-3, var(--text-2));
+  font: 600 calc(10px * var(--text-scale)) / 1 var(--font-ui);
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+}
+:root[data-skin='o5'] .ai-maker-ok { font: 600 calc(11px * var(--text-scale)) / 1 var(--font-ui); letter-spacing: 0.14em; text-transform: uppercase; color: var(--text-2); }
+:root[data-skin='o5'][data-skin] .ai-maker-row .btn {
+  min-height: var(--tap);
+  padding: 0 2px;
+  border: 0;
+  border-radius: 0;
+  background: none;
+  box-shadow: none;
+  color: var(--text);
+  font: 600 calc(11px * var(--text-scale)) / 1 var(--font-ui);
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  text-decoration: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 7px;
+}
+:root[data-skin='o5'][data-skin] .ai-maker-row .btn:disabled { color: var(--text-3, var(--text-2)); text-decoration: none; }
+:root[data-skin='o5'] .ai-maker-row .btn svg { display: none; }
 :root[data-skin='o5'] .ai-create textarea {
   border: 0;
   border-bottom: 1px solid var(--o5-hair);
@@ -771,6 +820,8 @@
    the action as a line of underlined small caps with an arrow (no pills, no boxes). The speed
    choice is two words, the chosen one underlined. */
 :root[data-skin='o5'] .ai-banner { gap: 4px 28px; padding-block: 20px 18px; align-items: baseline; }
+/* The standfirst lines up with the page's own left edge (the Talk · Make line above it). */
+:root[data-skin='o5'] [data-app='ai'] .ai-banner { margin-inline: calc(var(--safe-left) + clamp(16px, 5vw, 48px)) calc(var(--safe-right) + clamp(16px, 5vw, 48px)); }
 :root[data-skin='o5'] .ai-banner .ai-banner-kicker {
   display: block;
   flex: 1 1 100%;
