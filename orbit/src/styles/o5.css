@@ -765,3 +765,197 @@
 :root[data-skin='o5'] .ed-tab[data-active='true'] .ed-tab-name { font-style: italic; }
 :root[data-skin='o5'] :is(.ed-toolbar, .term-keys) { background: color-mix(in srgb, var(--bg) 88%, transparent); border-top: 1px solid var(--o5-hair); }
 :root[data-skin='o5'] .ag-root[data-compact='true'] .ag-sessions { padding-left: 0; padding-right: 0; }
+
+/* ---------------------------------------------------------------- MagStyle: the machine standfirst
+   A machine banner reads like a magazine standfirst: a small-caps kicker, one serif sentence, and
+   the action as a line of underlined small caps with an arrow (no pills, no boxes). The speed
+   choice is two words, the chosen one underlined. */
+:root[data-skin='o5'] .ai-banner { gap: 4px 28px; padding-block: 20px 18px; align-items: baseline; }
+:root[data-skin='o5'] .ai-banner .ai-banner-kicker {
+  display: block;
+  flex: 1 1 100%;
+  font: 600 calc(11px * var(--text-scale)) / 1.4 var(--font-ui);
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--text-3, var(--text-2));
+}
+:root[data-skin='o5'] .ai-banner-error .ai-banner-kicker { color: var(--danger); }
+:root[data-skin='o5'] .ai-banner-starting .ai-banner-kicker, :root[data-skin='o5'] .ai-banner-downloading .ai-banner-kicker { color: var(--warning); }
+:root[data-skin='o5'] .ai-banner p:not(.ai-banner-kicker) {
+  flex: 1 1 340px;
+  font-family: var(--font-display);
+  font-size: calc(19px * var(--text-scale));
+  line-height: 1.42;
+  letter-spacing: -0.005em;
+  color: var(--text);
+}
+:root[data-skin='o5'] .ai-banner .segmented { border: 0; padding: 0; gap: 18px; background: none; }
+:root[data-skin='o5'] .ai-banner .segmented button {
+  min-width: 0;
+  padding: 0 2px;
+  border-radius: 0;
+  background: none;
+  color: var(--text-2);
+  font: 500 calc(14px * var(--text-scale)) / 1 var(--font-ui);
+  box-shadow: none;
+}
+:root[data-skin='o5'] .ai-banner .segmented button[aria-pressed='true'] {
+  background: none;
+  color: var(--text);
+  text-decoration: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 7px;
+}
+:root[data-skin='o5'][data-skin] .ai-banner .btn {
+  min-height: var(--tap);
+  padding: 0 2px;
+  border: 0;
+  border-radius: 0;
+  background: none;
+  box-shadow: none;
+  color: var(--text);
+  font: 600 calc(12px * var(--text-scale)) / 1 var(--font-ui);
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  text-decoration: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 8px;
+  transition: text-underline-offset 0.25s var(--ease-o5), color 0.2s ease;
+}
+:root[data-skin='o5'][data-skin] .ai-banner .btn::after { content: '→' / ''; margin-left: 10px; display: inline-block; transition: translate 0.3s var(--ease-o5); }
+:root[data-skin='o5'][data-skin] .ai-banner .btn:hover { text-underline-offset: 5px; }
+:root[data-skin='o5'][data-skin] .ai-banner .btn:hover::after { translate: 5px 0; }
+:root[data-skin='o5'][data-skin] .ai-banner .btn:disabled { color: var(--text-2); text-decoration: none; }
+/* Phones: a tighter standfirst, so the page under it keeps its room. */
+@media (max-width: 600px), (max-height: 520px) {
+  :root[data-skin='o5'] .ai-banner { gap: 2px 20px; padding-block: 14px 12px; }
+  :root[data-skin='o5'] .ai-banner p:not(.ai-banner-kicker) { font-size: calc(16px * var(--text-scale)); line-height: 1.38; flex-basis: 100%; }
+  :root[data-skin='o5'] .ai-banner .segmented { gap: 14px; }
+}
+
+/* ---------------------------------------------------------------- MagStyle: status labels
+   "Simulated", "Demo mode" and the like are section labels in small caps, not coloured pills. */
+:root[data-skin='o5'] span.chip {
+  min-height: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: none;
+  font: 600 calc(10.5px * var(--text-scale)) / 1.4 var(--font-ui);
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+}
+:root[data-skin='o5'] span.chip .dot { width: 5px; height: 5px; }
+
+
+/* ---------------------------------------------------------------- MagStyle: the Terminal
+   Ink on the page: the terminal takes the page's own warm black and ink (not navy), and the key
+   bar is a ruled line of typed keys rather than a row of boxes. */
+:root[data-skin='o5'] {
+  --term-bg: #0d0c0b;
+  --term-fg: #f3eee6;
+}
+:root[data-skin='o5'] .term-keys { gap: 0; padding-block: 2px; }
+:root[data-skin='o5'] .term-key {
+  border: 0;
+  border-right: 1px solid var(--o5-hair);
+  border-radius: 0;
+  background: none;
+  box-shadow: none;
+  color: var(--text-2);
+  font: 500 calc(13px * var(--text-scale)) / 1 var(--font-mono);
+  letter-spacing: 0.04em;
+}
+:root[data-skin='o5'] .term-key:last-child { border-right: 0; }
+:root[data-skin='o5'] .term-key:active:not(:disabled) { background: none; color: var(--text); scale: 0.94; }
+:root[data-skin='o5'] .term-key[aria-pressed='true'] { background: none; color: var(--text); text-decoration: underline; text-underline-offset: 6px; }
+
+/* ---------------------------------------------------------------- MagStyle: Antigravity
+   A conversation with the coding agent reads like a printed interview: your words are pull
+   quotes (italic serif, a rule at the side), replies are serif body text with no box, code sits
+   between hairlines, and "worked for 4 s" is a quiet note in the margin. */
+:root[data-skin='o5'] .ag-transcript-inner { gap: 30px; padding-top: clamp(20px, 4vh, 44px); }
+:root[data-skin='o5'] .ag-msg-user {
+  align-self: stretch;
+  max-width: none;
+  padding: 2px 0 2px 20px;
+  border-radius: 0;
+  border-left: 2px solid var(--text);
+  background: none;
+  color: var(--text);
+  font-family: var(--font-display);
+  font-style: italic;
+  font-weight: 400;
+  font-size: calc(23px * var(--text-scale));
+  line-height: 1.32;
+  letter-spacing: -0.01em;
+}
+:root[data-skin='o5'] .ag-msg-user .ag-inline-code { background: color-mix(in srgb, var(--text) 8%, transparent); font-style: normal; }
+:root[data-skin='o5'] .ag-msg-user .ag-link { color: var(--text); }
+:root[data-skin='o5'] .ag-msg-assistant { padding: 0; border: 0; border-radius: 0; background: none; }
+:root[data-skin='o5'] .ag-msg-head { margin-bottom: 10px; font: 600 calc(10px * var(--text-scale)) / 1.4 var(--font-ui); letter-spacing: 0.16em; text-transform: uppercase; }
+:root[data-skin='o5'] .ag-msg-time { letter-spacing: 0.04em; text-transform: none; font-weight: 500; }
+:root[data-skin='o5'] .ag-tag { padding: 0; border-radius: 0; background: none; }
+:root[data-skin='o5'] .ag-msg-assistant :is(.ag-p, .ag-list, .ag-quote) {
+  font-family: var(--font-display);
+  font-variation-settings: 'opsz' 18;
+  font-size: calc(18px * var(--text-scale));
+  line-height: 1.6;
+}
+:root[data-skin='o5'] .ag-msg-assistant .ag-h { font-family: var(--font-display); font-weight: 500; letter-spacing: -0.01em; }
+:root[data-skin='o5'] .ag-inline-code { padding: 0 3px; border-radius: 3px; background: color-mix(in srgb, var(--text) 7%, transparent); }
+:root[data-skin='o5'] .ag-code {
+  border: 0;
+  border-top: 1px solid var(--o5-hair);
+  border-bottom: 1px solid var(--o5-hair);
+  border-radius: 0;
+  background: none;
+}
+:root[data-skin='o5'] .ag-code-head { padding-left: 0; border-bottom: 0; letter-spacing: 0.12em; text-transform: uppercase; }
+:root[data-skin='o5'] .ag-code-body { padding: 4px 0 14px; }
+:root[data-skin='o5'] .ag-textbtn { font: 600 calc(10.5px * var(--text-scale)) / 1 var(--font-ui); letter-spacing: 0.16em; text-transform: uppercase; color: var(--text-2); }
+:root[data-skin='o5'] .ag-activity { border: 0; border-radius: 0; background: none; color: var(--text-3); }
+:root[data-skin='o5'] .ag-activity-row { padding-left: 0; }
+:root[data-skin='o5'] .ag-activity-title { font-family: var(--font-display); font-style: italic; font-size: calc(15px * var(--text-scale)); }
+:root[data-skin='o5'] .ag-activity-detail { padding-left: 28px; }
+/* The composer: a hairline, not a panel; Mode and Model are words with a rule under them. */
+:root[data-skin='o5'] .ag-composer { border-top: 1px solid var(--o5-hair); background: color-mix(in srgb, var(--bg) 90%, transparent); }
+:root[data-skin='o5'] .ag-composer .ag-pick { border: 0; border-bottom: 1px solid var(--o5-hair); border-radius: 0; background: none; }
+:root[data-skin='o5'] .ag-composer .ag-pick-label { letter-spacing: 0.16em; text-transform: uppercase; font-size: calc(9.5px * var(--text-scale)); }
+:root[data-skin='o5'] .ag-composer .ag-pick select { font-family: var(--font-display); font-size: calc(17px * var(--text-scale)); }
+:root[data-skin='o5'] .ag-input { border-radius: 0; border: 0; border-bottom: 1px solid var(--o5-hair); background: none; font-family: var(--font-display); font-size: calc(18px * var(--text-scale)); }
+:root[data-skin='o5'] .ag-input:focus-visible { box-shadow: none; border-bottom-color: var(--text); }
+
+/* ---------------------------------------------------------------- MagStyle: pull quotes and drop caps
+   In Talk, what you wrote is a pull quote (as in Antigravity), and the first reply of a
+   conversation opens with a raised initial (it works for a one-line paragraph too). */
+:root[data-skin='o5'] .ai-msg-user { align-items: stretch; }
+:root[data-skin='o5'] .ai-user-text {
+  max-width: none;
+  padding: 2px 0 2px 20px;
+  border-radius: 0;
+  border-left: 2px solid var(--text);
+  background: none;
+  font-family: var(--font-display);
+  font-style: italic;
+  font-size: calc(23px * var(--text-scale));
+  line-height: 1.32;
+  letter-spacing: -0.01em;
+}
+:root[data-skin='o5'] :is(.ai-msg-assistant, .ag-msg-assistant):nth-child(1 of .ai-msg-assistant, .ag-msg-assistant) :is(.ai-body-text, .ag-body-text) > p:first-child::first-letter {
+  margin-right: 0.03em;
+  font-family: var(--font-display);
+  font-weight: 400;
+  font-size: 2.6em;
+  line-height: 0.7;
+  color: var(--text);
+}
+
+/* ---------------------------------------------------------------- MagStyle: the folio
+   Inside an app the line at the bottom carries its folio, like the foot of a magazine page. */
+.o5-folio { font-size: calc(9.5px * var(--text-scale)); letter-spacing: 0.24em; color: var(--text-3); white-space: nowrap; }
+/* Just left of the line (which stays centred), level with it, so it never sits on a message box or
+   the terminal's keys. Phones have no room for it at the foot of the page. */
+.o5-folio { position: absolute; right: calc(50% + 64px + 16px); bottom: 7px; }
+@media (max-width: 700px) { .o5-folio { display: none; } }
+

@@ -16,6 +16,7 @@ import {
   type StudioMakerInfo,
 } from '../../services/ai/LocalAi';
 import { latestVideo, parseShots, planMessages } from './plan';
+import { BANNER_KICKER } from '../ai/banner';
 import '../ai/ai.css';
 import './soreal.css';
 
@@ -306,6 +307,7 @@ export default function SoRealApp({ isActive, compact, placement }: AppProps) {
 
   const machineBanner = !ready && (
     <div className={`ai-banner ai-banner-${status?.state ?? 'off'}`} role="status">
+      <p className="ai-banner-kicker">{BANNER_KICKER[status?.state ?? 'off'] ?? 'Your AI machine'}</p>
       {(!status || status.state === 'off') && (
         <>
           <p>soReal makes your movies on your AI machine, which is off. It takes 2–4 minutes to turn on{status?.costPerHour ? ` and costs $${status.costPerHour.toFixed(2)}/h while on` : ''}.</p>
@@ -597,8 +599,9 @@ export default function SoRealApp({ isActive, compact, placement }: AppProps) {
         actions={ready && compact && !o5 && !openId ? <IconButton icon="plus" label="New movie" onClick={() => void create()} disabled={busy === 'new'} /> : undefined}
       />
       {machineBanner}
-      {helper && helper.state !== 'unconfigured' && (ready || helper.state !== 'off') && (
+      {helper && ['off', 'starting', 'on', 'error'].includes(helper.state) && (ready || helper.state !== 'off') && (
         <div className={`ai-banner sr-helper ai-banner-${helper.state}`} role="status" aria-label="Helper machine">
+          <p className="ai-banner-kicker">The helper</p>
           <p>
             {helper.state === 'off' && `Helper machine: off. Turn it on to make two movies at once ($${helper.pricePerHour.toFixed(2)}/h while on).`}
             {helper.state === 'starting' && 'Helper machine: starting… usually 2–4 minutes.'}

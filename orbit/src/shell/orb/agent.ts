@@ -164,7 +164,6 @@ export function parseCommand(input: string): Step[] | null {
     const v = m[1] === 'on' ? 'full' : m[1];
     return [{ do: 'setting', name: 'motion', value: v }];
   }
-  if (/\b(classic look|old look)\b/.test(t)) return [{ do: 'setting', name: 'skin', value: 'classic' }];
   if (/\b(orbit 0\.5|new look|magazine look)\b/.test(t)) return [{ do: 'setting', name: 'skin', value: 'o5' }];
   if (/\b(bigger|larger) text\b|\btext (bigger|larger)\b/.test(t)) return [{ do: 'setting', name: 'text', value: 'up' }];
   if (/\bsmaller text\b|\btext smaller\b/.test(t)) return [{ do: 'setting', name: 'text', value: 'down' }];

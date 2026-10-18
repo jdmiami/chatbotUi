@@ -27,6 +27,24 @@ async function expectTappable(page: Page, scope: string) {
 }
 
 test.describe('Orbit 0.5', () => {
+  test('MagStyle is the only look: a saved classic look moves over, and there is no switch back', async ({ browser }) => {
+    // A browser without the test suite's classic flag: what people get.
+    const ctx = await browser.newContext({ reducedMotion: 'reduce', storageState: { cookies: [], origins: [] } });
+    await ctx.addInitScript(() =>
+      localStorage.setItem('orbit:shell:v1', JSON.stringify({ state: { settings: { orb: false, skin: 'classic', introSeen: true } }, version: 0 })),
+    );
+    const page = await ctx.newPage();
+    await page.goto('/');
+    await expect(page.locator('html')).toHaveAttribute('data-skin', 'o5');
+    await page.getByRole('button', { name: /^Index/ }).click();
+    const index = page.getByRole('dialog', { name: 'Index' });
+    await expect(index.getByRole('button', { name: 'Classic look' })).toHaveCount(0);
+    await index.locator('.o5-index-list').getByRole('button', { name: /Settings/ }).click();
+    await expect(page.locator('.app-window[data-app="settings"]')).toBeVisible();
+    await expect(page.getByRole('group', { name: 'Look' })).toHaveCount(0);
+    await ctx.close();
+  });
+
   test('switch it on in Settings: the path replaces the icons and the dock', async ({ page }) => {
     await mockAi(page, 'off');
     const errors = await openOrbit(page);

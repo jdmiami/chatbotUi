@@ -65,13 +65,16 @@ export function besideRect(r: DOMRect, view: Rect, size: number, avoid?: (x: num
   return null;
 }
 
-/** True when an orb at (x, y) would cover a control (sampled at its centre and four edges). */
+/** True when an orb at (x, y) would cover a control or text (sampled at its centre and four edges). */
 export function coversControl(x: number, y: number, size: number, self: Element | null): boolean {
   if (typeof document.elementsFromPoint !== 'function') return false;
   const q = size * 0.38;
   for (const [dx, dy] of [[0, 0], [q, 0], [-q, 0], [0, q], [0, -q]]) {
     const hit = document.elementsFromPoint(x + dx, y + dy).find((e) => !self?.contains(e));
     if (hit?.closest('button, a, input, textarea, select, [role="button"], [contenteditable="true"]')) return true;
+    // Nor over words you are reading (a sentence, a heading, a list item).
+    const text = hit?.closest('p, h1, h2, h3, h4, li, blockquote');
+    if (text && text.textContent?.trim()) return true;
   }
   return false;
 }
@@ -89,7 +92,15 @@ export function findFocus(view: Rect, size: number, self: Element | null, root: 
   const centred = (kind: 'stage' | 'spot'): Focus | null => {
     for (const el of root.querySelectorAll(kind === 'stage' ? '[data-orb-spot="stage"]' : '[data-orb-spot]:not([data-orb-spot="stage"])')) {
       const r = visible(el, view);
-      if (r) return { x: r.left + r.width / 2, y: r.top + r.height / 2, el, kind, size: Number((el as HTMLElement).dataset.orbSize) || r.width };
+      if (!r) continue;
+      const x = r.left + r.width / 2;
+      const y = r.top + r.height / 2;
+      // Really in view at its centre (not scrolled away under something else).
+      if (typeof document.elementsFromPoint === 'function') {
+        const hit = document.elementsFromPoint(x, y).find((e) => !self?.contains(e));
+        if (hit && hit !== el && !el.contains(hit)) continue;
+      }
+      return { x, y, el, kind, size: Number((el as HTMLElement).dataset.orbSize) || r.width };
     }
     return null;
   };
