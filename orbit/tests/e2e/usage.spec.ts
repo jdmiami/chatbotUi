@@ -104,6 +104,8 @@ test.describe('Settings: usage', () => {
     await expect(ai).toContainText(/turns itself off in 5[45] min/);
     const linux = usage.getByLabel('Linux machine', { exact: true });
     await linux.getByRole('button', { name: 'Turn off' }).click();
+    // Asks first: it ends the terminals.
+    await linux.getByRole('button', { name: 'Tap again: ends terminals' }).click();
     await expect(linux.getByRole('button', { name: 'Turn on' })).toBeVisible();
     expect(calls).toEqual([
       { machine: 'ai', action: 'extend', minutes: 30 },

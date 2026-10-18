@@ -13,6 +13,8 @@
 }
 .orb-layer[data-hidden] .orb-cursor,
 .orb-layer[data-hidden] .orb-caption { opacity: 0; pointer-events: none; }
+/* Another dialog is open: the panel steps aside too, so it never covers or blocks that dialog. */
+.orb-layer[data-hidden] .orb-panel { display: none; }
 
 .orb-cursor {
   --depth: 0;

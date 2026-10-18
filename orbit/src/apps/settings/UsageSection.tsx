@@ -47,6 +47,13 @@ export function UsageSection({ active }: { active: boolean }) {
   const [unavailable, setUnavailable] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
   const [now, setNow] = useState(() => Date.now());
+  // Turning a machine off ends what runs on it (terminals, jobs): the first tap asks, the second does it.
+  const [armed, setArmed] = useState<'ai' | 'linux' | null>(null);
+  useEffect(() => {
+    if (!armed) return;
+    const t = setTimeout(() => setArmed(null), 4000);
+    return () => clearTimeout(t);
+  }, [armed]);
 
   const load = useCallback(async () => {
     try {
@@ -119,6 +126,8 @@ export function UsageSection({ active }: { active: boolean }) {
             </div>
             {status.machines.map((m) => {
               const on = m.state === 'on' || m.state === 'downloading';
+              // Starting can already bill: show its price and time too.
+              const billing = on || m.state === 'starting';
               const until = m.autoOff && on ? untilText(m.offAt, now) : null;
               return (
                 <div key={m.id} className="row st-row st-col st-machine" data-state={m.state} aria-label={m.name}>
@@ -130,14 +139,14 @@ export function UsageSection({ active }: { active: boolean }) {
                   </div>
                   <p className="st-sub">
                     {[
-                      on && m.costPerHour ? `${usd(m.costPerHour)}/h` : null,
-                      on && m.uptimeSeconds ? `on for ${duration(m.uptimeSeconds)}` : null,
+                      billing && m.costPerHour ? `${usd(m.costPerHour)}/h` : null,
+                      billing && m.uptimeSeconds ? `on for ${duration(m.uptimeSeconds)}` : null,
                       until,
                       m.gpuName,
                       m.detail,
                     ]
                       .filter(Boolean)
-                      .join(' · ') || (on ? 'Running' : 'Not running, costs nothing per hour')}
+                      .join(' · ') || (m.state === 'off' ? 'Not running, costs nothing per hour' : on ? 'Running' : STATE[m.state] ?? m.state)}
                   </p>
                   {on && m.live && (
                     <div className="st-meters">
@@ -162,8 +171,17 @@ export function UsageSection({ active }: { active: boolean }) {
                   {status.canPower !== false && (
                     <div className="st-banner-actions">
                       {on || m.state === 'starting' ? (
-                        <button type="button" className="btn small" disabled={busy !== null} onClick={() => void act(m.id, 'stop')}>
-                          Turn off
+                        <button
+                          type="button"
+                          className={armed === m.id ? 'btn small danger' : 'btn small'}
+                          disabled={busy !== null}
+                          onClick={() => {
+                            if (armed !== m.id) return setArmed(m.id);
+                            setArmed(null);
+                            void act(m.id, 'stop');
+                          }}
+                        >
+                          {armed === m.id ? (m.id === 'linux' ? 'Tap again: ends terminals' : 'Tap again to turn off') : 'Turn off'}
                         </button>
                       ) : (
                         <button type="button" className="btn small primary" disabled={busy !== null} onClick={() => void act(m.id, 'start')}>
