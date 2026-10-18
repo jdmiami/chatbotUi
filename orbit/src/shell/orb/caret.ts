@@ -131,6 +131,18 @@ export function caretAt(el: HTMLInputElement | HTMLTextAreaElement, pos: number)
 
 /** The position in a text box nearest to the point (x, y): where a cursor dropped there should go. */
 export function offsetAt(el: HTMLInputElement | HTMLTextAreaElement, x: number, y: number): number {
+  // Right-to-left or mixed text: positions don't run left to right, so measure each and take the nearest.
+  if (/[\u0590-\u08ff\ufb1d-\ufdff\ufe70-\ufeff]/.test(el.value) || getComputedStyle(el).direction === 'rtl') {
+    let best = el.value.length;
+    let bestD = Infinity;
+    for (let pos = 0; pos <= Math.min(el.value.length, 2000); pos++) {
+      const c = caretAt(el, pos);
+      if (!c) continue;
+      const d = Math.abs(c.x - x) + Math.abs(c.y + c.h / 2 - y) * 4;
+      if (d < bestD) ((bestD = d), (best = pos));
+    }
+    return best;
+  }
   const single = el instanceof HTMLInputElement;
   // True while the caret at `pos` is still before the point (reading order: line, then across).
   const before = (pos: number) => {
