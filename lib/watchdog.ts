@@ -17,8 +17,9 @@ interface Pod {
   id: string;
   name: string;
   status?: string;
-  startedAt?: string;
-  lastStartedAt?: string;
+  /** Container uptime while running (Runpod's spellings vary). `startedAt` is not used: it can hold the creation time. */
+  runtime?: { uptimeInSeconds?: number; uptimeSeconds?: number } | null;
+  uptimeSeconds?: number;
 }
 
 export interface WatchdogResult {
@@ -72,8 +73,9 @@ export async function runWatchdog(): Promise<WatchdogResult> {
       continue;
     }
     const { idle, heldUntil } = await idleMinutes(pod, pod.id === linuxId);
-    const started = Date.parse(pod.lastStartedAt || pod.startedAt || '');
-    const onFor = Number.isFinite(started) ? Math.floor((Date.now() - started) / 60_000) : null;
+    // Unknown uptime never leads to a stop on its own: the machine's own timer still applies.
+    const up = pod.runtime?.uptimeInSeconds ?? pod.runtime?.uptimeSeconds ?? pod.uptimeSeconds;
+    const onFor = typeof up === 'number' && up >= 0 ? Math.floor(up / 60) : null;
     const d = decide(idle, heldUntil, onFor);
     if (!d.stop) {
       result.machines.push({ name: label, status, idleMinutes: idle, action: 'kept', why: d.why });
