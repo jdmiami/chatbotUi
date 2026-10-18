@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { AppProps } from '../types';
+import { Step, nextStep } from '../../shell/o5/Step';
 import { useShell } from '../../state/shell';
 import { useWorkspace } from '../../state/workspace';
 import { Icon } from '../../ui/Icon';
@@ -55,6 +56,7 @@ function progressText(m: Movie) {
 export default function SoRealApp({ isActive, compact, placement }: AppProps) {
   const ai = useMemo(() => getLocalAi(), []);
   const toast = useShell((s) => s.toast);
+  const o5 = useShell((s) => s.settings.skin === 'o5');
   const setSummary = useWorkspace((s) => s.setSummary);
   const [status, setStatus] = useState<AiMachineStatus | null>(null);
   const [powering, setPowering] = useState(false);
@@ -157,8 +159,8 @@ export default function SoRealApp({ isActive, compact, placement }: AppProps) {
 
   // Open the first movie on wide screens.
   useEffect(() => {
-    if (!compact && !openId && movies?.length) setOpenId(movies[0].id);
-  }, [compact, openId, movies]);
+    if (!compact && !o5 && !openId && movies?.length) setOpenId(movies[0].id);
+  }, [compact, o5, openId, movies]);
 
   // The open movie, kept in sync with the machine (closely while it is making shots).
   const current = movies?.find((m) => m.id === openId) ?? null;
@@ -254,6 +256,7 @@ export default function SoRealApp({ isActive, compact, placement }: AppProps) {
       putMovie(m);
       setOpenId(m.id);
       setDraft(m);
+      nextStep(o5, 'o5-sr-name');
     } catch (err) {
       toast((err as Error).message, 'error');
     } finally {
@@ -317,6 +320,35 @@ export default function SoRealApp({ isActive, compact, placement }: AppProps) {
     </div>
   );
 
+  // Orbit 0.5: the movies are a contents page, one big line each, the newest first.
+  const contents = (
+    <div className="sr-contents">
+      <header className="o5-gallery-head">
+        <p className="o5-kicker">soReal</p>
+        <h2 className="o5-chapter-title">Your movies</h2>
+        <p className="o5-dek">Write what happens, shot by shot. Each shot picks up from the last frame of the one before, so it flows like one take.</p>
+      </header>
+      <ul className="o5-links">
+        <li>
+          <button type="button" className="o5-go" onClick={() => void create()} disabled={!ready || busy === 'new'}>
+            <span className="o5-go-label">Start a new movie</span>
+            <span className="o5-go-hint">{ready ? 'Name it, set the look, write the shots' : 'Turn the AI machine on first'}</span>
+            <Icon name="plus" size={20} />
+          </button>
+        </li>
+        {movies?.map((m) => (
+          <li key={m.id}>
+            <button type="button" className="o5-go" onClick={() => setOpenId(m.id)}>
+              <span className="o5-go-label">{m.title}</span>
+              <span className="o5-go-hint">{progressText(m)}</span>
+              <Icon name="forward" size={20} />
+            </button>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+
   const list = (
     <div className="sr-list">
       <button type="button" className="ai-new" onClick={() => void create()} disabled={!ready || busy === 'new'}>
@@ -347,198 +379,222 @@ export default function SoRealApp({ isActive, compact, placement }: AppProps) {
   const startItem = draft?.start ? itemById.get(draft.start) : null;
   const editor = draft && (
     <div className="sr-editor">
-      <label className="sr-field">
-        <span>Title</span>
-        <input className="input" value={draft.title} maxLength={120} disabled={running} onChange={(e) => edit((m) => ({ ...m, title: e.target.value }))} />
-      </label>
-      <label className="sr-field">
-        <span>Look and characters</span>
-        <textarea
-          className="input"
-          rows={3}
-          value={draft.look}
-          maxLength={2000}
-          disabled={running}
-          placeholder="Who is in it and the style, e.g. “A woman in a red coat, neon city at night, 35 mm film look.” Added to every shot so it stays consistent."
-          onChange={(e) => edit((m) => ({ ...m, look: e.target.value }))}
-        />
-      </label>
-
-      <div className="sr-options">
-        <div className="sr-field">
-          <span>Video maker</span>
-          <Segmented
-            label="Video maker"
-            value={draft.maker}
-            onChange={(v) => {
-              if (v === 'h3-max' && !h3?.installed) return toast('Add H3 Max first: AI → Create → Makers.', 'info');
-              edit((m) => ({ ...m, maker: v }));
-            }}
-            options={[
-              { value: 'ltx', label: 'LTX · fast, sound' },
-              { value: 'h3-max', label: h3?.installed ? 'H3 Max · best' : 'H3 Max (add it)' },
-            ]}
+      <Step on={o5} n="01" id="o5-sr-name" title="Name it, set the look">
+        <label className="sr-field">
+          <span>Title</span>
+          <input className="input" value={draft.title} maxLength={120} disabled={running} onChange={(e) => edit((m) => ({ ...m, title: e.target.value }))} />
+        </label>
+        <label className="sr-field">
+          <span>Look and characters</span>
+          <textarea
+            className="input"
+            rows={3}
+            value={draft.look}
+            maxLength={2000}
+            disabled={running}
+            placeholder="Who is in it and the style, e.g. “A woman in a red coat, neon city at night, 35 mm film look.” Added to every shot so it stays consistent."
+            onChange={(e) => edit((m) => ({ ...m, look: e.target.value }))}
           />
-        </div>
-        <div className="sr-field">
-          <span>Shape</span>
-          <Segmented label="Shape" value={draft.size} onChange={(v) => edit((m) => ({ ...m, size: v }))} options={SIZES.map((s) => ({ ...s }))} />
-        </div>
-        <div className="sr-field">
-          <span>Each shot</span>
-          <Segmented label="Shot length" value={String(draft.seconds)} onChange={(v) => edit((m) => ({ ...m, seconds: Number(v) }))} options={LENGTHS} />
-        </div>
-      </div>
+        </label>
+      </Step>
 
-      {draft.shots.some((s) => s.status === 'done') && !running && (
-        <p className="ai-muted">Changing the look, maker, shape, length or starting point remakes every shot.</p>
-      )}
-
-      <div className="sr-field">
-        <span>First shot starts from</span>
-        <div className="sr-start">
-          <span className="sr-thumb sr-thumb-lg" aria-hidden>
-            {startItem ? startItem.kind === 'video' ? <video src={startItem.url} muted playsInline preload="metadata" /> : <img src={startItem.url} alt="" /> : <Icon name="text" size={20} />}
-          </span>
-          <p className="ai-muted sr-start-text">
-            {startItem ? `${startItem.kind === 'video' ? 'The last frame of' : 'The picture'} “${startItem.prompt.slice(0, 80)}”` : 'Nothing: the first shot is made from words alone.'}
-          </p>
-          <div className="sr-start-actions">
-            <button
-              type="button"
-              className="btn"
-              disabled={running || !latestVideo(items)}
-              onClick={() => edit((m) => ({ ...m, start: latestVideo(items)?.id ?? null }))}
-            >
-              Latest video
-            </button>
-            <button type="button" className="btn" disabled={running || !items.length} onClick={() => setPicking(true)}>
-              Pick…
-            </button>
-            {draft.start && (
-              <button type="button" className="btn ghost" disabled={running} onClick={() => edit((m) => ({ ...m, start: null }))}>
-                None
-              </button>
-            )}
+      <Step on={o5} n="02" id="o5-sr-how" title="How it's shot">
+        <div className="sr-options">
+          <div className="sr-field">
+            <span>Video maker</span>
+            <Segmented
+              label="Video maker"
+              value={draft.maker}
+              onChange={(v) => {
+                if (v === 'h3-max' && !h3?.installed) return toast('Add H3 Max first: AI → Create → Makers.', 'info');
+                edit((m) => ({ ...m, maker: v }));
+              }}
+              options={[
+                { value: 'ltx', label: 'LTX · fast, sound' },
+                { value: 'h3-max', label: h3?.installed ? 'H3 Max · best' : 'H3 Max (add it)' },
+              ]}
+            />
+          </div>
+          <div className="sr-field">
+            <span>Shape</span>
+            <Segmented label="Shape" value={draft.size} onChange={(v) => edit((m) => ({ ...m, size: v }))} options={SIZES.map((s) => ({ ...s }))} />
+          </div>
+          <div className="sr-field">
+            <span>Each shot</span>
+            <Segmented label="Shot length" value={String(draft.seconds)} onChange={(v) => edit((m) => ({ ...m, seconds: Number(v) }))} options={LENGTHS} />
           </div>
         </div>
-      </div>
 
-      <div className="sr-shots-head">
-        <h2>Shots</h2>
-        <button type="button" className="btn" disabled={running} onClick={() => setPlanning(true)}>
-          <Icon name="sparkle" size={16} /> Plan with AI
-        </button>
-      </div>
-      <ol className="sr-shots">
-        {draft.shots.map((s, i) => {
-          const item = s.itemId ? itemById.get(s.itemId) : null;
-          return (
-            <li key={s.id} className="sr-shot" data-status={s.status}>
-              <div className="sr-shot-media">
-                {item ? (
-                  <video src={item.url} controls playsInline preload="metadata" aria-label={`Shot ${i + 1}`} />
-                ) : (
-                  <span className="sr-shot-num" aria-hidden>
-                    {s.status === 'making' ? <span className="sr-spin" /> : i + 1}
-                  </span>
-                )}
-              </div>
-              <div className="sr-shot-body">
-                <div className="sr-shot-top">
-                  <span className="sr-shot-label">
-                    Shot {i + 1}
-                    {i > 0 || draft.start ? <span className="ai-muted"> · picks up from the last frame</span> : null}
-                  </span>
-                  <span className={`sr-badge sr-badge-${s.status}`}>{{ todo: 'To make', making: 'Making…', done: 'Made', error: 'Problem' }[s.status]}</span>
-                </div>
-                <textarea
-                  className="input"
-                  rows={2}
-                  value={s.prompt}
-                  disabled={running}
-                  aria-label={`What happens in shot ${i + 1}`}
-                  placeholder="What happens, and how the camera moves"
-                  onChange={(e) => edit((m) => ({ ...m, shots: m.shots.map((x) => (x.id === s.id ? { ...x, prompt: e.target.value } : x)) }))}
-                />
-                {s.error && <p className="ai-error">{s.error}</p>}
-                {s.status === 'done' && !running && <p className="ai-muted">Change the words to remake this shot (and the ones after it).</p>}
-              </div>
-              <IconButton
-                icon="trash"
-                label={`Remove shot ${i + 1}`}
-                disabled={running || draft.shots.length === 1}
-                onClick={() => edit((m) => ({ ...m, shots: m.shots.filter((x) => x.id !== s.id) }))}
-              />
-            </li>
-          );
-        })}
-      </ol>
-      <button type="button" className="ai-new sr-add" disabled={running || draft.shots.length >= 60} onClick={() => edit((m) => ({ ...m, shots: [...m.shots, newShot()] }))}>
-        <Icon name="plus" size={16} /> Add shot
-      </button>
-
-      <div className="sr-bar">
-        <p className="ai-muted sr-bar-text" role="status">
-          {progressText(draft)}
-          {!running && draft.shots.some((s) => s.status !== 'done') ? ' · each shot takes a few minutes' : ''}
-        </p>
-        {!running && helperOn && (
-          <Segmented
-            label="Make on"
-            value={makeOn}
-            onChange={setMakeOn}
-            options={[
-              { value: 'main', label: 'Main machine' },
-              { value: 'helper', label: 'Helper' },
-            ]}
-          />
+        {draft.shots.some((s) => s.status === 'done') && !running && (
+          <p className="ai-muted">Changing the look, maker, shape, length or starting point remakes every shot.</p>
         )}
-        {running ? (
-          <button type="button" className="btn" onClick={() => void act('stop')} disabled={busy === 'stop'}>
-            <Icon name="stop" size={16} /> Stop
+      </Step>
+
+      <Step on={o5} n="03" id="o5-sr-start" title="Where it begins">
+
+        <div className="sr-field">
+          <span>First shot starts from</span>
+          <div className="sr-start">
+            <span className="sr-thumb sr-thumb-lg" aria-hidden>
+              {startItem ? startItem.kind === 'video' ? <video src={startItem.url} muted playsInline preload="metadata" /> : <img src={startItem.url} alt="" /> : <Icon name="text" size={20} />}
+            </span>
+            <p className="ai-muted sr-start-text">
+              {startItem ? `${startItem.kind === 'video' ? 'The last frame of' : 'The picture'} “${startItem.prompt.slice(0, 80)}”` : 'Nothing: the first shot is made from words alone.'}
+            </p>
+            <div className="sr-start-actions">
+              <button
+                type="button"
+                className="btn"
+                disabled={running || !latestVideo(items)}
+                onClick={() => {
+                  edit((m) => ({ ...m, start: latestVideo(items)?.id ?? null }));
+                  nextStep(o5, 'o5-sr-shots');
+                }}
+              >
+                Latest video
+              </button>
+              <button type="button" className="btn" disabled={running || !items.length} onClick={() => setPicking(true)}>
+                Pick…
+              </button>
+              {draft.start && (
+                <button
+                  type="button"
+                  className="btn ghost"
+                  disabled={running}
+                  onClick={() => {
+                    edit((m) => ({ ...m, start: null }));
+                    nextStep(o5, 'o5-sr-shots');
+                  }}
+                >
+                  None
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+      </Step>
+
+      <Step on={o5} n="04" id="o5-sr-shots" title="The shots">
+        <div className="sr-shots-head">
+          <h2 className="o5-hide">Shots</h2>
+          <button type="button" className="btn" disabled={running} onClick={() => setPlanning(true)}>
+            <Icon name="sparkle" size={16} /> Plan with AI
           </button>
-        ) : (
+        </div>
+        <ol className="sr-shots">
+          {draft.shots.map((s, i) => {
+            const item = s.itemId ? itemById.get(s.itemId) : null;
+            return (
+              <li key={s.id} className="sr-shot" data-status={s.status}>
+                <div className="sr-shot-media">
+                  {item ? (
+                    <video src={item.url} controls playsInline preload="metadata" aria-label={`Shot ${i + 1}`} />
+                  ) : (
+                    <span className="sr-shot-num" aria-hidden>
+                      {s.status === 'making' ? <span className="sr-spin" /> : i + 1}
+                    </span>
+                  )}
+                </div>
+                <div className="sr-shot-body">
+                  <div className="sr-shot-top">
+                    <span className="sr-shot-label">
+                      Shot {i + 1}
+                      {i > 0 || draft.start ? <span className="ai-muted"> · picks up from the last frame</span> : null}
+                    </span>
+                    <span className={`sr-badge sr-badge-${s.status}`}>{{ todo: 'To make', making: 'Making…', done: 'Made', error: 'Problem' }[s.status]}</span>
+                  </div>
+                  <textarea
+                    className="input"
+                    rows={2}
+                    value={s.prompt}
+                    disabled={running}
+                    aria-label={`What happens in shot ${i + 1}`}
+                    placeholder="What happens, and how the camera moves"
+                    onChange={(e) => edit((m) => ({ ...m, shots: m.shots.map((x) => (x.id === s.id ? { ...x, prompt: e.target.value } : x)) }))}
+                  />
+                  {s.error && <p className="ai-error">{s.error}</p>}
+                  {s.status === 'done' && !running && <p className="ai-muted">Change the words to remake this shot (and the ones after it).</p>}
+                </div>
+                <IconButton
+                  icon="trash"
+                  label={`Remove shot ${i + 1}`}
+                  disabled={running || draft.shots.length === 1}
+                  onClick={() => edit((m) => ({ ...m, shots: m.shots.filter((x) => x.id !== s.id) }))}
+                />
+              </li>
+            );
+          })}
+        </ol>
+        <button type="button" className="ai-new sr-add" disabled={running || draft.shots.length >= 60} onClick={() => edit((m) => ({ ...m, shots: [...m.shots, newShot()] }))}>
+          <Icon name="plus" size={16} /> Add shot
+        </button>
+      </Step>
+
+      <Step on={o5} n="05" id="o5-sr-go" title="Make it">
+        <div className="sr-bar">
+          <p className="ai-muted sr-bar-text" role="status">
+            {progressText(draft)}
+            {!running && draft.shots.some((s) => s.status !== 'done') ? ' · each shot takes a few minutes' : ''}
+          </p>
+          {!running && helperOn && (
+            <Segmented
+              label="Make on"
+              value={makeOn}
+              onChange={setMakeOn}
+              options={[
+                { value: 'main', label: 'Main machine' },
+                { value: 'helper', label: 'Helper' },
+              ]}
+            />
+          )}
+          {running ? (
+            <button type="button" className="btn" onClick={() => void act('stop')} disabled={busy === 'stop'}>
+              <Icon name="stop" size={16} /> Stop
+            </button>
+          ) : (
+            <button
+              type="button"
+              className="btn primary"
+              onClick={() => void act('run')}
+              disabled={!ready || busy === 'run' || !draft.shots.some((s) => s.status !== 'done' && s.prompt.trim())}
+            >
+              <Icon name="play" size={16} /> {draft.shots.some((s) => s.status === 'done') ? 'Make the rest' : 'Make the movie'}
+            </button>
+          )}
+          <button type="button" className="btn" disabled={!doneShots.length} onClick={() => setWatching(doneShots.map((s) => itemById.get(s.itemId!)!))}>
+            <Icon name="film" size={16} /> Watch
+          </button>
+          <button type="button" className="btn" disabled={running || !doneShots.length || busy === 'render'} onClick={() => void act('render')}>
+            <Icon name="download" size={16} /> {busy === 'render' ? 'Joining…' : 'Export'}
+          </button>
           <button
             type="button"
-            className="btn primary"
-            onClick={() => void act('run')}
-            disabled={!ready || busy === 'run' || !draft.shots.some((s) => s.status !== 'done' && s.prompt.trim())}
+            className="btn"
+            disabled={!lastDone || busy === 'new'}
+            onClick={() =>
+              void create({ title: `${draft.title} · part 2`, look: draft.look, maker: draft.maker, size: draft.size, seconds: draft.seconds, start: lastDone!.itemId })
+            }
           >
-            <Icon name="play" size={16} /> {draft.shots.some((s) => s.status === 'done') ? 'Make the rest' : 'Make the movie'}
+            <Icon name="forward" size={16} /> Continue in a new movie
           </button>
-        )}
-        <button type="button" className="btn" disabled={!doneShots.length} onClick={() => setWatching(doneShots.map((s) => itemById.get(s.itemId!)!))}>
-          <Icon name="film" size={16} /> Watch
-        </button>
-        <button type="button" className="btn" disabled={running || !doneShots.length || busy === 'render'} onClick={() => void act('render')}>
-          <Icon name="download" size={16} /> {busy === 'render' ? 'Joining…' : 'Export'}
-        </button>
-        <button
-          type="button"
-          className="btn"
-          disabled={!lastDone || busy === 'new'}
-          onClick={() =>
-            void create({ title: `${draft.title} · part 2`, look: draft.look, maker: draft.maker, size: draft.size, seconds: draft.seconds, start: lastDone!.itemId })
-          }
-        >
-          <Icon name="forward" size={16} /> Continue in a new movie
-        </button>
-        <IconButton icon="trash" label="Delete movie" onClick={() => setConfirmDelete(draft)} />
-      </div>
+          <IconButton icon="trash" label="Delete movie" onClick={() => setConfirmDelete(draft)} />
+        </div>
+      </Step>
     </div>
   );
 
-  const showList = !compact || !openId;
-  const showEditor = !compact || Boolean(openId);
+  // 0.5 is one page at a time: the contents, or one movie's walk-through.
+  const single = compact || o5;
+  const showList = !single || !openId;
+  const showEditor = !single || Boolean(openId);
 
   return (
     <div className="ag-root sr-root" data-placement={placement}>
       <AppHeader
         title="soReal"
         subtitle="Movies, shot by shot"
-        leading={compact && openId ? <IconButton icon="back" label="All movies" onClick={() => void flush().then(() => setOpenId(null))} /> : undefined}
-        actions={ready && compact && !openId ? <IconButton icon="plus" label="New movie" onClick={() => void create()} disabled={busy === 'new'} /> : undefined}
+        leading={single && openId ? <IconButton icon="back" label="All movies" onClick={() => void flush().then(() => setOpenId(null))} /> : undefined}
+        actions={ready && compact && !o5 && !openId ? <IconButton icon="plus" label="New movie" onClick={() => void create()} disabled={busy === 'new'} /> : undefined}
       />
       {machineBanner}
       {helper && helper.state !== 'unconfigured' && (ready || helper.state !== 'off') && (
@@ -564,7 +620,7 @@ export default function SoRealApp({ isActive, compact, placement }: AppProps) {
       )}
       {loadError && ready && <p className="ai-error sr-pad">{loadError}</p>}
       <div className="sr-layout">
-        {showList && <aside className={compact ? 'sr-side sr-side-full' : 'sr-side'}>{list}</aside>}
+        {showList && <aside className={single ? 'sr-side sr-side-full' : 'sr-side'}>{o5 ? contents : list}</aside>}
         {showEditor && (
           <section className="sr-main" aria-label={draft?.title ?? 'Movie'}>
             {draft ? (
@@ -590,6 +646,7 @@ export default function SoRealApp({ isActive, compact, placement }: AppProps) {
                   onClick={() => {
                     edit((m) => ({ ...m, start: it.id }));
                     setPicking(false);
+                    nextStep(o5, 'o5-sr-shots');
                   }}
                 >
                   {it.kind === 'video' ? <video src={it.url} muted playsInline preload="metadata" /> : <img src={it.url} alt="" loading="lazy" />}
@@ -611,6 +668,7 @@ export default function SoRealApp({ isActive, compact, placement }: AppProps) {
               return { ...m, shots: [...kept, ...prompts.map((p) => newShot(p))].slice(0, 60) };
             });
             setPlanning(false);
+            nextStep(o5, 'o5-sr-shots');
           }}
         />
       )}

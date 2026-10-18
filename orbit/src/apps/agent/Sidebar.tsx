@@ -1,4 +1,5 @@
 import type { Capability, Project, SessionSummary } from '../../services/runner/types';
+import { useShell } from '../../state/shell';
 import { Icon } from '../../ui/Icon';
 import { EmptyState } from '../../ui/components';
 import { relativeTime } from '../../ui/format';
@@ -134,6 +135,7 @@ export function Sidebar({
   now,
   demo,
 }: SidebarProps) {
+  const o5 = useShell((s) => s.settings.skin === 'o5');
   const projectName =
     projects.status === 'ready' ? (projects.data.find((p) => p.id === projectId)?.name ?? '') : '';
   const newButton =
@@ -152,6 +154,12 @@ export function Sidebar({
 
   return (
     <aside className="ag-sidebar" aria-label="Projects and sessions">
+      {o5 && (
+        <header className="o5-gallery-head ag-o5-head">
+          <p className="o5-kicker">Antigravity</p>
+          <h2 className="o5-chapter-title">Your sessions</h2>
+        </header>
+      )}
       <div className="ag-side-head">
         {projects.status === 'ready' && projects.data.length > 0 ? (
           <Picker label="Project" value={projectId ?? ''} onChange={onProject} className="ag-project ag-pick-stacked">

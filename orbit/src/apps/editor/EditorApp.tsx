@@ -940,6 +940,7 @@ export default function EditorApp({ placement, isActive, compact }: AppProps) {
             />
             <IconButton
               icon="save"
+              className="o5-hide"
               label={activeSaving ? 'Saving…' : 'Save file'}
               disabled={!activeTab?.dirty || activeSaving}
               onClick={() => void save()}

@@ -676,3 +676,99 @@
 .o5-choice .o5-go-label, .o5-choice .o5-go-hint { grid-area: auto; }
 .o5-choice:last-child { border-bottom: 0; }
 :root[data-skin='o5'] .ai-create .ai-create-form textarea:not([type]) { border-radius: 0; border-width: 0 0 1px; }
+
+/* ---------------------------------------------------------------- soReal: contents, then one movie as a walk-through */
+:root[data-skin='o5'] .sr-side, :root[data-skin='o5'] .sr-side-full { background: none; border: 0; }
+.sr-contents { max-width: 760px; margin: 0 auto; padding: 0 calc(var(--safe-right) + clamp(18px, 6vw, 64px)) calc(48px + var(--safe-bottom)) calc(var(--safe-left) + clamp(18px, 6vw, 64px)); }
+.sr-contents .o5-go:disabled { opacity: 0.45; cursor: default; }
+:root[data-skin='o5'] .sr-layout { padding-left: 0; padding-right: 0; }
+:root[data-skin='o5'] .sr-editor { gap: 0; max-width: 760px; padding-left: calc(var(--safe-left) + clamp(18px, 6vw, 64px)); padding-right: calc(var(--safe-right) + clamp(18px, 6vw, 64px)); padding-top: 0; }
+:root[data-skin='o5'] .sr-field > span { font-family: var(--font-ui); font-weight: 500; letter-spacing: 0.14em; text-transform: uppercase; font-size: calc(10px * var(--text-scale)); color: var(--text-3); }
+:root[data-skin='o5'] .sr-root .input {
+  border: 0;
+  border-bottom: 1px solid var(--o5-hair);
+  border-radius: 0;
+  background: transparent;
+  padding: 8px 0;
+  font-family: var(--font-display);
+  font-size: calc(22px * var(--text-scale));
+  line-height: 1.45;
+  box-shadow: none;
+}
+:root[data-skin='o5'] .sr-root .input:focus-visible { outline: none; border-bottom-color: var(--text); }
+:root[data-skin='o5'] .sr-root :is(input, textarea).input:not([type]) { border-radius: 0; border-width: 0 0 1px; }
+:root[data-skin='o5'] .sr-options { grid-template-columns: 1fr; gap: 18px; }
+:root[data-skin='o5'] .sr-shots-head { justify-content: flex-start; }
+:root[data-skin='o5'] .sr-shot { grid-template-columns: minmax(0, 1fr) auto; }
+:root[data-skin='o5'] .sr-shot-media { grid-column: 1 / -1; aspect-ratio: 16 / 9; border-radius: 4px; }
+/* A shot not made yet is just its numeral, not an empty frame. */
+:root[data-skin='o5'] .sr-shot-media:not(:has(video)) { aspect-ratio: auto; background: none; place-items: start; overflow: visible; }
+:root[data-skin='o5'] .sr-shot-media:not(:has(video, .sr-spin)) { display: none; }
+:root[data-skin='o5'] .sr-root textarea.input { font-size: calc(19px * var(--text-scale)); min-height: 5.6em; }
+:root[data-skin='o5'] .sr-shot-num { font-family: var(--font-display); font-weight: 340; font-size: calc(44px * var(--text-scale)); }
+:root[data-skin='o5'] .sr-shot-label { font-family: var(--font-display); font-weight: 400; font-size: calc(19px * var(--text-scale)); }
+:root[data-skin='o5'] .sr-badge { background: none; padding: 0; letter-spacing: 0.14em; text-transform: uppercase; font-size: calc(10px * var(--text-scale)); }
+:root[data-skin='o5'] .sr-thumb { border-radius: 4px; background: var(--surface-3); }
+/* The last step is the end of the page, not a floating bar. */
+:root[data-skin='o5'] .sr-bar { position: static; border: 0; background: none; -webkit-backdrop-filter: none; backdrop-filter: none; box-shadow: none; padding: 0; }
+:root[data-skin='o5'] .sr-bar .btn.primary { flex: 1 1 100%; min-height: 56px; font-size: var(--fs-lg); }
+:root[data-skin='o5'] .sr-add { border-style: solid; border-width: 0 0 1px; border-radius: 0; justify-content: flex-start; }
+:root[data-skin='o5'] .shell[data-keyboard='true'] .sr-helper { display: none; }
+
+/* ---------------------------------------------------------------- Settings: a contents page, then numbered chapters */
+.st-contents { display: flex; flex-direction: column; gap: 8px; padding: clamp(24px, 6vh, 56px) 0 8px; }
+.st-contents .o5-chapter-title { margin-top: 0; }
+.st-contents .o5-go-hint { font-variant-numeric: tabular-nums; letter-spacing: 0.14em; }
+:root[data-skin='o5'] .st-scroll { padding-left: calc(var(--safe-left) + clamp(18px, 6vw, 64px)); padding-right: calc(var(--safe-right) + clamp(18px, 6vw, 64px)); }
+:root[data-skin='o5'] .st-page { counter-reset: st-chapter; }
+:root[data-skin='o5'] .st-section { counter-increment: st-chapter; scroll-margin-top: 12px; padding-bottom: clamp(16px, 4vh, 32px); border-bottom: 1px solid var(--o5-hair); }
+:root[data-skin='o5'] .st-heading,
+:root[data-skin='o5'] .st-section:first-child > .st-heading {
+  margin: clamp(36px, 9vh, 80px) 0 12px;
+  padding: 0;
+  font-family: var(--font-display);
+  font-variation-settings: 'opsz' 96;
+  font-weight: 340;
+  font-size: calc(clamp(32px, 7vw, 54px) * var(--text-scale));
+  letter-spacing: -0.03em;
+  line-height: 1.02;
+  text-transform: none;
+  color: var(--text);
+}
+:root[data-skin='o5'] .st-heading::before {
+  content: counter(st-chapter, decimal-leading-zero);
+  display: block;
+  margin-bottom: 14px;
+  font-family: var(--font-ui);
+  font-size: calc(11px * var(--text-scale));
+  font-weight: 500;
+  letter-spacing: 0.2em;
+  color: var(--text-3);
+}
+:root[data-skin='o5'] .st-caption { font-family: var(--font-display); font-size: calc(16px * var(--text-scale)); line-height: 1.55; color: var(--text-2); padding-left: 0; padding-right: 0; }
+
+/* ---------------------------------------------------------------- Antigravity: the sessions read like a contents page */
+.ag-o5-head { margin: 0; padding: clamp(20px, 5vh, 48px) calc(var(--safe-right) + clamp(18px, 6vw, 64px)) 4px calc(var(--safe-left) + clamp(18px, 6vw, 64px)); }
+.ag-root:not([data-compact='true']) .ag-o5-head { display: none; }
+:root[data-skin='o5'] .ag-sidebar { background: none; border-right-color: var(--o5-hair); }
+:root[data-skin='o5'] .ag-root[data-compact='true'] :is(.ag-side-head, .ag-side-list, .ag-side-foot) { padding-left: calc(var(--safe-left) + clamp(18px, 6vw, 64px)); padding-right: calc(var(--safe-right) + clamp(18px, 6vw, 64px)); }
+:root[data-skin='o5'] .ag-side-head .ag-pick { border: 0; border-bottom: 1px solid var(--o5-hair); border-radius: 0; background: none; padding-left: 0; }
+:root[data-skin='o5'] .ag-side-head .btn.primary.ag-new { background: none; color: var(--text); border: 1px solid var(--o5-hair); box-shadow: none; }
+:root[data-skin='o5'] .ag-sessions { gap: 0; }
+:root[data-skin='o5'] .ag-session { border-radius: 0; border-bottom: 1px solid var(--o5-hair); background: none; }
+:root[data-skin='o5'] .ag-session[data-selected] { background: none; }
+:root[data-skin='o5'] .ag-session[data-selected] .ag-session-title { font-style: italic; }
+:root[data-skin='o5'] .ag-session-open { padding: 16px 0; border-radius: 0; }
+:root[data-skin='o5'] .ag-session:not([data-selected]) .ag-session-open:hover { background: none; }
+:root[data-skin='o5'] .ag-session-title { font-family: var(--font-display); font-weight: 400; font-size: calc(22px * var(--text-scale)); letter-spacing: -0.01em; line-height: 1.2; white-space: normal; }
+:root[data-skin='o5'] .ag-badge { background: none; padding: 0; letter-spacing: 0.14em; text-transform: uppercase; font-size: calc(10px * var(--text-scale)); }
+:root[data-skin='o5'] .ag-side-foot { border-top: 0; font-family: var(--font-display); color: var(--text-3); }
+
+/* ---------------------------------------------------------------- Terminal and Code: the work fills the screen */
+/* While typing, only the work and the tools for it: the open-file tabs step aside too. */
+:root[data-skin='o5'] .shell[data-keyboard='true'] .ed-tabs { display: none; }
+:root[data-skin='o5'] .ed-tabs { background: none; border-bottom: 1px solid var(--o5-hair); }
+:root[data-skin='o5'] .ed-tab { background: none; border: 0; }
+:root[data-skin='o5'] .ed-tab[data-active='true'] .ed-tab-name { font-style: italic; }
+:root[data-skin='o5'] :is(.ed-toolbar, .term-keys) { background: color-mix(in srgb, var(--bg) 88%, transparent); border-top: 1px solid var(--o5-hair); }
+:root[data-skin='o5'] .ag-root[data-compact='true'] .ag-sessions { padding-left: 0; padding-right: 0; }
