@@ -51,9 +51,10 @@ test.describe('the orb', () => {
   });
 
   test('hold it to ask; it opens apps and changes settings for you', async ({ page }) => {
-    const { errors, orb } = await openWithOrb(page);
-    const box = (await orb.boundingBox())!;
-    await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+    const { errors } = await openWithOrb(page);
+    // Press where it is once it has glided into place, not where it was mid-flight.
+    const at = await settled(page);
+    await page.mouse.move(at.x, at.y);
     await page.mouse.down();
     await page.waitForTimeout(600);
     await page.mouse.up();

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { useShell, type AppId } from '../../state/shell';
 import { useMotionLevel } from '../../motion/MotionProvider';
 import { cue } from '../../motion/feedback';
@@ -107,6 +107,13 @@ function Orb() {
       sp.end();
     }
   }, []);
+
+  // Drawn where it starts from the very first paint, not in the corner until the first frame runs.
+  useLayoutEffect(() => {
+    if (body.current) body.current.style.transform = `translate3d(${x.value - R}px, ${y.value - R}px, 0)`;
+    layer.current?.style.setProperty('--orb-x', `${x.value}px`);
+    layer.current?.style.setProperty('--orb-y', `${y.value}px`);
+  }, [x, y]);
 
   // ---- the frame loop
   const frame = useCallback(
