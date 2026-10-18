@@ -1075,8 +1075,7 @@ a.btn {
 }
 
 /* Typing in any app: the machine banners at the top (Turn on…, the helper) step aside so
-   what you're writing stays in view. They come back when you leave the box. */
-.app-window:has(:is(textarea, input:not([type='checkbox'], [type='radio'], [type='range'], [type='button'], [type='submit'], [type='file']), [contenteditable='true']):focus)
-  :is(.ai-banner, .sr-helper) {
+   what you're writing stays in view (data-typing, set by shell/useTyping.ts). */
+:root[data-typing] .app-window :is(.ai-banner, .sr-helper) {
   display: none;
 }
