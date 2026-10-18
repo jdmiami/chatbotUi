@@ -4,7 +4,8 @@
  * Inputs and text areas don't expose their caret position, so a hidden copy of the field (same
  * font, padding, width, wrapping) is laid out with the text up to the caret and a marker after
  * it; the marker's position is the caret's. Editable elements use the selection's own rectangle.
- * Editors that draw their own caret (CodeMirror, the terminal) keep theirs.
+ * The code editor (CodeMirror) draws its own cursor and the terminal (xterm) keeps a hidden text box
+ * on its cursor cell: the orb reads where those are and takes their place.
  */
 
 export interface Caret {
@@ -24,10 +25,11 @@ const COPY = [
 
 const TEXT_INPUTS = new Set(['text', 'search', 'url', 'email', 'tel', 'password', 'number', '']);
 
-/** A field the orb can be the caret of (not editors that draw their own, nor the orb's own box). */
+/** A field the orb can be the caret of (not the orb's own box, nor one marked to keep its own caret). */
 export function caretField(el: Element | null, skip?: Element | null): HTMLInputElement | HTMLTextAreaElement | HTMLElement | null {
   if (!el || skip?.contains(el)) return null;
-  if (el.closest('.cm-editor, .xterm, [data-own-caret]')) return null;
+  if (el.closest('[data-own-caret]')) return null;
+  if (el instanceof HTMLTextAreaElement && el.classList.contains('xterm-helper-textarea')) return el;
   if (el instanceof HTMLTextAreaElement) return el.readOnly ? null : el;
   if (el instanceof HTMLInputElement) return TEXT_INPUTS.has(el.type) && !el.readOnly ? el : null;
   if (el instanceof HTMLElement && el.isContentEditable) return el;
@@ -45,6 +47,24 @@ export function caretOf(el: HTMLElement): Caret | null {
   if (box.width < 2 || box.height < 2) return null;
   const s = getComputedStyle(el);
   const h = Math.min(lineHeight(s), box.height);
+
+  // The terminal moves its hidden text box onto the cursor cell (for the on-screen keyboard and IME).
+  if (el.classList.contains('xterm-helper-textarea')) {
+    const screen = el.closest('.xterm')?.querySelector('.xterm-screen')?.getBoundingClientRect();
+    if (screen && (box.top < screen.top - 1 || box.bottom > screen.bottom + 1)) return null; // scrolled away
+    return { x: box.left, y: box.top, h: box.height };
+  }
+
+  // The code editor draws its own cursor: take its place.
+  const cm = el.closest('.cm-editor');
+  if (cm) {
+    const cur = (cm.querySelector('.cm-cursor-primary') ?? cm.querySelector('.cm-cursor'))?.getBoundingClientRect();
+    if (cur && cur.height > 0) {
+      const scroller = cm.querySelector('.cm-scroller')?.getBoundingClientRect() ?? cm.getBoundingClientRect();
+      if (cur.bottom < scroller.top || cur.top > scroller.bottom) return null; // scrolled out of view
+      return { x: cur.left, y: cur.top, h: cur.height };
+    }
+  }
 
   if (el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement) {
     let pos: number;
@@ -85,7 +105,17 @@ export function caretOf(el: HTMLElement): Caret | null {
   range.setStart(sel.focusNode!, sel.focusOffset);
   range.collapse(true);
   const r = range.getClientRects()[0] ?? null;
-  // An empty line has no rectangle (and the page's text must not be touched): use the field's start.
-  if (!r || (r.width === 0 && r.height === 0)) return { x: box.left + parseFloat(s.paddingLeft || '0'), y: box.top + parseFloat(s.paddingTop || '0'), h };
+  // An empty line has no rectangle (and the page's text must not be touched): use the start of the
+  // line it is on, or of the field.
+  if (!r || (r.width === 0 && r.height === 0)) {
+    const node = sel.focusNode;
+    const line = node instanceof Element ? ((node.childNodes[sel.focusOffset] as Element | undefined) ?? node) : node?.parentElement;
+    if (line instanceof Element && line !== el && el.contains(line)) {
+      const lr = line.getBoundingClientRect();
+      const ls = getComputedStyle(line);
+      if (lr.height > 0) return { x: lr.left + parseFloat(ls.paddingLeft || '0'), y: lr.top, h: Math.min(lr.height, lineHeight(ls)) };
+    }
+    return { x: box.left + parseFloat(s.paddingLeft || '0'), y: box.top + parseFloat(s.paddingTop || '0'), h };
+  }
   return { x: r.left, y: r.top, h: Math.max(r.height, h * 0.8) };
 }

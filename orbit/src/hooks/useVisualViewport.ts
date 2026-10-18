@@ -20,19 +20,24 @@ export function useVisualViewport() {
     const update = () => {
       cancelAnimationFrame(frame);
       frame = requestAnimationFrame(() => {
-        const height = vv?.height ?? window.innerHeight;
+        const visible = vv?.height ?? window.innerHeight;
         const offsetTop = vv?.offsetTop ?? 0;
         const layoutHeight = window.innerHeight;
-        const keyboard = Math.max(0, layoutHeight - height - offsetTop);
-        root.style.setProperty('--app-height', `${Math.round(height)}px`);
-        root.style.setProperty('--vv-offset-top', `${Math.round(offsetTop)}px`);
-        root.style.setProperty('--keyboard-inset', `${Math.round(keyboard)}px`);
+        const keyboard = Math.max(0, layoutHeight - visible - offsetTop);
         // A soft keyboard is at least ~150px; smaller differences are browser chrome changing.
         const editing = isEditableFocused();
+        const keyboardOpen = keyboard > 150 || (editing && isCoarsePointer() && visible < layoutHeight * 0.75);
+        // Safari 26 on iPhone floats its AutoFill and hide-keyboard buttons over the bottom of the
+        // page, just above the keyboard: keep what you type (and the composer's buttons) above them.
+        const covered = keyboardOpen && floatingKeyboardBar ? FLOATING_BAR : 0;
+        const height = visible - covered;
+        root.style.setProperty('--app-height', `${Math.round(height)}px`);
+        root.style.setProperty('--vv-offset-top', `${Math.round(offsetTop)}px`);
+        root.style.setProperty('--keyboard-inset', `${Math.round(keyboard + covered)}px`);
         setViewport({
           width: Math.round(window.innerWidth),
           height: Math.round(height),
-          keyboardOpen: keyboard > 150 || (editing && isCoarsePointer() && height < layoutHeight * 0.75),
+          keyboardOpen,
         });
       });
     };
@@ -66,6 +71,13 @@ export function useVisualViewport() {
     };
   }, [setViewport]);
 }
+
+/** Height of Safari 26's floating bar above the iPhone keyboard (AutoFill, hide keyboard), with its margin. */
+const FLOATING_BAR = 76;
+const floatingKeyboardBar =
+  typeof navigator !== 'undefined' &&
+  /iPhone/.test(navigator.userAgent) &&
+  Number(navigator.userAgent.match(/Version\/(\d+)/)?.[1] ?? 0) >= 26;
 
 function isEditableFocused() {
   const el = document.activeElement as HTMLElement | null;

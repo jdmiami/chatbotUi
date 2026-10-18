@@ -1075,7 +1075,8 @@ a.btn {
 }
 
 /* Typing in any app: the machine banners at the top (Turn on…, the helper) step aside so
-   what you're writing stays in view (data-typing, set by shell/useTyping.ts). */
-:root[data-typing] .app-window :is(.ai-banner, .sr-helper) {
+   what you're writing stays in view (data-typing, set by shell/useTyping.ts, which also folds
+   them away and back smoothly; data-folding marks one mid-fold). */
+:root[data-typing] .app-window :is(.ai-banner, .sr-helper):not([data-folding]) {
   display: none;
 }

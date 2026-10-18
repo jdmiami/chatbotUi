@@ -182,4 +182,89 @@ test.describe('the orb', () => {
     await expect.poll(async () => (await page.locator('.orb-cursor').boundingBox())!.width).toBeGreaterThan(40);
     expect(errors).toEqual([]);
   });
+
+  test('it glides from where it is into the caret, round until it lands, and back', async ({ page }) => {
+    await mockAi(page, 'off');
+    const { errors } = await openWithOrb(page);
+    await page.getByRole('button', { name: /^AI\./ }).click();
+    const box = page.locator('.app-window[data-app="ai"]').getByRole('textbox', { name: 'Message' });
+    await expect(box).toBeVisible();
+    await settled(page);
+    // Every frame: where the orb is and how wide.
+    const record = () =>
+      page.evaluate(() => {
+        const w = window as unknown as { trail: { x: number; y: number; w: number }[]; stop: boolean };
+        w.trail = [];
+        w.stop = false;
+        const step = () => {
+          const r = document.querySelector('.orb-cursor')!.getBoundingClientRect();
+          w.trail.push({ x: r.left + r.width / 2, y: r.top + r.height / 2, w: r.width });
+          if (!w.stop) requestAnimationFrame(step);
+        };
+        requestAnimationFrame(step);
+      });
+    const trail = async () => {
+      await page.waitForTimeout(1600);
+      return page.evaluate(() => {
+        const w = window as unknown as { trail: { x: number; y: number; w: number }[]; stop: boolean };
+        w.stop = true;
+        return w.trail;
+      });
+    };
+    await record();
+    await box.click();
+    const there = await trail();
+    const start = there[0];
+    const end = there[there.length - 1];
+    expect(end.w).toBeLessThan(8);
+    // It travelled (many frames in between), not a jump...
+    const moving = there.filter((p) => Math.hypot(p.x - start.x, p.y - start.y) > 4 && Math.hypot(p.x - end.x, p.y - end.y) > 4);
+    expect(moving.length).toBeGreaterThan(5);
+    // ...staying a ball for the first part of the trip, narrowing only as it lands.
+    const trip = Math.hypot(end.x - start.x, end.y - start.y);
+    for (const p of there) if (Math.hypot(p.x - end.x, p.y - end.y) > trip * 0.6) expect(p.w).toBeGreaterThan(40);
+
+    // Leaving the box: it rounds out first, then drifts home.
+    await record();
+    await box.evaluate((el) => (el as HTMLElement).blur());
+    const back = await trail();
+    const from = back[0];
+    expect(back[back.length - 1].w).toBeGreaterThan(40);
+    const firstMove = back.findIndex((p) => Math.hypot(p.x - from.x, p.y - from.y) > 6);
+    if (firstMove > 0) expect(back[firstMove].w).toBeGreaterThan(30);
+    expect(errors).toEqual([]);
+  });
+
+  test('in Code and Terminal too: the orb takes the place of their own cursor', async ({ page }) => {
+    const { errors } = await openWithOrb(page);
+    await page.getByRole('button', { name: /^Code\./ }).click();
+    const editor = page.locator('.app-window[data-app="editor"] .cm-content');
+    await editor.click();
+    await expect(page.locator('.orb-layer')).toHaveAttribute('data-caret', 'true');
+    await expect(page.locator('.app-window[data-app="editor"] .cm-cursorLayer')).toHaveCSS('visibility', 'hidden');
+    await page.keyboard.type('abc');
+    await expect.poll(async () => (await page.locator('.orb-cursor').boundingBox())!.width).toBeLessThan(8);
+    // On the editor's own cursor.
+    const cur = (await page.locator('.app-window[data-app="editor"] .cm-cursor-primary').boundingBox())!;
+    await expect.poll(async () => {
+      const o = (await page.locator('.orb-cursor').boundingBox())!;
+      return Math.abs(o.x + o.width / 2 - cur.x) + Math.abs(o.y + o.height / 2 - (cur.y + cur.height / 2));
+    }).toBeLessThan(6);
+
+    await page.goto('/');
+    await page.getByRole('button', { name: /^Terminal\./ }).click();
+    const term = page.locator('.app-window[data-app="terminal"] .xterm');
+    await expect(term).toBeVisible();
+    await term.click();
+    await expect(page.locator('.orb-layer')).toHaveAttribute('data-caret', 'true');
+    await page.keyboard.type('echo hi');
+    // On the terminal's cursor cell, which moves as you type.
+    const cell = async () => (await page.locator('.app-window[data-app="terminal"] .xterm-helper-textarea').boundingBox())!;
+    await expect.poll(async () => {
+      const o = (await page.locator('.orb-cursor').boundingBox())!;
+      const c = await cell();
+      return Math.abs(o.x + o.width / 2 - (c.x + 1.25)) + Math.abs(o.y + o.height / 2 - (c.y + c.height / 2));
+    }).toBeLessThan(6);
+    expect(errors).toEqual([]);
+  });
 });

@@ -114,6 +114,8 @@
   transition: border-color var(--dur-fast), box-shadow var(--dur-med);
 }
 .ai-composer-card:focus-within { border-color: var(--accent); box-shadow: 0 0 0 4px var(--accent-soft), var(--shadow-1); }
+/* The card itself shows it has focus: no second ring around the text inside it. */
+.ai-composer-card :is(textarea, input):focus-visible { box-shadow: none; }
 .ai-composer textarea {
   width: 100%; resize: none; max-height: 40vh; min-height: var(--tap); border: 0; outline: none; background: transparent;
   color: var(--text); font: inherit; font-size: 16px; line-height: 1.45; padding: 10px 12px 4px;
