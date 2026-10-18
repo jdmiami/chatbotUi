@@ -8,7 +8,7 @@ import { AGY_CAPABILITIES } from '../../services/runner/agyCapabilities';
 import type { CapabilityStatus } from '../../services/runner/types';
 import { cue } from '../../motion/feedback';
 import { requestTiltPermission, tiltNeedsPermission } from '../../motion/tilt';
-import { useShell, type AppId, type MotionPref, type ThemePref, type WallpaperId } from '../../state/shell';
+import { classicAllowed, useShell, type AppId, type MotionPref, type ThemePref, type WallpaperId } from '../../state/shell';
 import { useWorkspace } from '../../state/workspace';
 import { useLayout } from '../../state/viewport';
 // Read only inside components: Shell.tsx imports the app registry, which imports this file.
@@ -578,6 +578,8 @@ function AppearanceSection() {
       caption="Motion: Auto picks Full or Lite for your device and follows its Reduce Motion setting. Full is the bounciest. Lite keeps short, light movement. Off turns animation off."
     >
       <div className="list">
+        {/* MagStyle is the only look; the switch is left only for the test suite's classic runs. */}
+        {classicAllowed() && (
         <div className="row st-row st-wrap">
           <div className="st-main st-shrink">
             <span className="st-label">Look</span>
@@ -595,6 +597,7 @@ function AppearanceSection() {
             />
           </div>
         </div>
+        )}
 
         <div className="row st-row st-wrap">
           <span className="st-label">Theme</span>

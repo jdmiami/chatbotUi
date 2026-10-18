@@ -765,3 +765,85 @@
 :root[data-skin='o5'] .ed-tab[data-active='true'] .ed-tab-name { font-style: italic; }
 :root[data-skin='o5'] :is(.ed-toolbar, .term-keys) { background: color-mix(in srgb, var(--bg) 88%, transparent); border-top: 1px solid var(--o5-hair); }
 :root[data-skin='o5'] .ag-root[data-compact='true'] .ag-sessions { padding-left: 0; padding-right: 0; }
+
+/* ---------------------------------------------------------------- MagStyle: the machine standfirst
+   A machine banner reads like a magazine standfirst: a small-caps kicker, one serif sentence, and
+   the action as a line of underlined small caps with an arrow (no pills, no boxes). The speed
+   choice is two words, the chosen one underlined. */
+:root[data-skin='o5'] .ai-banner { gap: 4px 28px; padding-block: 20px 18px; align-items: baseline; }
+:root[data-skin='o5'] .ai-banner .ai-banner-kicker {
+  display: block;
+  flex: 1 1 100%;
+  font: 600 calc(11px * var(--text-scale)) / 1.4 var(--font-ui);
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--text-3, var(--text-2));
+}
+:root[data-skin='o5'] .ai-banner-error .ai-banner-kicker { color: var(--danger); }
+:root[data-skin='o5'] .ai-banner-starting .ai-banner-kicker, :root[data-skin='o5'] .ai-banner-downloading .ai-banner-kicker { color: var(--warning); }
+:root[data-skin='o5'] .ai-banner p:not(.ai-banner-kicker) {
+  flex: 1 1 340px;
+  font-family: var(--font-display);
+  font-size: calc(19px * var(--text-scale));
+  line-height: 1.42;
+  letter-spacing: -0.005em;
+  color: var(--text);
+}
+:root[data-skin='o5'] .ai-banner .segmented { border: 0; padding: 0; gap: 18px; background: none; }
+:root[data-skin='o5'] .ai-banner .segmented button {
+  min-width: 0;
+  padding: 0 2px;
+  border-radius: 0;
+  background: none;
+  color: var(--text-2);
+  font: 500 calc(14px * var(--text-scale)) / 1 var(--font-ui);
+  box-shadow: none;
+}
+:root[data-skin='o5'] .ai-banner .segmented button[aria-pressed='true'] {
+  background: none;
+  color: var(--text);
+  text-decoration: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 7px;
+}
+:root[data-skin='o5'][data-skin] .ai-banner .btn {
+  min-height: var(--tap);
+  padding: 0 2px;
+  border: 0;
+  border-radius: 0;
+  background: none;
+  box-shadow: none;
+  color: var(--text);
+  font: 600 calc(12px * var(--text-scale)) / 1 var(--font-ui);
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  text-decoration: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 8px;
+  transition: text-underline-offset 0.25s var(--ease-o5), color 0.2s ease;
+}
+:root[data-skin='o5'][data-skin] .ai-banner .btn::after { content: '→' / ''; margin-left: 10px; display: inline-block; transition: translate 0.3s var(--ease-o5); }
+:root[data-skin='o5'][data-skin] .ai-banner .btn:hover { text-underline-offset: 5px; }
+:root[data-skin='o5'][data-skin] .ai-banner .btn:hover::after { translate: 5px 0; }
+:root[data-skin='o5'][data-skin] .ai-banner .btn:disabled { color: var(--text-2); text-decoration: none; }
+/* Phones: a tighter standfirst, so the page under it keeps its room. */
+@media (max-width: 600px), (max-height: 520px) {
+  :root[data-skin='o5'] .ai-banner { gap: 2px 20px; padding-block: 14px 12px; }
+  :root[data-skin='o5'] .ai-banner p:not(.ai-banner-kicker) { font-size: calc(16px * var(--text-scale)); line-height: 1.38; flex-basis: 100%; }
+  :root[data-skin='o5'] .ai-banner .segmented { gap: 14px; }
+}
+
+/* ---------------------------------------------------------------- MagStyle: status labels
+   "Simulated", "Demo mode" and the like are section labels in small caps, not coloured pills. */
+:root[data-skin='o5'] span.chip {
+  min-height: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: none;
+  font: 600 calc(10.5px * var(--text-scale)) / 1.4 var(--font-ui);
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+}
+:root[data-skin='o5'] span.chip .dot { width: 5px; height: 5px; }
+

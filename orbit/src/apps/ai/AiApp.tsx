@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react';
 import type { AppProps } from '../types';
 import { useShell } from '../../state/shell';
+import { BANNER_KICKER } from './banner';
 import { useWorkspace } from '../../state/workspace';
 import { Icon } from '../../ui/Icon';
 import { AppHeader, ConfirmSheet, IconButton, Segmented, Sheet } from '../../ui/components';
@@ -661,6 +662,7 @@ export default function AiApp({ isActive, compact, placement }: AppProps) {
 
       {machine.state !== 'on' && (
         <div className={`ai-banner ai-banner-${machine.state}`} role="status">
+          <p className="ai-banner-kicker">{BANNER_KICKER[machine.state] ?? 'Your AI machine'}</p>
           {machine.state === 'off' && (
             <>
               <p>

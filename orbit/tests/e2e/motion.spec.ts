@@ -75,6 +75,7 @@ test.describe('motion levels', () => {
 
   test('auto follows the device: Reduce Motion on means off', async ({ browser }) => {
     const ctx = await browser.newContext({ reducedMotion: 'reduce' });
+    await ctx.addInitScript(() => localStorage.setItem('orbit:classic', '1'));
     const page = await ctx.newPage();
     await open(page, 'system');
     expect(await level(page)).toBe('off');
