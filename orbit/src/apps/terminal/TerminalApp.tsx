@@ -146,6 +146,8 @@ export default function TerminalApp({ placement, isActive, compact }: AppProps) 
   /** The shell is asking for a password: the typing box hides what is typed. */
   const [secretPrompt, setSecretPrompt] = useState(false);
   const accent = useShell((s) => s.settings.accent);
+  // Orbit 0.5: the header keeps only the keyboard and More; copy, paste and history move into More.
+  const o5 = useShell((s) => s.settings.skin === 'o5');
   const themePref = useShell((s) => s.settings.theme);
   const updateSettings = useShell((s) => s.updateSettings);
   const toast = useShell((s) => s.toast);
@@ -792,15 +794,17 @@ export default function TerminalApp({ placement, isActive, compact }: AppProps) 
         chip={chip}
         actions={
           <>
-            <IconButton icon="copy" label="Copy selection" onPointerDown={keepFocus} onMouseDown={keepFocus} onClick={copy} />
-            <IconButton
-              icon="paste"
-              label="Paste"
-              onPointerDown={keepFocus}
-              onMouseDown={keepFocus}
-              onClick={() => void paste()}
-              disabled={!inputEnabled}
-            />
+            {!o5 && <IconButton icon="copy" label="Copy selection" onPointerDown={keepFocus} onMouseDown={keepFocus} onClick={copy} />}
+            {!o5 && (
+              <IconButton
+                icon="paste"
+                label="Paste"
+                onPointerDown={keepFocus}
+                onMouseDown={keepFocus}
+                onClick={() => void paste()}
+                disabled={!inputEnabled}
+              />
+            )}
             <IconButton
               icon="keyboard"
               label="Keyboard"
@@ -809,7 +813,7 @@ export default function TerminalApp({ placement, isActive, compact }: AppProps) 
               onMouseDown={keepFocus}
               onClick={toggleKeyboard}
             />
-            {!compact && <IconButton icon="history" label="Show history" onClick={openHistory} />}
+            {!compact && !o5 && <IconButton icon="history" label="Show history" onClick={openHistory} />}
             <IconButton icon="more" label="More terminal options" onClick={() => setSheet('more')} />
           </>
         }
@@ -1051,6 +1055,37 @@ export default function TerminalApp({ placement, isActive, compact }: AppProps) 
       {sheet === 'more' && (
         <Sheet title="Terminal options" onClose={() => setSheet(null)}>
           <div className="stack">
+            {o5 && (
+              <div className="list">
+                <button
+                  type="button"
+                  className="row"
+                  onClick={() => {
+                    setSheet(null);
+                    void copy();
+                  }}
+                >
+                  <Icon name="copy" />
+                  <span className="row-main">Copy selection</span>
+                </button>
+                <button
+                  type="button"
+                  className="row"
+                  disabled={!inputEnabled}
+                  onClick={() => {
+                    setSheet(null);
+                    void paste();
+                  }}
+                >
+                  <Icon name="paste" />
+                  <span className="row-main">Paste</span>
+                </button>
+                <button type="button" className="row" onClick={openHistory}>
+                  <Icon name="history" />
+                  <span className="row-main">History</span>
+                </button>
+              </div>
+            )}
             <div className="list">
               <div className="row">
                 <div className="row-main">

@@ -1,0 +1,61 @@
+import { expect, test, type Page } from '@playwright/test';
+import { expectNoHorizontalOverflow } from './helpers';
+
+/** Orbit 0.5 in Settings, Antigravity, Terminal and Code: contents pages, chapters, and headers that keep only what matters. */
+
+async function openO5(page: Page, entry: RegExp, app: string) {
+  const errors: string[] = [];
+  page.on('pageerror', (e) => errors.push(e.message));
+  await page.addInitScript(() => {
+    if (!localStorage.getItem('orbit:shell:v1'))
+      localStorage.setItem('orbit:shell:v1', JSON.stringify({ state: { settings: { motion: 'reduce', motionPicked: true, skin: 'o5', introSeen: true } }, version: 0 }));
+  });
+  await page.goto('/');
+  await page.getByRole('button', { name: /^Index/ }).click();
+  await page.getByRole('dialog', { name: 'Index' }).locator('.o5-index-list').getByRole('button', { name: entry }).click();
+  const win = page.locator(`.app-window[data-app="${app}"]`);
+  await expect(win).toBeVisible();
+  return { errors, win };
+}
+
+test.describe('Orbit 0.5: the other apps', () => {
+  test('settings: a contents page that walks to each numbered chapter', async ({ page }) => {
+    const { errors, win } = await openO5(page, /Settings/, 'settings');
+    const chapters = win.getByRole('navigation', { name: 'Chapters' });
+    await expect(chapters.getByRole('button')).toHaveCount(7);
+    await chapters.getByRole('button', { name: /Data & storage/ }).click();
+    await expect(win.getByRole('heading', { name: 'Data & storage' })).toBeInViewport();
+    await expectNoHorizontalOverflow(page);
+    expect(errors).toEqual([]);
+  });
+
+  test('antigravity: the sessions read like a contents page', async ({ page }) => {
+    const { errors, win } = await openO5(page, /Antigravity/, 'agent');
+    if ((await win.locator('.ag-root').getAttribute('data-compact')) === 'true') await expect(win.getByRole('heading', { name: 'Your sessions' })).toBeVisible();
+    await expect(win.locator('.ag-session').first()).toBeVisible();
+    await expectNoHorizontalOverflow(page);
+    expect(errors).toEqual([]);
+  });
+
+  test('terminal: copy, paste and history live in More; the header keeps the keyboard', async ({ page }) => {
+    const { errors, win } = await openO5(page, /Terminal/, 'terminal');
+    const header = win.locator('.app-header');
+    await expect(header.getByRole('button', { name: 'Keyboard' })).toBeVisible();
+    await expect(header.getByRole('button', { name: 'Copy selection' })).toHaveCount(0);
+    await header.getByRole('button', { name: 'More terminal options' }).click();
+    const sheet = page.getByRole('dialog', { name: 'Terminal options' });
+    for (const name of ['Copy selection', 'Paste', 'History']) await expect(sheet.getByRole('button', { name })).toBeVisible();
+    await sheet.getByRole('button', { name: 'History' }).click();
+    await expect(page.getByRole('dialog')).toBeVisible();
+    expect(errors).toEqual([]);
+  });
+
+  test('code: one Save (in the tools), and the file tabs step aside while typing', async ({ page }) => {
+    const { errors, win } = await openO5(page, /Code/, 'editor');
+    await expect(win.locator('.app-header').getByRole('button', { name: 'Save file' })).toBeHidden();
+    await expect(win.getByRole('button', { name: /^Save/ }).first()).toBeVisible();
+    await page.locator('.shell').evaluate((el) => el.setAttribute('data-keyboard', 'true'));
+    await expect(win.locator('.ed-tabs')).toBeHidden();
+    expect(errors).toEqual([]);
+  });
+});

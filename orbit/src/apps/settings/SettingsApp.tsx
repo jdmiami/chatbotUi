@@ -137,6 +137,7 @@ export default function SettingsApp({ isActive }: AppProps) {
   const settings = useShell((s) => s.settings);
   const updateSettings = useShell((s) => s.updateSettings);
   const toast = useShell((s) => s.toast);
+  const o5 = settings.skin === 'o5';
   const host = connection.mode === 'host';
 
   const [pending, setPending] = useState<Pending>(null);
@@ -268,6 +269,27 @@ export default function SettingsApp({ isActive }: AppProps) {
       />
       <div className="st-scroll">
         <div className="st-page">
+          {o5 && (
+            <nav className="st-contents" aria-label="Chapters">
+              <p className="o5-kicker">Settings</p>
+              <h2 className="o5-chapter-title">Make it yours</h2>
+              <ul className="o5-links">
+                {CHAPTERS.map((title, i) => (
+                  <li key={title}>
+                    <button
+                      type="button"
+                      className="o5-go"
+                      onClick={() => document.getElementById(chapterId(title))?.scrollIntoView({ behavior: 'smooth', block: 'start' })}
+                    >
+                      <span className="o5-go-label">{title}</span>
+                      <span className="o5-go-hint">{String(i + 1).padStart(2, '0')}</span>
+                      <Icon name="down" size={20} />
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            </nav>
+          )}
           <ConnectionSection onReconnect={reconnect} />
           <AppearanceSection />
           <TerminalSection />
@@ -418,10 +440,13 @@ export default function SettingsApp({ isActive }: AppProps) {
 
 /* ------------------------------------------------------------------ Building blocks */
 
+const chapterId = (title: string) => `st-${title.toLowerCase().replace(/[^a-z]+/g, '-').replace(/-$/, '')}`;
+const CHAPTERS = ['Connection', 'Appearance', 'Terminal', 'Split view (iPad)', 'Keyboard shortcuts', 'Data & storage', 'About'];
+
 function Section({ title, children, caption }: { title: string; children: ReactNode; caption?: ReactNode }) {
   const id = useId();
   return (
-    <section className="st-section" aria-labelledby={id}>
+    <section className="st-section" id={chapterId(title)} aria-labelledby={id}>
       <h2 className="list-title st-heading" id={id}>
         {title}
       </h2>
