@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { Step, nextStep } from '../../shell/o5/Step';
 import { useShell } from '../../state/shell';
 import { Icon } from '../../ui/Icon';
 import { ConfirmSheet, EmptyState, IconButton, Segmented, Sheet } from '../../ui/components';
@@ -54,20 +55,6 @@ async function toDataUrl(src: Blob, max = 1920): Promise<string> {
   }
 }
 
-/** Orbit 0.5: one step of the maker's walk-through (in the classic look it adds nothing). */
-function Step({ on, n, id, title, children }: { on: boolean; n: string; id: string; title: string; children: React.ReactNode }) {
-  if (!on) return <>{children}</>;
-  return (
-    <section className="o5-step" id={id} aria-labelledby={`${id}-t`}>
-      <p className="o5-kicker">{n}</p>
-      <h3 className="o5-step-title" id={`${id}-t`}>
-        {title}
-      </h3>
-      {children}
-    </section>
-  );
-}
-
 const withParam = (url: string, param: string) => url + (url.includes('?') ? '&' : '?') + param;
 const active = (j: StudioJob) => j.status === 'queued' || j.status === 'running';
 
@@ -79,10 +66,7 @@ export function CreateView({ ai, machineOn, isActive }: { ai: LocalAi; machineOn
   const toast = useShell((s) => s.toast);
   const o5 = useShell((s) => s.settings.skin === 'o5');
   // The next step glides into view once this one is answered.
-  const next = (id: string) => {
-    if (!o5) return;
-    requestAnimationFrame(() => document.getElementById(id)?.scrollIntoView({ behavior: 'smooth', block: 'start' }));
-  };
+  const next = (id: string) => nextStep(o5, id);
   const [kind, setKind] = useState<Mode>('image');
   const [prompt, setPrompt] = useState('');
   const [size, setSize] = useState<Record<StudioKind, string>>({ image: 'square', video: 'landscape' });
