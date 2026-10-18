@@ -31,8 +31,10 @@ const R = SIZE / 2;
 const AIM = spring(0.36, 0.84);
 /** Riding the text cursor: fast and critically damped, so it never overshoots the letter you typed. */
 const CARET = spring(0.075, 1);
-/** Orb ⇄ caret shape change: quick, with a hint of give. */
-const MORPH = spring(0.3, 0.74);
+/** Orb ⇄ caret shape change: smooth and nearly without overshoot, so it reads as calm. */
+const MORPH = spring(0.34, 0.9);
+/** Gliding over to become the caret (from wherever it is), or back home: unhurried, no overshoot. */
+const GLIDE = spring(0.48, 0.96);
 const CARET_W = 2.5;
 
 type Mode = 'follow' | 'parked' | 'tucked' | 'drag' | 'acting' | 'caret';
@@ -75,6 +77,13 @@ function Orb() {
   /** 0 = orb, 1 = text cursor. */
   const morph = useRef(new SpringValue(0, MORPH)).current;
   const caretH = useRef(20);
+  /** On its way to become the caret: how far it had to go (its shape follows the trip's progress). */
+  const flight = useRef<{ d0: number } | null>(null);
+  /** What the layer's attributes last said (written only when they change). */
+  const slimShown = useRef(false);
+  const flyingShown = useRef(false);
+  /** Rounding out after being the caret: nothing else moves it until it is a ball again. */
+  const leaving = useRef(false);
   const mode = useRef<Mode>(follow ? 'follow' : 'parked');
   const tracker = useRef(new VelocityTracker()).current;
   const raf = useRef(0);
@@ -124,6 +133,19 @@ function Orb() {
       x.step(dt);
       y.step(dt);
       depth.step(dt);
+      if (flight.current) {
+        const d = Math.hypot(x.target - x.value, y.target - y.value);
+        const p = 1 - Math.min(1, d / flight.current.d0);
+        // Round for the first part of the trip, then it narrows into the caret as it lands.
+        const k = Math.max(0, Math.min(1, (p - 0.45) / 0.55));
+        morph.target = k * k * (3 - 2 * k);
+        if (d < 0.75) {
+          flight.current = null;
+          morph.target = 1;
+          x.spring = CARET;
+          y.spring = CARET;
+        }
+      }
       morph.step(dt);
       // Stretch along its speed (the finger's while dragging), wobbling back on the jelly spring.
       const v = mode.current === 'drag' ? tracker.velocity() : { x: x.velocity, y: y.velocity };
@@ -143,7 +165,17 @@ function Orb() {
       }
       layer.current?.style.setProperty('--orb-x', `${x.value}px`);
       layer.current?.style.setProperty('--orb-y', `${y.value}px`);
-      const still = x.resting() && y.resting() && depth.resting(0.002) && jelly.resting(0.002) && morph.resting(0.002);
+      // Its glow and ring fade with the shape (not when the mode flips), so there is never a streak.
+      const slim = morph.value > 0.2;
+      if (slim !== slimShown.current) {
+        slimShown.current = slim;
+        layer.current?.toggleAttribute('data-slim', slim);
+      }
+      if (!!flight.current !== flyingShown.current) {
+        flyingShown.current = !!flight.current;
+        layer.current?.toggleAttribute('data-flying', flyingShown.current);
+      }
+      const still = !flight.current && x.resting() && y.resting() && depth.resting(0.002) && jelly.resting(0.002) && morph.resting(0.002);
       raf.current = mode.current === 'drag' || !still ? requestAnimationFrame(frame) : 0;
     },
     [x, y, depth, jelly, morph, tracker],
@@ -177,7 +209,7 @@ function Orb() {
   const refocus = useCallback(() => {
     const modal = [...document.querySelectorAll('[aria-modal="true"]')].some((d) => !layer.current?.contains(d));
     setHidden(modal || overlay === 'index');
-    if (mode.current !== 'follow') return;
+    if (mode.current !== 'follow' || leaving.current) return;
     const f = findFocus(viewport(), SIZE, layer.current);
     if (f.el !== lastFocus.current) {
       lastFocus.current = f.el;
@@ -207,43 +239,80 @@ function Orb() {
   const [caretOn, setCaretOn] = useState(false);
   const caretMode = useRef<Mode | null>(null); // the mode to go back to
   const typingTimer = useRef(0);
+  const caretFieldRef = useRef<Element | null>(null);
+  const leaveTimer = useRef(0);
   const syncCaret = useCallback(() => {
     const field = caretField(document.activeElement, layer.current);
     const busy = mode.current === 'drag' || mode.current === 'acting';
     const c = field && !busy ? caretOf(field as HTMLElement) : null;
     if (c) {
-      if (mode.current !== 'caret') {
+      clearTimeout(leaveTimer.current);
+      leaving.current = false;
+      const entering = mode.current !== 'caret';
+      if (entering) {
         caretMode.current = mode.current;
         mode.current = 'caret';
         setCaretOn(true);
         document.documentElement.dataset.orbCaret = '';
       }
       caretH.current = Math.max(12, Math.min(48, c.h));
-      morph.target = 1;
       // Centre of the caret: on the gap before the next letter, halfway down the line.
       const cx = c.x + CARET_W / 2;
       const cy = c.y + c.h / 2;
       if (levelRef.current === 'off') {
+        flight.current = null;
         morph.set(1);
         x.set(cx);
         y.set(cy);
+      } else if (entering || field !== caretFieldRef.current) {
+        // From wherever it is (or from the box you were in), it glides over and becomes the caret.
+        flight.current = { d0: Math.max(1, Math.hypot(cx - x.value, cy - y.value)) };
+        x.spring = GLIDE;
+        y.spring = GLIDE;
+        x.target = cx;
+        y.target = cy;
       } else {
-        x.spring = CARET;
-        y.spring = CARET;
+        // Already the caret: it rides each letter (still gliding if it hasn't landed yet).
+        if (!flight.current) {
+          x.spring = CARET;
+          y.spring = CARET;
+          morph.target = 1;
+        }
         x.target = cx;
         y.target = cy;
       }
+      caretFieldRef.current = field;
       kick();
     } else if (mode.current === 'caret') {
       mode.current = caretMode.current ?? (followSetting.current ? 'follow' : 'parked');
       caretMode.current = null;
+      caretFieldRef.current = null;
+      flight.current = null;
       setCaretOn(false);
       delete document.documentElement.dataset.orbCaret;
+      // It rounds out where it is first, then drifts home: quiet, no bounce.
       morph.target = 0;
-      jelly.velocity += 2; // a little pop back into a ball
-      rest();
+      x.target = x.value;
+      y.target = y.value;
+      kick();
+      clearTimeout(leaveTimer.current);
+      leaving.current = true;
+      const home = () => {
+        if (mode.current === 'caret') return;
+        // Mostly round again before it sets off.
+        if (morph.value > 0.3 && levelRef.current !== 'off') {
+          leaveTimer.current = window.setTimeout(home, 40);
+          return;
+        }
+        leaving.current = false;
+        rest();
+        x.spring = GLIDE;
+        y.spring = GLIDE;
+        kick();
+      };
+      home();
     }
-  }, [morph, x, y, jelly, kick, rest]);
+  }, [morph, x, y, kick, rest]);
   useEffect(() => {
     let frameReq = 0;
     const soon = () => {
@@ -256,8 +325,19 @@ function Orb() {
       typingTimer.current = window.setTimeout(() => layer.current?.removeAttribute('data-typing'), 650);
       soon();
     };
+    // The terminal moves its hidden box and the code editor redraws its cursor without any
+    // selection event (a reply arriving, a click in the editor): watch those for the focused field.
+    const watch = new MutationObserver(soon);
+    const track = () => {
+      watch.disconnect();
+      const el = document.activeElement;
+      if (el?.classList.contains('xterm-helper-textarea')) watch.observe(el, { attributes: true, attributeFilter: ['style'] });
+      const cursors = el?.closest('.cm-editor')?.querySelector('.cm-cursorLayer');
+      if (cursors) watch.observe(cursors, { attributes: true, childList: true, subtree: true });
+      soon();
+    };
     // Focus moving between boxes passes through "nothing focused" for a moment: wait a frame.
-    document.addEventListener('focusin', soon);
+    document.addEventListener('focusin', track);
     document.addEventListener('focusout', soon);
     document.addEventListener('selectionchange', soon);
     document.addEventListener('input', typed, true);
@@ -269,7 +349,9 @@ function Orb() {
     return () => {
       cancelAnimationFrame(frameReq);
       clearTimeout(typingTimer.current);
-      document.removeEventListener('focusin', soon);
+      clearTimeout(leaveTimer.current);
+      watch.disconnect();
+      document.removeEventListener('focusin', track);
       document.removeEventListener('focusout', soon);
       document.removeEventListener('selectionchange', soon);
       document.removeEventListener('input', typed, true);
