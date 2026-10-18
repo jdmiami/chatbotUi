@@ -1,5 +1,6 @@
 import { expect, test, type Page } from '@playwright/test';
 import { expectNoHorizontalOverflow } from './helpers';
+import { mockAi } from './aiMocks';
 
 /** The orb: on every screen, physics you can grab and throw, and it uses Orbit for you. */
 
@@ -137,5 +138,47 @@ test.describe('the orb', () => {
   test('can be switched off in Settings', async ({ page }) => {
     await openWithOrb(page, { orb: false });
     await expect(page.locator('.orb-cursor')).toHaveCount(0);
+  });
+
+  test('typing: the machine banner steps aside and the orb becomes the text cursor', async ({ page }) => {
+    await mockAi(page, 'off');
+    const { errors } = await openWithOrb(page);
+    await page.getByRole('button', { name: /^AI\./ }).click();
+    const win = page.locator('.app-window[data-app="ai"]');
+    const banner = win.locator('.ai-banner');
+    await expect(banner).toBeVisible();
+    const box = win.getByRole('textbox', { name: 'Message' });
+    await box.click();
+    await expect(banner).toBeHidden();
+    await expect(page.locator('.orb-layer')).toHaveAttribute('data-caret', 'true');
+    await box.pressSequentially('hi');
+    const caretAt = async () => {
+      await page.waitForTimeout(450);
+      return page.locator('.orb-cursor').evaluate((el) => {
+        const r = el.getBoundingClientRect();
+        return { x: r.left + r.width / 2, y: r.top + r.height / 2, w: r.width, h: r.height };
+      });
+    };
+    const field = (await box.boundingBox())!;
+    const a = await caretAt();
+    // A thin caret inside the box, on the text line.
+    expect(a.w).toBeLessThan(8);
+    expect(a.h).toBeGreaterThan(10);
+    expect(a.x).toBeGreaterThan(field.x);
+    expect(a.x).toBeLessThan(field.x + field.width);
+    expect(a.y).toBeGreaterThan(field.y);
+    expect(a.y).toBeLessThan(field.y + field.height);
+    // It moves with the letters.
+    await box.pressSequentially(' there, orb');
+    const b = await caretAt();
+    expect(b.x).toBeGreaterThan(a.x + 20);
+    // The box's own caret is hidden: the orb is the caret.
+    expect(await box.evaluate((el) => getComputedStyle(el).caretColor)).toBe('rgba(0, 0, 0, 0)');
+    // Leaving the box: banner back, orb a ball again.
+    await box.evaluate((el) => (el as HTMLElement).blur());
+    await expect(banner).toBeVisible();
+    await expect(page.locator('.orb-layer')).not.toHaveAttribute('data-caret', 'true');
+    await expect.poll(async () => (await page.locator('.orb-cursor').boundingBox())!.width).toBeGreaterThan(40);
+    expect(errors).toEqual([]);
   });
 });

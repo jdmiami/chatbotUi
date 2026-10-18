@@ -8,6 +8,7 @@ import { canSpeak, createSpeaker } from '../../apps/ai/speech';
 import { Icon } from '../../ui/Icon';
 import { DEEP_PRESS, SPRINGS, ShakeDetector, SpringValue, VelocityTracker, landing, rubberClamp, spring, stretchFor, type Rect } from './physics';
 import { findFocus, restSpot } from './attention';
+import { caretField, caretOf } from './caret';
 import {
   PLANNER_PROMPT,
   describe,
@@ -28,8 +29,13 @@ const SIZE = 56;
 const R = SIZE / 2;
 /** Flying to something it is about to touch: quick, purposeful, barely any overshoot. */
 const AIM = spring(0.36, 0.84);
+/** Riding the text cursor: fast and critically damped, so it never overshoots the letter you typed. */
+const CARET = spring(0.075, 1);
+/** Orb ⇄ caret shape change: quick, with a hint of give. */
+const MORPH = spring(0.3, 0.74);
+const CARET_W = 2.5;
 
-type Mode = 'follow' | 'parked' | 'tucked' | 'drag' | 'acting';
+type Mode = 'follow' | 'parked' | 'tucked' | 'drag' | 'acting' | 'caret';
 type Line = { who: 'you' | 'orb'; text: string };
 
 const APP_NAME: Record<AppId, string> = { terminal: 'Terminal', editor: 'Code', agent: 'Antigravity', ai: 'AI', soreal: 'soReal', settings: 'Settings' };
@@ -66,6 +72,9 @@ function Orb() {
   const y = useRef(new SpringValue(start.y, SPRINGS.follow)).current;
   const depth = useRef(new SpringValue(0, SPRINGS.press)).current;
   const jelly = useRef(new SpringValue(1, SPRINGS.jelly)).current;
+  /** 0 = orb, 1 = text cursor. */
+  const morph = useRef(new SpringValue(0, MORPH)).current;
+  const caretH = useRef(20);
   const mode = useRef<Mode>(follow ? 'follow' : 'parked');
   const tracker = useRef(new VelocityTracker()).current;
   const raf = useRef(0);
@@ -108,24 +117,29 @@ function Orb() {
       x.step(dt);
       y.step(dt);
       depth.step(dt);
+      morph.step(dt);
       // Stretch along its speed (the finger's while dragging), wobbling back on the jelly spring.
       const v = mode.current === 'drag' ? tracker.velocity() : { x: x.velocity, y: y.velocity };
-      const { stretch, angle } = full ? stretchFor(v.x, v.y) : { stretch: 1, angle: 0 };
+      const { stretch, angle } = full && mode.current !== 'caret' ? stretchFor(v.x, v.y) : { stretch: 1, angle: 0 };
       jelly.target = stretch;
       jelly.step(dt);
       const s = Math.max(0.6, jelly.value);
       const press = 1 - Math.max(0, depth.value) * 0.16;
       const el = body.current;
       if (el) {
-        el.style.transform = `translate3d(${x.value - R}px, ${y.value - R}px, 0) rotate(${angle}rad) scale(${s * press}, ${press / s}) rotate(${-angle}rad)`;
+        // As a text cursor it narrows to a sliver and stretches to the line's height (squash, not a swap).
+        const m = Math.max(0, Math.min(1.15, morph.value));
+        const cw = 1 + (CARET_W / SIZE - 1) * m;
+        const ch = 1 + (caretH.current / SIZE - 1) * m;
+        el.style.transform = `translate3d(${x.value - R}px, ${y.value - R}px, 0) scale(${cw}, ${ch}) rotate(${angle}rad) scale(${s * press}, ${press / s}) rotate(${-angle}rad)`;
         el.style.setProperty('--depth', Math.max(0, depth.value).toFixed(3));
       }
       layer.current?.style.setProperty('--orb-x', `${x.value}px`);
       layer.current?.style.setProperty('--orb-y', `${y.value}px`);
-      const still = x.resting() && y.resting() && depth.resting(0.002) && jelly.resting(0.002);
+      const still = x.resting() && y.resting() && depth.resting(0.002) && jelly.resting(0.002) && morph.resting(0.002);
       raf.current = mode.current === 'drag' || !still ? requestAnimationFrame(frame) : 0;
     },
-    [x, y, depth, jelly, tracker],
+    [x, y, depth, jelly, morph, tracker],
   );
   const kick = useCallback(() => {
     if (!raf.current) {
@@ -181,6 +195,85 @@ function Orb() {
     const p = spot.current ?? restSpot(viewport(), SIZE);
     moveTo(p.x, p.y, SPRINGS.land);
   }, [refocus, moveTo]);
+
+  // ---- the text cursor: while you type in a box, the orb becomes its caret
+  const [caretOn, setCaretOn] = useState(false);
+  const caretMode = useRef<Mode | null>(null); // the mode to go back to
+  const typingTimer = useRef(0);
+  const syncCaret = useCallback(() => {
+    const field = caretField(document.activeElement, layer.current);
+    const busy = mode.current === 'drag' || mode.current === 'acting';
+    const c = field && !busy ? caretOf(field as HTMLElement) : null;
+    if (c) {
+      if (mode.current !== 'caret') {
+        caretMode.current = mode.current;
+        mode.current = 'caret';
+        setCaretOn(true);
+        document.documentElement.dataset.orbCaret = '';
+      }
+      caretH.current = Math.max(12, Math.min(48, c.h));
+      morph.target = 1;
+      // Centre of the caret: on the gap before the next letter, halfway down the line.
+      const cx = c.x + CARET_W / 2;
+      const cy = c.y + c.h / 2;
+      if (levelRef.current === 'off') {
+        morph.set(1);
+        x.set(cx);
+        y.set(cy);
+      } else {
+        x.spring = CARET;
+        y.spring = CARET;
+        x.target = cx;
+        y.target = cy;
+      }
+      kick();
+    } else if (mode.current === 'caret') {
+      mode.current = caretMode.current ?? (followSetting.current ? 'follow' : 'parked');
+      caretMode.current = null;
+      setCaretOn(false);
+      delete document.documentElement.dataset.orbCaret;
+      morph.target = 0;
+      jelly.velocity += 2; // a little pop back into a ball
+      rest();
+    }
+  }, [morph, x, y, jelly, kick, rest]);
+  useEffect(() => {
+    let frameReq = 0;
+    const soon = () => {
+      if (!frameReq) frameReq = requestAnimationFrame(() => ((frameReq = 0), syncCaret()));
+    };
+    const typed = () => {
+      // Solid while typing; it starts to breathe again when you pause.
+      layer.current?.setAttribute('data-typing', '');
+      clearTimeout(typingTimer.current);
+      typingTimer.current = window.setTimeout(() => layer.current?.removeAttribute('data-typing'), 650);
+      soon();
+    };
+    // Focus moving between boxes passes through "nothing focused" for a moment: wait a frame.
+    document.addEventListener('focusin', soon);
+    document.addEventListener('focusout', soon);
+    document.addEventListener('selectionchange', soon);
+    document.addEventListener('input', typed, true);
+    document.addEventListener('keydown', typed, true);
+    document.addEventListener('scroll', soon, { capture: true, passive: true });
+    window.addEventListener('resize', soon);
+    window.visualViewport?.addEventListener('resize', soon);
+    window.visualViewport?.addEventListener('scroll', soon);
+    return () => {
+      cancelAnimationFrame(frameReq);
+      clearTimeout(typingTimer.current);
+      document.removeEventListener('focusin', soon);
+      document.removeEventListener('focusout', soon);
+      document.removeEventListener('selectionchange', soon);
+      document.removeEventListener('input', typed, true);
+      document.removeEventListener('keydown', typed, true);
+      document.removeEventListener('scroll', soon, { capture: true });
+      window.removeEventListener('resize', soon);
+      window.visualViewport?.removeEventListener('resize', soon);
+      window.visualViewport?.removeEventListener('scroll', soon);
+      delete document.documentElement.dataset.orbCaret;
+    };
+  }, [syncCaret]);
 
   useEffect(() => {
     let pending = 0;
@@ -589,11 +682,14 @@ function Orb() {
         if (abortRef.current === ctrl) abortRef.current = null;
         setRunning(false);
         mode.current = before === 'acting' || before === 'drag' ? (followSetting.current ? 'follow' : 'parked') : before;
-        // Back where it lives: beside what matters, or the spot you put it.
-        setTimeout(rest, 250);
+        // Back where it lives: beside what matters, the spot you put it, or the caret of the box it typed in.
+        setTimeout(() => {
+          rest();
+          syncCaret();
+        }, 250);
       }
     },
-    [exec, plan, rest, say],
+    [exec, plan, rest, say, syncCaret],
   );
 
   // ---- voice
@@ -670,7 +766,7 @@ function Orb() {
   };
 
   return (
-    <div ref={layer} className="orb-layer" data-hidden={hidden || undefined} data-listening={listening || undefined} data-running={running || undefined}>
+    <div ref={layer} className="orb-layer" data-caret={caretOn || undefined} data-hidden={hidden || undefined} data-listening={listening || undefined} data-running={running || undefined}>
       <button
         ref={body}
         type="button"

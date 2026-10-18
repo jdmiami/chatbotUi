@@ -1073,3 +1073,10 @@ a.btn {
   color: var(--text-2);
   text-align: center;
 }
+
+/* Typing in any app: the machine banners at the top (Turn on…, the helper) step aside so
+   what you're writing stays in view. They come back when you leave the box. */
+.app-window:has(:is(textarea, input:not([type='checkbox'], [type='radio'], [type='range'], [type='button'], [type='submit'], [type='file']), [contenteditable='true']):focus)
+  :is(.ai-banner, .sr-helper) {
+  display: none;
+}
