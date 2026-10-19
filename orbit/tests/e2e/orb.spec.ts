@@ -111,6 +111,118 @@ test.describe('the orb', () => {
     expect(saved).toBe(false);
   });
 
+  test('writing help: grey ghost text finishes the sentence, and selected words can be rewritten', async ({ page }) => {
+    await page.route('**/api/orb/ai', async (route) => {
+      if (route.request().method() === 'GET') return route.fulfill({ json: { configured: true, models: {} } });
+      const body = route.request().postDataJSON() as { task: string; messages: { content: string }[] };
+      const ghost = body.messages[0].content.includes('next few words');
+      const text = ghost ? ' milk and eggs' : 'Please remind me to buy milk and eggs tomorrow.';
+      return route.fulfill({ json: { choices: [{ message: { content: text } }] } });
+    });
+    const { errors } = await openWithOrb(page);
+    const at = await settled(page);
+    await page.mouse.move(at.x, at.y);
+    await page.mouse.down();
+    await page.waitForTimeout(600);
+    await page.mouse.up();
+    const box = page.getByRole('dialog', { name: 'Ask the orb' }).getByRole('textbox', { name: 'Tell the orb what to do' });
+    await box.click();
+    await box.pressSequentially('remind me to buy', { delay: 20 });
+    const ghost = page.locator('.wh-ghost');
+    await expect(ghost).toHaveText(/milk and eggs/);
+    await box.press('Tab');
+    await expect(box).toHaveValue('remind me to buy milk and eggs');
+    await expect(ghost).toHaveCount(0);
+
+    await box.selectText();
+    await page.getByRole('button', { name: /Rewrite/ }).click();
+    await page.getByRole('menuitem', { name: 'Fix' }).click();
+    await expect(box).toHaveValue('Please remind me to buy milk and eggs tomorrow.');
+    expect(errors).toEqual([]);
+  });
+
+  test('explain this screen: it reads what is shown and answers in plain words', async ({ page }) => {
+    const asked: { task: string; text: string }[] = [];
+    await page.route('**/api/orb/ai', async (route) => {
+      if (route.request().method() === 'GET') return route.fulfill({ json: { configured: true, models: {} } });
+      const body = route.request().postDataJSON() as { task: string; messages: { content: unknown }[] };
+      asked.push({ task: body.task, text: JSON.stringify(body.messages) });
+      const sse = `data: ${JSON.stringify({ choices: [{ delta: { content: 'This is your Orbit home: each line opens an app.' } }] })}\n\ndata: [DONE]\n\n`;
+      return route.fulfill({ headers: { 'content-type': 'text/event-stream' }, body: sse });
+    });
+    const { errors } = await openWithOrb(page);
+    const at = await settled(page);
+    await page.mouse.move(at.x, at.y);
+    await page.mouse.down();
+    await page.waitForTimeout(600);
+    await page.mouse.up();
+    const panel = page.getByRole('dialog', { name: 'Ask the orb' });
+    await panel.getByRole('button', { name: 'Explain this screen' }).click();
+    await expect(panel.getByRole('list', { name: 'What happened' })).toContainText('each line opens an app');
+    expect(asked).toHaveLength(1);
+    expect(asked[0].text).toContain('Text on screen');
+    expect(asked[0].text).toMatch(/Recent files|Settings|Terminal|Talk/);
+    expect(errors).toEqual([]);
+  });
+
+  test('find across my stuff: it lists matching chats to open, and "bring me" drops one into the box I was in', async ({ page }) => {
+    await mockAi(page, 'off');
+    await page.addInitScript(() => {
+      const now = Date.now();
+      const chat = (id: string, title: string, answer: string) => ({
+        id, title, model: 'm', createdAt: now, updatedAt: now,
+        messages: [{ role: 'user', content: title }, { role: 'assistant', content: answer }],
+      });
+      localStorage.setItem('orbit:ai:v1', JSON.stringify({
+        version: 1, activeId: null, model: 'm',
+        chats: [chat('c1', 'Paris trip plan', 'Day 1: the Louvre. Day 2: Montmartre.'), chat('c2', 'Groceries', 'Milk, eggs, bread.')],
+      }));
+    });
+    const { errors } = await openWithOrb(page);
+    const ask = async (goal: string) => {
+      await page.keyboard.press('Control+Shift+Space');
+      const panel = page.getByRole('dialog', { name: 'Ask the orb' });
+      await panel.getByRole('textbox', { name: 'Tell the orb what to do' }).fill(goal);
+      await panel.getByRole('button', { name: 'Go' }).click();
+      return panel;
+    };
+    const panel = await ask('find my chat about Paris');
+    const found = panel.getByRole('list', { name: 'Found' });
+    await expect(found).toContainText('Paris trip plan');
+    await expect(found).not.toContainText('Groceries');
+    await found.getByRole('button', { name: /Paris trip plan/ }).click();
+    const win = page.locator('.app-window[data-app="ai"]');
+    await expect(win).toBeVisible();
+    await expect(win).toContainText('Montmartre');
+
+    // Bring: into the message box I was typing in.
+    await page.getByRole('button', { name: /New chat/ }).first().click().catch(() => {});
+    const box = win.getByRole('textbox', { name: 'Message' });
+    await box.click();
+    await ask('bring me the paris plan');
+    await expect(box).toHaveValue(/Louvre.*Montmartre/);
+    expect(errors).toEqual([]);
+  });
+
+  test('a face: it appears when needed (sleepy with no AI), cheers when done, and hides at rest', async ({ page }) => {
+    const { errors } = await openWithOrb(page);
+    const layer = page.locator('.orb-layer');
+    await expect(layer).toHaveAttribute('data-face', 'off');
+    await page.keyboard.press('Control+Shift+Space');
+    // No cloud AI and the AI machine off in this preview: sleepy.
+    await expect(layer).toHaveAttribute('data-face', 'sleepy');
+    const panel = page.getByRole('dialog', { name: 'Ask the orb' });
+    await panel.getByRole('textbox', { name: 'Tell the orb what to do' }).fill('light mode');
+    await panel.getByRole('button', { name: 'Go' }).click();
+    await expect(layer).toHaveAttribute('data-face', 'done');
+    const gpu = page.locator('.orb-cursor canvas.ai-orb-gpu[data-live]');
+    if (await gpu.count()) await expect(gpu).toHaveAttribute('data-face', 'on');
+    await panel.getByRole('button', { name: 'Close' }).click();
+    await expect(layer).toHaveAttribute('data-face', /off|speaking|done/);
+    await expect(layer).toHaveAttribute('data-face', 'off', { timeout: 6000 });
+    expect(errors).toEqual([]);
+  });
+
   test('it taps and types like a cursor, flying to what it touches', async ({ page }) => {
     const { errors, orb } = await openWithOrb(page);
     await orb.click(); // no microphone: a tap opens the panel

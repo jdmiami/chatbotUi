@@ -15,7 +15,9 @@ export type Intent =
   | { seq: number; app: 'agent'; type: 'open-session'; sessionId: string }
   | { seq: number; app: 'agent'; type: 'compose'; text: string; /** project file it is about */ path?: string }
   /** Open the AI app's model store, or the image and video makers (from the home, index, settings…). */
-  | { seq: number; app: 'ai'; type: 'open-store' | 'open-makers' };
+  | { seq: number; app: 'ai'; type: 'open-store' | 'open-makers' }
+  /** Open one chat (the orb's "find"). */
+  | { seq: number; app: 'ai'; type: 'open-chat'; chatId: string };
 
 type IntentInput = Intent extends infer I ? (I extends { seq: number } ? Omit<I, 'seq'> : never) : never;
 

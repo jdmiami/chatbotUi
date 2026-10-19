@@ -241,6 +241,7 @@ export function OrbSection() {
 /** Cloud AI: NVIDIA's free models for quick jobs, so the orb is smart even with the AI machine off. */
 export function CloudAiSection() {
   const on = useShell((s) => s.settings.cloudAi !== false);
+  const writeHelp = useShell((s) => s.settings.writeHelp !== false);
   const updateSettings = useShell((s) => s.updateSettings);
   const [status, setStatus] = useState<CloudStatus | null | undefined>(undefined);
   useEffect(() => {
@@ -270,6 +271,15 @@ export function CloudAiSection() {
             <span className="st-sub">{on ? state : 'Off'}</span>
           </span>
         </div>
+        {on && (
+          <label className="row st-row st-click">
+            <span className="st-main">
+              <span className="st-label">Writing help</span>
+              <span className="st-sub">Grey ghost text finishes your sentence (Tab or tap to take it); select words to rewrite them.</span>
+            </span>
+            <Toggle checked={writeHelp} label="Writing help" onChange={(v) => updateSettings({ writeHelp: v })} />
+          </label>
+        )}
         {on && (
           <div className="row st-row">
             <span className="st-main">

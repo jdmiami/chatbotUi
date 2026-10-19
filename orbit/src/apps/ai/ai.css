@@ -394,3 +394,11 @@
 .ai-maker-tag { font-size: 11px; font-weight: 600; padding: 2px 8px; border-radius: 999px; background: color-mix(in srgb, var(--accent) 20%, transparent); color: var(--accent); }
 .ai-maker-ok { display: inline-flex; align-items: center; gap: 4px; font-size: var(--fs-sm); color: var(--text-muted, var(--text)); white-space: nowrap; }
 .ai-maker-row .btn { flex: none; min-height: var(--tap, 44px); }
+
+/* Lite motion: the orb's face is two eyes that look and blink (Full draws the whole face on the GPU). */
+.ai-orb { position: relative; }
+.ai-orb-eyes { position: absolute; inset: 30% 22% 40%; display: flex; justify-content: space-between; transition: transform 0.3s ease; }
+.ai-orb-eyes i { width: 18%; aspect-ratio: 0.62; border-radius: 50%; background: rgb(16 12 30 / 0.85); animation: ai-orb-blink 4.6s infinite; transform-origin: 50% 60%; }
+.ai-orb-eyes[data-sleepy] i { animation-duration: 7s; transform: scaleY(0.45); }
+@keyframes ai-orb-blink { 0%, 93%, 100% { scale: 1 1; } 96% { scale: 1 0.1; } }
+.ai-orb:has(.ai-orb-eyes) { animation: ai-breathe 4s ease-in-out infinite; }

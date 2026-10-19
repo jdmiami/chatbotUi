@@ -171,7 +171,11 @@ export default function AiApp({ isActive, compact, placement }: AppProps) {
     if (intent?.app !== 'ai') return;
     useWorkspace.getState().consumeIntent(intent.seq);
     if (intent.type === 'open-store') setStoreOpen(true);
-    else {
+    else if (intent.type === 'open-chat') {
+      const id = intent.chatId;
+      chooseMode('chat');
+      update((s) => (s.chats.some((c) => c.id === id) ? { ...s, activeId: id } : s));
+    } else {
       chooseMode('create');
       setMakersSignal((n) => n + 1);
     }

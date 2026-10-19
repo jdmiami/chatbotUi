@@ -17,6 +17,7 @@ import { Handle } from './o5/Handle';
 import { IndexMenu } from './o5/IndexMenu';
 import { useChromeOnScroll } from './o5/chrome';
 import { OrbCursor } from './orb/OrbCursor';
+import { WriteHelp } from './orb/WriteHelp';
 
 /**
  * Root of Orbit. Owns global layout concerns: visual viewport (keyboard), theme, overlays,
@@ -66,6 +67,7 @@ export function Shell() {
       {!settings.introSeen && <IntroSheet />}
       <Toasts />
       <OrbCursor />
+      <WriteHelp />
     </div>
   );
 }
