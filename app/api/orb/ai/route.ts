@@ -45,6 +45,9 @@ export async function POST(request: Request) {
     stream,
     max_tokens: Math.min(Math.max(Number(input.max_tokens) || 1024, 16), 8192),
   };
+  // Quick jobs answer straight away: reasoning models otherwise spend the whole budget thinking.
+  // `think: true` lets a caller ask for it.
+  if (input.think !== true) body.chat_template_kwargs = { enable_thinking: false, thinking: false };
   if (typeof input.temperature === 'number') body.temperature = Math.min(Math.max(input.temperature, 0), 2);
   if (Array.isArray(input.tools) && input.tools.length) {
     body.tools = input.tools.slice(0, 32);
@@ -63,6 +66,12 @@ export async function POST(request: Request) {
     let res: Response;
     try {
       res = await callNvidia(model, body, ctrl.signal);
+      // A model that doesn't take the no-thinking switch: ask again without it.
+      if (res.status === 400 && body.chat_template_kwargs) {
+        await res.body?.cancel();
+        const { chat_template_kwargs: _drop, ...plain } = body;
+        res = await callNvidia(model, plain, ctrl.signal);
+      }
     } catch (err) {
       clearTimeout(timer);
       request.signal.removeEventListener('abort', stop);
