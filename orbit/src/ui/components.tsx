@@ -13,6 +13,7 @@ import { SPRING } from '../motion/springs';
 import { recentTap } from '../motion/tilt';
 import { useMotionLevel } from '../motion/MotionProvider';
 import { Icon, type IconName } from './Icon';
+import { useScrollDepth } from '../shell/o5/depth';
 
 /** Icon-only button. `label` is required: it becomes the accessible name and the tooltip. */
 export function IconButton({
@@ -90,6 +91,7 @@ export function Sheet({
   footer,
   labelledBy,
   origin,
+  page,
 }: {
   title: ReactNode;
   onClose: () => void;
@@ -98,8 +100,15 @@ export function Sheet({
   labelledBy?: string;
   /** Grow out of this rectangle (e.g. the picture tile that was tapped). Defaults to where you last tapped. */
   origin?: DOMRect | null;
+  /**
+   * A full page that reads like the home screen: tall, the world behind it blurred, and its
+   * [data-depth] chapters sinking back as they scroll away (useScrollDepth).
+   */
+  page?: boolean;
 }) {
   const ref = useRef<HTMLDivElement>(null);
+  const body = useRef<HTMLDivElement>(null);
+  useScrollDepth(body, Boolean(page), 'edges');
   const scrim = useRef<HTMLDivElement>(null);
   const autoId = useId();
   const titleId = labelledBy ?? `sheet-title-${autoId}`;
@@ -240,12 +249,13 @@ export function Sheet({
   return (
     <div
       className="sheet-scrim"
+      data-page={page ? '' : undefined}
       ref={scrim}
       onMouseDown={(e) => {
         if (e.target === e.currentTarget) close();
       }}
     >
-      <div className="sheet" data-grown={grow.current ? '' : undefined} role="dialog" aria-modal="true" aria-labelledby={titleId} ref={ref} tabIndex={-1}>
+      <div className="sheet" data-grown={grow.current ? '' : undefined} data-page={page ? '' : undefined} role="dialog" aria-modal="true" aria-labelledby={titleId} ref={ref} tabIndex={-1}>
         <div
           className="sheet-grip"
           onPointerDown={onGripDown}
@@ -259,7 +269,9 @@ export function Sheet({
             <IconButton icon="close" label="Close" onClick={() => close()} data-sheet-close />
           </div>
         </div>
-        <div className="sheet-body">{children}</div>
+        <div className="sheet-body" ref={body}>
+          {children}
+        </div>
         {footer && <div style={{ padding: '0 16px 16px' }}>{footer}</div>}
       </div>
     </div>

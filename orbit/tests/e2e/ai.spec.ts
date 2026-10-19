@@ -119,18 +119,19 @@ test.describe('AI app', () => {
     await openAi(page);
     await page.getByRole('button', { name: 'Model store' }).click();
     const store = page.getByRole('dialog', { name: 'Model store' });
-    await expect(store.getByText('15.0 GB free')).toBeVisible();
+    await expect(store.getByText('15.0 GB free').first()).toBeVisible();
     await expect(store.getByText('Installed', { exact: true })).toBeVisible();
-    await store.getByRole('button', { name: 'Install Defiant Fable 9B' }).click();
+    await store.getByRole('button', { name: /^Install Defiant Fable 9B/ }).click();
     await expect(store.getByRole('status', { name: 'Installing defiant-fable:9b' })).toBeVisible();
     await expect(store.getByText('Installed', { exact: true })).toHaveCount(2, { timeout: 10_000 });
     expect(calls.find((c) => c.path === 'POST /install')?.body).toEqual({ spec: 'defiant-fable:9b=hf.co/x/y:Q6_K' });
     await expectNoHorizontalOverflow(page);
     await page.screenshot({ path: testInfo.outputPath('ai-store.png') });
 
-    await store.getByRole('button', { name: 'Search' }).click();
+    // One page, three chapters: the contents line jumps to "Find more".
+    await store.getByRole('navigation', { name: 'Contents' }).getByRole('button', { name: /Find more/ }).click();
     await store.getByRole('searchbox', { name: 'Search models' }).fill('cool');
-    await store.getByRole('button', { name: 'Search', exact: true }).last().click();
+    await store.getByRole('button', { name: 'Search', exact: true }).click();
     await store.getByRole('button', { name: /^org\/Cool-Model-GGUF/ }).click();
     await expect(store.getByText('Q8_0')).toBeVisible();
     // 16 GB doesn't fit in 15 GB free.
@@ -138,7 +139,6 @@ test.describe('AI app', () => {
     await store.getByRole('button', { name: 'Install Q4_K_M' }).click();
     await expect.poll(() => calls.filter((c) => c.path === 'POST /install').pop()?.body).toEqual({ repo: 'org/Cool-Model-GGUF', quant: 'Q4_K_M' });
 
-    await store.getByRole('button', { name: /^Installed/ }).click();
     await store.getByRole('button', { name: 'Delete qwen3.6:35b' }).click();
     await page.getByRole('dialog', { name: 'Delete qwen3.6:35b?' }).getByRole('button', { name: 'Delete' }).click();
     await expect(store.getByRole('button', { name: 'Delete qwen3.6:35b' })).toHaveCount(0);

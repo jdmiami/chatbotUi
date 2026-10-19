@@ -167,3 +167,128 @@ test.describe('Orbit 0.5: AI', () => {
     expect(errors).toEqual([]);
   });
 });
+
+/** Orbit 0.5 at the home screen, with Motion on so the store's pages get their depth. */
+async function openO5Home(page: Page, motion: 'full' | 'reduce' = 'full') {
+  const errors: string[] = [];
+  page.on('pageerror', (e) => errors.push(e.message));
+  await page.addInitScript((m) => {
+    if (!localStorage.getItem('orbit:shell:v1'))
+      localStorage.setItem('orbit:shell:v1', JSON.stringify({ state: { settings: { orb: false, motion: m, motionPicked: true, skin: 'o5', introSeen: true } }, version: 0 }));
+  }, motion);
+  await page.goto('/');
+  await expect(page.getByRole('main', { name: 'Home' })).toBeVisible();
+  return errors;
+}
+
+/** Tap a link on the home path the way a person would: scrolled up to the middle of the screen first. */
+async function tapHome(page: Page, name: RegExp) {
+  const link = page.getByRole('main', { name: 'Home' }).getByRole('button', { name });
+  await link.evaluate((el) => el.scrollIntoView({ block: 'center' }));
+  // The home snaps to its chapters: wait until it has come to rest before tapping.
+  const home = page.getByRole('main', { name: 'Home' });
+  let last = -1;
+  await expect
+    .poll(async () => {
+      const top = await home.evaluate((el) => el.scrollTop);
+      const still = top === last;
+      last = top;
+      return still;
+    }, { intervals: [250] })
+    .toBe(true);
+  // On the words, as a finger would: the row's middle can sit under the Index handle.
+  await link.locator('.o5-go-label').click();
+}
+
+async function closeSheet(page: Page, name: string) {
+  const sheet = page.getByRole('dialog', { name });
+  await sheet.getByRole('button', { name: 'Close' }).first().click();
+  await expect(sheet).toHaveCount(0);
+}
+
+test.describe('Orbit 0.5: the AI store from everywhere', () => {
+  test('home, index and settings all open the model store and the makers; the store reads like the home', async ({ page }, testInfo) => {
+    await mockAi(page, 'on');
+    const ready = { ready: true, downloaded: true, percent: 100 };
+    await page.route('**/fake-ai/_orbit/studio', (r) => r.fulfill({ json: { setup: 'running', running: true, image: ready, video: ready, downloading: null, downloadError: null, jobs: [] } }));
+    await page.route('**/fake-ai/_orbit/studio/items', (r) => r.fulfill({ json: { items: [] } }));
+    await page.route('**/fake-ai/_orbit/studio/makers', (r) =>
+      r.fulfill({
+        json: {
+          makers: [
+            { id: 'qwen', kind: 'image', name: 'Qwen Image', blurb: 'Clean, bright pictures.', installed: true, builtIn: true, wanted: true, size: 40e9, percent: 100 },
+            { id: 'krea', kind: 'image', name: 'Krea Real', blurb: 'Photographs.', installed: false, builtIn: false, wanted: false, size: 12e9, percent: 0 },
+            { id: 'ltx', kind: 'video', name: 'LTX', blurb: 'Videos with sound.', installed: true, builtIn: true, wanted: true, size: 30e9, percent: 100 },
+          ],
+        },
+      }),
+    );
+    const errors = await openO5Home(page);
+
+    // From the home's "Talk" chapter.
+    await tapHome(page, /^Model store/);
+    const store = page.getByRole('dialog', { name: 'Model store' });
+    await expect(store).toBeVisible();
+    await expect(store).toHaveAttribute('data-page', '');
+    await expect(store.getByRole('heading', { name: 'Models' })).toBeVisible();
+    await expect(store.getByRole('heading', { name: 'Featured' })).toBeVisible();
+    await expect(store.getByRole('button', { name: /^Install Defiant Fable 9B/ })).toBeVisible();
+    // The world behind is blurred, like the home behind the index.
+    expect(await page.locator('.sheet-scrim[data-page]').evaluate((el) => getComputedStyle(el).backdropFilter || getComputedStyle(el).getPropertyValue('-webkit-backdrop-filter'))).toContain('blur');
+    // Chapters sink back as they leave the middle of the page.
+    await store.getByRole('navigation', { name: 'Contents' }).getByRole('button', { name: /On your machine/ }).click();
+    await expect.poll(() => store.locator('#store-featured').evaluate((el) => Number(getComputedStyle(el).getPropertyValue('--ap') || 0))).toBeGreaterThan(0.05);
+    await expect(store.getByRole('button', { name: 'Delete qwen3.6:35b' })).toBeVisible();
+    await expectNoHorizontalOverflow(page);
+    await page.screenshot({ path: testInfo.outputPath('store-page.png') });
+    await closeSheet(page, 'Model store');
+
+    // From the index: the two stores sit under "Talk".
+    await page.getByRole('button', { name: /^Index/ }).click();
+    await page.getByRole('dialog', { name: 'Index' }).getByRole('button', { name: 'Makers', exact: true }).click();
+    const makers = page.getByRole('dialog', { name: 'Makers' });
+    await expect(makers).toBeVisible();
+    await expect(makers).toHaveAttribute('data-page', '');
+    await expect(makers.locator('.mag-title')).toHaveText('Makers');
+    await expect(makers.getByRole('heading', { name: 'Pictures' })).toBeVisible();
+    await expect(makers.getByRole('button', { name: /^Install Krea Real/ })).toBeVisible();
+    await page.screenshot({ path: testInfo.outputPath('makers-page.png') });
+    await closeSheet(page, 'Makers');
+    await page.getByRole('button', { name: /^Index/ }).click();
+    await page.getByRole('dialog', { name: 'Index' }).getByRole('button', { name: 'Model store', exact: true }).click();
+    await expect(page.getByRole('dialog', { name: 'Model store' })).toBeVisible();
+    await closeSheet(page, 'Model store');
+
+    // From Settings.
+    await page.getByRole('button', { name: /^Index/ }).click();
+    await page.getByRole('dialog', { name: 'Index' }).getByRole('button', { name: /Settings/ }).click();
+    const settings = page.locator('.app-window[data-app="settings"]');
+    await settings.getByRole('button', { name: /^Model store/ }).click();
+    await expect(page.getByRole('dialog', { name: 'Model store' })).toBeVisible();
+    await closeSheet(page, 'Model store');
+
+    // And from the AI's own menu.
+    await page.getByRole('button', { name: /^Index/ }).click();
+    await page.getByRole('dialog', { name: 'Index' }).getByRole('button', { name: /Talk/ }).click();
+    await page.locator('.app-window[data-app="ai"]').getByRole('button', { name: /^Your AI:/ }).click();
+    await page.getByRole('dialog', { name: 'Your AI' }).getByRole('button', { name: /^Model store/ }).click();
+    await expect(page.getByRole('dialog', { name: 'Model store' })).toBeVisible();
+    expect(errors).toEqual([]);
+  });
+
+  test('with the machine resting the store still opens: last shelf, a way to turn it on, adding waits', async ({ page }, testInfo) => {
+    await mockAi(page, 'off');
+    const errors = await openO5Home(page, 'reduce');
+    await tapHome(page, /^Model store/);
+    const store = page.getByRole('dialog', { name: 'Model store' });
+    await expect(store.getByText('The machine is resting')).toBeVisible();
+    await expect(store.getByRole('button', { name: 'Turn on' })).toBeVisible();
+    await expect(store.locator('.ai-maker-name', { hasText: 'Qwen 3.8 27B' }).first()).toBeVisible();
+    await expect(store.getByText('When the machine is on').first()).toBeVisible();
+    await expect(store.getByRole('button', { name: /^Install / })).toHaveCount(0);
+    await expect(store.getByRole('searchbox', { name: 'Search models' })).toBeDisabled();
+    await expectNoHorizontalOverflow(page);
+    await page.screenshot({ path: testInfo.outputPath('store-off.png') });
+    expect(errors).toEqual([]);
+  });
+});

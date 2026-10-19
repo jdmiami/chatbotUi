@@ -1,12 +1,13 @@
 import { Icon } from '../../ui/Icon';
 import { Sheet } from '../../ui/components';
+import { MagChapter, MagContents, MagCover } from '../../ui/Magazine';
 import type { StudioMakerInfo } from '../../services/ai/LocalAi';
 
-const GROUPS: { title: string; kinds: StudioMakerInfo['kind'][] }[] = [
-  { title: 'Pictures', kinds: ['image'] },
-  { title: 'Video', kinds: ['video'] },
-  { title: 'Editing', kinds: ['edit', 'upscale'] },
-  { title: 'Styles for Krea Real', kinds: ['style'] },
+const GROUPS: { id: string; title: string; dek: string; kinds: StudioMakerInfo['kind'][] }[] = [
+  { id: 'makers-pictures', title: 'Pictures', dek: 'Each paints in its own hand.', kinds: ['image'] },
+  { id: 'makers-video', title: 'Video', dek: 'Moving pictures, with sound.', kinds: ['video'] },
+  { id: 'makers-editing', title: 'Editing', dek: 'Change, restage or sharpen a picture you have.', kinds: ['edit', 'upscale'] },
+  { id: 'makers-styles', title: 'Styles for Krea Real', dek: 'Looks to lay over Krea Real.', kinds: ['style'] },
 ];
 
 const gb = (bytes: number) => (bytes >= 1e9 ? `${(bytes / 1e9).toFixed(bytes >= 10e9 ? 0 : 1)} GB` : `${Math.max(1, Math.round(bytes / 1e6))} MB`);
@@ -35,11 +36,15 @@ export function MakersSheet({
   onClose: () => void;
 }) {
   return (
-    <Sheet title="Makers" onClose={onClose}>
-      <div className="ai-makers">
-        <p className="ai-muted">
-          More ways to make pictures and videos on your AI machine. Each downloads once onto its storage; shared parts are only downloaded once.
-        </p>
+    <Sheet title="Makers" onClose={onClose} page>
+      <div className="ai-makers mag">
+        <MagCover
+          kicker={<>The studio · {makers ? `${makers.filter((m) => m.installed).length} on your machine` : 'Makers'}</>}
+          title="Makers"
+          dek="More ways to make pictures and videos on your AI machine. Each downloads once; shared parts only once."
+        >
+          {makers && <MagContents chapters={GROUPS.filter((g) => makers.some((m) => g.kinds.includes(m.kind)))} />}
+        </MagCover>
         {!machineOn && (
           <div className="ai-banner ai-banner-off ai-makers-off" role="status">
             <p className="ai-banner-kicker">The machine is resting</p>
@@ -64,12 +69,10 @@ export function MakersSheet({
         )}
         {!makers && !error && <p className="ai-muted">Loading…</p>}
         {makers &&
-          GROUPS.map((g) => {
+          GROUPS.filter((g) => makers.some((m) => g.kinds.includes(m.kind))).map((g, i) => {
             const list = makers.filter((m) => g.kinds.includes(m.kind));
-            if (!list.length) return null;
             return (
-              <section key={g.title} aria-label={g.title}>
-                <h3>{g.title}</h3>
+              <MagChapter key={g.id} n={i + 1} id={g.id} title={g.title} dek={g.dek}>
                 <ul>
                   {list.map((m) => {
                     const downloading = m.wanted && !m.installed;
@@ -112,7 +115,7 @@ export function MakersSheet({
                     );
                   })}
                 </ul>
-              </section>
+              </MagChapter>
             );
           })}
       </div>

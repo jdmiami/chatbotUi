@@ -22,7 +22,7 @@ test.describe('Orbit 0.5: the other apps', () => {
   test('settings: a contents page that walks to each numbered chapter', async ({ page }) => {
     const { errors, win } = await openO5(page, /Settings/, 'settings');
     const chapters = win.getByRole('navigation', { name: 'Chapters' });
-    await expect(chapters.getByRole('button')).toHaveCount(9);
+    await expect(chapters.getByRole('button')).toHaveCount(10);
     await chapters.getByRole('button', { name: /Data & storage/ }).click();
     await expect(win.getByRole('heading', { name: 'Data & storage' })).toBeInViewport();
     await expectNoHorizontalOverflow(page);

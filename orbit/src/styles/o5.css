@@ -104,6 +104,11 @@
   perspective-origin: 50% 50%;
   transition: opacity var(--dur-o5) var(--ease-o5), transform var(--dur-o5) var(--ease-o5), filter var(--dur-o5) var(--ease-o5);
 }
+/* On short screens (a phone on its side) a chapter is taller than the screen: snapping would keep
+   pulling it back to its top and leave its last links under the Index handle, out of reach. */
+@media (max-height: 520px) {
+  .o5-path { scroll-snap-type: none; }
+}
 .o5-path[data-hidden='true'] {
   opacity: 0;
   transform: scale(0.94);
@@ -459,6 +464,149 @@
 @keyframes o5-sheet {
   from { opacity: 0; transform: perspective(1200px) translate3d(0, 60px, -140px) rotateX(10deg); }
 }
+/* Whatever a sheet opens over goes soft, as the home does behind the index. */
+:root[data-skin='o5'] .sheet-scrim {
+  background: color-mix(in srgb, var(--bg) 46%, transparent);
+  -webkit-backdrop-filter: blur(14px) saturate(120%);
+  backdrop-filter: blur(14px) saturate(120%);
+}
+
+/* Page sheets (Sheet `page`): the store and the makers read like the home, a tall page whose
+   chapters sink back and blur as they scroll away (--p / --ap from useScrollDepth). */
+:root[data-skin='o5'] .sheet-scrim[data-page] {
+  background: color-mix(in srgb, var(--bg) 62%, transparent);
+  -webkit-backdrop-filter: blur(22px) saturate(120%);
+  backdrop-filter: blur(22px) saturate(120%);
+}
+:root[data-skin='o5'] .sheet[data-page] {
+  height: calc(100% - var(--safe-top) - 10px);
+  max-height: none;
+  background: var(--o5-glow), var(--bg);
+  box-shadow: 0 -30px 90px rgb(0 0 0 / 0.4);
+}
+@media (min-width: 700px) and (min-height: 500px) {
+  :root[data-skin='o5'] .sheet[data-page] {
+    width: min(860px, calc(100% - 48px));
+    height: calc(100% - 48px);
+  }
+}
+:root[data-skin='o5'] .sheet[data-page] .sheet-header h2 {
+  font: 600 calc(11px * var(--text-scale)) / 1.4 var(--font-ui);
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--text-3);
+}
+:root[data-skin='o5'] .sheet[data-page] .sheet-body {
+  flex: 1;
+  overflow-x: hidden;
+  overscroll-behavior: contain;
+  perspective: 1400px;
+  perspective-origin: 50% 50%;
+  padding: 0 clamp(20px, 6vw, 64px) calc(var(--safe-bottom) + 48px);
+}
+:root[data-skin='o5'] .mag { gap: clamp(48px, 10vh, 96px); }
+:root[data-skin='o5'] .mag-cover,
+:root[data-skin='o5'] .mag-chapter { gap: clamp(12px, 2vh, 20px); will-change: transform, opacity; transform-style: preserve-3d; }
+:root[data-skin='o5'] .mag-cover { padding-top: clamp(8px, 4vh, 40px); }
+:root[data-skin='o5'] .mag-title {
+  font-family: var(--font-display);
+  font-weight: 300;
+  font-style: italic;
+  font-variation-settings: 'opsz' 144;
+  letter-spacing: -0.035em;
+  line-height: 0.92;
+  font-size: clamp(56px, 15vw, 128px);
+}
+:root[data-skin='o5'] .mag-head {
+  font-family: var(--font-display);
+  font-weight: 340;
+  font-variation-settings: 'opsz' 144;
+  letter-spacing: -0.03em;
+  line-height: 0.95;
+  font-size: clamp(42px, 10vw, 84px);
+}
+:root[data-skin='o5'] .mag-dek {
+  max-width: 34ch;
+  font-family: var(--font-display);
+  font-variation-settings: 'opsz' 24;
+  font-size: calc(clamp(18px, 2.4vw, 22px) * var(--text-scale));
+  line-height: 1.38;
+}
+/* The chapter number sits far behind, like the home's. */
+:root[data-skin='o5'] .mag-numeral {
+  display: block;
+  position: absolute;
+  right: -2vw;
+  top: -0.12em;
+  font-family: var(--font-display);
+  font-style: italic;
+  font-weight: 200;
+  font-variation-settings: 'opsz' 144;
+  font-size: clamp(160px, 42vw, 380px);
+  line-height: 0.8;
+  letter-spacing: -0.06em;
+  color: color-mix(in srgb, var(--text) 5%, transparent);
+  transform: translate3d(0, calc(var(--p, 0) * 10vh), -1px);
+  pointer-events: none;
+  user-select: none;
+  z-index: -1;
+}
+/* The depth moves a chapter's contents, never the chapter itself, so measuring it (depth.ts)
+   always sees where it really is. */
+:root[data-skin='o5'][data-motion='full'] .sheet[data-page] [data-depth] > :not(.mag-numeral) {
+  transform: translate3d(0, calc(var(--p, 0) * -3vh), calc(var(--ap, 0) * -160px)) rotateX(calc(var(--p, 0) * 6deg));
+  opacity: calc(1 - var(--ap, 0) * 0.7);
+  filter: blur(calc(var(--ap, 0) * 2.5px));
+}
+:root[data-skin='o5'][data-motion='lite'] .sheet[data-page] [data-depth] > :not(.mag-numeral) { opacity: calc(1 - var(--ap, 0) * 0.55); }
+/* Contents: a quiet line of numbered chapters, as in a magazine. */
+:root[data-skin='o5'] .mag-contents { gap: 4px 22px; }
+:root[data-skin='o5'] .mag-contents button {
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: none;
+  font-family: var(--font-display);
+  font-size: calc(20px * var(--text-scale));
+}
+:root[data-skin='o5'] .mag-contents button:hover { font-style: italic; }
+:root[data-skin='o5'] .mag-contents-n { font: 500 var(--fs-xs) / 1 var(--font-ui); letter-spacing: 0.1em; color: var(--text-3); }
+:root[data-skin='o5'] .mag-contents svg { color: var(--text-3); }
+:root[data-skin='o5'] .mag-colophon { font-family: var(--font-display); font-style: italic; font-size: calc(17px * var(--text-scale)); color: var(--text-3); }
+/* Store entries: the Makers catalogue's rows (serif name, one line, small caps action). */
+:root[data-skin='o5'] .ai-store-list { gap: 0; border-top: 1px solid var(--o5-hair); }
+:root[data-skin='o5'] .ai-store-tags { font: 600 calc(10px * var(--text-scale)) / 1.4 var(--font-ui); letter-spacing: 0.16em; text-transform: uppercase; color: var(--text-3); }
+:root[data-skin='o5'] .ai-store-tags-warn { color: var(--warning); }
+:root[data-skin='o5'] .ai-store .ai-storage-row { font: 600 calc(11px * var(--text-scale)) / 1.4 var(--font-ui); letter-spacing: 0.14em; text-transform: uppercase; color: var(--text-2); }
+:root[data-skin='o5'] .ai-store .ai-search input {
+  border: 0;
+  border-bottom: 1px solid var(--o5-hair);
+  border-radius: 0;
+  background: transparent;
+  font-family: var(--font-display);
+  font-size: calc(22px * var(--text-scale));
+}
+:root[data-skin='o5'] .ai-store .ai-search input:focus { outline: none; border-bottom-color: var(--text); }
+:root[data-skin='o5'] .ai-store .ai-pull { border-radius: 0; background: none; padding: 8px 0; border-bottom: 1px solid var(--o5-hair); }
+:root[data-skin='o5'] .ai-store .ai-pills .ai-pill { padding: 0; background: none; border-radius: 0; font: 600 calc(10px * var(--text-scale)) / 1.4 var(--font-ui); letter-spacing: 0.16em; text-transform: uppercase; color: var(--text-3); }
+:root[data-skin='o5'] .ai-store .ai-pills { gap: 4px 14px; }
+:root[data-skin='o5'] .ai-repo-name { font-family: var(--font-display); font-weight: 400; font-size: calc(26px * var(--text-scale)); letter-spacing: -0.01em; }
+/* Under "Talk" in the index: the two stores, as small underlined words. */
+.o5-index-subs { display: flex; flex-wrap: wrap; gap: 0 22px; padding: 0 0 8px calc(3ch + clamp(12px, 3vw, 28px)); }
+.o5-index-sub {
+  min-height: var(--tap);
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--text-2);
+  font-family: var(--font-display);
+  font-size: calc(19px * var(--text-scale));
+  text-decoration: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 6px;
+  cursor: pointer;
+}
+.o5-index-sub:hover, .o5-index-sub:focus-visible { color: var(--text); font-style: italic; }
 
 /* Conversations with depth: messages come up out of the page and sink away at the top edge. */
 @supports (animation-timeline: view()) {
