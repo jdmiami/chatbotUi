@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Image and video maker for the AI machine: installs ComfyUI (pinned) with a CUDA build of PyTorch
-# on the network volume (once), then keeps it running on 127.0.0.1:8188. Started in the background
+# on the network volume (once), then keeps it running on 127.0.0.1:8188. With STORAGE=r2 (no volume)
+# the installed environment is kept in Cloudflare R2 as one tar and unpacked at start instead. Started in the background
 # by ai/setup.sh. The gate downloads the model files and is the only way in (ComfyUI is never exposed).
 #
 # Writes $STUDIO_DIR/state: installing | starting | running | error: <reason>
@@ -16,6 +17,8 @@ STAMP="$COMFY_VERSION $TORCH"
 log() { echo "[studio] $*"; }
 state() { if [ "${AI_ROLE:-main}" = "helper" ]; then echo "$*" > "$S/state-helper"; else echo "$*" > "$S/state"; fi; }
 mkdir -p "$S/models" "$S/input" "$S/output" "$S/pip-cache"
+ENV_KEY="env/studio-$(echo "$STAMP" | sha1sum | cut -c1-12).tar"
+r2() { "${NODE:-node}" /opt/gate/src/r2cli.js "$@"; }
 
 install() {
   state installing
@@ -59,10 +62,19 @@ if ! command -v git >/dev/null || ! python3 -c 'import ensurepip' 2>/dev/null; t
   (apt-get update -qq && DEBIAN_FRONTEND=noninteractive apt-get install -y -qq git python3-venv >/dev/null) || true
 fi
 
-# A helper machine shares the main machine's volume: it never installs or updates anything there
-# (two machines writing the same files at once could break them); it waits for the main machine.
 installed() { [ "$(cat "$S/venv/.installed" 2>/dev/null)" = "$STAMP" ] && [ -d "$S/ComfyUI/.git" ] && [ -L "$S/ComfyUI/models" ]; }
-if [ "${AI_ROLE:-}" = "helper" ]; then
+if [ "${STORAGE:-volume}" = r2 ] && ! installed; then
+  state installing
+  log "bringing back the maker's environment from R2"
+  r2 get-tar "$ENV_KEY" "$S" || log "not saved in R2 yet: installing it (a few minutes, then saved for next time)"
+fi
+
+# On a shared volume a helper machine never installs or updates anything there (two machines
+# writing the same files at once could break them); it waits for the main machine. With R2 each
+# machine has its own disk and installs for itself.
+SHARED_HELPER=""
+if [ "${AI_ROLE:-}" = "helper" ] && [ "${STORAGE:-volume}" != r2 ]; then SHARED_HELPER=1; fi
+if [ -n "$SHARED_HELPER" ]; then
   until installed; do
     state "error: waiting for the main AI machine to finish setting up the maker"
     log "maker not set up on the volume yet; the main AI machine does that. Checking again in 60s"
@@ -70,11 +82,15 @@ if [ "${AI_ROLE:-}" = "helper" ]; then
   done
 fi
 
-until [ "${AI_ROLE:-}" = "helper" ] || install; do
+until [ -n "$SHARED_HELPER" ] || install; do
   state "error: install failed, retrying in 60s"
   log "install failed, retrying in 60s"
   sleep 60
 done
+if [ "${STORAGE:-volume}" = r2 ] && ! r2 has "$ENV_KEY"; then
+  log "saving the maker's environment in R2 for next time"
+  (r2 put-tar "$ENV_KEY" "$S" venv ComfyUI || log "could not save it; will try at the next start") &
+fi
 
 cd "$S/ComfyUI" || exit 1
 # Each machine keeps its own ComfyUI settings, database and temp files (ComfyUI empties its temp
@@ -85,7 +101,7 @@ while true; do
   state starting
   log "starting ComfyUI"
   # Never sees the gate's secrets.
-  env -u GATEWAY_SECRET -u RUNPOD_API_KEY -u STUDIO_KEY \
+  env -u GATEWAY_SECRET -u RUNPOD_API_KEY -u STUDIO_KEY -u R2_ACCESS_KEY_ID -u R2_SECRET_ACCESS_KEY \
     "$S/venv/bin/python" main.py --listen 127.0.0.1 --port 8188 \
     --input-directory "$S/input" --output-directory "$S/output" \
     --user-directory "$ROLE_DIR/user" --temp-directory "$ROLE_DIR/temp" \

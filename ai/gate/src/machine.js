@@ -112,7 +112,7 @@ export async function installModel({ ollama, spec, onProgress = () => {}, fetchI
  * Makes sure the default models are downloaded (on the machine's storage, so this happens once).
  * Downloads run one at a time; progress is visible in /_orbit/status.
  */
-export function createModelKeeper({ ollama, wanted: specs, retryMs = 60_000, fetchImpl = fetch }) {
+export function createModelKeeper({ ollama, wanted: specs, retryMs = 60_000, fetchImpl = fetch, restore = null, saved = async () => {} }) {
   const wantedModels = specs.map(parseModelSpec);
   const wanted = wantedModels.map((m) => m.name);
   let current = null; // { model, completed, total, status }
@@ -136,6 +136,12 @@ export function createModelKeeper({ ollama, wanted: specs, retryMs = 60_000, fet
     if (running) return;
     running = true;
     try {
+      // Models kept in R2 come back first, so they aren't downloaded from their home sites again.
+      if (restore) {
+        current = { model: 'your saved models', status: 'bringing back', completed: 0, total: 0 };
+        await restore((p) => (current = { ...current, ...p })).catch((err) => console.warn(`[gate] could not bring models back from R2: ${err.message}`));
+        current = null;
+      }
       for (;;) {
         let missing;
         try {
@@ -148,6 +154,7 @@ export function createModelKeeper({ ollama, wanted: specs, retryMs = 60_000, fet
         if (!missing.length) break;
         try {
           await install(missing[0]);
+          await saved().catch((err) => console.warn(`[gate] could not keep ${missing[0].name} in R2: ${err.message}`));
         } catch (err) {
           console.warn(`[gate] ${err.message}; retrying in ${Math.round(retryMs / 1000)}s`);
           current = null;

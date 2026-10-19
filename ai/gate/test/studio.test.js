@@ -7,6 +7,7 @@ import path from 'node:path';
 import { createGate } from '../src/gate.js';
 import { signJwt } from '../src/jwt.js';
 import { BLOCKED_MESSAGE, blockedPrompt, createStudio, outputFiles } from '../src/studio.js';
+import { memoryR2 } from './fakes/memoryR2.js';
 
 const SECRET = 'y'.repeat(40);
 const KEY = 'k'.repeat(48);
@@ -119,6 +120,50 @@ test('studio: a job frees the chat model, runs on ComfyUI, and lands in the gall
   assert.equal(file.size, 7);
   assert.equal(await studio.remove(job.id), true);
   assert.deepEqual(await studio.items(), []);
+});
+
+test('studio with R2: the gallery is kept there, shows up on a fresh machine, and is deleted there too', async () => {
+  const { r2, objects } = memoryR2();
+  const { dir, state } = await newStudio();
+  const studio = createStudio({ dir, files: FILES, fetchImpl: fakeServices(state), WebSocketImpl: null, log: { warn() {}, info() {} }, freeAfterMs: 0, r2 });
+  const job = await studio.createJob({ kind: 'image', prompt: 'a red fox in snow', size: 'portrait' });
+  await fs.mkdir(path.join(dir, 'output', 'orbit'), { recursive: true });
+  await fs.writeFile(path.join(dir, 'output', 'orbit', state.outName), 'PNGDATA');
+  state.finished = true;
+  await studio.poll();
+  assert.equal(studio.job(job.id).status, 'done');
+  assert.deepEqual([...objects.keys()].sort(), [`gallery/orbit/${job.id}.json`, `gallery/orbit/${state.outName}`, 'state/timings.json']);
+
+  // The disk was wiped (a new start): the gallery comes back from R2, the file when it's opened.
+  const fresh = await newStudio();
+  const again = createStudio({ dir: fresh.dir, files: FILES, fetchImpl: fakeServices(fresh.state), WebSocketImpl: null, log: { warn() {}, info() {} }, r2 });
+  assert.deepEqual((await again.items()).map((i) => i.id), [job.id]);
+  const file = await again.file(job.id);
+  assert.equal(await fs.readFile(file.path, 'utf8'), 'PNGDATA');
+  assert.equal(await again.remove(job.id), true);
+  assert.deepEqual([...objects.keys()], ['state/timings.json']);
+});
+
+test('studio with R2: model files come from R2 when kept there, else from their home site and then into R2', async () => {
+  const { r2, objects } = memoryR2();
+  await r2.put('models/diffusion_models/img.safetensors', 'abcd');
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'studio-'));
+  const fromHome = [];
+  const fetchImpl = async (url, init) => {
+    const u = new URL(url);
+    if (u.hostname === 'huggingface.co') {
+      fromHome.push(u.pathname);
+      return new Response('wxyz');
+    }
+    return fakeServices({ calls: [], prompts: [], loaded: [] })(url, init);
+  };
+  const studio = createStudio({ dir, files: FILES, fetchImpl, WebSocketImpl: null, log: { warn() {}, info() {} }, r2, pollMs: 60_000 });
+  studio.start();
+  for (let i = 0; i < 200 && !(await studio.state()).video.downloaded; i++) await new Promise((r) => setTimeout(r, 10));
+  assert.equal(await fs.readFile(path.join(dir, 'models/diffusion_models/img.safetensors'), 'utf8'), 'abcd');
+  assert.deepEqual(fromHome, ['/o/r/resolve/main/vid.safetensors'], 'only the file R2 did not have came from its home site');
+  for (let i = 0; i < 200 && !objects.has('models/checkpoints/vid.safetensors'); i++) await new Promise((r) => setTimeout(r, 10));
+  assert.equal(String(objects.get('models/checkpoints/vid.safetensors')), 'wxyz');
 });
 
 test('studio: refuses blocked prompts before anything runs, and waits for downloads', async () => {

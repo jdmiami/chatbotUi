@@ -65,6 +65,10 @@ export function createMovies(o) {
   const now = o.now || Date.now;
   const pollMs = o.pollMs ?? 3000;
   const log = o.log || console;
+  // With R2 (no network volume), movies are kept there too: see studio.js.
+  const mirror = o.mirror || null;
+  let pulledAt = 0;
+  const saves = new Map(); // movie id -> its latest upload
   const moviesDir = path.join(o.dir, 'output', 'orbit', 'movies');
   const running = new Map(); // movie id -> { stop: boolean, jobId }
   // Two AI machines (main and helper) share the movies folder. The one making a movie marks it
@@ -80,6 +84,7 @@ export function createMovies(o) {
     try {
       return JSON.parse(await fsp.readFile(file(id), 'utf8'));
     } catch {
+      if (mirror && (await mirror.fetch(file(id)).catch(() => false))) return JSON.parse(await fsp.readFile(file(id), 'utf8'));
       return null;
     }
   }
@@ -91,6 +96,8 @@ export function createMovies(o) {
     const tmp = `${file(m.id)}.${newId()}.tmp`;
     await fsp.writeFile(tmp, JSON.stringify(m));
     await fsp.rename(tmp, file(m.id));
+    // One upload at a time per movie, each reading the file as it is then: the last word always wins.
+    if (mirror) saves.set(m.id, (saves.get(m.id) || Promise.resolve()).then(() => mirror.save(file(m.id))));
     return view(m);
   }
   // After a restart nothing is making shots, so a shot left "making" is just waiting.
@@ -109,6 +116,10 @@ export function createMovies(o) {
   });
 
   async function list() {
+    if (mirror && now() - pulledAt > 10_000) {
+      pulledAt = now();
+      await mirror.pull('orbit/movies/', (rel) => rel.endsWith('.json')).catch((err) => log.warn?.(`[movies] could not read movies from R2: ${err.message}`));
+    }
     const names = await fsp.readdir(moviesDir).catch(() => []);
     const out = [];
     for (const n of names) if (n.endsWith('.json')) {
@@ -179,6 +190,7 @@ export function createMovies(o) {
       await state.done;
     }
     await fsp.rm(file(id), { force: true });
+    if (mirror) await mirror.drop(file(id));
     return true;
   }
 

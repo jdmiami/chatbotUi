@@ -13,6 +13,7 @@ import { createGpuStats } from './gpustats.js';
 import { createSearch } from './search.js';
 import { createVoice } from './voice.js';
 import { createR2, createR2Test, r2FromEnv } from './r2.js';
+import { createOllamaSync, createWebuiBackup } from './cloud.js';
 import { STUDIO_FILES } from './workflows.js';
 
 const env = process.env;
@@ -27,21 +28,30 @@ const OLLAMA = env.OLLAMA_URL || 'http://127.0.0.1:11434';
 const WEBUI = env.WEBUI_URL || 'http://127.0.0.1:8081';
 const startedAt = Date.now();
 
+// No network volume (STORAGE=r2): the disk is wiped at every stop, so chat models, the gallery,
+// the maker's files and the playground's chats are kept in Cloudflare R2 (see cloud.js).
+const r2conf = r2FromEnv(env);
+const r2 = env.STORAGE === 'r2' && r2conf ? createR2(r2conf) : null;
+if (env.STORAGE === 'r2' && !r2) console.warn('[gate] STORAGE=r2 but the R2 keys are missing: nothing will be kept after a stop');
+const ollamaSync = r2 && !HELPER && env.OLLAMA_MODELS ? createOllamaSync({ r2, dir: env.OLLAMA_MODELS, log: console }) : null;
+const webuiBackup = r2 && !HELPER && env.WEBUI_DIR ? createWebuiBackup({ r2, dir: env.WEBUI_DIR, log: console }) : null;
+
 const models = createModelKeeper({
   ollama: OLLAMA,
   wanted: HELPER ? [] : (env.DEFAULT_MODELS || '').split(',').map((s) => s.trim()).filter(Boolean),
+  restore: ollamaSync ? (onProgress) => ollamaSync.restore(onProgress) : null,
+  saved: async () => ollamaSync && (await ollamaSync.backup()),
 });
 
 // Image and video maker (ComfyUI, started by ai/studio.sh). Off when STUDIO_DIR isn't set.
 const studio = env.STUDIO_DIR
-  ? createStudio({ dir: env.STUDIO_DIR, comfy: env.COMFY_URL || 'http://127.0.0.1:8188', ollama: OLLAMA, helper: HELPER, inUseElsewhere: (id) => movies?.usedElsewhere(id) })
+  ? createStudio({ dir: env.STUDIO_DIR, comfy: env.COMFY_URL || 'http://127.0.0.1:8188', ollama: OLLAMA, helper: HELPER, r2, inUseElsewhere: (id) => movies?.usedElsewhere(id) })
   : null;
 // soReal movies (chained video shots), kept with the studio's files.
-const movies = studio ? createMovies({ dir: env.STUDIO_DIR, studio, machine: HELPER ? 'helper' : 'main' }) : null;
+const movies = studio ? createMovies({ dir: env.STUDIO_DIR, studio, machine: HELPER ? 'helper' : 'main', mirror: studio.mirror }) : null;
 // R2 speed test (only when the R2 keys are set as Runpod secrets): the Qwen image model, volume vs R2.
-const r2conf = studio ? r2FromEnv(env) : null;
 const QWEN = STUDIO_FILES.image[0];
-const r2test = r2conf
+const r2test = studio && r2conf && !r2
   ? createR2Test({ r2: createR2(r2conf), file: path.join(env.STUDIO_DIR, 'models', QWEN.dir, QWEN.name), key: `models/${QWEN.dir}/${QWEN.name}` })
   : null;
 
@@ -50,8 +60,12 @@ const idle = createIdleWatch({
   limitMinutes: Math.min(Number(env.IDLE_MINUTES) || 20, 20),
   // Busy while a picture, video or movie shot is being made or a download is running. A model merely
   // sitting in GPU memory is not a job.
-  busy: async () => Boolean(models.pulling() || studio?.busy() || r2test?.running()),
-  stop: () => runpodStopSelf({ podId: env.RUNPOD_POD_ID, apiKey: env.RUNPOD_API_KEY }),
+  busy: async () => Boolean(models.pulling() || studio?.busy() || r2test?.running() || ollamaSync?.busy() || webuiBackup?.busy()),
+  stop: async () => {
+    // Last chats first: the disk is wiped when the machine stops.
+    if (webuiBackup) await webuiBackup.snapshot().catch((err) => console.warn(`[gate] could not save the playground: ${err.message}`));
+    await runpodStopSelf({ podId: env.RUNPOD_POD_ID, apiKey: env.RUNPOD_API_KEY });
+  },
   log: console,
 });
 
@@ -134,7 +148,12 @@ const server = createGate({
   movies,
   r2test,
   studioKey: env.STUDIO_KEY || '',
-  store: createModelStore({ ollama: OLLAMA, volume: env.PERSIST_DIR || '/workspace' }),
+  store: createModelStore({
+    ollama: OLLAMA,
+    volume: env.PERSIST_DIR || '/workspace',
+    saved: async () => ollamaSync && (await ollamaSync.backup()),
+    removed: async () => ollamaSync && (await ollamaSync.prune().catch((err) => console.warn(`[gate] could not remove it from R2: ${err.message}`))),
+  }),
   search: createSearch(),
   voice: createVoice({ webui: WEBUI, email: env.AI_USER_EMAIL || 'owner@orbit.local', name: env.AI_USER_NAME || 'Owner' }),
 });
@@ -142,6 +161,7 @@ const server = createGate({
 server.listen(Number(env.PORT || 8080), '0.0.0.0', () => console.log(`[gate] listening on :${env.PORT || 8080}`));
 if (!HELPER) models.start();
 idle.start();
+webuiBackup?.start();
 
 if (studio) studio.start();
 if (studio && !HELPER) {

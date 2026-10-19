@@ -6,15 +6,18 @@ import { runpod, type PodStatus } from './runpod';
 /**
  * The AI machine: a Runpod GPU pod running Open WebUI + Ollama behind a small gate (ai/setup.sh).
  * It is only on while used: the site creates/starts it on demand and the machine stops itself when
- * idle. Models and chats live on a network volume (AI_VOLUME_ID), so a stopped, replaced or
- * re-created machine keeps them.
+ * idle. Models, chats and creations are kept in Cloudflare R2 (bucket orbit-models; keys are Runpod
+ * secrets r2_account_id, r2_access_key_id, r2_secret_access_key): the machine has no network volume,
+ * its disk is wiped at every stop, and it brings everything back down from R2 at start. So any
+ * machine in any data center can pick up where the last one left off. AI_STORAGE=volume (with
+ * AI_VOLUME_ID) keeps the old way: a Runpod network volume at /workspace.
  *
  * The site finds the machine by name (AI_POD_NAME) instead of a fixed id: when a stopped pod's host
- * has no free GPU, the site replaces it with a new pod on the same volume, which gets a new id.
+ * has no free GPU, the site replaces it with a new pod, which gets a new id.
  */
 
 export type AiState =
-  | 'unconfigured' // AI_VOLUME_ID / RUNPOD_API_KEY / secret missing
+  | 'unconfigured' // RUNPOD_API_KEY / secret missing (or AI_VOLUME_ID with AI_STORAGE=volume)
   | 'off' // stopped or not created yet: costs nothing per hour
   | 'starting' // booting, installing, or Open WebUI/Ollama not answering yet
   | 'downloading' // up, but still downloading the default models (first start)
@@ -42,6 +45,8 @@ export interface AiTier {
   id: string;
   label: string;
   gpu: string;
+  /** Other GPUs of the same speed and price, tried when `gpu` is sold out. */
+  alsoGpus?: string[];
   gpuName: string;
   pricePerHour: number;
   idleMinutes: number;
@@ -59,11 +64,18 @@ interface Pod {
   gpu?: { id?: string } | null;
 }
 
+// North American Secure Cloud data centers, tried in this order (R2's bucket is in eastern North America).
+const NA_DATA_CENTERS = 'US-NC-1,US-NC-2,US-PA-1,US-MD-1,US-GA-2,US-IL-1,US-MO-1,US-MO-2,US-KS-2,US-NE-1,US-TX-3,US-TX-4,US-CO-1,US-CA-2,US-WA-1,US-WA-2,CA-MTL-1,CA-MTL-3,CA-MTL-4';
+const list = (v: string) => v.split(',').map((s) => s.trim()).filter(Boolean);
+
 const env = () => ({
   name: process.env.AI_POD_NAME || 'orbit-ai',
+  // 'r2' (default): no network volume, everything kept in R2. 'volume': the network volume AI_VOLUME_ID.
+  storage: process.env.AI_STORAGE === 'volume' ? ('volume' as const) : ('r2' as const),
   volumeId: process.env.AI_VOLUME_ID || '',
-  dataCenter: process.env.AI_DATA_CENTER || 'CA-MTL-1',
-  gpuTypes: (process.env.AI_GPU_TYPES || 'NVIDIA A40').split(',').map((s) => s.trim()).filter(Boolean),
+  dataCenters: process.env.AI_STORAGE === 'volume' ? [process.env.AI_DATA_CENTER || 'CA-MTL-1'] : list(process.env.AI_DATA_CENTERS || NA_DATA_CENTERS),
+  // Standard: whichever of these is free (both 48 GB, same price).
+  gpuTypes: list(process.env.AI_GPU_TYPES || 'NVIDIA A40,NVIDIA RTX A6000'),
   image: process.env.AI_IMAGE || 'ghcr.io/open-webui/open-webui:0.12.2-ollama',
   // The machines never wait longer than 20 minutes without a job (the gate enforces it too).
   idleMinutes: String(Math.min(Number(process.env.AI_IDLE_MINUTES) || 20, 20)),
@@ -71,10 +83,7 @@ const env = () => ({
   secret: process.env.LINUX_GATEWAY_SECRET || '',
 });
 
-/**
- * Speeds to choose from. Both default GPUs are in the volume's data center (a pod can only use a
- * network volume in its own data center). Override with AI_TIERS (JSON array of AiTier).
- */
+/** Speeds to choose from. Override with AI_TIERS (JSON array of AiTier). */
 export function aiTiers(): AiTier[] {
   try {
     const custom = JSON.parse(process.env.AI_TIERS || 'null');
@@ -83,20 +92,21 @@ export function aiTiers(): AiTier[] {
     /* fall back to the defaults */
   }
   return [
-    { id: 'standard', label: 'Standard', gpu: env().gpuTypes[0] || 'NVIDIA A40', gpuName: 'A40 48 GB', pricePerHour: 0.59, idleMinutes: Number(env().idleMinutes) || 20, speed: 'normal speed' },
+    { id: 'standard', label: 'Standard', gpu: env().gpuTypes[0] || 'NVIDIA A40', alsoGpus: env().gpuTypes.slice(1), gpuName: 'A40 / A6000 48 GB', pricePerHour: 0.59, idleMinutes: Number(env().idleMinutes) || 20, speed: 'normal speed' },
     { id: 'turbo', label: 'Turbo', gpu: 'NVIDIA H100 80GB HBM3', gpuName: 'H100 80 GB', pricePerHour: 3.99, idleMinutes: 10, speed: 'about 4–6× faster' },
   ];
 }
-const tierOf = (pod: Pod | null) => (pod?.gpu?.id ? (aiTiers().find((t) => t.gpu === pod.gpu!.id) ?? null) : null);
+const gpusOf = (t: AiTier) => [t.gpu, ...(t.alsoGpus ?? [])];
+const tierOf = (pod: Pod | null) => (pod?.gpu?.id ? (aiTiers().find((t) => gpusOf(t).includes(pod.gpu!.id!)) ?? null) : null);
 
 /**
- * Set up when the site can manage the machine (Runpod key + volume), or at least knows a fixed
- * machine (AI_POD_ID) it can use whenever that machine is on.
+ * Set up when the site can manage the machine (Runpod key, plus the volume in volume mode), or at
+ * least knows a fixed machine (AI_POD_ID) it can use whenever that machine is on.
  */
 export function aiConfigured() {
   const e = env();
   if (e.secret.length < 32) return false;
-  return Boolean((process.env.RUNPOD_API_KEY && e.volumeId) || process.env.AI_POD_ID);
+  return Boolean((process.env.RUNPOD_API_KEY && (e.storage === 'r2' || e.volumeId)) || process.env.AI_POD_ID);
 }
 
 async function gateUp(podId: string) {
@@ -141,7 +151,7 @@ export async function findAiPod(): Promise<Pod | null> {
 }
 
 /**
- * The helper: an optional second AI machine on the same volume that only makes images and videos
+ * The helper: an optional second AI machine that only makes images and videos
  * (soReal can make two movies at once). Same GPU and price as Standard; it turns itself off when idle.
  */
 const helperName = () => `${env().name}-helper`;
@@ -151,7 +161,8 @@ async function createAiPod(tier: AiTier, role: 'main' | 'helper' = 'main'): Prom
   const e = env();
   const origins = process.env.LINUX_ALLOWED_ORIGINS || [siteUrl(), 'https://chatbot-ui-62nj-*-jdmiamis-projects.vercel.app'].filter(Boolean).join(',');
   let lastError: Error | null = null;
-  for (const gpu of [tier.gpu]) {
+  const r2 = e.storage === 'r2';
+  for (const gpu of gpusOf(tier)) {
     try {
       return (await runpod('/pods', {
         method: 'POST',
@@ -160,11 +171,13 @@ async function createAiPod(tier: AiTier, role: 'main' | 'helper' = 'main'): Prom
           cloud: 'SECURE',
           // 12.8+: the image/video maker uses a CUDA 12.8 build of PyTorch.
           gpu: { id: gpu, count: 1, minCudaVersion: '12.8' },
-          dataCenterIds: [e.dataCenter],
+          dataCenterIds: e.dataCenters,
           image: e.image,
-          disk: 40,
+          // With R2 the models are unpacked onto the pod's own disk at every start (it is only billed
+          // while the machine is on and is wiped when it stops).
+          disk: r2 ? 250 : 40,
           ports: ['8080/http'],
-          mounts: { network: [{ volumeId: e.volumeId, path: '/workspace' }] },
+          ...(r2 ? {} : { mounts: { network: [{ volumeId: e.volumeId, path: '/workspace' }] } }),
           entrypoint: ['/bin/bash', '-c'],
           cmd: ['curl -fsSL "$REPO_RAW/ai/setup.sh" | bash'],
           env: {
@@ -174,6 +187,15 @@ async function createAiPod(tier: AiTier, role: 'main' | 'helper' = 'main'): Prom
             ALLOWED_ORIGINS: origins,
             IDLE_MINUTES: String(tier.idleMinutes),
             DEFAULT_MODELS: e.models,
+            ...(r2
+              ? {
+                  STORAGE: 'r2',
+                  // Runpod fills these in from its secrets; the site never sees the keys.
+                  R2_ACCOUNT_ID: '{{ RUNPOD_SECRET_r2_account_id }}',
+                  R2_ACCESS_KEY_ID: '{{ RUNPOD_SECRET_r2_access_key_id }}',
+                  R2_SECRET_ACCESS_KEY: '{{ RUNPOD_SECRET_r2_secret_access_key }}',
+                }
+              : {}),
             ...(role === 'helper' ? { AI_ROLE: 'helper' } : {}),
           },
         }),
@@ -215,7 +237,7 @@ async function waitStopped(podId: string, ms = 45_000) {
 /**
  * Turn the AI machine on at the chosen speed (default: the speed it was last on). Starts it,
  * creates it, moves it to the other speed's GPU, or replaces it when its host has no free GPU.
- * Models, chats and creations are on the network volume, so a new pod picks up where the old left off.
+ * Models, chats and creations are kept in R2 (or on the network volume), so a new pod picks up where the old left off.
  */
 export async function startAi(tierId?: string): Promise<void> {
   if (!process.env.RUNPOD_API_KEY) throw new Error('Add RUNPOD_API_KEY in Vercel so the site can turn the AI machine on.');
@@ -227,7 +249,7 @@ export async function startAi(tierId?: string): Promise<void> {
     return;
   }
   const current = tierOf(pod);
-  if (current && current.gpu !== tier.gpu) {
+  if (current && current.id !== tier.id) {
     // Another speed: stop this machine, start one on the other GPU, then remove the old one.
     if (pod.status !== 'EXITED') {
       await runpod(`/pods/${encodeURIComponent(pod.id)}/action`, { method: 'POST', body: JSON.stringify({ action: 'stop' }) }).catch(() => {});
@@ -252,8 +274,8 @@ export async function startAi(tierId?: string): Promise<void> {
     await runpod(`/pods/${encodeURIComponent(pod.id)}/action`, { method: 'POST', body: JSON.stringify({ action: 'start' }) });
   } catch (err) {
     if (!noCapacity((err as Error).message) && pod.status !== 'ERROR') throw err;
-    // Everything worth keeping is on the network volume, so a fresh pod picks up where it left off.
-    // If no GPU is free anywhere in the volume's data center either, keep the old pod and say so.
+    // Everything worth keeping is in R2 (or on the network volume), so a fresh pod picks up where it
+    // left off. If no GPU is free anywhere either, keep the old pod and say so.
     await createOrExplain(tier);
     await runpod(`/pods/${encodeURIComponent(pod.id)}`, { method: 'DELETE' }).catch(() => {});
   }
@@ -365,7 +387,7 @@ interface GateStatus {
 
 export async function aiStatus(user: string): Promise<AiStatus & { podId?: string }> {
   if (!aiConfigured()) {
-    return { state: 'unconfigured', costPerHour: null, detail: 'The AI machine is not set up in Vercel yet (AI_VOLUME_ID).' };
+    return { state: 'unconfigured', costPerHour: null, detail: 'The AI machine is not set up in Vercel yet (RUNPOD_API_KEY and LINUX_GATEWAY_SECRET).' };
   }
   let pod: Pod | null;
   try {

@@ -48,7 +48,8 @@ const HF = 'https://huggingface.co';
 const QUANT = /[-_.]((?:UD-)?(?:I?Q\d(?:_[A-Z0-9]+)*|BF16|F16|F32))\.gguf$/i;
 
 /**
- * @param {object} o  ollama (URL), volume (path for free-space), fetchImpl, statfs (tests)
+ * @param {object} o  ollama (URL), volume (path for free-space), saved / removed (after an install or
+ *   delete, e.g. to keep R2 in step), fetchImpl, statfs (tests)
  */
 export function createModelStore(o) {
   const ollama = o.ollama;
@@ -147,7 +148,9 @@ export function createModelStore(o) {
       spec: s,
       fetchImpl: f,
       onProgress: (p) => pulls.set(target, { status: p.status, percent: p.total ? Math.floor((p.completed / p.total) * 100) : 0, error: null, done: false }),
-    }).then(
+    })
+      .then(() => Promise.resolve(o.saved?.()).catch((err) => console.warn(`[gate] could not keep ${target} in R2: ${err.message}`)))
+      .then(
       () => pulls.delete(target),
       (err) => pulls.set(target, { status: 'failed', percent: 0, error: err.message, done: true }),
     );
@@ -158,6 +161,7 @@ export function createModelStore(o) {
     const res = await f(`${ollama}/api/delete`, { method: 'DELETE', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ model: name }) });
     if (!res.ok) throw Object.assign(new Error(`Could not delete ${name}`), { status: res.status });
     pulls.delete(name);
+    await o.removed?.();
   }
 
   /** Load a model into the GPU now (the previous one is unloaded), so the first reply is quick. */

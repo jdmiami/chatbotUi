@@ -7,7 +7,9 @@ import fs from 'node:fs';
 import fsp from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
+import { Readable } from 'node:stream';
 
+const unxml = (s) => s.replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&apos;/g, "'").replace(/&amp;/g, '&');
 const sha256 = (data) => crypto.createHash('sha256').update(data).digest('hex');
 const hmac = (key, data) => crypto.createHmac('sha256', key).update(data).digest();
 // RFC 3986 encoding, as AWS Signature Version 4 wants it.
@@ -62,6 +64,55 @@ export function createR2({ accountId, accessKeyId, secretAccessKey, bucket, fetc
     },
     async remove(key) {
       await call('DELETE', key);
+    },
+    /** Every key under a prefix (ListObjectsV2), as [{ key, size }]. */
+    async list(prefix) {
+      const out = [];
+      let token = null;
+      do {
+        const query = { 'list-type': '2', prefix, ...(token ? { 'continuation-token': token } : {}) };
+        const p = `/${enc(bucket)}`;
+        const signed = signS3({ method: 'GET', host, path: p, query, accessKeyId, secretAccessKey });
+        const qs = Object.entries(query).map(([k, v]) => `${enc(k)}=${enc(String(v))}`).join('&');
+        const res = await fetchImpl(`https://${host}${p}?${qs}`, { headers: signed });
+        const text = await res.text();
+        if (!res.ok) throw new Error(`R2 list ${res.status}: ${(/<Message>([^<]*)/.exec(text)?.[1] || text).slice(0, 200)}`);
+        for (const m of text.matchAll(/<Contents>([\s\S]*?)<\/Contents>/g)) {
+          const key = /<Key>([^<]*)<\/Key>/.exec(m[1])?.[1];
+          if (key) out.push({ key: unxml(key), size: Number(/<Size>(\d+)<\/Size>/.exec(m[1])?.[1] || 0) });
+        }
+        token = /<IsTruncated>true<\/IsTruncated>/.test(text) ? unxml(/<NextContinuationToken>([^<]*)</.exec(text)?.[1] || '') : null;
+      } while (token);
+      return out;
+    },
+    async put(key, body, contentType = 'application/octet-stream') {
+      const buf = Buffer.isBuffer(body) ? body : Buffer.from(body);
+      await call('PUT', key, { headers: { 'content-length': buf.length, 'content-type': contentType }, body: buf });
+    },
+    /** A whole object as a Buffer (null when it isn't there). */
+    async get(key) {
+      const res = await call('GET', key).catch((err) => (/ 404/.test(err.message) ? null : Promise.reject(err)));
+      return res ? Buffer.from(await res.arrayBuffer()) : null;
+    },
+    async getJson(key) {
+      const buf = await this.get(key);
+      return buf ? JSON.parse(buf.toString('utf8')) : null;
+    },
+    putJson(key, value) {
+      return this.put(key, JSON.stringify(value), 'application/json');
+    },
+    /** A link anyone can GET for `seconds` (a picture or video for an <img>/<video> tag). */
+    presign(key, seconds = 3600, date = new Date()) {
+      const p = keyPath(key);
+      const amzDate = date.toISOString().replace(/[:-]|\.\d{3}/g, '');
+      const day = amzDate.slice(0, 8);
+      const scope = `${day}/auto/s3/aws4_request`;
+      const query = { 'X-Amz-Algorithm': 'AWS4-HMAC-SHA256', 'X-Amz-Credential': `${accessKeyId}/${scope}`, 'X-Amz-Date': amzDate, 'X-Amz-Expires': String(seconds), 'X-Amz-SignedHeaders': 'host' };
+      const qs = Object.keys(query).sort().map((k) => `${enc(k)}=${enc(query[k])}`).join('&');
+      const canonical = ['GET', p, qs, `host:${host}\n`, 'host', UNSIGNED].join('\n');
+      const toSign = ['AWS4-HMAC-SHA256', amzDate, scope, sha256(canonical)].join('\n');
+      const k = hmac(hmac(hmac(hmac(`AWS4${secretAccessKey}`, day), 'auto'), 's3'), 'aws4_request');
+      return `https://${host}${p}?${qs}&X-Amz-Signature=${crypto.createHmac('sha256', k).update(toSign).digest('hex')}`;
     },
     async createUpload(key) {
       const text = await (await call('POST', key, { query: { uploads: '' } })).text();
@@ -156,6 +207,156 @@ export async function downloadFile(r2, key, file, { chunkMiB = 64, concurrency =
     await h.close();
   }
   return head.size;
+}
+
+/** Upload a stream (e.g. tar output) as an object, in parts, a few at a time. */
+// `ready` (e.g. "tar finished cleanly") is awaited before the upload is completed, so a failed source
+// never leaves a cut-off object behind.
+export async function uploadStream(r2, readable, key, { partMiB = 64, concurrency = 4, ready = async () => {} } = {}) {
+  const partSize = partMiB * 1024 * 1024;
+  const uploadId = await r2.createUpload(key);
+  const parts = [];
+  const inflight = new Set();
+  let n = 0;
+  let total = 0;
+  const send = (buf, num) => {
+    const p = (async () => {
+      for (let attempt = 1; ; attempt++) {
+        try {
+          parts[num - 1] = { n: num, etag: await r2.uploadPart(key, uploadId, num, buf) };
+          return;
+        } catch (err) {
+          if (attempt >= 3) throw err;
+        }
+      }
+    })();
+    inflight.add(p);
+    p.finally(() => inflight.delete(p)).catch(() => {});
+    return p;
+  };
+  try {
+    let pending = [];
+    let size = 0;
+    for await (const chunk of readable) {
+      pending.push(chunk);
+      size += chunk.length;
+      if (size >= partSize) {
+        const all = Buffer.concat(pending, size);
+        pending = [all.subarray(partSize)];
+        size = all.length - partSize;
+        total += partSize;
+        send(Buffer.from(all.subarray(0, partSize)), ++n);
+        while (inflight.size >= concurrency) await Promise.race(inflight);
+      }
+    }
+    if (size || !n) {
+      total += size;
+      send(Buffer.concat(pending, size), ++n);
+    }
+    await Promise.all(inflight);
+    if (parts.length !== n || parts.some((p) => !p)) throw new Error('An upload part failed.');
+    await ready();
+    await r2.completeUpload(key, uploadId, parts);
+    return total;
+  } catch (err) {
+    await r2.abortUpload(key, uploadId);
+    throw err;
+  }
+}
+
+/** Download an object as a stream, fetching several pieces ahead in parallel, in order. */
+export function downloadStream(r2, key, { chunkMiB = 64, concurrency = 8 } = {}) {
+  const chunk = chunkMiB * 1024 * 1024;
+  async function* gen() {
+    const head = await r2.head(key);
+    if (!head) throw new Error(`${key} is not in the bucket.`);
+    const count = Math.ceil(head.size / chunk);
+    const get = async (i) => {
+      const start = i * chunk;
+      const end = Math.min(head.size, start + chunk) - 1;
+      for (let attempt = 1; ; attempt++) {
+        try {
+          const buf = await r2.getRange(key, start, end);
+          if (buf.length !== end - start + 1) throw new Error('short read');
+          return buf;
+        } catch (err) {
+          if (attempt >= 3) throw err;
+        }
+      }
+    };
+    const ahead = [];
+    let next = 0;
+    // Pieces fetched ahead must never fail unobserved if the reader stops early.
+    const fetchAhead = () => {
+      const p = get(next++);
+      p.catch(() => {});
+      ahead.push(p);
+    };
+    while (next < count && ahead.length < concurrency) fetchAhead();
+    while (ahead.length) {
+      const buf = await ahead.shift();
+      if (next < count) fetchAhead();
+      yield buf;
+    }
+  }
+  return Readable.from(gen());
+}
+
+/**
+ * Keeps files under `root` mirrored in R2 under `prefix` (same relative paths): save after
+ * writing, drop after deleting, and fetch or link to ones this machine doesn't have locally.
+ */
+export function createMirror({ r2, root, prefix, log = console }) {
+  const keyOf = (abs) => {
+    const rel = path.relative(root, abs);
+    if (!rel || rel.startsWith('..') || path.isAbsolute(rel)) throw new Error(`${abs} is outside ${root}`);
+    return `${prefix}${rel.split(path.sep).join('/')}`;
+  };
+  return {
+    keyOf,
+    async save(abs) {
+      try {
+        const size = (await fsp.stat(abs)).size;
+        if (size > 256 * 1024 * 1024) await uploadFile(r2, abs, keyOf(abs));
+        else await r2.put(keyOf(abs), await fsp.readFile(abs));
+      } catch (err) {
+        log.warn?.(`[r2] could not save ${abs}: ${err.message}`);
+      }
+    },
+    async drop(abs) {
+      await r2.remove(keyOf(abs)).catch((err) => log.warn?.(`[r2] could not delete ${abs}: ${err.message}`));
+    },
+    url: (abs, seconds) => r2.presign(keyOf(abs), seconds),
+    /** Bring one file down from R2 (true when it was there). */
+    async fetch(abs) {
+      const key = keyOf(abs);
+      if (!(await r2.head(key))) return false;
+      await fsp.mkdir(path.dirname(abs), { recursive: true });
+      const part = `${abs}.part`;
+      await downloadFile(r2, key, part);
+      await fsp.rename(part, abs);
+      return true;
+    },
+    /**
+     * Bring down the small files under a sub-folder that match `test` (e.g. the gallery's notes),
+     * skipping ones already here at the same size. Returns every matching path in R2.
+     */
+    async pull(sub = '', test = () => true) {
+      const all = [];
+      for (const { key, size } of await r2.list(`${prefix}${sub}`)) {
+        const rel = key.slice(prefix.length);
+        if (!test(rel)) continue;
+        all.push(rel);
+        const abs = path.join(root, ...rel.split('/'));
+        if ((await fsp.stat(abs).catch(() => null))?.size === size) continue;
+        const buf = await r2.get(key).catch(() => null);
+        if (!buf) continue;
+        await fsp.mkdir(path.dirname(abs), { recursive: true });
+        await fsp.writeFile(abs, buf);
+      }
+      return all;
+    },
+  };
 }
 
 /** SHA-256 of a file, read as fast as the disk allows. */
