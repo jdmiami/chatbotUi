@@ -16,6 +16,14 @@ varying vec2 uv;
 uniform float t;
 uniform float energy;
 uniform vec2 tilt;
+// The face: how visible (0…1), where it looks (-1…1), eyelids (0 open … 1 shut), mood (-1 sad … 1 happy),
+// how much it talks (0…1, the mouth moves) and sleepiness (heavy lids, a flat mouth).
+uniform float faceOn;
+uniform vec2 gaze;
+uniform float lids;
+uniform float mood;
+uniform float talk;
+uniform float sleepy;
 // A sin-free hash: stays smooth on phone GPUs where sin() of big numbers turns blocky.
 float hash(vec2 p){ vec3 p3 = fract(vec3(p.xyx) * 0.1031); p3 += dot(p3, p3.yzx + 33.33); return fract((p3.x + p3.y) * p3.z); }
 float noise(vec2 p){
@@ -46,6 +54,34 @@ void main(){
   float fres = pow(1.0 - n.z, 2.4);
   float spec = pow(max(dot(reflect(-L, n), vec3(0.0, 0.0, 1.0)), 0.0), 36.0);
   col = col * diffuse + fres * vec3(0.75, 0.85, 1.0) * 0.7 + spec * 0.9;
+  if (faceOn > 0.01 && n.z > 0.05) {
+    // Drawn in longitude/latitude on the sphere, so the features bend with its curve and squash
+    // towards the rim when it looks aside.
+    float lon = atan(n.x, n.z), lat = asin(clamp(n.y, -1.0, 1.0));
+    vec2 c = vec2(gaze.x * 0.55, gaze.y * 0.38);
+    float shut = clamp(max(lids, sleepy * 0.55), 0.0, 0.94);
+    float eyes = 0.0;
+    for (int i = 0; i < 2; i++) {
+      float side = i == 0 ? -1.0 : 1.0;
+      vec2 e = vec2(lon - (c.x + side * 0.30), lat - (c.y + 0.13));
+      // Happy eyes squint into arcs; sad ones droop at the outer corner.
+      e.y += mood * 0.05 * (1.0 - smoothstep(0.0, 0.1, abs(e.x))) * step(0.0, mood);
+      e.y -= min(mood, 0.0) * 0.06 * side * e.x * 6.0;
+      float h = 0.15 * (1.0 - shut);
+      float d = length(vec2(e.x / 0.085, e.y / max(h, 0.012)));
+      eyes = max(eyes, 1.0 - smoothstep(0.82, 1.0, d));
+    }
+    float mx = (lon - c.x) / 0.24;
+    float open = talk * (0.35 + 0.65 * abs(sin(t * 13.0 + sin(t * 5.0) * 2.0)));
+    float curve = (mood * (1.0 - sleepy)) * 0.075 * (mx * mx - 1.0);
+    float my = lat - (c.y - 0.2 + curve);
+    float thick = 0.02 + open * 0.06;
+    float mouth = (1.0 - smoothstep(0.85, 1.0, abs(mx))) * (1.0 - smoothstep(thick * 0.6, thick, abs(my)));
+    float ink = max(eyes, mouth) * faceOn * smoothstep(0.05, 0.35, n.z);
+    col = mix(col, vec3(0.06, 0.05, 0.12), ink * 0.88);
+    // A glint in each eye catches the light.
+    col += ink * eyes * spec * 0.6;
+  }
   gl_FragColor = vec4(col * edge, edge);
 }`;
 
@@ -54,12 +90,39 @@ void main(){
  * `resolution` draws it sharper than its box, for an orb that is scaled up on screen (the cursor orb
  * growing into the voice orb).
  */
-export function AiOrb({ typing, energy: drive, className = '', resolution = 1 }: { typing: boolean; energy?: number; className?: string; resolution?: number }) {
+export interface OrbFace {
+  /** Show the face (it fades in and out). */
+  on: boolean;
+  /** Where it looks, -1…1 on each axis (right / up are positive). */
+  gaze: [number, number];
+  /** -1 sad … 0 neutral … 1 happy. */
+  mood: number;
+  /** Talking: the mouth moves. */
+  talk: boolean;
+  /** Heavy lids and a flat mouth (the AI machine is off). */
+  sleepy: boolean;
+}
+
+export function AiOrb({
+  typing,
+  energy: drive,
+  className = '',
+  resolution = 1,
+  face,
+}: {
+  typing: boolean;
+  energy?: number;
+  className?: string;
+  resolution?: number;
+  face?: OrbFace;
+}) {
   const level = useMotionLevel();
   const ref = useRef<HTMLCanvasElement>(null);
   const target = useRef(0.25);
   target.current = drive != null ? Math.max(0.15, Math.min(1, drive)) : typing ? 1 : 0.25;
   const gpu = level === 'full' && typeof WebGLRenderingContext !== 'undefined';
+  const faceRef = useRef<OrbFace | undefined>(face);
+  faceRef.current = face;
   // Sharper only while it needs to be (drawing is the cost): changing it resizes, never rebuilds.
   const res = useRef(resolution);
   res.current = resolution;
@@ -91,6 +154,15 @@ export function AiOrb({ typing, energy: drive, className = '', resolution = 1 }:
     const uT = gl.getUniformLocation(prog, 't');
     const uE = gl.getUniformLocation(prog, 'energy');
     const uTilt = gl.getUniformLocation(prog, 'tilt');
+    const uFace = gl.getUniformLocation(prog, 'faceOn');
+    const uGaze = gl.getUniformLocation(prog, 'gaze');
+    const uLids = gl.getUniformLocation(prog, 'lids');
+    const uMood = gl.getUniformLocation(prog, 'mood');
+    const uTalk = gl.getUniformLocation(prog, 'talk');
+    const uSleepy = gl.getUniformLocation(prog, 'sleepy');
+    // Eased face values, and the next blink.
+    const fv = { on: 0, gx: 0, gy: 0, mood: 0, talk: 0, sleepy: 0, lids: 0 };
+    let blinkAt = 0;
     const root = document.documentElement;
     const dpr = Math.min(2, devicePixelRatio || 1);
     const size = () => {
@@ -115,13 +187,35 @@ export function AiOrb({ typing, energy: drive, className = '', resolution = 1 }:
       raf = requestAnimationFrame(draw);
       const dt = last ? Math.min(0.05, (now - last) / 1000) : 0;
       // Idle: a calm 30 frames a second is plenty; typing runs at full rate.
-      if (!visible || document.hidden || (energy < 0.4 && now - last < 32)) return;
+      const f = faceRef.current;
+      const faceLive = Boolean(f?.on) || fv.on > 0.02;
+      if (!visible || document.hidden || (energy < 0.4 && !faceLive && now - last < 32)) return;
       last = now;
       energy += (target.current - energy) * Math.min(1, dt * 6);
       time += dt;
       gl.uniform1f(uT, time);
       gl.uniform1f(uE, energy);
       gl.uniform2f(uTilt, Number(root.style.getPropertyValue('--tx') || 0), Number(root.style.getPropertyValue('--ty') || 0));
+      const k = Math.min(1, dt * 7);
+      fv.on += ((f?.on ? 1 : 0) - fv.on) * Math.min(1, dt * 5);
+      fv.gx += ((f?.gaze[0] ?? 0) - fv.gx) * k;
+      fv.gy += ((f?.gaze[1] ?? 0) - fv.gy) * k;
+      fv.mood += ((f?.mood ?? 0) - fv.mood) * k;
+      fv.talk += ((f?.talk ? 1 : 0) - fv.talk) * Math.min(1, dt * 10);
+      fv.sleepy += ((f?.sleepy ? 1 : 0) - fv.sleepy) * Math.min(1, dt * 3);
+      // A blink every few seconds (quick shut, quick open); sleepy blinks are slow.
+      if (!blinkAt) blinkAt = now + 1500 + Math.random() * 3500;
+      const since = now - blinkAt;
+      const len = fv.sleepy > 0.5 ? 420 : 160;
+      fv.lids = since < 0 ? 0 : since < len ? Math.sin((since / len) * Math.PI) : 0;
+      if (since >= len) blinkAt = now + 2200 + Math.random() * 4000;
+      gl.uniform1f(uFace, fv.on);
+      gl.uniform2f(uGaze, fv.gx, fv.gy);
+      gl.uniform1f(uLids, fv.lids);
+      gl.uniform1f(uMood, fv.mood);
+      gl.uniform1f(uTalk, fv.talk);
+      gl.uniform1f(uSleepy, fv.sleepy);
+      canvas.dataset.face = fv.on > 0.5 ? 'on' : 'off';
       gl.clearColor(0, 0, 0, 0);
       gl.clear(gl.COLOR_BUFFER_BIT);
       gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
@@ -137,6 +231,17 @@ export function AiOrb({ typing, energy: drive, className = '', resolution = 1 }:
     };
   }, [gpu]);
 
-  if (!gpu) return <div className={`ai-orb ${className}`} aria-hidden style={drive != null ? { transform: `scale(${1 + Math.min(1, drive) * 0.25})` } : undefined} />;
+  if (!gpu)
+    return (
+      <div className={`ai-orb ${className}`} aria-hidden style={drive != null ? { transform: `scale(${1 + Math.min(1, drive) * 0.25})` } : undefined}>
+        {/* Lite: eyes that look and blink. Off: no face (nothing moves). */}
+        {face?.on && level === 'lite' && (
+          <span className="ai-orb-eyes" data-sleepy={face.sleepy || undefined} style={{ transform: `translate(${face.gaze[0] * 18}%, ${-face.gaze[1] * 14}%)` }}>
+            <i />
+            <i />
+          </span>
+        )}
+      </div>
+    );
   return <canvas ref={ref} className={`ai-orb ai-orb-gpu ${className}`} aria-hidden />;
 }

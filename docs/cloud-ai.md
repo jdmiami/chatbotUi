@@ -44,3 +44,17 @@ ORB_SITE=https://<site> ORB_TOKEN_CMD="<prints a machine token>" node scripts/or
 The free tier is meant for trying things out and allows roughly 40 requests a minute. When it is busy, the orb falls back to the AI machine if that is on.
 
 To get a key, sign in at build.nvidia.com and create an API key; it starts with `nvapi-`. Add it in Vercel as `NVIDIA_API_KEY`, set to Sensitive, then redeploy.
+
+## What uses it
+
+| Feature | Where | Job | What is sent |
+| --- | --- | --- | --- |
+| Orb plans a step | Hold the orb, ask anything | `agent` | The goal, the numbered controls on screen and up to 1,500 characters of visible text |
+| Ghost text | Any plain text box (not passwords, codes, autofill, Code or Terminal) | `fast` | Up to the last 1,500 characters of that box |
+| Rewrite | Select words, then **Rewrite**: Fix, Shorter, Friendlier, Formal, Expand or Translate | `write` | The selected words |
+| Explain this screen | "Explain this", "what does this mean?" | `fast`, or `vision` when pictures are on screen | Visible text (up to 5,000 characters) and up to 2 pictures, made small |
+| Find | "find my chat about…", "where is the budget file" | `fast` (re-ranking only) | Titles and short snippets of the best local matches; the search itself runs in the browser |
+| Bring | "bring me the packing list" | as Find | The same; the found text goes into the last box you typed in |
+| Make | **Picture** or **Video** in the Rewrite menu, or "make a picture of…" | none | Nothing: it runs on your AI machine |
+
+Writing help can be switched off on its own in **Settings → Cloud AI**.

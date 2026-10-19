@@ -4,7 +4,10 @@ import { useMotionLevel } from '../../motion/MotionProvider';
 import { cue, tick } from '../../motion/feedback';
 import { getLocalAi, type ChatMessage, type StreamHandlers } from '../../services/ai/LocalAi';
 import { cloudChat, cloudReady } from '../../services/ai/CloudAi';
-import { AiOrb } from '../../apps/ai/AiOrb';
+import { EXPLAIN_PROMPT, isExplain, screenPictures, screenText } from './look';
+import { findIntent, findStuff, rerank, type Hit } from './find';
+import { insertText, writable, type Field } from './write';
+import { AiOrb, type OrbFace } from '../../apps/ai/AiOrb';
 import { canSpeak, createSpeaker } from '../../apps/ai/speech';
 import { Icon } from '../../ui/Icon';
 import { DEEP_PRESS, SPRINGS, ShakeDetector, SpringValue, VelocityTracker, landing, rubberClamp, spring, stretchFor, type Rect } from './physics';
@@ -67,7 +70,7 @@ type Mode = 'follow' | 'parked' | 'tucked' | 'drag' | 'acting' | 'caret';
 type Line = { who: 'you' | 'orb'; text: string };
 
 const APP_NAME: Record<AppId, string> = { terminal: 'Terminal', editor: 'Code', agent: 'Antigravity', ai: 'AI', soreal: 'soReal', settings: 'Settings' };
-const SUGGESTIONS = ['Open Terminal', 'Make a picture of a red fox in snow', 'Dark mode', 'What can I do here?', 'Turn on the AI machine'];
+const SUGGESTIONS = ['Explain this screen', 'Open Terminal', 'Make a picture of a red fox in snow', 'Dark mode', 'What can I do here?', 'Turn on the AI machine'];
 
 function viewport(): Rect {
   const vv = window.visualViewport;
@@ -150,12 +153,38 @@ function Orb() {
   const [confirm, setConfirm] = useState<{ text: string; resolve: (ok: boolean) => void } | null>(null);
   const [hidden, setHidden] = useState(false);
   const [draft, setDraft] = useState('');
+  const [found, setFound] = useState<Hit[] | null>(null);
+  // The face: a mood that flashes after done (happy) or a failure (sad), talking while it speaks,
+  // where it looks, and sleepy when no AI is available.
+  const [moodFlash, setMoodFlash] = useState(0);
+  const [talking, setTalking] = useState(false);
+  const [gaze, setGaze] = useState<[number, number] | null>(null);
+  const [sleepy, setSleepy] = useState(false);
+  const faceTimers = useRef<{ mood?: ReturnType<typeof setTimeout>; talk?: ReturnType<typeof setTimeout>; gaze?: ReturnType<typeof setTimeout> }>({});
+  const flash = useCallback((m: number) => {
+    setMoodFlash(m);
+    clearTimeout(faceTimers.current.mood);
+    faceTimers.current.mood = setTimeout(() => setMoodFlash(0), 1800);
+  }, []);
+  // The last text box you were in (outside the orb), where "bring me…" drops things.
+  const lastField = useRef<Field | null>(null);
+  useEffect(() => {
+    const onFocus = (e: FocusEvent) => {
+      const el = writable(e.target as Element);
+      if (el && !el.closest('.orb-layer')) lastField.current = el;
+    };
+    document.addEventListener('focusin', onFocus);
+    return () => document.removeEventListener('focusin', onFocus);
+  }, []);
   const listenRef = useRef<Listening | null>(null);
   const abortRef = useRef<AbortController | null>(null);
   const captionTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const say = useCallback((text: string, spoken = false) => {
     setLines((l) => [...l.slice(-30), { who: 'orb', text }]);
+    setTalking(true);
+    clearTimeout(faceTimers.current.talk);
+    faceTimers.current.talk = setTimeout(() => setTalking(false), Math.min(4000, 600 + text.length * 40));
     setCaption(text);
     if (captionTimer.current) clearTimeout(captionTimer.current);
     captionTimer.current = setTimeout(() => setCaption(null), Math.min(9000, 2200 + text.length * 45));
@@ -936,6 +965,12 @@ function Orb() {
       el.scrollIntoView?.({ block: offscreen ? 'center' : 'nearest', behavior: levelRef.current === 'full' ? 'smooth' : 'auto' });
       await wait(levelRef.current === 'full' ? (offscreen ? 420 : 180) : 30);
       const r = el.getBoundingClientRect();
+      // Look where it's going.
+      const dx = r.left + r.width / 2 - x.value, dy = r.top + r.height / 2 - y.value;
+      const dist = Math.max(1, Math.hypot(dx, dy));
+      setGaze([dx / dist, -dy / dist]);
+      clearTimeout(faceTimers.current.gaze);
+      faceTimers.current.gaze = setTimeout(() => setGaze(null), 1400);
       mode.current = 'acting';
       moveTo(r.left + r.width / 2, r.top + r.height / 2, AIM);
       const t0 = performance.now();
@@ -1061,6 +1096,58 @@ function Orb() {
     [aimAt, say],
   );
 
+  /** Find across chats, files and sessions; "bring" carries the best match into your last text box. */
+  const find = useCallback(
+    async (query: string, bring: boolean, signal: AbortSignal, spoken: boolean) => {
+      setCaption('Looking…');
+      let hits = await findStuff(query, signal);
+      if (hits.length > 2 && (await cloudReady())) hits = await rerank(query, hits, signal);
+      if (signal.aborted) return;
+      if (!hits.length) return say(`I couldn’t find anything about “${query}”.`, spoken);
+      const field = lastField.current;
+      if (bring && field?.isConnected) {
+        const top = hits[0];
+        const text = (await top.text()).slice(0, 6000);
+        if (!text) return say(`I found “${top.title}” but it has nothing to bring.`, spoken);
+        setPanel(false);
+        await aimAt(field as HTMLElement, signal);
+        insertText(field, text);
+        cue('done');
+        flash(1);
+        return say(`Brought “${top.title}”.`, spoken);
+      }
+      setFound(hits.slice(0, 6));
+      say(hits.length === 1 ? `Found “${hits[0].title}”.` : `Found ${hits.length} things. The best match is “${hits[0].title}”.`, spoken);
+    },
+    [aimAt, say],
+  );
+
+  /** Explain what is on screen: its text, plus the biggest pictures when there are any (cloud AI). */
+  const explain = useCallback(
+    async (goal: string, signal: AbortSignal, spoken: boolean) => {
+      setCaption('Looking…');
+      const text = screenText(document.body, 5000);
+      const pictures = await screenPictures(2);
+      const question = `${goal}\n\nApp: ${useShell.getState().activeApp ?? 'home'}\nText on screen:\n${text || '(no text)'}`;
+      let answer = '';
+      await cloudChat(
+        {
+          task: pictures.length ? 'vision' : 'fast',
+          maxTokens: 500,
+          temperature: 0.3,
+          signal,
+          messages: [
+            { role: 'system', content: EXPLAIN_PROMPT },
+            { role: 'user', content: pictures.length ? [{ type: 'text', text: question }, ...pictures.map((url) => ({ type: 'image_url' as const, image_url: { url } }))] : question },
+          ],
+        },
+        { onText: (d) => (answer += d) },
+      );
+      say(answer.replace(/<think>[\s\S]*?<\/think>/g, '').trim() || 'I couldn’t make sense of this screen.', spoken);
+    },
+    [say],
+  );
+
   /** The model plans one step at a time against a fresh look at the screen. */
   const plan = useCallback(
     async (goal: string, signal: AbortSignal, spoken: boolean) => {
@@ -1101,7 +1188,10 @@ function Orb() {
         await ask(
           [
             { role: 'system', content: PLANNER_PROMPT },
-            { role: 'user', content: `Goal: ${goal}\nDone so far: ${history.length ? history.join('; ') : 'nothing yet'}\n\n${describe(items, useShell.getState().activeApp)}` },
+            {
+              role: 'user',
+              content: `Goal: ${goal}\nDone so far: ${history.length ? history.join('; ') : 'nothing yet'}\n\n${describe(items, useShell.getState().activeApp)}\n\nText on screen:\n${screenText(document.body, 1500) || '(none)'}`,
+            },
           ],
           { onText: (d) => (text += d) },
         );
@@ -1114,6 +1204,7 @@ function Orb() {
           step = { ...step, target: it.label };
         }
         if (step.do === 'done') {
+          flash(1);
           say(step.say || 'Done.', spoken);
           return;
         }
@@ -1136,6 +1227,7 @@ function Orb() {
       const ctrl = new AbortController();
       abortRef.current = ctrl;
       setRunning(true);
+      setFound(null);
       setLines((l) => [...l.slice(-30), { who: 'you', text: goal }]);
       const before = mode.current;
       try {
@@ -1149,13 +1241,20 @@ function Orb() {
               setCaption(out);
             }
           }
-          if (steps.length && !ctrl.signal.aborted && steps[steps.length - 1].do !== 'say') cue('done');
+          if (steps.length && !ctrl.signal.aborted && steps[steps.length - 1].do !== 'say') {
+            cue('done');
+            flash(1);
+          }
         } else {
-          await plan(goal, ctrl.signal, spoken);
+          const wants = findIntent(goal);
+          if (wants) await find(wants.query, wants.bring, ctrl.signal, spoken);
+          else if (isExplain(goal) && (await cloudReady())) await explain(goal, ctrl.signal, spoken);
+          else await plan(goal, ctrl.signal, spoken);
         }
       } catch (err) {
         if (!ctrl.signal.aborted) {
           cue('error');
+          flash(-1);
           say((err as Error).message, spoken);
         }
       } finally {
@@ -1169,7 +1268,7 @@ function Orb() {
         }, 250);
       }
     },
-    [exec, plan, rest, say, syncCaret],
+    [exec, explain, find, plan, rest, say, syncCaret],
   );
 
   // ---- voice
@@ -1216,7 +1315,40 @@ function Orb() {
   useEffect(() => () => listenRef.current?.cancel(), []);
 
   // ---- the ask panel
+  // "Make from anywhere": other parts of Orbit (the Rewrite menu…) hand the orb a request.
+  useEffect(() => {
+    const onRun = (e: Event) => {
+      const goal = (e as CustomEvent<string>).detail;
+      if (typeof goal !== 'string' || !goal.trim()) return;
+      setPanel(true);
+      void run(goal, false);
+    };
+    window.addEventListener('orbit:orb-run', onRun);
+    return () => window.removeEventListener('orbit:orb-run', onRun);
+  }, [run]);
   const openPanel = () => setPanel(true);
+  // Sleepy when there is no AI to think with (cloud AI off or not set up, and the AI machine off).
+  useEffect(() => {
+    if (!panel) return;
+    let live = true;
+    void (async () => {
+      const ok = (await cloudReady()) || (await getLocalAi().status().catch(() => null))?.state === 'on';
+      if (live) setSleepy(!ok);
+    })();
+    return () => {
+      live = false;
+    };
+  }, [panel]);
+  const busyFace = running || listening;
+  const expression = moodFlash > 0 ? 'done' : moodFlash < 0 ? 'error' : listening ? 'listening' : running ? 'thinking' : talking ? 'speaking' : panel ? (sleepy ? 'sleepy' : 'idle') : 'off';
+  const face: OrbFace = {
+    on: expression !== 'off' && level !== 'off',
+    // Thinking looks up and aside; listening looks at you; otherwise where it's acting.
+    gaze: gaze ?? (running && !talking ? [0.35, 0.45] : [0, 0]),
+    mood: moodFlash || (talking ? 0.35 : busyFace ? 0 : 0.15),
+    talk: talking,
+    sleepy: expression === 'sleepy',
+  };
   const closePanel = () => {
     setPanel(false);
     confirm?.resolve(false);
@@ -1246,7 +1378,7 @@ function Orb() {
   };
 
   return (
-    <div ref={layer} className="orb-layer" data-caret={caretOn || undefined} data-hidden={hidden || undefined} data-listening={listening || undefined} data-running={running || undefined}>
+    <div ref={layer} className="orb-layer" data-caret={caretOn || undefined} data-hidden={hidden || undefined} data-listening={listening || undefined} data-running={running || undefined} data-face={expression}>
       <button
         ref={body}
         type="button"
@@ -1271,7 +1403,7 @@ function Orb() {
           if (e.detail === 0) e.preventDefault();
         }}
       >
-        <AiOrb typing={running} energy={energy ?? stageEnergy ?? (running ? 0.8 : undefined)} resolution={faceRes} className="orb-cursor-face" />
+        <AiOrb typing={running} energy={energy ?? stageEnergy ?? (running ? 0.8 : undefined)} resolution={faceRes} className="orb-cursor-face" face={face} />
         <span className="orb-cursor-ring" aria-hidden />
       </button>
 
@@ -1297,6 +1429,26 @@ function Orb() {
                 </li>
               ))}
             </ol>
+          )}
+          {found && found.length > 0 && (
+            <ul className="orb-found" aria-label="Found">
+              {found.map((h) => (
+                <li key={`${h.kind}:${h.id}`}>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setFound(null);
+                      setPanel(false);
+                      h.open();
+                    }}
+                  >
+                    <span className="orb-found-kind">{h.kind === 'chat' ? 'Chat' : h.kind === 'file' ? 'File' : 'Session'}</span>
+                    <span className="orb-found-title">{h.title}</span>
+                    <span className="orb-found-snippet">{h.snippet}</span>
+                  </button>
+                </li>
+              ))}
+            </ul>
           )}
           {confirm ? (
             <div className="orb-confirm" role="alertdialog" aria-label="Confirm">

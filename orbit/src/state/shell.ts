@@ -52,6 +52,8 @@ export interface Settings {
    * work stays on the AI machine. Sends on-screen text and screenshots, never passwords. Unset = on.
    */
   cloudAi?: boolean;
+  /** Ghost text and rewrites in text boxes (needs cloud AI). Unset = on. */
+  writeHelp?: boolean;
   /** Seen the first-run "what is simulated" sheet. */
   introSeen: boolean;
 }
