@@ -161,7 +161,7 @@ test.describe('the orb', () => {
     await expect(panel.getByRole('list', { name: 'What happened' })).toContainText('each line opens an app');
     expect(asked).toHaveLength(1);
     expect(asked[0].text).toContain('Text on screen');
-    expect(asked[0].text).toMatch(/Settings|Terminal|Talk/);
+    expect(asked[0].text).toMatch(/Recent files|Settings|Terminal|Talk/);
     expect(errors).toEqual([]);
   });
 
