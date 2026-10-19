@@ -8,6 +8,7 @@ import fsp from 'node:fs/promises';
 import path from 'node:path';
 import { Readable } from 'node:stream';
 import { lastFrameArgs, runFfmpeg } from './movies.js';
+import { createMirror, downloadFile, uploadFile } from './r2.js';
 import { pipeline } from 'node:stream/promises';
 import {
   MAKERS,
@@ -148,6 +149,8 @@ export function outputFiles(outputs) {
  *   comfy      ComfyUI base URL
  *   ollama     Ollama base URL (its models are unloaded before a job, to free GPU memory)
  *   files      model files per kind (STUDIO_FILES)
+ *   r2         Cloudflare R2 client (createR2) when the machine has no network volume: model files,
+ *              the gallery and settings are kept there and come back down after a restart
  *   fetchImpl, WebSocketImpl, log, now     (tests)
  */
 export function createStudio(o) {
@@ -162,8 +165,12 @@ export function createStudio(o) {
   const clientId = `gate-${newId()}`;
   const freeAfterMs = o.freeAfterMs ?? 3 * 60_000;
   // A helper machine shares the main machine's files: it makes things but never downloads or
-  // deletes model files (the main machine does that).
+  // deletes model files (the main machine does that). With R2 each machine has its own disk, so a
+  // helper downloads what it needs too (from R2).
   const helper = Boolean(o.helper);
+  const r2 = o.r2 || null;
+  const mirror = r2 ? createMirror({ r2, root: path.join(dir, 'output'), prefix: 'gallery/', log }) : null;
+  const modelKey = (file) => `models/${file.dir}/${file.name}`;
   const ffmpeg = o.ffmpeg || runFfmpeg;
 
   const jobs = new Map(); // id -> job
@@ -209,6 +216,14 @@ export function createStudio(o) {
     const dest = modelPath(file);
     const part = `${dest}.part`;
     await fsp.mkdir(path.dirname(dest), { recursive: true });
+    // Kept in R2 already: bring it down in parallel pieces (much faster than the model's home site).
+    const kept = r2 ? await r2.head(modelKey(file)).catch(() => null) : null;
+    if (kept && (!file.size || kept.size === file.size)) {
+      download.current = { name: file.name, completed: 0, total: kept.size };
+      await downloadFile(r2, modelKey(file), part, { onBytes: (n) => (download.current.completed += n) });
+      await fsp.rename(part, dest);
+      return;
+    }
     const have = (await fsp.stat(part).catch(() => null))?.size || 0;
     const url = `https://huggingface.co/${file.repo}/resolve/main/${file.path.split('/').map(encodeURIComponent).join('/')}`;
     const res = await f(url, { headers: have ? { range: `bytes=${have}-` } : {}, redirect: 'follow' });
@@ -225,6 +240,13 @@ export function createStudio(o) {
     const size = (await fsp.stat(part)).size;
     if (file.size && size !== file.size) throw new Error(`download ${file.name}: got ${size} of ${file.size} bytes`);
     await fsp.rename(part, dest);
+    // Keep a copy in R2 so the next start doesn't download it from its home site again.
+    if (r2) {
+      download.current = { name: file.name, completed: 0, total: size, saving: true };
+      await uploadFile(r2, dest, modelKey(file), { onBytes: (n) => (download.current.completed += n) }).catch((err) =>
+        log.warn?.(`[studio] could not keep ${file.name} in R2: ${err.message}`),
+      );
+    }
   }
 
   async function downloadAll() {
@@ -302,6 +324,7 @@ export function createStudio(o) {
 
   async function saveWanted() {
     await fsp.writeFile(wantedPath, JSON.stringify({ wanted: [...wanted] }));
+    if (r2) await r2.putJson('state/makers.json', { wanted: [...wanted] }).catch((err) => log.warn?.(`[studio] could not save makers in R2: ${err.message}`));
   }
 
   async function installMaker(id) {
@@ -335,6 +358,7 @@ export function createStudio(o) {
       download.done.delete(file.name);
       await fsp.rm(modelPath(file), { force: true });
       await fsp.rm(`${modelPath(file)}.part`, { force: true });
+      if (r2) await r2.remove(modelKey(file)).catch(() => {});
     }
     return makers();
   }
@@ -477,6 +501,7 @@ export function createStudio(o) {
     const prev = Number(timings[key]);
     timings[key] = Math.round(Number.isFinite(prev) && prev > 0 ? prev * 0.7 + sample * 0.3 : sample);
     await fsp.writeFile(timingsPath, JSON.stringify(timings)).catch(() => {});
+    if (r2) await r2.putJson(`state/${path.basename(timingsPath)}`, timings).catch(() => {});
   }
 
   /** A line about what the machine did on its own, in plain words (shown with the job). */
@@ -527,8 +552,8 @@ export function createStudio(o) {
   async function copyFromGallery(id) {
     const it = await readItem(id);
     if (!it || it.kind !== 'image') throw Object.assign(new Error('That picture is no longer in your gallery.'), { status: 404 });
-    const src = path.resolve(path.join(dir, 'output'), it.file);
-    if (!src.startsWith(path.join(dir, 'output') + path.sep)) throw Object.assign(new Error('Not found'), { status: 404 });
+    const src = await localFile(it);
+    if (!src) throw Object.assign(new Error('Not found'), { status: 404 });
     const name = `orbit-${newId()}${path.extname(src).toLowerCase() || '.png'}`;
     await fsp.mkdir(path.join(dir, 'input'), { recursive: true });
     await fsp.copyFile(src, path.join(dir, 'input', name));
@@ -539,8 +564,8 @@ export function createStudio(o) {
   async function lastFrameOf(id) {
     const it = await readItem(id);
     if (!it || it.kind !== 'video') throw Object.assign(new Error('That video is no longer in your gallery.'), { status: 404 });
-    const src = path.resolve(path.join(dir, 'output'), it.file);
-    if (!src.startsWith(path.join(dir, 'output') + path.sep)) throw Object.assign(new Error('Not found'), { status: 404 });
+    const src = await localFile(it);
+    if (!src) throw Object.assign(new Error('Not found'), { status: 404 });
     const name = `orbit-${newId()}-last.png`;
     await fsp.mkdir(path.join(dir, 'input'), { recursive: true });
     await ffmpeg(lastFrameArgs(src, path.join(dir, 'input', name)), { timeoutMs: 60_000 });
@@ -766,6 +791,7 @@ export function createStudio(o) {
       };
       await fsp.mkdir(metaDir, { recursive: true });
       await fsp.writeFile(path.join(metaDir, `${job.id}.json`), JSON.stringify(item));
+      await keep(item);
       job.item = item;
       job.progress = 100;
       job.status = 'done';
@@ -944,14 +970,63 @@ export function createStudio(o) {
   // ---- gallery
   async function readItem(id) {
     if (!/^[A-Za-z0-9_-]{6,40}$/.test(id)) return null;
-    try {
-      return JSON.parse(await fsp.readFile(path.join(metaDir, `${id}.json`), 'utf8'));
-    } catch {
-      return null;
+    const note = path.join(metaDir, `${id}.json`);
+    for (let tries = 0; tries < 2; tries++) {
+      try {
+        return JSON.parse(await fsp.readFile(note, 'utf8'));
+      } catch {
+        // Made on the other machine or before this start: its note may only be in R2 so far.
+        if (!mirror || tries || !(await mirror.fetch(note).catch(() => false))) return null;
+      }
     }
+    return null;
+  }
+
+  /** Copy an item (its file, then its note) to R2. */
+  async function keep(item) {
+    if (!mirror) return;
+    const p = path.resolve(path.join(dir, 'output'), item.file);
+    if (p.startsWith(path.join(dir, 'output') + path.sep)) await mirror.save(p);
+    await mirror.save(path.join(metaDir, `${item.id}.json`));
+  }
+
+  // With R2 the gallery's notes come down from there (the other machine's creations too, and what
+  // was made before this start); a note gone from R2 was deleted elsewhere.
+  let synced = 0;
+  let syncing = null;
+  async function syncGallery() {
+    if (!mirror || now() - synced < 20_000) return;
+    syncing ||= (async () => {
+      try {
+        const there = new Set(await mirror.pull('orbit/', (rel) => /^orbit\/[A-Za-z0-9_-]+\.json$/.test(rel)));
+        for (const n of await fsp.readdir(metaDir).catch(() => [])) {
+          if (!n.endsWith('.json') || there.has(`orbit/${n}`)) continue;
+          // Just made here and still on its way up: keep it.
+          const st = await fsp.stat(path.join(metaDir, n)).catch(() => null);
+          if (st && now() - st.mtimeMs > 5 * 60_000) await fsp.rm(path.join(metaDir, n), { force: true });
+        }
+        synced = now();
+      } catch (err) {
+        log.warn?.(`[studio] could not read the gallery from R2: ${err.message}`);
+      } finally {
+        syncing = null;
+      }
+    })();
+    await syncing;
+  }
+
+  /** An item's file on this machine's disk, brought down from R2 when it is only there (null when gone). */
+  async function localFile(it) {
+    const outRoot = path.join(dir, 'output');
+    const p = path.resolve(outRoot, it.file);
+    if (!p.startsWith(outRoot + path.sep)) return null;
+    if (await fsp.stat(p).catch(() => null)) return p;
+    if (mirror && (await mirror.fetch(p).catch(() => false))) return p;
+    return null;
   }
 
   async function items(limit = 200) {
+    await syncGallery();
     const names = await fsp.readdir(metaDir).catch(() => []);
     const list = [];
     for (const n of names) {
@@ -968,17 +1043,18 @@ export function createStudio(o) {
     if (!it) return false;
     await fsp.rm(path.join(dir, 'output', it.file), { force: true });
     await fsp.rm(path.join(metaDir, `${id}.json`), { force: true });
+    if (mirror) {
+      await mirror.drop(path.join(metaDir, `${id}.json`));
+      const p = path.resolve(path.join(dir, 'output'), it.file);
+      if (p.startsWith(path.join(dir, 'output') + path.sep)) await mirror.drop(p);
+    }
     return true;
   }
 
   /** Where an item's file is on disk (null when it is gone). */
   async function itemPath(id) {
     const it = await readItem(id);
-    if (!it) return null;
-    const outRoot = path.join(dir, 'output');
-    const p = path.resolve(outRoot, it.file);
-    if (!p.startsWith(outRoot + path.sep)) return null;
-    return (await fsp.stat(p).catch(() => null)) ? p : null;
+    return it ? localFile(it) : null;
   }
 
   /** Put a finished file (already under output/) in the gallery, e.g. a stitched movie. */
@@ -986,6 +1062,7 @@ export function createStudio(o) {
     const item = { id: newId(), kind, maker: 'soreal', prompt, width, height, seconds, movie, photo: photo || undefined, file, createdAt: new Date(now()).toISOString() };
     await fsp.mkdir(metaDir, { recursive: true });
     await fsp.writeFile(path.join(metaDir, `${item.id}.json`), JSON.stringify(item));
+    await keep(item);
     return item;
   }
 
@@ -993,13 +1070,27 @@ export function createStudio(o) {
   async function file(id) {
     const it = await readItem(id);
     if (!it) return null;
-    const outRoot = path.join(dir, 'output');
-    const p = path.resolve(outRoot, it.file);
-    if (!p.startsWith(outRoot + path.sep)) return null;
+    const p = await localFile(it);
+    if (!p) return null;
     const st = await fsp.stat(p).catch(() => null);
     if (!st) return null;
     const ext = path.extname(p).toLowerCase();
     return { path: p, size: st.size, type: MIME[ext] || 'application/octet-stream', name: `${it.kind}-${id}${ext}` };
+  }
+
+  /** Settings kept in R2 (which makers are added, learned timings), read at start. */
+  async function loadSaved() {
+    try {
+      const saved = await r2.getJson('state/makers.json');
+      if (saved?.wanted) {
+        wanted = new Set(saved.wanted);
+        await fsp.writeFile(wantedPath, JSON.stringify({ wanted: [...wanted] })).catch(() => {});
+      }
+      const t = await r2.getJson(`state/${path.basename(timingsPath)}`);
+      if (t && typeof t === 'object') timings = { ...t, ...timings };
+    } catch (err) {
+      log.warn?.(`[studio] could not read saved settings from R2: ${err.message}`);
+    }
   }
 
   async function state() {
@@ -1009,7 +1100,7 @@ export function createStudio(o) {
       running: up,
       image: { ready: imageReady && up, downloaded: imageReady, percent: imageReady ? 100 : kindProgress('image') },
       video: { ready: videoReady && up, downloaded: videoReady, percent: videoReady ? 100 : kindProgress('video') },
-      downloading: download.current ? { name: download.current.name, percent: download.current.total ? Math.floor((download.current.completed / download.current.total) * 100) : 0 } : null,
+      downloading: download.current ? { name: download.current.name, saving: Boolean(download.current.saving), percent: download.current.total ? Math.floor((download.current.completed / download.current.total) * 100) : 0 } : null,
       downloadError: download.error,
       jobs: active().map(publicJob),
     };
@@ -1017,7 +1108,10 @@ export function createStudio(o) {
 
   return {
     start() {
-      if (!helper) void downloadAll();
+      void (async () => {
+        if (r2) await loadSaved();
+        if (!helper || r2) await downloadAll();
+      })();
       const t = setInterval(() => void poll().catch(() => {}), o.pollMs ?? 3000);
       t.unref?.();
     },
@@ -1047,5 +1141,6 @@ export function createStudio(o) {
     file,
     poll,
     sizes: SIZES,
+    mirror,
   };
 }

@@ -15,7 +15,7 @@ images & videos (playground, Orbit) ──> gate :8080 /_orbit/studio ──> Co
 - **Models** (default): `qwen3.8:27b` (general, vision), `qwen3.6:35b` (coding, tool calls) and
   `qwen3.8-obliterated:27b`, the uncensored [OBLITERATUS Qwen3.8-27B V3](https://hf.co/OBLITERATUS/Qwen3.8-27B-OBLITERATED)
   (6-bit GGUF from Hugging Face, with the model card's settings: temperature 0, repetition penalty 1.15).
-  Downloaded once to the network volume; add more from the playground's admin settings, or in `AI_MODELS`
+  Downloaded once and kept in R2; add more from the playground's admin settings, or in `AI_MODELS`
   (`name=source|param=value` installs an outside model under a friendly name with its own settings;
   `|like=<library model>` gives it that model's chat format, so tools such as web search and code work).
 - **Image and video maker** (`studio.sh`, `gate/src/studio.js`, `gate/src/workflows.js`): ComfyUI
@@ -26,7 +26,7 @@ images & videos (playground, Orbit) ──> gate :8080 /_orbit/studio ──> Co
   like the official template. About 60 GB of models, downloaded by the gate on first start (resumable).
   - In the playground: **Image maker** and **Video maker** in the model list (a pipe installed by the
     gate) and the built-in image button (`/v1/images/generations` on the gate).
-  - In Orbit: the AI app's **Create** tab, with a gallery kept on the volume.
+  - In Orbit: the AI app's **Create** tab, with a gallery kept in R2.
   - One content rule, applied by the gate to every request: no sexual content involving minors.
   - Chat models are unloaded from the GPU before a job; ComfyUI frees the GPU 3 minutes after the last one.
 - **Gate** (`gate/`, Node, no dependencies): the only exposed port.
@@ -38,15 +38,34 @@ images & videos (playground, Orbit) ──> gate :8080 /_orbit/studio ──> Co
   - Stops the pod after `IDLE_MINUTES` (30) with no chats, no model loaded and no download running.
 - **Site** (`lib/ai.ts`): finds the pod by name (`orbit-ai`), creates it on first use, starts it,
   points a stopped pod at the site's own commit before starting, and replaces it when its host has no
-  free GPU (everything worth keeping is on the volume).
+  free GPU (everything worth keeping is in R2).
+
+## Storage: Cloudflare R2, no network volume
+
+The machine has no network volume: its own disk (250 GB, billed only while on) is wiped at every stop,
+so everything worth keeping lives in the R2 bucket `orbit-models` (about $0.015/GB a month, no
+download fees) and comes back down at start (`gate/src/cloud.js`):
+
+| In R2 | What | Comes back |
+| --- | --- | --- |
+| `ollama/` | chat models (Ollama's files) | before any model is downloaded |
+| `models/` | image and video model files | before the maker needs them |
+| `env/studio-*.tar` | the maker's Python environment | before ComfyUI starts |
+| `gallery/` | pictures, videos, movies and their notes | notes at once, files when opened |
+| `state/` | playground chats (snapshot every 5 min and before turning off), makers, timings | at start |
+
+A model R2 doesn't have yet is downloaded once from its home site (Ollama, Hugging Face) and then kept
+in R2. Any machine in any North American data center can pick up where the last one left off, on an
+A40 or an RTX A6000 (both 48 GB, $0.59/hour). `AI_STORAGE=volume` with `AI_VOLUME_ID` keeps the old way.
 
 ## Set up
 
-1. Create a network volume (150 GB: chat models plus the image and video maker) in a data center that has
-   the GPU you want (default: `CA-MTL-1`, NVIDIA A40 48 GB, about $0.59/hour while on).
-2. In Vercel set `AI_VOLUME_ID` (and `RUNPOD_API_KEY`, `LINUX_GATEWAY_SECRET`, already used by the
-   Linux machine). Optional settings are in `.env.example`.
-3. Open **AI playground** on the start screen. The first start downloads the models (10–15 minutes).
+1. Create the R2 bucket `orbit-models` and an R2 API token (Object Read & Write on that bucket).
+2. In Runpod add the secrets `r2_account_id`, `r2_access_key_id`, `r2_secret_access_key`.
+3. In Vercel set `RUNPOD_API_KEY` and `LINUX_GATEWAY_SECRET` (already used by the Linux machine).
+   Optional settings are in `.env.example`.
+4. Open **AI playground** on the start screen. The very first start downloads the models from their
+   home sites and saves them in R2 (20–30 minutes); later starts bring them back from R2.
 
 ## Coding
 
