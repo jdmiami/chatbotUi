@@ -1,4 +1,4 @@
-import { jwtVerify } from 'jose';
+import { fromMachine } from '@/lib/request';
 import { aiBase, aiConfigured, aiStatus, startAi } from '@/lib/ai';
 
 export const dynamic = 'force-dynamic';
@@ -9,20 +9,7 @@ export const dynamic = 'force-dynamic';
  * LINUX_GATEWAY_SECRET (audience "site-machine"), not with a browser session.
  */
 export async function GET(request: Request) {
-  const secret = process.env.LINUX_GATEWAY_SECRET;
-  const auth = request.headers.get('authorization') || '';
-  if (!secret || !auth.startsWith('Bearer ')) return Response.json({ error: 'Unauthorized' }, { status: 401 });
-  try {
-    await jwtVerify(auth.slice(7), new TextEncoder().encode(secret), {
-      algorithms: ['HS256'],
-      audience: 'site-machine',
-      issuer: 'orbit-host',
-      requiredClaims: ['exp', 'iat'],
-      maxTokenAge: '3m',
-    });
-  } catch {
-    return Response.json({ error: 'Unauthorized' }, { status: 401 });
-  }
+  if (!(await fromMachine(request))) return Response.json({ error: 'Unauthorized' }, { status: 401 });
   if (!aiConfigured()) return Response.json({ state: 'unconfigured', url: null });
   let status = await aiStatus('linux-machine');
   if (new URL(request.url).searchParams.get('wake') === '1' && (status.state === 'off' || status.state === 'error')) {

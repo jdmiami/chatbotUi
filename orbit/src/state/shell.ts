@@ -47,6 +47,11 @@ export interface Settings {
   orb?: boolean;
   /** The orb drifts to what matters on screen; false = it stays where you put it. Unset = follows. */
   orbFollow?: boolean;
+  /**
+   * Quick AI jobs (the orb, writing help, reading the screen) use NVIDIA's free cloud models; heavy
+   * work stays on the AI machine. Sends on-screen text and screenshots, never passwords. Unset = on.
+   */
+  cloudAi?: boolean;
   /** Seen the first-run "what is simulated" sheet. */
   introSeen: boolean;
 }

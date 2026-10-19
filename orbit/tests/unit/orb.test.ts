@@ -197,4 +197,15 @@ describe('orb agent', () => {
       ['field', 'Title', 'Night'],
     ]);
   });
+
+  it('snapshot never reads out passwords or one-time codes', () => {
+    document.body.innerHTML = `
+      <label>Password <input type="password" value="hunter2"></label>
+      <label>Code <input autocomplete="one-time-code" value="123456"></label>
+      <div data-private><label>Note <input value="secret note"></label></div>
+      <label>Name <input value="Ada"></label>`;
+    for (const el of document.querySelectorAll('*')) (el as HTMLElement).getBoundingClientRect = () => ({ top: 10, bottom: 40, left: 10, right: 100, width: 90, height: 30 }) as DOMRect;
+    const values = snapshot().map((i) => i.value);
+    expect(values).toEqual([undefined, undefined, undefined, 'Ada']);
+  });
 });

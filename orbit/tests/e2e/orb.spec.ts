@@ -71,6 +71,46 @@ test.describe('the orb', () => {
     expect(errors).toEqual([]);
   });
 
+  test('with the AI machine off, cloud AI plans what simple commands cannot', async ({ page }) => {
+    const sent: string[] = [];
+    await page.route('**/api/orb/ai', async (route) => {
+      if (route.request().method() === 'GET') return route.fulfill({ json: { configured: true, models: { agent: ['test'] } } });
+      const body = route.request().postDataJSON() as { task: string; messages: { content: string }[] };
+      sent.push(body.task, body.messages.map((m) => m.content).join('\n'));
+      const step = sent.length > 2 ? { do: 'done', say: 'Settings are open.' } : { do: 'open', app: 'settings' };
+      const sse = `data: ${JSON.stringify({ choices: [{ delta: { content: JSON.stringify(step) } }] })}\n\ndata: [DONE]\n\n`;
+      return route.fulfill({ headers: { 'content-type': 'text/event-stream', 'x-orb-model': 'test' }, body: sse });
+    });
+    const { errors } = await openWithOrb(page);
+    const at = await settled(page);
+    await page.mouse.move(at.x, at.y);
+    await page.mouse.down();
+    await page.waitForTimeout(600);
+    await page.mouse.up();
+    const panel = page.getByRole('dialog', { name: 'Ask the orb' });
+    await panel.getByRole('textbox', { name: 'Tell the orb what to do' }).fill('I want to change how things look');
+    await panel.getByRole('button', { name: 'Go' }).click();
+    await expect(page.locator('.app-window[data-app="settings"]')).toBeVisible();
+    await expect(panel).toContainText('Settings are open.');
+    expect(sent[0]).toBe('agent');
+    expect(sent[1]).toContain('Goal: I want to change how things look');
+    expect(errors).toEqual([]);
+  });
+
+  test('cloud AI can be switched off in Settings; it says what is sent', async ({ page }) => {
+    await page.route('**/api/orb/ai', (route) => route.fulfill({ json: { configured: true, models: {} } }));
+    await openWithOrb(page);
+    await page.getByRole('button', { name: /^Settings\./ }).click();
+    const status = page.getByTestId('cloud-ai-status');
+    await status.scrollIntoViewIfNeeded();
+    await expect(status).toContainText('Ready');
+    await expect(page.getByText(/Never passwords/)).toBeVisible();
+    await page.getByRole('switch', { name: 'Use cloud AI' }).click({ force: true });
+    await expect(status).toContainText('Off');
+    const saved = await page.evaluate(() => JSON.parse(localStorage.getItem('orbit:shell:v1') ?? '{}').state.settings.cloudAi);
+    expect(saved).toBe(false);
+  });
+
   test('it taps and types like a cursor, flying to what it touches', async ({ page }) => {
     const { errors, orb } = await openWithOrb(page);
     await orb.click(); // no microphone: a tap opens the panel

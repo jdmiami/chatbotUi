@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useShell } from '../../state/shell';
+import { cloudStatus, type CloudStatus } from '../../services/ai/CloudAi';
 import { Toggle } from '../../ui/components';
 import { Section } from './parts';
 
@@ -231,6 +232,54 @@ export function OrbSection() {
             </span>
             <Toggle checked={settings.orbFollow !== false} label="Orb follows what matters" onChange={(v) => updateSettings({ orbFollow: v })} />
           </label>
+        )}
+      </div>
+    </Section>
+  );
+}
+
+/** Cloud AI: NVIDIA's free models for quick jobs, so the orb is smart even with the AI machine off. */
+export function CloudAiSection() {
+  const on = useShell((s) => s.settings.cloudAi !== false);
+  const updateSettings = useShell((s) => s.updateSettings);
+  const [status, setStatus] = useState<CloudStatus | null | undefined>(undefined);
+  useEffect(() => {
+    let live = true;
+    void cloudStatus(true).then((s) => live && setStatus(s));
+    return () => {
+      live = false;
+    };
+  }, []);
+  const state = status === undefined ? 'Checking…' : status?.configured ? 'Ready' : 'Not set up on the site yet';
+  return (
+    <Section
+      title="Cloud AI"
+      caption="Quick jobs (the orb planning a step, help writing, reading what's on screen) use NVIDIA's free cloud models, so they work with your AI machine off. Pictures, videos and long chats stay on your AI machine."
+    >
+      <div className="list">
+        <label className="row st-row st-click">
+          <span className="st-main">
+            <span className="st-label">Use cloud AI</span>
+            <span className="st-sub">Off: everything waits for your AI machine.</span>
+          </span>
+          <Toggle checked={on} label="Use cloud AI" onChange={(v) => updateSettings({ cloudAi: v })} />
+        </label>
+        <div className="row st-row" data-testid="cloud-ai-status">
+          <span className="st-main">
+            <span className="st-label">Status</span>
+            <span className="st-sub">{on ? state : 'Off'}</span>
+          </span>
+        </div>
+        {on && (
+          <div className="row st-row">
+            <span className="st-main">
+              <span className="st-label">What is sent</span>
+              <span className="st-sub">
+                What you ask, the text on screen and, when it needs to look, a screenshot. Never passwords: password boxes are left out
+                and anything that looks like a key or token is blanked first. The NVIDIA key stays on the site, never in this browser.
+              </span>
+            </span>
+          </div>
         )}
       </div>
     </Section>
