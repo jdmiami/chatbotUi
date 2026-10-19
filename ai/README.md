@@ -58,6 +58,17 @@ A model R2 doesn't have yet is downloaded once from its home site (Ollama, Huggi
 in R2. Any machine in any North American data center can pick up where the last one left off, on an
 A40 or an RTX A6000 (both 48 GB, $0.59/hour). `AI_STORAGE=volume` with `AI_VOLUME_ID` keeps the old way.
 
+When those are taken, the site keeps looking, cheapest first (`lib/ai.ts`):
+
+1. A40 / RTX A6000 in North America, then anywhere in the world (same price; R2 works from anywhere).
+2. Backup 48 GB GPUs, never above $1.10/hour (`AI_MAX_FALLBACK_PRICE`): L40 $0.82, RTX 6000 Ada $0.99,
+   L40S $1.09, in North America first, then anywhere.
+3. Turbo (H100 $3.99) has its own backups that never cost more than Turbo: A100 80 GB, RTX PRO 6000,
+   H100 NVL.
+
+The app says when the machine is on a backup GPU or far away, and the next start tries the usual GPU
+in North America first. `AI_WORLDWIDE=off` keeps it in North America.
+
 ## Set up
 
 1. Create the R2 bucket `orbit-models` and an R2 API token (Object Read & Write on that bucket).
