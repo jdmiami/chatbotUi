@@ -4,7 +4,7 @@ import { aiConfigured, helperStatus, startHelper, stopHelper } from '@/lib/ai';
 
 export const dynamic = 'force-dynamic';
 // Finding a free GPU can take several tries (see lib/ai.ts).
-export const maxDuration = 120;
+export const maxDuration = 60;
 
 const noStore = { 'cache-control': 'no-store' };
 const publicStatus = async (user: string) => {

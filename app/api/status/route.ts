@@ -6,7 +6,7 @@ import { aiMachineAction, fullStatus, islandCors, islandUser } from '@/lib/statu
 
 export const dynamic = 'force-dynamic';
 // Finding a free GPU can take several tries (see lib/ai.ts).
-export const maxDuration = 120;
+export const maxDuration = 60;
 
 /**
  * Money, timers and machine stats for the status pill (Orbit, the chooser, and the pill the

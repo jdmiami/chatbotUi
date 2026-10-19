@@ -230,7 +230,7 @@ async function createAiPod(tier: AiTier, role: 'main' | 'helper' = 'main', usual
   const started = Date.now();
   for (const { gpu, dataCenters } of placements(tier, usualOnly)) {
     // Each try is one quick request; stop well inside the request's time limit.
-    if (Date.now() - started > 90_000) break;
+    if (Date.now() - started > 45_000) break;
     try {
       return (await runpod('/pods', {
         method: 'POST',
