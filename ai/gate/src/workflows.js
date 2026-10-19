@@ -60,7 +60,9 @@ export function imageWorkflow({ prompt, width = 1024, height = 1024, seed = rand
  * uploaded ComfyUI input image to start from, or null for text-to-video.
  */
 export function videoWorkflow({ prompt, width = 1280, height = 720, seconds = 5, image = null, seed = randomSeed(), prefix = 'orbit/video' }) {
-  const frames = Math.round(seconds * VIDEO_FPS) + 1;
+  // LTX makes 8k+1 frames (other counts are cut down to that, while the sound would keep the full
+  // length and run past the pictures).
+  const frames = 8 * Math.max(1, Math.round((seconds * VIDEO_FPS) / 8)) + 1;
   const fromImage = Boolean(image);
   return {
     // Models
@@ -192,14 +194,29 @@ export function qwenWorkflow({ unet, prompt, width = 1024, height = 1024, seed =
   };
 }
 
+/** Each Krea style only shows when its trigger words are in the prompt (ComfyUI's Krea 2 template). */
+export const KREA_TRIGGERS = {
+  darkbrush: 'monochrome ink wash style',
+  dotmatrix: 'monochrome stippling style',
+  kidsdrawing: 'naive expressive sketch style',
+  neondrip: 'textured abstract style',
+  rainywindow: 'rainy window style',
+  retroanime: 'purple retro anime style',
+  softwatercolor: 'art deco watercolor style',
+  sunsetblur: 'ethereal motion blur style',
+  vintagetarot: 'vintage tarot style',
+};
+
 /** Krea 2 (Krea Real), from ComfyUI's Krea 2 turbo template; `style` adds one of Krea's style LoRAs. */
 export function kreaWorkflow({ prompt, width = 1024, height = 1536, seed = randomSeed(), style = null, prefix = 'orbit/image' }) {
   const model = style ? ['11', 0] : ['1', 0];
+  const trigger = style && KREA_TRIGGERS[/^krea2_(\w+)\.safetensors$/.exec(style)?.[1]];
+  const text = trigger ? `${prompt}, ${trigger}` : prompt;
   return {
     1: { class_type: 'UNETLoader', inputs: { unet_name: FILES.kreaNoct.name, weight_dtype: 'default' } },
     2: { class_type: 'CLIPLoader', inputs: { clip_name: FILES.kreaTe.name, type: 'krea2', device: 'default' } },
     3: { class_type: 'VAELoader', inputs: { vae_name: FILES.kreaVae.name } },
-    4: { class_type: 'CLIPTextEncode', inputs: { clip: ['2', 0], text: prompt } },
+    4: { class_type: 'CLIPTextEncode', inputs: { clip: ['2', 0], text } },
     5: { class_type: 'ConditioningZeroOut', inputs: { conditioning: ['4', 0] } },
     6: { class_type: 'EmptyLatentImage', inputs: { width, height, batch_size: 1 } },
     7: {
@@ -208,7 +225,7 @@ export function kreaWorkflow({ prompt, width = 1024, height = 1536, seed = rando
     },
     8: { class_type: 'VAEDecode', inputs: { samples: ['7', 0], vae: ['3', 0] } },
     9: { class_type: 'SaveImage', inputs: { images: ['8', 0], filename_prefix: prefix } },
-    ...(style ? { 11: { class_type: 'LoraLoaderModelOnly', inputs: { model: ['1', 0], lora_name: style, strength_model: 0.8 } } } : {}),
+    ...(style ? { 11: { class_type: 'LoraLoaderModelOnly', inputs: { model: ['1', 0], lora_name: style, strength_model: 1 } } } : {}),
   };
 }
 
@@ -228,7 +245,7 @@ export function h3Workflow({ prompt, width = 1280, height = 704, seconds = 5, im
     4: { class_type: 'VAELoader', inputs: { vae_name: FILES.h3AudioVae.name } },
     5: {
       class_type: 'MiniMaxH3ImageToVideo',
-      inputs: { clip: ['2', 0], vae: ['3', 0], prompt, width, height, length: h3Length(seconds), ...(image ? { first_frame: ['20', 0] } : {}) },
+      inputs: { clip: ['2', 0], vae: ['3', 0], prompt, width, height, length: h3Length(seconds), ...(image ? { first_frame: ['21', 0] } : {}) },
     },
     6: { class_type: 'RandomNoise', inputs: { noise_seed: seed } },
     7: { class_type: 'BasicGuider', inputs: { model: ['1', 0], conditioning: ['5', 0] } },
@@ -238,8 +255,17 @@ export function h3Workflow({ prompt, width = 1280, height = 704, seconds = 5, im
     11: { class_type: 'VAEDecode', inputs: { samples: ['10', 0], vae: ['3', 0] } },
     12: { class_type: 'VAEDecodeAudio', inputs: { samples: ['10', 0], vae: ['4', 0] } },
     13: { class_type: 'CreateVideo', inputs: { images: ['11', 0], audio: ['12', 0], fps: H3_FPS } },
-    14: { class_type: 'SaveVideo', inputs: { video: ['13', 0], filename_prefix: prefix, format: 'mp4', codec: 'h264' } },
-    ...(image ? { 20: { class_type: 'LoadImage', inputs: { image } } } : {}),
+    14: { class_type: 'SaveVideo', inputs: { video: ['13', 0], filename_prefix: prefix, format: 'mp4', 'format.codec': 'h264' } },
+    ...(image
+      ? {
+          20: { class_type: 'LoadImage', inputs: { image } },
+          // MiniMaxH3ImageToVideo stretches the picture to the video's size: crop it to that shape first.
+          21: {
+            class_type: 'ResizeImageMaskNode',
+            inputs: { input: ['20', 0], resize_type: 'scale dimensions', 'resize_type.width': width, 'resize_type.height': height, 'resize_type.crop': 'center', scale_method: 'lanczos' },
+          },
+        }
+      : {}),
   };
 }
 

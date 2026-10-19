@@ -98,6 +98,9 @@ test('install remembers the choice; a maker works once its files are there', asy
   await place(dir, MAKERS.find((m) => m.id === 'style-darkbrush').loraFile);
   await make(studio, { maker: 'krea-real', prompt: 'x', style: 'style-darkbrush' });
   assert.equal(node(state.prompts[1], 'LoraLoaderModelOnly').inputs.lora_name, 'krea2_darkbrush.safetensors');
+  // A style shows only with its trigger words, at full strength (ComfyUI's Krea 2 template).
+  assert.equal(node(state.prompts[1], 'LoraLoaderModelOnly').inputs.strength_model, 1);
+  assert.equal(node(state.prompts[1], 'CLIPTextEncode').inputs.text, 'x, monochrome ink wash style');
   await assert.rejects(studio.createJob({ maker: 'qwen', prompt: 'x', style: 'style-darkbrush' }), /not for this maker/);
 });
 
@@ -112,6 +115,14 @@ test('H3 Max: video with sound at H3 sizes and lengths, from text or a picture',
   assert.equal(job.kind, 'video');
   v = node(state.prompts[1], 'MiniMaxH3ImageToVideo').inputs;
   assert.ok(v.first_frame);
+  // The picture is cropped to the video's shape first (the H3 node would stretch it).
+  const wf = state.prompts.at(-1);
+  assert.deepEqual(v.first_frame, ['21', 0]);
+  assert.equal(wf['21'].inputs['resize_type.crop'], 'center');
+  assert.equal(node(wf, 'SaveVideo').inputs['format.codec'], 'h264');
+  // H3 is trained on 5 s and up: a 3 s request makes 5 s.
+  await make(studio, { maker: 'h3-max', prompt: 'a short one', seconds: 3 });
+  assert.equal(node(state.prompts.at(-1), 'MiniMaxH3ImageToVideo').inputs.length, h3Length(5));
   assert.match(node(state.prompts[1], 'LoadImage').inputs.image, /^orbit-.*\.png$/);
 });
 

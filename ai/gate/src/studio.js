@@ -98,7 +98,8 @@ export const PHOTO_MESSAGE = "Photos you upload can't be made sexual or have clo
 
 const SIZES = {
   image: { square: [1328, 1328], portrait: [1104, 1472], landscape: [1472, 1104], wide: [1664, 928], tall: [928, 1664] },
-  video: { landscape: [1280, 720], portrait: [720, 1280], square: [960, 960] },
+  // LTX works in multiples of 64 here (half size, then 2x): 720 would come out as 704 anyway.
+  video: { landscape: [1280, 704], portrait: [704, 1280], square: [960, 960] },
   // Krea 2 and H3 like their own sizes (H3: multiples of 32).
   krea: { square: [1024, 1024], portrait: [1024, 1536], landscape: [1536, 1024], wide: [1536, 864], tall: [864, 1536] },
   h3: { landscape: [1280, 704], portrait: [704, 1280], square: [960, 960] },
@@ -395,7 +396,7 @@ export function createStudio(o) {
   }
 
   // How far along a job is: each sampling pass covers part of the bar.
-  const STAGES = { image: { 7: [0, 95] }, video: { 38: [5, 70], 47: [70, 92] }, h3: { 10: [5, 90] }, upscale: { 3: [0, 95] } };
+  const STAGES = { image: { 7: [0, 95] }, video: { 38: [5, 70], 47: [70, 92], 50: [92, 99] }, h3: { 10: [5, 90], 11: [90, 99] }, upscale: { 3: [0, 95] } };
   function onProgress(job, node, value, max) {
     const stage = STAGES[job.stages || job.kind]?.[node];
     if (!stage || !max) return;
@@ -599,6 +600,8 @@ export function createStudio(o) {
       seconds = Math.min(10, Math.max(2, Math.round(Number(req.seconds) || 5)));
       const image = inputs[0] || null;
       if (maker.id === 'h3-max') {
+        // H3 is trained on clips of about 5 to 15 s; shorter ones come out poorly.
+        seconds = Math.max(5, seconds);
         [width, height] = SIZES.h3[req.size] || SIZES.h3.landscape;
         workflow = h3Workflow({ prompt, width, height, seconds, image, prefix });
         stages = 'h3';

@@ -139,7 +139,7 @@ test('studio: video from a photo stores the picture and builds an image-to-video
   const wf = state.prompts[0];
   assert.equal(wf['20'].class_type, 'LoadImage');
   assert.equal(wf['31'].inputs.bypass, false);
-  assert.equal(wf['30'].inputs.length, 101, '4 s at 25 fps');
+  assert.equal(wf['30'].inputs.length, 105, '4 s at 25 fps, as 8k+1 frames (what LTX makes)');
   const inputs = await fs.readdir(path.join(dir, 'input'));
   assert.equal(inputs.length, 1);
   await assert.rejects(
