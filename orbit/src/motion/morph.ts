@@ -26,7 +26,7 @@ export function cancelMorph(el: HTMLElement) {
   unscroll(el);
   live.get(el)?.cancel();
   live.delete(el);
-  for (const p of ['transform', 'opacity', 'clip-path', 'visibility', 'transform-origin']) el.style.removeProperty(p);
+  for (const p of ['transform', 'opacity', 'clip-path', 'visibility', 'transform-origin', 'filter']) el.style.removeProperty(p);
 }
 
 /** Where the icon for an app is on screen: its tile on the home screen, else its dock tile. */
@@ -189,4 +189,51 @@ function flyFromDrag(el: HTMLElement, icon: DOMRect, fling: { up: number; v: num
   });
   live.set(el, { cancel: anim.stop });
   return anim.finished;
+}
+
+/* ---------------------------------------------------------------- MagStyle: turning the page
+   Going from one app straight to another turns the page: the new one swings in from the right edge
+   (hinged on its left, like a leaf of paper) while the old one slides back and away. Lite keeps a
+   short slide; Off a cross-fade. */
+
+export async function pageTurnIn(el: HTMLElement, level: MotionLevel) {
+  cancelMorph(el);
+  if (level === 'off') {
+    await run(el, { opacity: [0, 1] }, { duration: 0.15, ease: 'easeOut' });
+    return cancelMorph(el);
+  }
+  el.style.transformOrigin = '0% 50%';
+  if (level === 'full') {
+    await run(
+      el,
+      {
+        transform: ['perspective(1600px) translateX(22%) rotateY(-16deg)', 'perspective(1600px) translateX(0%) rotateY(0deg)'],
+        opacity: [0, 1, 1],
+        filter: ['brightness(1.12)', 'brightness(1)'],
+      },
+      { ...SPRING.default, opacity: { duration: 0.22, times: [0, 0.6, 1] }, filter: { duration: 0.5 } },
+    );
+  } else {
+    await run(el, { transform: ['translateX(6%)', 'translateX(0%)'], opacity: [0, 1] }, { duration: 0.22, ease: [0.2, 0.8, 0.2, 1] });
+  }
+  cancelMorph(el);
+}
+
+export async function pageTurnOut(el: HTMLElement, level: MotionLevel) {
+  cancelMorph(el);
+  el.style.visibility = 'visible';
+  el.style.opacity = '1';
+  if (level === 'off') {
+    await run(el, { opacity: [1, 0] }, { duration: 0.15, ease: 'easeOut' });
+    return cancelMorph(el);
+  }
+  el.style.transformOrigin = '100% 50%';
+  await run(
+    el,
+    level === 'full'
+      ? { transform: ['perspective(1600px) translateX(0%) scale(1)', 'perspective(1600px) translateX(-14%) scale(0.94)'], opacity: [1, 0], filter: ['brightness(1)', 'brightness(0.7)'] }
+      : { transform: ['translateX(0%)', 'translateX(-4%)'], opacity: [1, 0] },
+    { duration: level === 'full' ? 0.42 : 0.2, ease: [0.4, 0, 0.2, 1] },
+  );
+  cancelMorph(el);
 }

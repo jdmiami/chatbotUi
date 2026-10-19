@@ -189,7 +189,7 @@ export default function AiApp({ isActive, compact, placement }: AppProps) {
   }, [ready, ai, installed?.length]);
 
   useEffect(() => {
-    setSummary('ai', busy ? 'Answering…' : status ? `AI machine: ${STATE_TEXT[status.state].toLowerCase()}` : '');
+    setSummary('ai', busy ? 'Answering…' : status ? `AI machine: ${(STATE_TEXT[status.state] ?? '').toLowerCase()}` : '');
   }, [busy, status, setSummary]);
 
   // Keep the newest text in view while it streams, unless the reader scrolled up to read.

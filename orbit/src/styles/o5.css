@@ -1162,3 +1162,110 @@
 .o5-folio { position: absolute; right: calc(50% + 64px + 16px); bottom: 7px; }
 @media (max-width: 700px) { .o5-folio { display: none; } }
 
+
+/* ---------------------------------------------------------------- MagStyle: chapter openers
+   Each time an app comes into view it opens on its chapter page for a moment: a big numeral, the
+   chapter kicker, the title and its line, then the page lifts away (the title faster than the rest,
+   for depth) and the app is underneath. Never in the way: it ignores taps. Lite: a quick fade. */
+.o5-opener {
+  position: absolute;
+  inset: 0;
+  z-index: 60;
+  display: grid;
+  align-content: center;
+  justify-items: start;
+  gap: 10px;
+  padding: max(24px, env(safe-area-inset-top)) clamp(24px, 8vw, 96px);
+  background: var(--o5-glow), var(--bg);
+  pointer-events: none;
+  overflow: hidden;
+  animation: o5-opener-out 0.95s var(--ease-o5) both;
+}
+.o5-opener-n {
+  position: absolute;
+  right: clamp(-12px, 2vw, 40px);
+  bottom: clamp(-40px, -4vh, 0px);
+  font-family: var(--font-display);
+  font-weight: 300;
+  font-variation-settings: 'opsz' 144;
+  font-size: clamp(220px, 52vmin, 520px);
+  line-height: 0.8;
+  letter-spacing: -0.06em;
+  color: color-mix(in srgb, var(--text) 7%, transparent);
+  animation: o5-opener-drift 0.95s var(--ease-o5) both;
+}
+.o5-opener-kicker { font: 600 calc(10px * var(--text-scale)) / 1 var(--font-ui); letter-spacing: 0.24em; text-transform: uppercase; color: var(--text-3); }
+.o5-opener-title {
+  font-family: var(--font-display);
+  font-weight: 330;
+  font-variation-settings: 'opsz' 144;
+  font-size: clamp(56px, 13vw, 128px);
+  line-height: 0.92;
+  letter-spacing: -0.04em;
+  color: var(--text);
+  animation: o5-opener-title 0.95s var(--ease-o5) both;
+}
+.o5-opener-line { font-family: var(--font-display); font-style: italic; font-size: calc(20px * var(--text-scale)); color: var(--text-2); animation: o5-opener-title 0.95s var(--ease-o5) 0.03s both; }
+@keyframes o5-opener-out {
+  0%, 52% { opacity: 1; transform: none; }
+  100% { opacity: 0; transform: translateY(-4%); }
+}
+@keyframes o5-opener-title {
+  0% { opacity: 0; transform: translateY(24px); }
+  28%, 52% { opacity: 1; transform: none; }
+  100% { opacity: 0; transform: translateY(-48px); }
+}
+@keyframes o5-opener-drift {
+  0% { transform: translateY(6%); }
+  100% { transform: translateY(-2%); }
+}
+:root[data-motion='lite'] .o5-opener { animation: o5-opener-quick 0.45s ease both; }
+:root[data-motion='lite'] :is(.o5-opener-title, .o5-opener-line, .o5-opener-n) { animation: none; }
+@keyframes o5-opener-quick { 0%, 40% { opacity: 1; } 100% { opacity: 0; } }
+:root[data-motion='off'] .o5-opener { display: none; }
+
+/* ---------------------------------------------------------------- MagStyle: the running head
+   When an app's own header tucks away as you read down the page, a running head takes its place
+   at the very top: "Orbit · 04 · Terminal", so you always know where you are. */
+.o5-runhead {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 55;
+  margin: 0;
+  padding: max(6px, env(safe-area-inset-top)) 16px 6px;
+  font: 600 calc(9.5px * var(--text-scale)) / 1.2 var(--font-ui);
+  letter-spacing: 0.24em;
+  text-transform: uppercase;
+  text-align: center;
+  color: var(--text-3);
+  background: var(--glass);
+  -webkit-backdrop-filter: blur(18px) saturate(1.2);
+  backdrop-filter: blur(18px) saturate(1.2);
+  pointer-events: none;
+  opacity: 0;
+  transform: translateY(-100%);
+  transition: opacity 0.25s ease, transform 0.35s var(--ease-o5);
+}
+.app-window[data-chrome='hidden'] .o5-runhead { opacity: 1; transform: none; }
+:root[data-motion='off'] .o5-runhead { transition: none; }
+
+/* ---------------------------------------------------------------- MagStyle: margin notes (iPad)
+   On a wide page, who answered sits in the margin beside each reply, like a marginal note,
+   instead of a line above it. */
+@media (min-width: 1100px) {
+  :root[data-skin='o5'] .ai-msg-assistant { position: relative; }
+  :root[data-skin='o5'] .ai-msg-assistant > .ai-msg-from {
+    position: absolute;
+    right: calc(100% + 28px);
+    top: 6px;
+    width: 132px;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 6px;
+    text-align: right;
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+}
