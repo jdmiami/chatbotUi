@@ -9,14 +9,15 @@ import { isWorkspace, PREF_COOKIE, WORKSPACES, type WorkspaceId } from '@/lib/wo
 import MachinePanel from './MachinePanel';
 import AiPanel from './AiPanel';
 import Island from '@/app/Island';
+import Masthead from './Masthead';
 
 export const dynamic = 'force-dynamic';
 
 const OPTIONS: { id: WorkspaceId; name: string; detail: string; needs: 'linux' | 'windows' | 'ai' }[] = [
-  { id: 'orbit', name: 'Orbit', detail: 'iPhone & iPad workspace: Terminal, Code and Antigravity', needs: 'linux' },
-  { id: 'ai', name: 'AI playground', detail: 'Chat with your own open models: documents, web search, voice, code', needs: 'ai' },
-  { id: 'code', name: 'Code with AI', detail: 'VS Code in the browser with an AI agent on your own model', needs: 'linux' },
-  { id: 'linux', name: 'Linux desktop', detail: 'The full Ubuntu desktop', needs: 'linux' },
+  { id: 'orbit', name: 'Orbit', detail: 'Talk, make, code and run things, made for iPhone and iPad', needs: 'linux' },
+  { id: 'ai', name: 'Playground', detail: 'The full AI playground: documents, web search, voice, code', needs: 'ai' },
+  { id: 'code', name: 'Code', detail: 'VS Code in the browser, with an AI agent on your own model', needs: 'linux' },
+  { id: 'linux', name: 'Linux desktop', detail: 'The whole Ubuntu desktop', needs: 'linux' },
   { id: 'windows', name: 'Windows PC', detail: 'Your own computer at home', needs: 'windows' },
 ];
 
@@ -73,7 +74,7 @@ export default async function Home({ searchParams }: { searchParams: Promise<{ c
     <main className="center">
       <Island />
       <div className="card chooser">
-        <h1>Choose your workspace</h1>
+        <Masthead section="Contents" title="Where to?" standfirst="Everything lives in Orbit. Pick a way in; the machines it needs are below." />
         <form action={chooseWorkspace} className="stack-form">
           <div className="choices" role="group" aria-label="Workspaces">
             {OPTIONS.map((o) =>
@@ -86,7 +87,7 @@ export default async function Home({ searchParams }: { searchParams: Promise<{ c
                     <span className="choice-name">{o.name}</span>
                     <span className="choice-detail">{o.detail}</span>
                     {o.needs === 'linux' && <span className="choice-needs">Needs the Linux machine on</span>}
-                    {o.needs === 'ai' && <span className="choice-ai-note">Turns on its own GPU machine ($0.59/hour, off when unused)</span>}
+                    {o.needs === 'ai' && <span className="choice-ai-note">Turns on the AI machine · off by itself when unused</span>}
                   </span>
                   <span className="chevron" aria-hidden>
                     ›
@@ -111,6 +112,7 @@ export default async function Home({ searchParams }: { searchParams: Promise<{ c
           </label>
         </form>
 
+        <p className="kicker machines-head">Machines</p>
         <MachinePanel initial={status} />
         <AiPanel />
 

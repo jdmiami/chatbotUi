@@ -79,7 +79,7 @@ export default function AiPanel() {
       <div className="machine-row">
         <span className={`dot state-${dot}`} aria-hidden />
         <div className="machine-text">
-          <h2 id="ai-machine-title">AI machine (GPU)</h2>
+          <h2 id="ai-machine-title">AI machine</h2>
           <p className="muted" role="status" aria-live="polite">
             {busy ? 'Working…' : LABEL[status.state]}
             {status.pulling ? ` · ${status.pulling.model} ${status.pulling.percent}%` : ''}

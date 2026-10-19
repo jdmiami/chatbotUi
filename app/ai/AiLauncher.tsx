@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import AiSpeed, { type AiTier } from '../AiSpeed';
+import Masthead from '../Masthead';
 
 type State = 'unconfigured' | 'off' | 'starting' | 'downloading' | 'on' | 'error';
 interface Status {
@@ -18,7 +19,7 @@ interface Status {
 }
 
 const STEPS: { key: string; label: string }[] = [
-  { key: 'power', label: 'Turning on the GPU machine' },
+  { key: 'power', label: 'Turning on the AI machine' },
   { key: 'services', label: 'Starting the AI services' },
   { key: 'models', label: 'Getting the models ready' },
   { key: 'open', label: 'Opening' },
@@ -65,7 +66,7 @@ export default function AiLauncher({ target, next }: { target: 'chat' | 'code'; 
         window.location.href = url;
       } else {
         setOpening(false);
-        if (target === 'code') setCodeNote('The Linux machine needs to be on for coding. Turn it on from the start screen.');
+        if (target === 'code') setCodeNote('The Linux machine needs to be on for coding. Turn it on from Contents.');
       }
     } catch (err) {
       setOpening(false);
@@ -137,20 +138,16 @@ export default function AiLauncher({ target, next }: { target: 'chat' | 'code'; 
   const cost =
     (current ? `${current.label} (${current.gpuName}): ` : '') +
     (status?.costPerHour != null ? `$${status.costPerHour.toFixed(2)}/hour while on` : `$${(current?.pricePerHour ?? 0.59).toFixed(2)}/hour while on`);
-  const title = target === 'chat' ? 'AI playground' : 'Coding with your own AI';
+  const title = target === 'chat' ? 'Playground' : 'Code';
 
   return (
     <main className="center">
       <div className="card ai-card">
-        <div className="brand">
-          <span className="ai-glyph" aria-hidden>
-            <svg width="26" height="26" viewBox="0 0 24 24" fill="none">
-              <path d="M12 3l2.2 5.3L20 10.5l-5.8 2.2L12 18l-2.2-5.3L4 10.5l5.8-2.2z" fill="currentColor" />
-              <circle cx="19" cy="19" r="2" fill="currentColor" />
-            </svg>
-          </span>
-          <h1>{title}</h1>
-        </div>
+        <Masthead
+          section={target === 'chat' ? 'Playground' : 'Code'}
+          title={title}
+          standfirst={target === 'chat' ? 'Getting your AI machine ready, then straight in.' : 'VS Code on your Linux machine, with your own AI beside it.'}
+        />
 
         {status?.state === 'unconfigured' ? (
           <p className="muted">{status.detail}</p>
@@ -230,7 +227,7 @@ export default function AiLauncher({ target, next }: { target: 'chat' | 'code'; 
             </button>
           )}
           <a className="button secondary" href="/?choose=1">
-            Workspaces
+            Contents
           </a>
         </div>
         {(status?.url || status?.consoleUrl) && (

@@ -4,7 +4,7 @@ import AiLauncher from './AiLauncher';
 import Island from '@/app/Island';
 
 export const dynamic = 'force-dynamic';
-export const metadata = { title: 'AI playground · My Workspace' };
+export const metadata = { title: 'Playground · Orbit' };
 
 export default async function AiPage({ searchParams }: { searchParams: Promise<{ next?: string }> }) {
   if (!(await currentUser())) redirect('/login');

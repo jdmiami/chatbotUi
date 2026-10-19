@@ -4,7 +4,7 @@ import AiLauncher from '../ai/AiLauncher';
 import Island from '@/app/Island';
 
 export const dynamic = 'force-dynamic';
-export const metadata = { title: 'Coding · My Workspace' };
+export const metadata = { title: 'Code · Orbit' };
 
 export default async function CodePage() {
   if (!(await currentUser())) redirect('/login');
