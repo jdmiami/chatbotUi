@@ -15,7 +15,7 @@ export async function POST(request: Request) {
   if (!user) return Response.json({ error: 'Unauthorized' }, { status: 401 });
   if (!sameOrigin(request)) return Response.json({ error: 'Forbidden' }, { status: 403 });
   const machine = await machineStatus();
-  const base = podHttpBase();
+  const base = await podHttpBase();
   const secret = process.env.LINUX_GATEWAY_SECRET;
   if (!base || !secret || machine.state !== 'on') {
     return Response.json({ machine, url: null }, { headers: { 'cache-control': 'no-store' } });

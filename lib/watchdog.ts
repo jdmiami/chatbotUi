@@ -63,16 +63,18 @@ export async function runWatchdog(): Promise<WatchdogResult> {
   const body = (await runpod('/pods')) as { pods?: Pod[] } | Pod[];
   const pods = Array.isArray(body) ? body : (body.pods ?? []);
   const linuxId = linuxPodId();
-  const ours = pods.filter((p) => p.id === linuxId || p.name === aiName() || p.name === `${aiName()}-helper`);
+  const fallback = process.env.LINUX_FALLBACK_NAME || 'orbit-linux-fallback';
+  const isLinux = (p: Pod) => p.id === linuxId || p.name === fallback;
+  const ours = pods.filter((p) => isLinux(p) || p.name === aiName() || p.name === `${aiName()}-helper`);
   const result: WatchdogResult = { at: new Date().toISOString(), machines: [] };
   for (const pod of ours) {
     const status = pod.status ?? 'unknown';
-    const label = pod.id === linuxId ? 'Linux machine' : pod.name.endsWith('-helper') ? 'AI helper' : 'AI machine';
+    const label = pod.id === linuxId ? 'Linux machine' : pod.name === fallback ? 'Linux stand-in' : pod.name.endsWith('-helper') ? 'AI helper' : 'AI machine';
     if (status !== 'RUNNING') {
       result.machines.push({ name: label, status, idleMinutes: null, action: 'kept', why: status === 'EXITED' ? 'off' : 'not running' });
       continue;
     }
-    const { idle, heldUntil } = await idleMinutes(pod, pod.id === linuxId);
+    const { idle, heldUntil } = await idleMinutes(pod, isLinux(pod));
     // Unknown uptime never leads to a stop on its own: the machine's own timer still applies.
     const up = pod.runtime?.uptime ?? pod.runtime?.uptimeInSeconds ?? pod.runtime?.uptimeSeconds ?? pod.uptimeSeconds;
     const onFor = typeof up === 'number' && up >= 0 ? Math.floor(up / 60) : null;

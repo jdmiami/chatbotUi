@@ -20,7 +20,7 @@ export async function POST(request: Request) {
   // The site's main address (Vercel sets this), so Orbit can point there if this address is refused.
   const prod = process.env.VERCEL_PROJECT_PRODUCTION_URL;
   const mainUrl = prod ? `https://${prod}` : null;
-  const base = podHttpBase();
+  const base = await podHttpBase();
   const secret = process.env.LINUX_GATEWAY_SECRET;
   if (!base || !secret) return Response.json({ machine, mainUrl, hostUrl: null, token: null }, { headers: { 'cache-control': 'no-store' } });
 

@@ -3,6 +3,7 @@ import { SignJWT } from 'jose';
 import { currentUser } from '@/lib/auth';
 import { gatewayFor } from '@/lib/machines';
 import { sameOrigin } from '@/lib/request';
+import { activePodId } from '@/lib/runpod';
 
 export const dynamic = 'force-dynamic';
 
@@ -29,8 +30,15 @@ export async function POST(request: Request) {
     .setExpirationTime('60s')
     .sign(gateway.key);
 
+  // The Linux desktop may be running on its stand-in machine (see lib/runpod.ts).
+  let gatewayUrl = gateway.url;
+  if (machine === 'linux' && !process.env.LINUX_GATEWAY_URL) {
+    const id = await activePodId().catch(() => null);
+    if (id) gatewayUrl = `wss://${id}-8080.proxy.runpod.net`;
+  }
+
   return Response.json(
-    { gatewayUrl: gateway.url, token },
+    { gatewayUrl, token },
     { headers: { 'cache-control': 'no-store' } },
   );
 }
