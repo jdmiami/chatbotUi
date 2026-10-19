@@ -12,6 +12,8 @@ import { createSysStats } from './sysstats.js';
 import { createGpuStats } from './gpustats.js';
 import { createSearch } from './search.js';
 import { createVoice } from './voice.js';
+import { createR2, createR2Test, r2FromEnv } from './r2.js';
+import { STUDIO_FILES } from './workflows.js';
 
 const env = process.env;
 if (!env.GATEWAY_SECRET || env.GATEWAY_SECRET.length < 32) {
@@ -36,13 +38,19 @@ const studio = env.STUDIO_DIR
   : null;
 // soReal movies (chained video shots), kept with the studio's files.
 const movies = studio ? createMovies({ dir: env.STUDIO_DIR, studio, machine: HELPER ? 'helper' : 'main' }) : null;
+// R2 speed test (only when the R2 keys are set as Runpod secrets): the Qwen image model, volume vs R2.
+const r2conf = studio ? r2FromEnv(env) : null;
+const QWEN = STUDIO_FILES.image[0];
+const r2test = r2conf
+  ? createR2Test({ r2: createR2(r2conf), file: path.join(env.STUDIO_DIR, 'models', QWEN.dir, QWEN.name), key: `models/${QWEN.dir}/${QWEN.name}` })
+  : null;
 
 // Turns itself off after 20 minutes without a job (IDLE_MINUTES can only make that shorter).
 const idle = createIdleWatch({
   limitMinutes: Math.min(Number(env.IDLE_MINUTES) || 20, 20),
   // Busy while a picture, video or movie shot is being made or a download is running. A model merely
   // sitting in GPU memory is not a job.
-  busy: async () => Boolean(models.pulling() || studio?.busy()),
+  busy: async () => Boolean(models.pulling() || studio?.busy() || r2test?.running()),
   stop: () => runpodStopSelf({ podId: env.RUNPOD_POD_ID, apiKey: env.RUNPOD_API_KEY }),
   log: console,
 });
@@ -124,6 +132,7 @@ const server = createGate({
   },
   studio,
   movies,
+  r2test,
   studioKey: env.STUDIO_KEY || '',
   store: createModelStore({ ollama: OLLAMA, volume: env.PERSIST_DIR || '/workspace' }),
   search: createSearch(),
