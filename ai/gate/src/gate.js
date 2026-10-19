@@ -106,6 +106,7 @@ const bearer = (req) => {
  *   status()                async () => object for /_orbit/status
  *   studio                  image/video maker (studio.js), optional
  *   studioKey               key Open WebUI uses for the studio from inside the machine (loopback only)
+ *   r2test                  R2 speed test (r2.js createR2Test), optional
  */
 // Open WebUI requests that ask a model for something (chat, images, speech, title/tag tasks).
 const WEBUI_WORK = /\/(chat\/completions|api\/chat|api\/generate|images|audio|tasks)(\/|$)/;
@@ -124,6 +125,7 @@ export function createGate(cfg, log = console) {
   const activity = cfg.activity || (() => {});
   const studio = cfg.studio || null;
   const movies = cfg.movies || null;
+  const r2test = cfg.r2test || null;
   const studioKey = cfg.studioKey ? Buffer.from(cfg.studioKey) : null;
 
   const apiToken = (req) => {
@@ -521,6 +523,16 @@ export function createGate(cfg, log = console) {
         return j ? send(res, 200, withJobUrl(j)) : send(res, 404, { error: 'No such job' });
       }
       if (movies && path.startsWith('/_orbit/studio/movies')) return await handleMovies(req, res, path, withUrl);
+      // R2 speed test: GET shows the last run, POST starts one ({ chunkMiB, concurrency, reupload }).
+      if (path === '/_orbit/studio/r2test') {
+        if (!r2test) return send(res, 404, { error: 'R2 is not set up on this machine.' });
+        if (req.method === 'POST') {
+          const o = JSON.parse((await readBody(req, 4096)) || '{}');
+          const opts = { chunkMiB: Math.min(256, Math.max(8, Number(o.chunkMiB) || 64)), concurrency: Math.min(32, Math.max(1, Number(o.concurrency) || 8)), reupload: Boolean(o.reupload) };
+          return send(res, r2test.start(opts) ? 202 : 409, r2test.state());
+        }
+        return send(res, 200, r2test.state());
+      }
       const itemMatch = /^\/_orbit\/studio\/items\/([A-Za-z0-9_-]+)$/.exec(path);
       if (itemMatch && req.method === 'DELETE') return send(res, (await studio.remove(itemMatch[1])) ? 200 : 404, { ok: true });
       return send(res, 404, { error: 'Not found' });
