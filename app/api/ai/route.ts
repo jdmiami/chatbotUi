@@ -3,6 +3,8 @@ import { sameOrigin } from '@/lib/request';
 import { aiBase, aiConfigured, aiConsole, aiStatus, startAi, stopAi } from '@/lib/ai';
 
 export const dynamic = 'force-dynamic';
+// Finding a free GPU can take several tries (see lib/ai.ts).
+export const maxDuration = 120;
 
 const noStore = { 'cache-control': 'no-store' };
 

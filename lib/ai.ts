@@ -47,6 +47,12 @@ export interface AiTier {
   gpu: string;
   /** Other GPUs of the same speed and price, tried when `gpu` is sold out. */
   alsoGpus?: string[];
+  /**
+   * Backups when every GPU above is sold out everywhere: at least as fast, may cost a bit more
+   * (never more than `maxFallbackPrice`). Tried cheapest first.
+   */
+  fallbacks?: { gpu: string; gpuName: string; pricePerHour: number }[];
+  maxFallbackPrice?: number;
   gpuName: string;
   pricePerHour: number;
   idleMinutes: number;
@@ -62,6 +68,7 @@ interface Pod {
   createdAt?: string;
   env?: Record<string, string>;
   gpu?: { id?: string } | null;
+  dataCenterId?: string;
 }
 
 // North American Secure Cloud data centers, tried in this order (R2's bucket is in eastern North America).
@@ -92,12 +99,54 @@ export function aiTiers(): AiTier[] {
     /* fall back to the defaults */
   }
   return [
-    { id: 'standard', label: 'Standard', gpu: env().gpuTypes[0] || 'NVIDIA A40', alsoGpus: env().gpuTypes.slice(1), gpuName: 'A40 / A6000 48 GB', pricePerHour: 0.59, idleMinutes: Number(env().idleMinutes) || 20, speed: 'normal speed' },
-    { id: 'turbo', label: 'Turbo', gpu: 'NVIDIA H100 80GB HBM3', gpuName: 'H100 80 GB', pricePerHour: 3.99, idleMinutes: 10, speed: 'about 4–6× faster' },
+    {
+      id: 'standard',
+      label: 'Standard',
+      gpu: env().gpuTypes[0] || 'NVIDIA A40',
+      alsoGpus: env().gpuTypes.slice(1),
+      gpuName: 'A40 / A6000 48 GB',
+      pricePerHour: 0.59,
+      idleMinutes: Number(env().idleMinutes) || 20,
+      speed: 'normal speed',
+      // Same 48 GB of memory (everything fits), newer and a little faster, a little dearer.
+      fallbacks: [
+        { gpu: 'NVIDIA L40', gpuName: 'L40 48 GB', pricePerHour: 0.82 },
+        { gpu: 'NVIDIA RTX 6000 Ada Generation', gpuName: 'RTX 6000 Ada 48 GB', pricePerHour: 0.99 },
+        { gpu: 'NVIDIA L40S', gpuName: 'L40S 48 GB', pricePerHour: 1.09 },
+      ],
+      maxFallbackPrice: Number(process.env.AI_MAX_FALLBACK_PRICE) || 1.1,
+    },
+    {
+      id: 'turbo',
+      label: 'Turbo',
+      gpu: 'NVIDIA H100 80GB HBM3',
+      gpuName: 'H100 80 GB',
+      pricePerHour: 3.99,
+      idleMinutes: 10,
+      speed: 'about 4–6× faster',
+      // Big, fast GPUs that never cost more than Turbo itself.
+      fallbacks: [
+        { gpu: 'NVIDIA A100-SXM4-80GB', gpuName: 'A100 80 GB', pricePerHour: 1.79 },
+        { gpu: 'NVIDIA A100 80GB PCIe', gpuName: 'A100 80 GB', pricePerHour: 1.79 },
+        { gpu: 'NVIDIA RTX PRO 6000 Blackwell Server Edition', gpuName: 'RTX PRO 6000 96 GB', pricePerHour: 2.49 },
+        { gpu: 'NVIDIA H100 NVL', gpuName: 'H100 NVL 94 GB', pricePerHour: 3.19 },
+      ],
+      maxFallbackPrice: 3.99,
+    },
   ];
 }
 const gpusOf = (t: AiTier) => [t.gpu, ...(t.alsoGpus ?? [])];
-const tierOf = (pod: Pod | null) => (pod?.gpu?.id ? (aiTiers().find((t) => gpusOf(t).includes(pod.gpu!.id!)) ?? null) : null);
+const fallbacksOf = (t: AiTier) =>
+  (t.fallbacks ?? []).filter((f) => f.pricePerHour <= (t.maxFallbackPrice ?? t.pricePerHour)).sort((a, b) => a.pricePerHour - b.pricePerHour);
+const tierOf = (pod: Pod | null) => {
+  const id = pod?.gpu?.id;
+  if (!id) return null;
+  const tiers = aiTiers();
+  return tiers.find((t) => gpusOf(t).includes(id)) ?? tiers.find((t) => fallbacksOf(t).some((f) => f.gpu === id)) ?? null;
+};
+/** On a backup GPU, or outside the usual (North American) data centers: try the usual place again next start. */
+const onBackup = (pod: Pod, tier: AiTier) =>
+  !gpusOf(tier).includes(pod.gpu?.id ?? '') || Boolean(pod.dataCenterId && !env().dataCenters.includes(pod.dataCenterId));
 
 /**
  * Set up when the site can manage the machine (Runpod key, plus the volume in volume mode), or at
@@ -157,12 +206,31 @@ export async function findAiPod(): Promise<Pod | null> {
 const helperName = () => `${env().name}-helper`;
 export const findHelperPod = () => findPodNamed(helperName());
 
-async function createAiPod(tier: AiTier, role: 'main' | 'helper' = 'main'): Promise<Pod> {
+/**
+ * Where to look for a GPU, in order (cheapest first): the tier's own GPUs in North America, then
+ * anywhere in the world (everything comes from R2, so any data center works), then the backup GPUs
+ * in North America, then anywhere. With a network volume only its data center can work.
+ * `usualOnly` stops after the tier's own GPUs in North America.
+ */
+function placements(tier: AiTier, usualOnly = false) {
+  const e = env();
+  const na = e.dataCenters;
+  const anywhere = e.storage === 'r2' && process.env.AI_WORLDWIDE !== 'off' ? [null] : [];
+  const out: { gpu: string; dataCenters: string[] | null }[] = [];
+  for (const where of [na, ...(usualOnly ? [] : anywhere)]) for (const gpu of gpusOf(tier)) out.push({ gpu, dataCenters: where });
+  if (!usualOnly) for (const where of [na, ...anywhere]) for (const f of fallbacksOf(tier)) out.push({ gpu: f.gpu, dataCenters: where });
+  return out;
+}
+
+async function createAiPod(tier: AiTier, role: 'main' | 'helper' = 'main', usualOnly = false): Promise<Pod> {
   const e = env();
   const origins = process.env.LINUX_ALLOWED_ORIGINS || [siteUrl(), 'https://chatbot-ui-62nj-*-jdmiamis-projects.vercel.app'].filter(Boolean).join(',');
   let lastError: Error | null = null;
   const r2 = e.storage === 'r2';
-  for (const gpu of gpusOf(tier)) {
+  const started = Date.now();
+  for (const { gpu, dataCenters } of placements(tier, usualOnly)) {
+    // Each try is one quick request; stop well inside the request's time limit.
+    if (Date.now() - started > 90_000) break;
     try {
       return (await runpod('/pods', {
         method: 'POST',
@@ -171,7 +239,7 @@ async function createAiPod(tier: AiTier, role: 'main' | 'helper' = 'main'): Prom
           cloud: 'SECURE',
           // 12.8+: the image/video maker uses a CUDA 12.8 build of PyTorch.
           gpu: { id: gpu, count: 1, minCudaVersion: '12.8' },
-          dataCenterIds: e.dataCenters,
+          ...(dataCenters ? { dataCenterIds: dataCenters } : {}),
           image: e.image,
           // With R2 the models are unpacked onto the pod's own disk at every start (it is only billed
           // while the machine is on and is wiped when it stops).
@@ -212,7 +280,7 @@ const noCapacity = (msg: string) =>
   /not enough|no (gpu|longer|instances?)|insufficient|capacity|unavailable|not available|free gpu/i.test(msg);
 
 const noGpu = (tier: AiTier, others: AiTier[]) =>
-  `No ${tier.label} GPU (${tier.gpuName}) is free right now: Runpod is out of them in its data center. ` +
+  `No ${tier.label} GPU (${tier.gpuName}${fallbacksOf(tier).length ? `, or a backup: ${fallbacksOf(tier).map((f) => f.gpuName).join(', ')}` : ''}) is free anywhere right now. ` +
   (others.length ? `Try ${others.map((t) => t.label).join(' or ')}, or try again in a few minutes.` : 'This usually clears within the hour; try again in a few minutes.');
 
 /** Create a pod for `tier`, with a clear message when that GPU is sold out. */
@@ -260,6 +328,15 @@ export async function startAi(tierId?: string): Promise<void> {
     return;
   }
   if (pod.status === 'RUNNING' || pod.status === 'STARTING' || pod.status === 'PROVISIONING') return;
+  // Last time it landed on a backup GPU or far away: with everything in R2 a new machine costs nothing
+  // extra (a stopped one starts from an empty disk too), so try the usual GPU first.
+  if (env().storage === 'r2' && onBackup(pod, tier)) {
+    const fresh = await createAiPod(tier, 'main', true).catch(() => null);
+    if (fresh) {
+      await runpod(`/pods/${encodeURIComponent(pod.id)}`, { method: 'DELETE' }).catch(() => {});
+      return;
+    }
+  }
   // Run the same code version and default models as this deployment: update a stopped machine
   // before starting it.
   const want: Record<string, string> = { DEFAULT_MODELS: env().models, IDLE_MINUTES: String(tier.idleMinutes) };
@@ -397,13 +474,15 @@ export async function aiStatus(user: string): Promise<AiStatus & { podId?: strin
   }
   const speeds = { tiers: aiTiers(), tier: tierOf(pod)?.id ?? null };
   if (!pod) return { state: 'off', costPerHour: null, ...speeds };
+  const t = tierOf(pod);
+  const backup = pod.status !== 'EXITED' && t && onBackup(pod, t) ? backupNote(pod, t) : undefined;
   const cost = typeof pod.cost === 'number' && pod.cost > 0 ? pod.cost : null;
   switch (pod.status) {
     case 'EXITED':
       return { state: 'off', costPerHour: null, podId: pod.id, ...speeds };
     case 'PROVISIONING':
     case 'STARTING':
-      return { state: 'starting', costPerHour: cost, podId: pod.id, ...speeds };
+      return { state: 'starting', costPerHour: cost, podId: pod.id, detail: backup, ...speeds };
     case 'RUNNING':
       break;
     default:
@@ -415,7 +494,7 @@ export async function aiStatus(user: string): Promise<AiStatus & { podId?: strin
       cache: 'no-store',
       signal: AbortSignal.timeout(5000),
     });
-    if (!res.ok) return { state: 'starting', costPerHour: cost, podId: pod.id, ...speeds };
+    if (!res.ok) return { state: 'starting', costPerHour: cost, podId: pod.id, detail: backup, ...speeds };
     const g = (await res.json()) as GateStatus;
     // Usable as soon as one model is there; later downloads show as progress.
     const state: AiState = !g.ready ? 'starting' : g.models.length ? 'on' : 'downloading';
@@ -426,9 +505,18 @@ export async function aiStatus(user: string): Promise<AiStatus & { podId?: strin
       pulling: g.pulling,
       models: g.models.map((m) => m.name),
       idle: g.idle ? { limitMinutes: g.idle.limitMinutes, idleMinutes: g.idle.idleMinutes } : null,
+      detail: backup,
       ...speeds,
     };
   } catch {
-    return { state: 'starting', costPerHour: cost, podId: pod.id, ...speeds };
+    return { state: 'starting', costPerHour: cost, podId: pod.id, detail: backup, ...speeds };
   }
+}
+
+/** Plain words for a machine on a backup GPU or far from home. */
+function backupNote(pod: Pod, tier: AiTier) {
+  const f = fallbacksOf(tier).find((x) => x.gpu === pod.gpu?.id);
+  const where = pod.dataCenterId && !env().dataCenters.includes(pod.dataCenterId) ? ` in ${pod.dataCenterId}` : '';
+  const what = f ? `a backup ${f.gpuName} GPU ($${f.pricePerHour.toFixed(2)}/hour)` : 'your usual GPU';
+  return `Your usual ${tier.gpuName} GPUs were taken, so this machine is on ${what}${where}. Next time it tries the usual one first.`;
 }
