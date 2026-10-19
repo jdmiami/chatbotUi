@@ -1,14 +1,14 @@
 import Link from 'next/link';
+import Masthead from './Masthead';
 
 export default function NotFound() {
   return (
     <main className="center">
       <div className="card">
-        <h1>Page not found</h1>
-        <p className="muted">This address doesn&apos;t exist. It may have been mistyped or moved.</p>
+        <Masthead section="Not found" title="This page isn’t here." standfirst="The address may have been mistyped or moved." />
         <div className="row">
           <Link className="button" href="/">
-            Go to your workspace
+            Back to Orbit
           </Link>
         </div>
       </div>
