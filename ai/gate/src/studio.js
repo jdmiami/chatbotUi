@@ -26,6 +26,44 @@ import {
 /** Longest a single job may keep the machine awake (the slowest videos take about 20 minutes). */
 const STUCK_JOB_MS = 60 * 60_000;
 
+// ---------------------------------------------------------------- how long jobs should take
+// Measured on the AI machine's GPU (A40). Each maker's time is per "unit": one picture at its usual
+// size, or one second of 720p video. The machine replaces these with its own timings as it works.
+const BASE_MS = {
+  qwen: 45_000,
+  'qwen-real': 45_000,
+  anime: 45_000,
+  'krea-real': 20_000,
+  edit: 60_000,
+  outfit: 60_000,
+  angles: 60_000,
+  sharpen: 15_000,
+  ltx: 40_000,
+  'h3-max': 90_000,
+};
+/** Loading a maker's models from the volume, the first time (or after another maker ran). */
+const LOAD_MS = { image: 60_000, video: 240_000 };
+/** A job is "slow" past 1.5x its usual time, and stopped and tried again past its budget. */
+const SLOW = 1.5;
+export const budgetFor = (expectedMs) => Math.max(expectedMs * 3, expectedMs + 5 * 60_000);
+/** No word from the maker about a running job for this long means it froze. */
+const STALL_MS = 10 * 60_000;
+/** The maker can be down this long (it restarts itself after a crash) before a job gives up. */
+const DOWN_MS = 6 * 60_000;
+/** Each job is tried at most twice. */
+const MAX_ATTEMPTS = 2;
+
+/** The job's size in units (see BASE_MS). */
+export function jobUnits({ kind, maker, width, height, seconds }) {
+  if (kind === 'video') return Math.max(1, (seconds || 5) * ((width || 1280) * (height || 720)) / (1280 * 720));
+  if (maker === 'krea-real') return Math.max(0.5, ((width || 1024) * (height || 1536)) / (1024 * 1536));
+  if (BASE_MS[maker] && ['qwen', 'qwen-real', 'anime'].includes(maker)) return Math.max(0.5, ((width || 1328) * (height || 1328)) / (1328 * 1328));
+  return 1;
+}
+
+/** Errors worth one more try after freeing the graphics card (out of memory, a crash). */
+const OOM = /out of memory|outofmemory|cuda error|cudnn|cublas|allocat(e|ion) .*memory|hip error|device-side assert/i;
+
 // ---------------------------------------------------------------- content rule
 
 const MINOR = [
@@ -60,7 +98,8 @@ export const PHOTO_MESSAGE = "Photos you upload can't be made sexual or have clo
 
 const SIZES = {
   image: { square: [1328, 1328], portrait: [1104, 1472], landscape: [1472, 1104], wide: [1664, 928], tall: [928, 1664] },
-  video: { landscape: [1280, 720], portrait: [720, 1280], square: [960, 960] },
+  // LTX works in multiples of 64 here (half size, then 2x): 720 would come out as 704 anyway.
+  video: { landscape: [1280, 704], portrait: [704, 1280], square: [960, 960] },
   // Krea 2 and H3 like their own sizes (H3: multiples of 32).
   krea: { square: [1024, 1024], portrait: [1024, 1536], landscape: [1536, 1024], wide: [1536, 864], tall: [864, 1536] },
   h3: { landscape: [1280, 704], portrait: [704, 1280], square: [960, 960] },
@@ -308,7 +347,8 @@ export function createStudio(o) {
     const body = await res.json().catch(() => ({}));
     if (!res.ok) {
       const detail = body?.error?.message || JSON.stringify(body?.node_errors || body).slice(0, 300);
-      throw new Error(`ComfyUI ${p}: ${res.status} ${detail}`);
+      // A 4xx means ComfyUI read the job and refused it (a recipe problem): trying again won't help.
+      throw Object.assign(new Error(`ComfyUI ${p}: ${res.status} ${detail}`), { comfyStatus: res.status, nodeErrors: body?.node_errors || null });
     }
     return body;
   }
@@ -318,6 +358,7 @@ export function createStudio(o) {
     return (await fsp.readFile(path.join(dir, helper ? 'state-helper' : 'state'), 'utf8').catch(() => 'installing')).trim();
   }
 
+  let wsOpen = false;
   function connectWs() {
     if (!WS || ws) return;
     try {
@@ -326,6 +367,9 @@ export function createStudio(o) {
       ws = null;
       return;
     }
+    ws.onopen = () => {
+      wsOpen = true;
+    };
     ws.onmessage = (ev) => {
       if (typeof ev.data !== 'string') return;
       let msg;
@@ -336,21 +380,23 @@ export function createStudio(o) {
       }
       const job = msg.data?.prompt_id && byPrompt.get(msg.data.prompt_id);
       if (!job) return;
+      job.lastEventAt = now();
       if (msg.type === 'execution_start' || msg.type === 'executing') job.status = 'running';
       if (msg.type === 'progress') onProgress(job, String(msg.data.node), msg.data.value, msg.data.max);
-      if (msg.type === 'execution_error') void finish(job, msg.data.exception_message || 'The job failed.');
+      if (msg.type === 'execution_error') void failed(job, msg.data.exception_message || 'The job failed.');
       if (msg.type === 'execution_success') void finish(job);
       if (msg.type === 'execution_interrupted') void finish(job, 'Stopped.');
     };
     const drop = () => {
       ws = null;
+      wsOpen = false;
     };
     ws.onclose = drop;
     ws.onerror = drop;
   }
 
   // How far along a job is: each sampling pass covers part of the bar.
-  const STAGES = { image: { 7: [0, 95] }, video: { 38: [5, 70], 47: [70, 92] }, h3: { 10: [5, 90] }, upscale: { 3: [0, 95] } };
+  const STAGES = { image: { 7: [0, 95] }, video: { 38: [5, 70], 47: [70, 92], 50: [92, 99] }, h3: { 10: [5, 90], 11: [90, 99] }, upscale: { 3: [0, 95] } };
   function onProgress(job, node, value, max) {
     const stage = STAGES[job.stages || job.kind]?.[node];
     if (!stage || !max) return;
@@ -381,9 +427,67 @@ export function createStudio(o) {
   }
 
   // ---- jobs
+  // The gate keeps the queue: one job at a time goes to ComfyUI, so each job's time is its own, the
+  // machine can tell when one takes too long, and a stuck one can be stopped and tried again.
   const active = () => [...jobs.values()].filter((j) => j.status === 'queued' || j.status === 'running');
+  /** Jobs waiting their turn, in order (a job being tried again goes first). */
+  const waiting = () =>
+    [...jobs.values()].filter((j) => j.status === 'queued' && !j.promptId).sort((a, b) => a.queuedAt - b.queuedAt || a.seq - b.seq);
+  /** The job ComfyUI is working on (or about to start). */
+  const inFlight = () => [...jobs.values()].find((j) => j.promptId && (j.status === 'queued' || j.status === 'running')) || null;
+  let seq = 0;
+  let fixing = 0;
+  let loadedMaker = null; // the maker whose models ComfyUI has in memory
+
+  // Learned timings (ms per unit), kept on the volume.
+  const timingsPath = path.join(dir, helper ? 'timings-helper.json' : 'timings.json');
+  let timings = {};
+  try {
+    timings = JSON.parse(fs.readFileSync(timingsPath, 'utf8')) || {};
+  } catch {
+    /* none yet */
+  }
+  function perUnit(maker) {
+    const base = BASE_MS[maker] ?? 60_000;
+    const learned = Number(timings[maker]);
+    return Number.isFinite(learned) && learned > 0 ? Math.min(base * 5, Math.max(base * 0.3, learned)) : base;
+  }
+  function expectedMs(job, cold = job.cold ?? loadedMaker !== job.maker) {
+    return Math.round(perUnit(job.maker) * jobUnits(job) + (cold ? LOAD_MS[job.kind] : 0));
+  }
+  async function learn(job) {
+    if (!job.startedAt || job.attempts > 1) return;
+    const ms = now() - job.startedAt - (job.cold ? LOAD_MS[job.kind] : 0);
+    if (ms <= 0) return;
+    const sample = ms / jobUnits(job);
+    const prev = Number(timings[job.maker]);
+    timings[job.maker] = Math.round(Number.isFinite(prev) && prev > 0 ? prev * 0.7 + sample * 0.3 : sample);
+    await fsp.writeFile(timingsPath, JSON.stringify(timings)).catch(() => {});
+  }
+
+  /** A line about what the machine did on its own, in plain words (shown with the job). */
+  function note(job, text) {
+    job.notes = [...(job.notes || []), text].slice(-6);
+    log.warn?.(`[studio] job ${job.id}: ${text}`);
+  }
 
   function publicJob(j) {
+    const queue = waiting();
+    const current = inFlight();
+    const pos = j.status === 'queued' && !j.promptId ? queue.indexOf(j) + 1 : 0;
+    const expected = j.expectedMs || expectedMs(j);
+    const elapsed = j.startedAt && (j.status === 'running' || j.status === 'queued') ? now() - j.startedAt : 0;
+    // Waiting: what is left of the current job plus everything ahead of this one.
+    let eta = null;
+    if (j.status === 'running' || (j.status === 'queued' && j.promptId)) eta = Math.max(0, expected - elapsed);
+    else if (pos) {
+      eta = current ? Math.max(0, (current.expectedMs || expectedMs(current)) - (current.startedAt ? now() - current.startedAt : 0)) : 0;
+      let prev = current?.maker ?? loadedMaker;
+      for (const ahead of queue.slice(0, pos)) {
+        eta += expectedMs(ahead, ahead.maker !== prev);
+        prev = ahead.maker;
+      }
+    }
     return {
       id: j.id,
       kind: j.kind,
@@ -393,7 +497,14 @@ export function createStudio(o) {
       progress: j.progress,
       error: j.error || null,
       createdAt: j.createdAt,
+      startedAt: j.startedAt ? new Date(j.startedAt).toISOString() : null,
       finishedAt: j.finishedAt || null,
+      position: pos,
+      expectedSeconds: Math.round(expected / 1000),
+      etaSeconds: eta == null ? null : Math.round(eta / 1000),
+      slow: Boolean(elapsed && elapsed > expected * SLOW),
+      attempt: j.attempts || 1,
+      notes: j.notes || [],
       item: j.item || null,
     };
   }
@@ -489,6 +600,8 @@ export function createStudio(o) {
       seconds = Math.min(10, Math.max(2, Math.round(Number(req.seconds) || 5)));
       const image = inputs[0] || null;
       if (maker.id === 'h3-max') {
+        // H3 is trained on clips of about 5 to 15 s; shorter ones come out poorly.
+        seconds = Math.max(5, seconds);
         [width, height] = SIZES.h3[req.size] || SIZES.h3.landscape;
         workflow = h3Workflow({ prompt, width, height, seconds, image, prefix });
         stages = 'h3';
@@ -519,6 +632,7 @@ export function createStudio(o) {
       id,
       kind,
       maker: maker.id,
+      mode,
       stages,
       prompt,
       width,
@@ -526,46 +640,94 @@ export function createStudio(o) {
       seconds,
       fromImage: inputs.length > 0,
       photo,
+      workflow,
       status: 'queued',
       progress: 0,
+      attempts: 1,
+      notes: [],
+      seq: ++seq,
+      queuedAt: now(),
       createdAt: new Date(now()).toISOString(),
     };
     jobs.set(id, job);
+    connectWs();
+    await dispatch();
+    return publicJob(job);
+  }
+
+  /** Hand the next waiting job to ComfyUI when it is free. Calls made meanwhile share the one run. */
+  let dispatching = null;
+  let dispatchAgain = false;
+  function dispatch() {
+    if (dispatching) {
+      dispatchAgain = true;
+      return dispatching;
+    }
+    dispatching = (async () => {
+      do {
+        dispatchAgain = false;
+        while (!fixing && !inFlight()) {
+          const job = waiting()[0];
+          if (!job || !(await submit(job))) break;
+        }
+      } while (dispatchAgain);
+    })().finally(() => {
+      dispatching = null;
+    });
+    return dispatching;
+  }
+
+  /** Send one job to ComfyUI. False when ComfyUI can't take it right now (the job keeps its place). */
+  async function submit(job) {
     try {
-      connectWs();
       await unloadChatModels();
       // Video models are huge (~40 GB staged in memory). Keeping the last job's models while
       // loading the next one runs the machine out of memory, and ComfyUI gets killed (soReal makes
-      // shots back to back). So before a video, or after one, start from a clean slate. ComfyUI
-      // applies this between jobs, never in the middle of one.
-      if (comfyHoldsGpu && (mode === 'video' || lastMode === 'video')) {
+      // shots back to back). So before a video, or after one, start from a clean slate.
+      if (comfyHoldsGpu && (job.mode === 'video' || lastMode === 'video')) {
         await comfyJson('/free', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ unload_models: true, free_memory: true }) }).catch(
           () => {},
         );
+        loadedMaker = null;
       }
-      lastMode = mode;
+      job.cold = loadedMaker !== job.maker;
+      job.expectedMs = expectedMs(job);
       const r = await comfyJson('/prompt', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ prompt: workflow, client_id: clientId }),
+        body: JSON.stringify({ prompt: job.workflow, client_id: clientId }),
       });
+      lastMode = job.mode;
+      loadedMaker = job.maker;
       job.promptId = r.prompt_id;
+      job.startedAt = now();
+      job.lastEventAt = now();
+      job.lostChecks = 0;
       byPrompt.set(r.prompt_id, job);
       comfyHoldsGpu = true;
+      return true;
     } catch (err) {
-      job.status = 'error';
-      job.error = err.message;
+      if (err.comfyStatus >= 400 && err.comfyStatus < 500) {
+        // ComfyUI read the job and refused it: a problem with the recipe or a missing file.
+        log.warn?.(`[studio] job ${job.id} refused: ${err.message}`);
+        await finish(job, `The maker couldn't run this job (${err.message.replace(/^ComfyUI \/prompt: /, '')}).`);
+        return true;
+      }
+      // ComfyUI isn't answering; the job keeps its place and the watchdog takes over.
+      job.downSince ??= now();
+      return false;
     }
-    return publicJob(job);
   }
 
   async function finish(job, error) {
     if (job.status === 'done' || job.status === 'error' || job.status === 'stopped') return;
     lastJobEnd = now();
+    if (job.promptId) byPrompt.delete(job.promptId);
     if (error) {
       job.status = error === 'Stopped.' ? 'stopped' : 'error';
       job.error = error;
       job.finishedAt = new Date(now()).toISOString();
+      void dispatch();
       return;
     }
     try {
@@ -591,27 +753,158 @@ export function createStudio(o) {
       job.item = item;
       job.progress = 100;
       job.status = 'done';
+      await learn(job);
     } catch (err) {
       job.status = 'error';
       job.error = err.message;
     }
     job.finishedAt = new Date(now()).toISOString();
+    job.workflow = null;
+    void dispatch();
   }
 
-  // Fallback for missed WebSocket messages: ask ComfyUI directly.
+  /** ComfyUI reported an error: out of memory is worth one more try on a clean slate. */
+  async function failed(job, message) {
+    if (OOM.test(message)) return troubleshoot(job, 'oom', message);
+    log.warn?.(`[studio] job ${job.id} failed: ${message}`);
+    return finish(job, `The maker hit a problem: ${message}`);
+  }
+
+  const WHY = {
+    overtime: 'It was taking much longer than it should',
+    stalled: 'The maker stopped making progress',
+    lost: 'The maker restarted and lost the job',
+    oom: 'The graphics card ran out of memory',
+    down: 'The maker stopped answering',
+  };
+  const ADVICE = {
+    overtime: 'Try a shorter or smaller one, or turn the AI machine off and on again.',
+    stalled: 'Turn the AI machine off and on again, then try once more.',
+    lost: 'Turn the AI machine off and on again, then try once more.',
+    oom: 'Try a smaller size or a shorter video.',
+    down: 'Turn the AI machine off and on again, then try once more.',
+  };
+
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+  /** True once ComfyUI no longer runs `promptId` (or within `ms` it still does). */
+  async function letGo(promptId, ms) {
+    const until = now() + ms;
+    do {
+      const q = await comfyJson('/queue', { timeout: 5000 }).catch(() => null);
+      if (q && !(q.queue_running || []).some((e) => e?.[1] === promptId)) return true;
+      if (o.fastTroubleshoot) break;
+      await sleep(2000);
+    } while (now() < until);
+    return false;
+  }
+  async function waitUp(ms) {
+    const until = now() + ms;
+    do {
+      if (await comfyUp()) return true;
+      if (o.fastTroubleshoot) break;
+      await sleep(3000);
+    } while (now() < until);
+    return false;
+  }
+  /** Hard reset: end the ComfyUI process; studio.sh starts a fresh one within seconds. */
+  async function restartComfy() {
+    if (o.restartComfy) return o.restartComfy();
+    const pidFile = path.join(dir, `machine-${helper ? 'helper' : 'main'}`, 'comfy.pid');
+    const pid = Number((await fsp.readFile(pidFile, 'utf8').catch(() => '')).trim());
+    if (!pid) return false;
+    try {
+      process.kill(pid, 'SIGKILL');
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  /**
+   * The failsafe. Stops a job that is stuck or failed for a reason worth retrying, cleans up, and
+   * tries it once more; each step is noted on the job in plain words.
+   *   1. stop it in ComfyUI (interrupt); if ComfyUI doesn't let go in 30 s, restart ComfyUI
+   *   2. free the graphics card (chat models and ComfyUI's models)
+   *   3. try again once, ahead of the queue; a second failure ends the job with what to do next
+   */
+  async function troubleshoot(job, reason, detail) {
+    if (job.fixing || !(job.status === 'queued' || job.status === 'running')) return;
+    job.fixing = true;
+    fixing++;
+    try {
+      note(job, `${WHY[reason]}.`);
+      if (detail) log.warn?.(`[studio] job ${job.id} ${reason}: ${detail}`);
+      const pid = job.promptId;
+      if (pid) {
+        byPrompt.delete(pid);
+        job.promptId = null;
+        if (reason !== 'lost' && reason !== 'oom' && (await comfyUp())) {
+          await comfyJson('/queue', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ delete: [pid] }) }).catch(() => {});
+          await comfyJson('/interrupt', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ prompt_id: pid }) }).catch(() => {});
+        }
+        if (reason !== 'lost' && !(await letGo(pid, 30_000))) {
+          note(job, (await restartComfy()) ? 'The maker was frozen, so it was restarted.' : 'The maker was frozen and could not be restarted.');
+          if (!(await waitUp(4 * 60_000))) {
+            note(job, 'The maker did not come back.');
+            return finishFixed(job, reason);
+          }
+        }
+      }
+      await unloadChatModels();
+      await comfyJson('/free', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ unload_models: true, free_memory: true }) }).catch(() => {});
+      comfyHoldsGpu = false;
+      loadedMaker = null;
+      if (job.attempts >= MAX_ATTEMPTS) return finishFixed(job, reason);
+      job.attempts++;
+      Object.assign(job, { status: 'queued', progress: 0, startedAt: null, lastEventAt: null, downSince: null, expectedMs: null, queuedAt: 0 });
+      note(job, `Freed the graphics card and started again (try ${job.attempts} of ${MAX_ATTEMPTS}).`);
+    } finally {
+      job.fixing = false;
+      fixing--;
+      void dispatch();
+    }
+  }
+  async function finishFixed(job, reason) {
+    job.status = 'running'; // so finish() records it
+    await finish(job, `${WHY[reason]}, even after trying again. ${ADVICE[reason]}`);
+  }
+
+  /** The watchdog (every few seconds): progress, finished jobs, and anything that went wrong. */
   async function poll() {
-    for (const job of active()) {
-      if (!job.promptId) continue;
-      const hist = await comfyJson(`/history/${encodeURIComponent(job.promptId)}`).catch(() => null);
-      const h = hist?.[job.promptId];
-      if (!h) continue;
-      const st = h.status || {};
-      if (st.completed || st.status_str === 'success') await finish(job);
-      else if (st.status_str === 'error') {
-        const msg = (st.messages || []).find((m) => m[0] === 'execution_error')?.[1]?.exception_message;
-        await finish(job, msg || 'The job failed.');
+    if (active().length) connectWs();
+    const job = inFlight();
+    if (job && !job.fixing) {
+      const up = await comfyUp();
+      if (!up) {
+        job.downSince ??= now();
+        if (now() - job.downSince > DOWN_MS) await troubleshoot(job, 'down');
+      } else {
+        job.downSince = null;
+        const hist = await comfyJson(`/history/${encodeURIComponent(job.promptId)}`).catch(() => null);
+        const h = hist?.[job.promptId];
+        const st = h?.status || {};
+        if (h && (st.completed || st.status_str === 'success')) await finish(job);
+        else if (h && st.status_str === 'error') {
+          const msg = (st.messages || []).find((m) => m[0] === 'execution_error')?.[1]?.exception_message;
+          await failed(job, msg || 'The job failed.');
+        } else if (!h) {
+          // Not finished: is ComfyUI still working on it? (Twice in a row, to be sure.)
+          const q = await comfyJson('/queue', { timeout: 5000 }).catch(() => null);
+          const there = !q || [...(q.queue_running || []), ...(q.queue_pending || [])].some((e) => e?.[1] === job.promptId);
+          job.lostChecks = there ? 0 : (job.lostChecks || 0) + 1;
+          if (job.lostChecks >= 2) await troubleshoot(job, 'lost');
+          else if (job.startedAt && now() - job.startedAt > budgetFor(job.expectedMs || expectedMs(job))) await troubleshoot(job, 'overtime');
+          else if (wsOpen && job.lastEventAt && now() - job.lastEventAt > STALL_MS) await troubleshoot(job, 'stalled');
+        }
       }
     }
+    // Jobs that never reached ComfyUI because it was down.
+    const first = waiting()[0];
+    if (first && !inFlight() && first.downSince && now() - first.downSince > DOWN_MS) {
+      first.status = 'running';
+      await finish(first, `${WHY.down}. ${ADVICE.down}`);
+    }
+    await dispatch();
     // Forget finished jobs after an hour (the gallery keeps the results).
     for (const [id, j] of jobs) if (j.finishedAt && now() - Date.parse(j.finishedAt) > 3600_000) jobs.delete(id);
     await releaseGpu();
@@ -620,9 +913,13 @@ export function createStudio(o) {
   async function cancel(id) {
     const job = jobs.get(id);
     if (!job) return null;
-    if (job.promptId && (job.status === 'queued' || job.status === 'running')) {
-      await comfyJson('/queue', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ delete: [job.promptId] }) }).catch(() => {});
-      if (job.status === 'running') await comfyJson('/interrupt', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ prompt_id: job.promptId }) }).catch(() => {});
+    if (job.status === 'queued' || job.status === 'running') {
+      const pid = job.promptId;
+      if (pid) {
+        byPrompt.delete(pid);
+        await comfyJson('/queue', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ delete: [pid] }) }).catch(() => {});
+        if (job.status === 'running') await comfyJson('/interrupt', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ prompt_id: pid }) }).catch(() => {});
+      }
       await finish(job, 'Stopped.');
     }
     return publicJob(job);
@@ -710,7 +1007,7 @@ export function createStudio(o) {
     },
     // A job counts for an hour at most: one that never finishes (the maker crashed under it) must not
     // keep the machine on all night.
-    busy: () => download.running || active().some((j) => now() - Date.parse(j.createdAt) < STUCK_JOB_MS),
+    busy: () => download.running || active().some((j) => now() - (j.startedAt || Date.parse(j.createdAt)) < STUCK_JOB_MS),
     /** A chat needs the GPU: hand it back from ComfyUI now if nothing is being made. */
     async yieldGpu() {
       if (!comfyHoldsGpu || active().length) return;

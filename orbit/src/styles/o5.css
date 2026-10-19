@@ -703,6 +703,10 @@
 :root[data-skin='o5'] .ai-gallery li:first-child .ai-tile { aspect-ratio: 16 / 10; }
 :root[data-skin='o5'] .ai-tile { border-radius: 4px; border: 0; box-shadow: none; }
 :root[data-skin='o5'] .ai-jobs { padding: 0; }
+/* Where a job stands, as a small-caps line under its bar; what the machine did, as an italic aside. */
+:root[data-skin='o5'] .ai-job-line { font: 600 calc(10.5px * var(--text-scale)) / 1.5 var(--font-ui); letter-spacing: 0.14em; text-transform: uppercase; color: var(--text-3, var(--text-2)); }
+:root[data-skin='o5'] .ai-job-line[data-slow] { color: var(--warning); }
+:root[data-skin='o5'] .ai-job-notes { font-family: var(--font-display); font-size: calc(14px * var(--text-scale)); line-height: 1.4; color: var(--text-2); }
 :root[data-skin='o5'] .ai-job { background: none; border: 0; border-bottom: 1px solid var(--o5-hair); border-radius: 0; padding-left: 0; padding-right: 0; }
 
 /* Actions only where you're looking: the latest answer keeps its row; tap any other message for its own. */

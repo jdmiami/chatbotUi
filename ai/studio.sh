@@ -91,6 +91,8 @@ while true; do
     --user-directory "$ROLE_DIR/user" --temp-directory "$ROLE_DIR/temp" \
     --disable-auto-launch --preview-method none &
   pid=$!
+  # The gate restarts a frozen ComfyUI by ending this process (this loop then starts a fresh one).
+  echo "$pid" > "$ROLE_DIR/comfy.pid"
   for _ in $(seq 1 120); do
     if curl -fsS -o /dev/null http://127.0.0.1:8188/system_stats 2>/dev/null; then state running; break; fi
     kill -0 "$pid" 2>/dev/null || break

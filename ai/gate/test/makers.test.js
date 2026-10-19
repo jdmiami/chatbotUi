@@ -47,6 +47,12 @@ async function setup() {
   const studio = createStudio({ dir, files: FILES, fetchImpl: fakeServices(state), WebSocketImpl: null, log: { warn() {} }, retryMs: 20 });
   return { dir, state, studio };
 }
+/** Start a job and stop it right away, so the next one goes straight to ComfyUI (one at a time). */
+async function make(studio, req) {
+  const job = await studio.createJob(req);
+  await studio.cancel(job.id);
+  return job;
+}
 const byId = (list, id) => list.find((m) => m.id === id);
 const node = (wf, type) => Object.values(wf).find((n) => n.class_type === type);
 
@@ -78,7 +84,7 @@ test('install remembers the choice; a maker works once its files are there', asy
   assert.equal(byId(await studio.makers(), 'krea-real').wanted, true);
   await assert.rejects(studio.createJob({ maker: 'krea-real', prompt: 'a lighthouse' }), /still downloading/);
   for (const k of ['kreaNoct', 'kreaTe', 'kreaVae']) await place(dir, REAL[k]);
-  const job = await studio.createJob({ maker: 'krea-real', prompt: 'a lighthouse', size: 'landscape' });
+  const job = await make(studio, { maker: 'krea-real', prompt: 'a lighthouse', size: 'landscape' });
   assert.equal(job.maker, 'krea-real');
   const wf = state.prompts[0];
   assert.equal(node(wf, 'UNETLoader').inputs.unet_name, REAL.kreaNoct.name);
@@ -90,8 +96,11 @@ test('install remembers the choice; a maker works once its files are there', asy
   await assert.rejects(studio.createJob({ maker: 'krea-real', prompt: 'x', style: 'style-darkbrush' }), /not installed/);
   await studio.installMaker('style-darkbrush');
   await place(dir, MAKERS.find((m) => m.id === 'style-darkbrush').loraFile);
-  await studio.createJob({ maker: 'krea-real', prompt: 'x', style: 'style-darkbrush' });
+  await make(studio, { maker: 'krea-real', prompt: 'x', style: 'style-darkbrush' });
   assert.equal(node(state.prompts[1], 'LoraLoaderModelOnly').inputs.lora_name, 'krea2_darkbrush.safetensors');
+  // A style shows only with its trigger words, at full strength (ComfyUI's Krea 2 template).
+  assert.equal(node(state.prompts[1], 'LoraLoaderModelOnly').inputs.strength_model, 1);
+  assert.equal(node(state.prompts[1], 'CLIPTextEncode').inputs.text, 'x, monochrome ink wash style');
   await assert.rejects(studio.createJob({ maker: 'qwen', prompt: 'x', style: 'style-darkbrush' }), /not for this maker/);
 });
 
@@ -99,20 +108,28 @@ test('H3 Max: video with sound at H3 sizes and lengths, from text or a picture',
   const { dir, state, studio } = await setup();
   await studio.installMaker('h3-max');
   for (const k of ['h3Unet', 'h3Te', 'h3Vae', 'h3AudioVae']) await place(dir, REAL[k]);
-  await studio.createJob({ maker: 'h3-max', prompt: 'waves at night', size: 'portrait', seconds: 5 });
+  await make(studio, { maker: 'h3-max', prompt: 'waves at night', size: 'portrait', seconds: 5 });
   let v = node(state.prompts[0], 'MiniMaxH3ImageToVideo').inputs;
   assert.deepEqual([v.width, v.height, v.length, v.first_frame], [704, 1280, h3Length(5), undefined]);
-  const job = await studio.createJob({ maker: 'h3-max', prompt: 'she turns and smiles', image: PNG });
+  const job = await make(studio, { maker: 'h3-max', prompt: 'she turns and smiles', image: PNG });
   assert.equal(job.kind, 'video');
   v = node(state.prompts[1], 'MiniMaxH3ImageToVideo').inputs;
   assert.ok(v.first_frame);
+  // The picture is cropped to the video's shape first (the H3 node would stretch it).
+  const wf = state.prompts.at(-1);
+  assert.deepEqual(v.first_frame, ['21', 0]);
+  assert.equal(wf['21'].inputs['resize_type.crop'], 'center');
+  assert.equal(node(wf, 'SaveVideo').inputs['format.codec'], 'h264');
+  // H3 is trained on 5 s and up: a 3 s request makes 5 s.
+  await make(studio, { maker: 'h3-max', prompt: 'a short one', seconds: 3 });
+  assert.equal(node(state.prompts.at(-1), 'MiniMaxH3ImageToVideo').inputs.length, h3Length(5));
   assert.match(node(state.prompts[1], 'LoadImage').inputs.image, /^orbit-.*\.png$/);
 });
 
 test('edit with words, outfit swap and new angle; uploaded photos are never made sexual', async () => {
   const { dir, state, studio } = await setup();
   await assert.rejects(studio.createJob({ maker: 'edit', prompt: 'make the sky purple' }), /Add the picture/);
-  await studio.createJob({ maker: 'edit', prompt: 'make the sky purple', image: PNG });
+  await make(studio, { maker: 'edit', prompt: 'make the sky purple', image: PNG });
   const enc = node(state.prompts[0], 'TextEncodeQwenImage21').inputs;
   assert.ok(enc['images.image_1']);
   assert.deepEqual(node(state.prompts[0], 'KSampler').inputs.latent_image, ['5', 2]);
@@ -125,14 +142,14 @@ test('edit with words, outfit swap and new angle; uploaded photos are never made
   await studio.installMaker('outfit');
   await place(dir, REAL.outfitLora);
   await assert.rejects(studio.createJob({ maker: 'outfit', prompt: 'swap', image: PNG }), /two pictures/);
-  await studio.createJob({ maker: 'outfit', prompt: 'Dress the person in image 1 in the jacket from image 2.', images: [PNG, PNG] });
+  await make(studio, { maker: 'outfit', prompt: 'Dress the person in image 1 in the jacket from image 2.', images: [PNG, PNG] });
   const last = state.prompts.at(-1);
   assert.equal(node(last, 'LoraLoaderModelOnly').inputs.lora_name, REAL.outfitLora.name);
   assert.ok(node(last, 'TextEncodeQwenImage21').inputs['images.image_2']);
 
   await studio.installMaker('angles');
   await place(dir, REAL.anglesLora);
-  const a = await studio.createJob({ maker: 'angles', prompt: 'back view, eye-level shot', image: PNG });
+  const a = await make(studio, { maker: 'angles', prompt: 'back view, eye-level shot', image: PNG });
   assert.equal(a.prompt, '<mva> back view, eye-level shot');
 });
 
@@ -140,7 +157,7 @@ test('sharpen needs only a picture; removing a maker deletes only files nothing 
   const { dir, state, studio } = await setup();
   await studio.installMaker('sharpen');
   await place(dir, REAL.esrgan);
-  const j = await studio.createJob({ maker: 'sharpen', image: PNG });
+  const j = await make(studio, { maker: 'sharpen', image: PNG });
   assert.equal(j.prompt, 'Sharpened 4×');
   assert.ok(node(state.prompts[0], 'ImageUpscaleWithModel'));
 
@@ -167,11 +184,11 @@ test('memory: ComfyUI is cleared before a video and after one, not between pictu
     return Response.json({});
   };
   const studio = createStudio({ dir, files: FILES, fetchImpl, WebSocketImpl: null, log: { warn() {} }, retryMs: 20 });
-  await studio.createJob({ kind: 'image', prompt: 'a cat' });
-  await studio.createJob({ kind: 'image', prompt: 'a dog' });
+  await make(studio, { kind: 'image', prompt: 'a cat' });
+  await make(studio, { kind: 'image', prompt: 'a dog' });
   assert.deepEqual(calls, ['/prompt', '/prompt']);
-  await studio.createJob({ kind: 'video', prompt: 'waves' });
-  await studio.createJob({ kind: 'video', prompt: 'more waves' });
-  await studio.createJob({ kind: 'image', prompt: 'a bird' });
+  await make(studio, { kind: 'video', prompt: 'waves' });
+  await make(studio, { kind: 'video', prompt: 'more waves' });
+  await make(studio, { kind: 'image', prompt: 'a bird' });
   assert.deepEqual(calls, ['/prompt', '/prompt', '/free', '/prompt', '/free', '/prompt', '/free', '/prompt']);
 });
