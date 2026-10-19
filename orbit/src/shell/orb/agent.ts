@@ -76,6 +76,15 @@ function roleOf(el: HTMLElement): PageItem['role'] {
  * What can be used right now, top to bottom. `skip` = the orb's own UI. With `all`, controls
  * scrolled out of view are included too (marked offscreen), so "tap Light" works on a long page.
  */
+/** A box whose contents must never leave the page: passwords, one-time codes, card details. */
+export function privateField(el: Element): boolean {
+  if (el.closest('[data-private]')) return true;
+  if (!(el instanceof HTMLInputElement)) return false;
+  if (el.type === 'password') return true;
+  const ac = (el.autocomplete || '').toLowerCase();
+  return /current-password|new-password|one-time-code|cc-/.test(ac);
+}
+
 export function snapshot(skip?: Element | null, root: ParentNode = document, { all = false } = {}): PageItem[] {
   const els = root.querySelectorAll<HTMLElement>(
     'button, a[href], input:not([type="hidden"]), textarea, select, [role="button"], [role="tab"], [role="radio"], [role="switch"], [role="menuitem"], [contenteditable="true"]',
@@ -92,7 +101,8 @@ export function snapshot(skip?: Element | null, root: ParentNode = document, { a
     const label = labelOf(el);
     if (!label) continue;
     const role = roleOf(el);
-    const value = role === 'field' && 'value' in el ? String((el as HTMLInputElement).value).slice(0, 60) : undefined;
+    // Passwords, codes and card numbers are never read out (to a model or anyone else).
+    const value = role === 'field' && 'value' in el && !privateField(el) ? String((el as HTMLInputElement).value).slice(0, 60) : undefined;
     items.push({ id: items.length + 1, role, label, value, el, offscreen: offscreen || undefined });
   }
   items.sort((a, b) => a.el.getBoundingClientRect().top - b.el.getBoundingClientRect().top);

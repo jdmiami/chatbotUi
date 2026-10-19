@@ -2,7 +2,8 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react
 import { useShell, type AppId } from '../../state/shell';
 import { useMotionLevel } from '../../motion/MotionProvider';
 import { cue, tick } from '../../motion/feedback';
-import { getLocalAi } from '../../services/ai/LocalAi';
+import { getLocalAi, type ChatMessage, type StreamHandlers } from '../../services/ai/LocalAi';
+import { cloudChat, cloudReady } from '../../services/ai/CloudAi';
 import { AiOrb } from '../../apps/ai/AiOrb';
 import { canSpeak, createSpeaker } from '../../apps/ai/speech';
 import { Icon } from '../../ui/Icon';
@@ -1063,26 +1064,46 @@ function Orb() {
   /** The model plans one step at a time against a fresh look at the screen. */
   const plan = useCallback(
     async (goal: string, signal: AbortSignal, spoken: boolean) => {
-      const ai = getLocalAi();
-      const status = await ai.status().catch(() => null);
-      if (status?.state !== 'on') {
-        say('I can do simple things now (open apps, tap, type, settings). For anything else your AI machine needs to be on: say “turn on the AI machine”.', spoken);
-        return;
+      // Cloud AI first (quick, works with the AI machine off); the AI machine is the fallback.
+      let ask: ((messages: ChatMessage[], h: StreamHandlers) => Promise<unknown>) | null = null;
+      const local = async () => {
+        const ai = getLocalAi();
+        const status = await ai.status().catch(() => null);
+        if (status?.state !== 'on') return null;
+        const models = await ai.listModels().catch(() => []);
+        if (!models.length) return 'no-model' as const;
+        return (messages: ChatMessage[], h: StreamHandlers) => ai.chat(models[0], messages, h, signal);
+      };
+      if (await cloudReady()) {
+        ask = async (messages, h) => {
+          try {
+            return await cloudChat({ task: 'agent', messages, maxTokens: 1024, temperature: 0.2, signal }, h);
+          } catch (err) {
+            if (signal.aborted) throw err;
+            const fallback = await local();
+            if (typeof fallback !== 'function') throw err;
+            return fallback(messages, h);
+          }
+        };
+      } else {
+        const fallback = await local();
+        if (fallback === 'no-model') return say('Add a chat model on your AI machine first.', spoken);
+        if (!fallback) {
+          say('I can do simple things now (open apps, tap, type, settings). For anything else turn on Cloud AI in Settings, or say “turn on the AI machine”.', spoken);
+          return;
+        }
+        ask = fallback;
       }
-      const models = await ai.listModels().catch(() => []);
-      if (!models.length) return say('Add a chat model on your AI machine first.', spoken);
       const history: string[] = [];
       for (let i = 0; i < 8 && !signal.aborted; i++) {
         const items = snapshot(layer.current);
         let text = '';
-        await ai.chat(
-          models[0],
+        await ask(
           [
             { role: 'system', content: PLANNER_PROMPT },
             { role: 'user', content: `Goal: ${goal}\nDone so far: ${history.length ? history.join('; ') : 'nothing yet'}\n\n${describe(items, useShell.getState().activeApp)}` },
           ],
           { onText: (d) => (text += d) },
-          signal,
         );
         let step = parseStep(text);
         if (!step) return say('I couldn’t work out how to do that.', spoken);

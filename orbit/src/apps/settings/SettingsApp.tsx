@@ -26,7 +26,7 @@ import {
   type OrbitExport,
 } from './dataTransfer';
 import { Section, chapterId } from './parts';
-import { OrbSection, UsageSection } from './UsageSection';
+import { CloudAiSection, OrbSection, UsageSection } from './UsageSection';
 import './settings.css';
 
 const VERSION = '0.2';
@@ -295,6 +295,7 @@ export default function SettingsApp({ isActive }: AppProps) {
           <ConnectionSection onReconnect={reconnect} />
           <AppearanceSection />
           <OrbSection />
+          <CloudAiSection />
           <AiModelsSection />
           <TerminalSection />
           <SplitSection />
@@ -445,7 +446,7 @@ export default function SettingsApp({ isActive }: AppProps) {
 
 /* ------------------------------------------------------------------ Building blocks */
 
-const CHAPTERS = ['Connection', 'Appearance', 'Orb', 'AI models', 'Terminal', 'Split view (iPad)', 'Keyboard shortcuts', 'Usage', 'Data & storage', 'About'];
+const CHAPTERS = ['Connection', 'Appearance', 'Orb', 'Cloud AI', 'AI models', 'Terminal', 'Split view (iPad)', 'Keyboard shortcuts', 'Usage', 'Data & storage', 'About'];
 
 function ActionRow({
   icon,
