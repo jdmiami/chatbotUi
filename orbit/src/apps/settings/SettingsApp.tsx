@@ -295,6 +295,7 @@ export default function SettingsApp({ isActive }: AppProps) {
           <ConnectionSection onReconnect={reconnect} />
           <AppearanceSection />
           <OrbSection />
+          <AiModelsSection />
           <TerminalSection />
           <SplitSection />
           <ShortcutsSection />
@@ -444,7 +445,7 @@ export default function SettingsApp({ isActive }: AppProps) {
 
 /* ------------------------------------------------------------------ Building blocks */
 
-const CHAPTERS = ['Connection', 'Appearance', 'Orb', 'Terminal', 'Split view (iPad)', 'Keyboard shortcuts', 'Usage', 'Data & storage', 'About'];
+const CHAPTERS = ['Connection', 'Appearance', 'Orb', 'AI models', 'Terminal', 'Split view (iPad)', 'Keyboard shortcuts', 'Usage', 'Data & storage', 'About'];
 
 function ActionRow({
   icon,
@@ -755,6 +756,24 @@ function AppearanceSection() {
             }}
           />
         </label>
+      </div>
+    </Section>
+  );
+}
+
+/** Shortcuts into the AI app's two stores, so they're a tap away from Settings too. */
+function AiModelsSection() {
+  const launch = useShell((s) => s.launch);
+  const sendIntent = useWorkspace((s) => s.sendIntent);
+  const open = (type: 'open-store' | 'open-makers') => {
+    sendIntent({ app: 'ai', type });
+    launch('ai');
+  };
+  return (
+    <Section title="AI models" caption="They live on your AI machine. You can browse while it rests; adding waits until it's on.">
+      <div className="list">
+        <ActionRow icon="download" title="Model store" sub="Add or remove chat models" onClick={() => open('open-store')} />
+        <ActionRow icon="sparkle" title="Makers" sub="Picture and video makers for Create" onClick={() => open('open-makers')} />
       </div>
     </Section>
   );

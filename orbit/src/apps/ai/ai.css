@@ -154,8 +154,26 @@
 .ai-pill { padding: 2px 8px; border-radius: 999px; background: var(--surface-3); color: var(--text-2); font-size: var(--fs-xs); }
 .ai-pill-warn { background: var(--warning-soft); color: var(--warning); }
 .ai-store { display: flex; flex-direction: column; gap: var(--space-3); }
-.ai-store > .segmented { display: flex; }
-.ai-store > .segmented button { flex: 1; }
+.ai-store-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+.ai-store-tags { font-size: var(--fs-xs); color: var(--text-2); text-transform: capitalize; }
+.ai-store-tags-warn { color: var(--warning); }
+.ai-store .ai-banner, .ai-makers .ai-banner { margin: 0; }
+
+/* Magazine pages (ui/Magazine.tsx). Classic look: plain headed sections; Orbit 0.5 restyles them. */
+.mag { display: flex; flex-direction: column; gap: 24px; }
+.mag-cover, .mag-chapter { position: relative; display: flex; flex-direction: column; gap: 10px; }
+.mag-title { margin: 0; font-size: var(--fs-xl, 26px); }
+.mag-head { margin: 0; font-size: var(--fs-lg, 20px); }
+.mag-dek { margin: 0; color: var(--text-2); line-height: 1.45; }
+.mag-numeral { display: none; }
+.mag-contents { display: flex; flex-wrap: wrap; gap: 6px; }
+.mag-contents button {
+  display: inline-flex; align-items: center; gap: 6px; min-height: var(--tap, 44px); padding: 0 12px;
+  border: 1px solid var(--border); border-radius: 999px; background: var(--surface); color: var(--text); font: inherit; font-size: var(--fs-sm); cursor: pointer;
+}
+.mag-contents-n { color: var(--text-2); font-variant-numeric: tabular-nums; }
+.mag-colophon { margin: 0; color: var(--text-2); font-size: var(--fs-sm); text-align: center; }
+.ai-store-go { width: 100%; }
 .ai-storage { display: flex; flex-direction: column; gap: 6px; }
 .ai-storage-row { display: flex; justify-content: space-between; gap: var(--space-2); font-size: var(--fs-sm); font-weight: 600; flex-wrap: wrap; }
 .ai-bar-storage span { background: linear-gradient(90deg, #06b6d4, #8b5cf6); }
@@ -366,7 +384,7 @@
 .ai-edit-photo { position: relative; }
 .ai-edit-photo img { width: 96px; height: 96px; object-fit: cover; border-radius: var(--radius-md); box-shadow: var(--depth-1); display: block; }
 .ai-edit-photo .icon-btn { position: absolute; top: -10px; right: -10px; }
-.ai-makers { display: grid; gap: 18px; }
+.ai-makers { gap: 24px; }
 .ai-makers h3 { margin: 0 0 8px; font-size: var(--fs-md, 16px); }
 .ai-makers ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
 .ai-maker-row { display: flex; align-items: center; gap: 12px; padding: 12px; border-radius: var(--radius-md); border: 1px solid var(--border); background: var(--surface); }

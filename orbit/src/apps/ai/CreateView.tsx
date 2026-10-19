@@ -75,7 +75,20 @@ const active = (j: StudioJob) => j.status === 'queued' || j.status === 'running'
  * Create: make images and videos (with sound) on the AI machine. Results stay on the machine's
  * storage and show in the gallery on every device.
  */
-export function CreateView({ ai, machineOn, isActive, onTurnOn }: { ai: LocalAi; machineOn: boolean; isActive: boolean; onTurnOn?: () => void }) {
+export function CreateView({
+  ai,
+  machineOn,
+  isActive,
+  onTurnOn,
+  openMakers,
+}: {
+  ai: LocalAi;
+  machineOn: boolean;
+  isActive: boolean;
+  onTurnOn?: () => void;
+  /** Bumped by the AI app to open the Makers page (from the home, the index, settings…). */
+  openMakers?: number;
+}) {
   const toast = useShell((s) => s.toast);
   const o5 = useShell((s) => s.settings.skin === 'o5');
   // The next step glides into view once this one is answered.
@@ -102,6 +115,9 @@ export function CreateView({ ai, machineOn, isActive, onTurnOn }: { ai: LocalAi;
     rememberMakers(list);
   }, []);
   const [makersOpen, setMakersOpen] = useState(false);
+  useEffect(() => {
+    if (openMakers) setMakersOpen(true);
+  }, [openMakers]);
   const [makerBusy, setMakerBusy] = useState<string | null>(null);
   const [pick, setPickState] = useState<Record<Mode, string>>(loadPick);
   const [style, setStyle] = useState<string>('');

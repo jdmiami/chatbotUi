@@ -128,11 +128,27 @@ export function Path({ hidden }: { hidden: boolean }) {
       <Chapter n="02" id="o5-talk" title="Talk" dek="Your own open models, on your own GPU. Ask, think out loud, search the web, speak.">
         <Go label="Open a conversation" hint={ai ? `AI machine ${AI_STATE[ai.state]}` : undefined} onClick={() => launch('ai')} />
         <Go label="Antigravity" hint="The coding agent on your Linux machine" onClick={() => launch('agent')} />
+        <Go
+          label="Model store"
+          hint="Add or remove chat models"
+          onClick={() => {
+            sendIntent({ app: 'ai', type: 'open-store' });
+            launch('ai');
+          }}
+        />
       </Chapter>
 
       <Chapter n="03" id="o5-make" title="Make" dek="Pictures, videos, and whole films shot by shot, each one picking up from the last frame.">
         <Go label="soReal" hint="Movies, shot by shot" onClick={() => launch('soreal')} />
         <Go label="Images & video" hint="In the AI app, under Create" onClick={() => launch('ai')} />
+        <Go
+          label="Makers"
+          hint="Add picture and video makers"
+          onClick={() => {
+            sendIntent({ app: 'ai', type: 'open-makers' });
+            launch('ai');
+          }}
+        />
       </Chapter>
 
       <Chapter n="04" id="o5-build" title="Build" dek="Code and a real shell on your Linux machine. Everything keeps running while you're away.">

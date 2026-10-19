@@ -13,7 +13,9 @@ import type { AppId } from './shell';
 export type Intent =
   | { seq: number; app: 'editor'; type: 'open-file'; path: string }
   | { seq: number; app: 'agent'; type: 'open-session'; sessionId: string }
-  | { seq: number; app: 'agent'; type: 'compose'; text: string; /** project file it is about */ path?: string };
+  | { seq: number; app: 'agent'; type: 'compose'; text: string; /** project file it is about */ path?: string }
+  /** Open the AI app's model store, or the image and video makers (from the home, index, settings…). */
+  | { seq: number; app: 'ai'; type: 'open-store' | 'open-makers' };
 
 type IntentInput = Intent extends infer I ? (I extends { seq: number } ? Omit<I, 'seq'> : never) : never;
 

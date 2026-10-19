@@ -439,7 +439,9 @@ export class LocalAi {
   }
 
   async studioMakers(): Promise<StudioMakerInfo[]> {
-    return (await this.studioCall<{ makers: StudioMakerInfo[] }>('/_orbit/studio/makers')).makers;
+    const { makers } = await this.studioCall<{ makers?: StudioMakerInfo[] }>('/_orbit/studio/makers');
+    if (!Array.isArray(makers)) throw new AiError('The AI machine sent an unexpected answer. Try again in a moment.');
+    return makers;
   }
 
   async installStudioMaker(id: string): Promise<StudioMakerInfo[]> {

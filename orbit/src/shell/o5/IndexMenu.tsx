@@ -28,6 +28,7 @@ const MOTION_NEXT = { full: 'lite', lite: 'reduce', reduce: 'system', system: 'f
 export function IndexMenu() {
   const { activeApp, openApps, settings, launch, goHome, closeApp, setOverlay, updateSettings } = useShell();
   const summaries = useWorkspace((s) => s.summaries);
+  const sendIntent = useWorkspace((s) => s.sendIntent);
   const panel = useRef<HTMLDivElement>(null);
   const [confirm, setConfirm] = useState<AppId | null>(null);
   const confirmOpen = useRef(false);
@@ -118,6 +119,28 @@ export function IndexMenu() {
                   <span className="o5-index-title">{e.title}</span>
                   <span className="o5-go-hint">{e.line}</span>
                 </button>
+                {e.id === 'ai' && (
+                  <span className="o5-index-subs">
+                    {(
+                      [
+                        ['Model store', 'open-store'],
+                        ['Makers', 'open-makers'],
+                      ] as const
+                    ).map(([label, type]) => (
+                      <button
+                        key={type}
+                        type="button"
+                        className="o5-index-sub"
+                        onClick={go(() => {
+                          sendIntent({ app: 'ai', type });
+                          launch('ai');
+                        })}
+                      >
+                        {label}
+                      </button>
+                    ))}
+                  </span>
+                )}
               </li>
             ))}
           </ol>
