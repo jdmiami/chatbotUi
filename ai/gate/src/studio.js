@@ -42,7 +42,7 @@ const BASE_MS = {
   'h3-max': 90_000,
 };
 /** Loading a maker's models from the volume, the first time (or after another maker ran). */
-const LOAD_MS = { image: 60_000, video: 240_000 };
+const LOAD_MS = { image: 30_000, video: 90_000 };
 /** A job is "slow" past 1.5x its usual time, and stopped and tried again past its budget. */
 const SLOW = 1.5;
 export const budgetFor = (expectedMs) => Math.max(expectedMs * 3, expectedMs + 5 * 60_000);
@@ -112,6 +112,20 @@ function sniffImage(buf) {
   if (buf.length > 3 && buf[0] === 0xff && buf[1] === 0xd8 && buf[2] === 0xff) return '.jpg';
   if (buf.length > 12 && buf.toString('ascii', 0, 4) === 'RIFF' && buf.toString('ascii', 8, 12) === 'WEBP') return '.webp';
   return null;
+}
+
+/** A PNG's width and height from its header (ComfyUI saves pictures as PNG); null for anything else. */
+export async function pngSize(file) {
+  const h = await fsp.open(file, 'r').catch(() => null);
+  if (!h) return null;
+  try {
+    const buf = Buffer.alloc(24);
+    await h.read(buf, 0, 24, 0);
+    if (buf.readUInt32BE(0) !== 0x89504e47 || buf.toString('ascii', 12, 16) !== 'IHDR') return null;
+    return { width: buf.readUInt32BE(16), height: buf.readUInt32BE(20) };
+  } finally {
+    await h.close();
+  }
 }
 
 /** Files ComfyUI lists in a history entry's outputs ({images|gifs|videos|...: [{filename, subfolder, type}]}). */
@@ -447,21 +461,21 @@ export function createStudio(o) {
   } catch {
     /* none yet */
   }
-  function perUnit(maker) {
-    const base = BASE_MS[maker] ?? 60_000;
-    const learned = Number(timings[maker]);
-    return Number.isFinite(learned) && learned > 0 ? Math.min(base * 5, Math.max(base * 0.3, learned)) : base;
-  }
+  // Learned separately for runs that load the models first ("maker:cold") and runs that don't.
+  const timingKey = (maker, cold) => (cold ? `${maker}:cold` : maker);
   function expectedMs(job, cold = job.cold ?? loadedMaker !== job.maker) {
-    return Math.round(perUnit(job.maker) * jobUnits(job) + (cold ? LOAD_MS[job.kind] : 0));
+    const units = jobUnits(job);
+    const guess = (BASE_MS[job.maker] ?? 60_000) * units + (cold ? LOAD_MS[job.kind] : 0);
+    const learned = Number(timings[timingKey(job.maker, cold)]) * units;
+    return Math.round(Number.isFinite(learned) && learned > 0 ? Math.min(guess * 5, Math.max(guess * 0.2, learned)) : guess);
   }
   async function learn(job) {
     if (!job.startedAt || job.attempts > 1) return;
-    const ms = now() - job.startedAt - (job.cold ? LOAD_MS[job.kind] : 0);
-    if (ms <= 0) return;
-    const sample = ms / jobUnits(job);
-    const prev = Number(timings[job.maker]);
-    timings[job.maker] = Math.round(Number.isFinite(prev) && prev > 0 ? prev * 0.7 + sample * 0.3 : sample);
+    const sample = (now() - job.startedAt) / jobUnits(job);
+    if (!(sample > 0)) return;
+    const key = timingKey(job.maker, job.cold);
+    const prev = Number(timings[key]);
+    timings[key] = Math.round(Number.isFinite(prev) && prev > 0 ? prev * 0.7 + sample * 0.3 : sample);
     await fsp.writeFile(timingsPath, JSON.stringify(timings)).catch(() => {});
   }
 
@@ -735,6 +749,8 @@ export function createStudio(o) {
       const out = outputFiles(hist[job.promptId]?.outputs)[0];
       if (!out) throw new Error('The job finished without a result.');
       const file = path.posix.join(out.subfolder || '', out.filename);
+      // Edits and sharpening make whatever size the picture leads to: read it from the file.
+      if (job.kind === 'image' && !(job.width && job.height)) Object.assign(job, (await pngSize(path.join(dir, 'output', file))) || {});
       const item = {
         id: job.id,
         kind: job.kind,

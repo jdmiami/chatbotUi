@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { budgetFor, createStudio, jobUnits } from '../src/studio.js';
+import { budgetFor, createStudio, jobUnits, pngSize } from '../src/studio.js';
 
 const FILES = {
   image: [{ dir: 'diffusion_models', name: 'img.safetensors', repo: 'o/r', path: 'img.safetensors', size: 4 }],
@@ -253,9 +253,31 @@ test('timings: the machine learns how long its makers take', async () => {
   clock.t += 100_000;
   await done('p1');
   await studio.poll();
-  const learned = JSON.parse(await fs.readFile(path.join(dir, 'timings.json'), 'utf8'));
-  // 100 s minus the first-load allowance, per unit.
-  assert.equal(learned.qwen, Math.round((100_000 - 60_000) / jobUnits({ kind: 'image', maker: 'qwen', width: 1328, height: 1328 })));
+  const units = jobUnits({ kind: 'image', maker: 'qwen', width: 1328, height: 1328 });
+  let learned = JSON.parse(await fs.readFile(path.join(dir, 'timings.json'), 'utf8'));
+  // The first run loaded the models: it is learned as such (a load that is quicker than the guess
+  // must never make the time negative and be thrown away).
+  assert.equal(learned['qwen:cold'], Math.round(100_000 / units));
+  assert.equal(learned.qwen, undefined);
   const b = await studio.createJob({ kind: 'image', prompt: 'two' });
-  assert.ok(b.expectedSeconds < a.expectedSeconds, 'warm and learned: quicker than the first guess');
+  assert.ok(b.expectedSeconds < a.expectedSeconds, 'models already loaded: quicker than the first');
+  clock.t += 30_000;
+  await done('p2');
+  await studio.poll();
+  learned = JSON.parse(await fs.readFile(path.join(dir, 'timings.json'), 'utf8'));
+  assert.equal(learned.qwen, Math.round(30_000 / units));
+  const c = await studio.createJob({ kind: 'image', prompt: 'three' });
+  assert.equal(c.expectedSeconds, 30, 'what it measured');
+});
+
+test('an edited or sharpened picture records its real size, read from the PNG', async () => {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'png-'));
+  const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==', 'base64');
+  png.writeUInt32BE(4416, 16);
+  png.writeUInt32BE(5888, 20);
+  await fs.writeFile(path.join(dir, 'a.png'), png);
+  assert.deepEqual(await pngSize(path.join(dir, 'a.png')), { width: 4416, height: 5888 });
+  await fs.writeFile(path.join(dir, 'b.png'), 'not a png');
+  assert.equal(await pngSize(path.join(dir, 'b.png')), null);
+  assert.equal(await pngSize(path.join(dir, 'missing.png')), null);
 });
