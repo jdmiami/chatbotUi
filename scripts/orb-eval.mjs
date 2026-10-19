@@ -7,7 +7,7 @@
  *   ORB_SITE=https://… ORB_TOKEN_CMD="node mint-machine-token.mjs" node scripts/orb-eval.mjs [task…]
  *
  * ORB_TOKEN_CMD prints a fresh machine token (LINUX_GATEWAY_SECRET, audience "site-machine");
- * it is run before each model because tokens last 3 minutes.
+ * it is run before each request because tokens last 3 minutes.
  */
 import { execSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
@@ -153,7 +153,8 @@ const sees = [
   [png(40, 180, 60), (t) => /green/i.test(t)],
 ];
 
-async function call(tok, task, model, messages, maxTokens = 600) {
+async function call(task, model, messages, maxTokens = 600) {
+  const tok = token();
   const t0 = Date.now();
   const res = await fetch(`${SITE}/api/orb/ai`, {
     method: 'POST',
@@ -178,7 +179,6 @@ const results = [];
 for (const [task, list] of Object.entries(lists)) {
   if (only.length && !only.includes(task)) continue;
   for (const model of list) {
-    const tok = token();
     const jobs = [];
     if (task === 'agent' || task === 'fast')
       for (const [goal, screen, ok] of plans)
@@ -195,7 +195,7 @@ for (const [task, list] of Object.entries(lists)) {
     let pass = 0, fail = 0, errors = 0, total = 0;
     const misses = [];
     for (const [kind, messages, ok] of jobs) {
-      const r = await call(tok, task, model, messages);
+      const r = await call(task, model, messages);
       total += r.ms;
       if (!r.ok) {
         errors++;

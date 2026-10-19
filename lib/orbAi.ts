@@ -13,10 +13,10 @@ export const ORB_TASKS: OrbTask[] = ['fast', 'agent', 'vision', 'write'];
 
 /** Best first; the next one is tried when a model is missing, busy or failing. */
 const DEFAULT_MODELS: Record<OrbTask, string[]> = {
-  fast: ['nvidia/nemotron-3.5-lightning-30b-a3b', 'google/gemma-4-31b-it', 'z-ai/glm-5.3-flash'],
-  agent: ['nvidia/nemotron-3-super-120b-a12b', 'z-ai/glm-5.3', 'moonshotai/kimi-k2.6'],
+  fast: ['nvidia/nemotron-3.5-lightning-30b-a3b', 'google/gemma-4-31b-it'],
+  agent: ['nvidia/nemotron-3-super-120b-a12b', 'z-ai/glm-5.3', 'deepseek-ai/deepseek-v4.1-flash'],
   vision: ['nvidia/nemotron-3.5-super-vl-120b-a12b', 'nvidia/nemotron-3-nano-omni-30b-a3b-reasoning'],
-  write: ['google/gemma-4-31b-it', 'nvidia/nemotron-3.5-lightning-30b-a3b', 'z-ai/glm-5.3-flash'],
+  write: ['nvidia/nemotron-3.5-lightning-30b-a3b', 'google/gemma-4-31b-it'],
 };
 
 export function orbAiConfigured() {
