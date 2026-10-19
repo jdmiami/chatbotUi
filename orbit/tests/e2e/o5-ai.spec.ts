@@ -120,4 +120,50 @@ test.describe('Orbit 0.5: AI', () => {
     expect(powerCalls[0]).toMatchObject({ action: 'start' });
     expect(errors).toEqual([]);
   });
+
+  test('make: the queue shows its place in line, time left, a slow job, and what the machine did on its own', async ({ page }, testInfo) => {
+    await mockAi(page, 'on');
+    const ready = { ready: true, downloaded: true, percent: 100 };
+    await page.route('**/fake-ai/_orbit/studio', (r) => r.fulfill({ json: { setup: 'running', running: true, image: ready, video: ready, downloading: null, downloadError: null, jobs: [] } }));
+    await page.route('**/fake-ai/_orbit/studio/items', (r) => r.fulfill({ json: { items: [] } }));
+    await page.route('**/fake-ai/_orbit/studio/makers', (r) =>
+      r.fulfill({ json: { makers: [{ id: 'qwen', kind: 'image', name: 'Qwen Uncensored', installed: true, builtIn: true, wanted: true, percent: 100 }] } }),
+    );
+    const base = { kind: 'image', prompt: 'a lighthouse at dusk', error: null, createdAt: '', item: null, maker: 'qwen', expectedSeconds: 45 };
+    await page.route('**/fake-ai/_orbit/studio/jobs', (r) => r.fulfill({ json: { ...base, id: 'j1', status: 'queued', progress: 0, position: 2, etaSeconds: 170, notes: [] } }));
+    let polls = 0;
+    await page.route('**/fake-ai/_orbit/studio/jobs/j1', (r) => {
+      polls++;
+      return r.fulfill({
+        json:
+          polls < 2
+            ? { ...base, id: 'j1', status: 'queued', progress: 0, position: 2, etaSeconds: 170, notes: [] }
+            : {
+                ...base,
+                id: 'j1',
+                status: 'running',
+                progress: 30,
+                position: 0,
+                etaSeconds: 0,
+                slow: true,
+                attempt: 2,
+                notes: ['The maker was frozen, so it was restarted.', 'Freed the graphics card and started again (try 2 of 2).'],
+              },
+      });
+    });
+    const errors = await openO5Ai(page);
+    const win = page.locator('.app-window[data-app="ai"]');
+    await win.getByRole('button', { name: 'Make', exact: true }).click();
+    await win.getByRole('radio', { name: /A picture/ }).click();
+    await win.getByRole('textbox', { name: 'Describe it' }).fill('a lighthouse at dusk');
+    await win.getByRole('button', { name: 'Make image' }).click();
+    const job = win.locator('.ai-job').first();
+    await expect(job.locator('.ai-job-line')).toHaveText('2nd in line · ready in about 3 min');
+    await expect(job.locator('.ai-job-line')).toHaveText('Slower than usual · the machine is watching it', { timeout: 8000 });
+    await expect(job.locator('.ai-job-notes')).toContainText('frozen, so it was restarted');
+    await expectNoHorizontalOverflow(page);
+    await job.scrollIntoViewIfNeeded();
+    await page.screenshot({ path: testInfo.outputPath('queue.png') });
+    expect(errors).toEqual([]);
+  });
 });

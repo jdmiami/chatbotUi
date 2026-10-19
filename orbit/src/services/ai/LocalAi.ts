@@ -56,6 +56,17 @@ export interface StudioJob {
   error: string | null;
   createdAt: string;
   item: StudioItem | null;
+  /** The machine's queue: 0 while it is being made, else its place in line (1 = next). */
+  position?: number;
+  /** How long this kind of job usually takes, and how long until it is done (including the wait). */
+  expectedSeconds?: number;
+  etaSeconds?: number | null;
+  /** Running past 1.5x its usual time. */
+  slow?: boolean;
+  /** 1, or 2 when the machine stopped it and started it again. */
+  attempt?: number;
+  /** What the machine did on its own (plain words), e.g. "The maker was frozen, so it was restarted." */
+  notes?: string[];
 }
 
 export interface StudioMaker {

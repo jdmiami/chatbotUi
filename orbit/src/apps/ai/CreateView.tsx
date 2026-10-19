@@ -56,6 +56,18 @@ async function toDataUrl(src: Blob, max = 1920): Promise<string> {
   }
 }
 
+/** "about 40 s", "about 3 min" */
+const about = (sec: number) => (sec < 50 ? `about ${Math.max(5, Math.round(sec / 5) * 5)} s` : `about ${Math.max(1, Math.round(sec / 60))} min`);
+const ordinal = (n: number) => (n === 1 ? 'Next' : `${n}${n === 2 ? 'nd' : n === 3 ? 'rd' : 'th'}`);
+/** One line on where a job stands: its place in line, time left, or that it is slow. */
+function jobLine(j: StudioJob): string | null {
+  if (j.status !== 'queued' && j.status !== 'running') return null;
+  if (j.position) return `${ordinal(j.position)} in line${j.etaSeconds != null ? ` · ready in ${about(j.etaSeconds)}` : ''}`;
+  if (j.slow) return 'Slower than usual · the machine is watching it';
+  if (j.etaSeconds != null) return j.etaSeconds > 0 ? `Making it · ${about(j.etaSeconds)} left` : 'Almost there';
+  return null;
+}
+
 const withParam = (url: string, param: string) => url + (url.includes('?') ? '&' : '?') + param;
 const active = (j: StudioJob) => j.status === 'queued' || j.status === 'running';
 
@@ -478,6 +490,12 @@ export function CreateView({ ai, machineOn, isActive, onTurnOn }: { ai: LocalAi;
                     <span style={{ width: `${Math.max(3, j.progress)}%` }} />
                   </div>
                 )}
+                {jobLine(j) && (
+                  <span className="ai-job-line" data-slow={j.slow || undefined}>
+                    {jobLine(j)}
+                  </span>
+                )}
+                {(j.notes?.length ?? 0) > 0 && <span className="ai-job-notes">{j.notes!.slice(-2).join(' ')}</span>}
               </div>
               {active(j) ? (
                 <IconButton
