@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { Step, nextStep } from '../../shell/o5/Step';
 import { useShell } from '../../state/shell';
 import { Icon } from '../../ui/Icon';
-import { ConfirmSheet, EmptyState, IconButton, Segmented, Sheet } from '../../ui/components';
+import { ConfirmSheet, EmptyState, IconButton, Segmented, Sheet, Toggle } from '../../ui/components';
 import { AiError, type LocalAi, type StudioItem, type StudioJob, type StudioKind, type StudioMakerInfo, type StudioState } from '../../services/ai/LocalAi';
 import { MAKER_CATALOG, rememberMakers, rememberedMakers } from './makerCatalog';
 import { TextArea } from '../../ui/TextArea';
@@ -466,6 +466,20 @@ export function CreateView({
         </p>
         </Step>
       </form>
+
+      {studio && typeof studio.censor === 'boolean' && (
+        <section className="ai-censor" aria-labelledby="ai-censor-title">
+          <div className="ai-censor-text">
+            <p className="o5-kicker" id="ai-censor-title">Censor</p>
+            <p className="ai-muted">
+              {studio.censor
+                ? 'On: nothing sexual or undressed is made, by any maker, until you turn it off.'
+                : 'Off: the makers are uncensored. Turn it on to block anything sexual or undressed. Sexual content involving minors is always blocked.'}
+            </p>
+          </div>
+          <Toggle checked={studio.censor} label="Censor: block anything sexual or undressed" onChange={(on) => void ai.setCensor(on).then(setStudio, (err: Error) => setStudioError(err.message))} />
+        </section>
+      )}
 
       {o5 && jobs.length > 0 && (
         <h3 className="o5-chapter-title" id="o5-making">

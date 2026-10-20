@@ -18,7 +18,7 @@ test.describe('AI app', () => {
     await expectNoHorizontalOverflow(page);
     await expectTappable(page);
     await page.getByRole('group', { name: 'Speed' }).getByRole('button', { name: /Turbo/ }).click();
-    await expect(banner).toContainText('$3.99/h');
+    await expect(banner).toContainText('$2.89/h');
     await expect(banner).toContainText('10 minutes unused');
     await page.getByRole('button', { name: 'Turn on' }).click();
     await expect(page.getByText('Your AI machine: Ready · Turbo')).toBeVisible();
@@ -126,9 +126,13 @@ async function mockStudio(page: Page) {
   ];
   const requests: Record<string, unknown>[] = [];
   const polls: Record<string, number> = {};
-  await page.route('**/fake-ai/_orbit/studio', (route) =>
-    route.fulfill({ json: { setup: 'running', running: true, image: READY, video: READY, downloading: null, downloadError: null, jobs: [] } }),
-  );
+  let censor = false;
+  const studioState = () => ({ setup: 'running', running: true, image: READY, video: READY, downloading: null, downloadError: null, censor, jobs: [] });
+  await page.route('**/fake-ai/_orbit/studio', (route) => route.fulfill({ json: studioState() }));
+  await page.route('**/fake-ai/_orbit/studio/censor', (route) => {
+    censor = Boolean((route.request().postDataJSON() as { on: boolean }).on);
+    return route.fulfill({ json: studioState() });
+  });
   await page.route('**/fake-ai/_orbit/studio/items', (route) => route.fulfill({ json: { items } }));
   await page.route('**/fake-ai/_orbit/studio/items/*', (route) => {
     const id = route.request().url().split('/').pop()!;
@@ -143,6 +147,9 @@ async function mockStudio(page: Page) {
     requests.push(body);
     if (/naked child/.test(String(body.prompt))) {
       return route.fulfill({ status: 422, json: { error: "This can't be made: sexual content involving minors is never allowed.", blocked: true } });
+    }
+    if (censor && /topless/.test(String(body.prompt))) {
+      return route.fulfill({ status: 422, json: { error: 'The censor is on: nothing sexual or undressed is made. Turn it off in Create to allow it.', blocked: true } });
     }
     const id = `job${requests.length}`;
     return route.fulfill({ json: { id, kind: body.kind, prompt: body.prompt, status: 'queued', progress: 0, error: null, createdAt: new Date().toISOString(), item: null } });
@@ -348,6 +355,23 @@ test.describe('AI app: Create', () => {
     await page.getByRole('textbox', { name: 'Describe it' }).fill('naked child');
     await page.getByRole('button', { name: 'Make image' }).click();
     await expect(page.getByText('sexual content involving minors is never allowed')).toBeVisible();
+  });
+
+  test('the censor: off by default, on blocks anything sexual, and says so', async ({ page }) => {
+    await mockAi(page, 'on');
+    await mockStudio(page);
+    await openOrbit(page);
+    await openCreate(page);
+    const censor = page.getByRole('switch', { name: 'Censor: block anything sexual or undressed' });
+    await expect(censor).not.toBeChecked();
+    await expect(page.getByText('Off: the makers are uncensored')).toBeVisible();
+    await censor.click();
+    await expect(censor).toBeChecked();
+    await expect(page.getByText('On: nothing sexual or undressed is made')).toBeVisible();
+    await page.getByRole('textbox', { name: 'Describe it' }).fill('a topless woman on a beach');
+    await page.getByRole('button', { name: 'Make image' }).click();
+    await expect(page.getByText('The censor is on')).toBeVisible();
+    await expectTappable(page);
   });
 });
 

@@ -303,3 +303,17 @@ test('studio: "make it move" starts a video from a gallery picture without re-up
   assert.equal(await fs.readFile(path.join(dir, 'input', wf['20'].inputs.image), 'utf8'), 'PNG');
   await assert.rejects(studio.createJob({ kind: 'video', prompt: 'x', fromItem: 'gone99' }), (err) => err.status === 404);
 });
+
+test('studio: the censor blocks anything sexual for every job while on, and is remembered', async () => {
+  const { dir, state, studio } = await newStudio();
+  assert.equal((await studio.state()).censor, false, 'off until you turn it on');
+  assert.equal(await studio.setCensor(true), true);
+  await assert.rejects(studio.createJob({ kind: 'image', prompt: 'a topless woman on a beach' }), (err) => err.status === 422 && err.blocked && /censor is on/.test(err.message));
+  await assert.rejects(studio.createJob({ kind: 'image', prompt: 'naked child' }), (err) => err.message === BLOCKED_MESSAGE, 'the minors rule still comes first');
+  assert.equal(state.prompts.length, 0);
+  assert.equal(JSON.parse(await fs.readFile(path.join(dir, 'makers.json'), 'utf8')).censor, true, 'saved with the makers');
+  const again = createStudio({ dir, files: FILES, fetchImpl: fakeServices(state), WebSocketImpl: null, log: { warn() {}, info() {} }, freeAfterMs: 0 });
+  assert.equal((await again.state()).censor, true, 'still on after a restart');
+  await studio.setCensor(false);
+  assert.equal((await studio.state()).censor, false);
+});

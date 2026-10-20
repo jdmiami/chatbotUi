@@ -424,6 +424,12 @@
 .meme-card-actions { margin-top: auto; display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
 .meme-card-actions .btn { min-height: 44px; padding: 0 10px; font-size: 13px; border-radius: 0; }
 
+/* The censor switch, between the form and the gallery. */
+.ai-censor { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 12px; align-items: center; padding: 12px 0; border-top: 1px solid var(--border); border-bottom: 1px solid var(--border); margin: 8px 0; }
+.ai-censor-text { min-width: 0; display: grid; gap: 4px; }
+.ai-censor-text p { margin: 0; }
+.ai-censor-text .ai-muted { font-size: 13px; }
+
 /* Lab: making now, topics, up next, its own gallery. */
 .lab-tab { overflow-y: auto; }
 .lab-scroll { flex: 1; min-height: 0; overflow-y: auto; padding: 0 var(--space-4, 16px) 32px; }

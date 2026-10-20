@@ -522,6 +522,13 @@ export function createGate(cfg, log = console) {
     try {
       if (path === '/v1/images/generations' && req.method === 'POST') return await openaiImage(req, res);
       if (path === '/_orbit/studio' && req.method === 'GET') return send(res, 200, await studio.state());
+      // The censor: POST { on } turns it on or off; the state says where it stands.
+      if (path === '/_orbit/studio/censor' && req.method === 'POST') {
+        const { on } = JSON.parse((await readBody(req, 1024)) || '{}');
+        if (typeof on !== 'boolean') return send(res, 400, { error: 'Send { "on": true } or { "on": false }.' });
+        await studio.setCensor(on);
+        return send(res, 200, await studio.state());
+      }
       if (path === '/_orbit/studio/items' && req.method === 'GET') return send(res, 200, { items: (await studio.items()).map(withUrl) });
       if (path === '/_orbit/studio/makers' && req.method === 'GET') return send(res, 200, { makers: await studio.makers() });
       if ((path === '/_orbit/studio/makers/install' || path === '/_orbit/studio/makers/remove') && req.method === 'POST') {

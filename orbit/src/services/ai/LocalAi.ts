@@ -82,6 +82,8 @@ export interface StudioState {
   video: StudioMaker;
   downloading: { name: string; percent: number } | null;
   downloadError: string | null;
+  /** The censor: while on, nothing sexual or undressed is made (older machines don't say). */
+  censor?: boolean;
   jobs: StudioJob[];
 }
 
@@ -636,6 +638,11 @@ export class LocalAi {
 
   async deleteMeme(id: string): Promise<MemeLabState> {
     return this.labAbsolute(await this.studioCall<MemeLabState>(`/_orbit/studio/lab/${encodeURIComponent(id)}`, { method: 'DELETE' }));
+  }
+
+  /** Turn the censor on or off: while on, nothing sexual or undressed is made. */
+  async setCensor(on: boolean): Promise<StudioState> {
+    return this.studioCall<StudioState>('/_orbit/studio/censor', { method: 'POST', body: JSON.stringify({ on }) });
   }
 
   async deleteStudioItem(id: string): Promise<void> {
