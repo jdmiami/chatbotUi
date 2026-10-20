@@ -23,6 +23,7 @@ import './ai.css';
 import { AiOrb } from './AiOrb';
 import { TextArea } from '../../ui/TextArea';
 import { Censor } from '../../ui/Censor';
+import { isNsfw } from '../../ui/nsfw';
 
 const STATE_TEXT: Record<AiMachineStatus['state'], string> = {
   unconfigured: 'Not set up',
@@ -862,7 +863,7 @@ export default function AiApp({ isActive, compact, placement }: AppProps) {
                           </div>
                         )}
                         {m.content && (
-                          <Censor as="div" text>
+                          <Censor as="div" text nsfw={isNsfw(m.content)}>
                             <p className="ai-user-text">{m.content}</p>
                           </Censor>
                         )}
@@ -870,7 +871,7 @@ export default function AiApp({ isActive, compact, placement }: AppProps) {
                     ) : m.picture ? (
                       <figure className="ai-picture">
                         {m.picture.url ? (
-                          <Censor as="div">
+                          <Censor as="div" nsfw={isNsfw(m.picture.prompt)}>
                             <img src={m.picture.url} alt={m.picture.prompt} />
                           </Censor>
                         ) : (
@@ -890,7 +891,7 @@ export default function AiApp({ isActive, compact, placement }: AppProps) {
                         {waited >= 4 && <span className="ai-muted">Loading the model into the GPU… {waited} s</span>}
                       </div>
                     ) : (
-                      <Censor as="div" text className={m.streaming ? 'ai-streaming' : undefined}>
+                      <Censor as="div" text nsfw={!m.streaming && isNsfw(m.content)} className={m.streaming ? 'ai-streaming' : undefined}>
                         <MessageBody text={m.content} onCopy={onCopy} />
                       </Censor>
                     )}

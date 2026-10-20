@@ -1124,7 +1124,7 @@ a.btn {
 .glyph.glyph-art { background: none; box-shadow: none; overflow: visible; }
 .glyph.glyph-art > svg { display: block; }
 
-/* The censor: blurred pictures and videos; press and hold to see one. */
+/* The NSFW blur: keep a finger on it to see it; a video plays while held and pauses when released. */
 .censor { position: relative; display: block; overflow: hidden; -webkit-touch-callout: none; user-select: none; -webkit-user-select: none; touch-action: manipulation; }
 .censor > img, .censor > video, .censor > button, .censor > .ai-dev, .censor > .ai-tile { filter: blur(22px) saturate(0.6); transform: scale(1.08); transition: filter 160ms ease, transform 160ms ease; }
 .censor[data-revealed] > img, .censor[data-revealed] > video, .censor[data-revealed] > button, .censor[data-revealed] > .ai-dev, .censor[data-revealed] > .ai-tile { filter: none; transform: none; }
@@ -1137,5 +1137,4 @@ a.btn {
 .censor.censor-text[data-revealed] > * { filter: none; }
 .censor.censor-text .censor-hint { font-size: 10px; padding: 2px 8px; margin-bottom: 4px; }
 .censor > video { pointer-events: none; }
-.censor[data-revealed] > video { pointer-events: auto; }
 @media (prefers-reduced-motion: reduce) { .censor > *, .censor[data-revealed] > * { transition: none; } }

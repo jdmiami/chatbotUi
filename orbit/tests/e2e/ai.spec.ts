@@ -350,44 +350,80 @@ test.describe('AI app: Create', () => {
     await expect(page.getByText('sexual content involving minors is never allowed')).toBeVisible();
   });
 
-  test('the censor: blurs the gallery and the viewer; press and hold to see; off by default', async ({ page }) => {
+  test('NSFW blur: only NSFW pictures and videos blur; hold to see, a video plays while held and pauses on release', async ({ page }) => {
     await mockAi(page, 'on');
     await mockStudio(page);
+    // Count play() and pause() calls (the test files aren't real videos).
+    await page.addInitScript(() => {
+      const w = window as unknown as { plays: number; pauses: number };
+      w.plays = 0;
+      w.pauses = 0;
+      HTMLMediaElement.prototype.play = function () {
+        w.plays++;
+        return Promise.resolve();
+      };
+      HTMLMediaElement.prototype.pause = function () {
+        w.pauses++;
+      };
+    });
     await openOrbit(page);
     await openCreate(page);
     const win = page.locator('.app-window[data-app="ai"]');
-    const censor = win.getByRole('switch', { name: 'Censor: blur pictures and videos' });
-    await expect(censor).not.toBeChecked();
-    await expect(win.locator('.censor')).toHaveCount(0);
-    await censor.click();
-    await expect(censor).toBeChecked();
-    await expect(win.getByText('Press and hold one to see it')).toBeVisible();
+    const blur = win.getByRole('switch', { name: 'Blur NSFW pictures and videos' });
+    await expect(blur).toBeChecked();
+    // The fox and the sunset are not NSFW: shown as they are.
+    await expect(win.locator('.ai-gallery .censor')).toHaveCount(0);
+
+    // An NSFW picture lands blurred, with its words.
+    await win.getByRole('textbox', { name: 'Describe it' }).fill('a topless woman on a beach');
+    await win.getByRole('button', { name: 'Make image' }).click();
     const tiles = win.locator('.ai-gallery .censor');
-    await expect(tiles).toHaveCount(2);
+    await expect(tiles).toHaveCount(1, { timeout: 10_000 });
     const tile = tiles.first();
-    const img = tile.locator('.ai-tile');
-    expect(await img.evaluate((el) => getComputedStyle(el).filter)).toContain('blur');
-    // Hold: the picture shows while the finger is down, and the hold does not open the viewer.
+    expect(await tile.locator('.ai-tile').evaluate((el) => getComputedStyle(el).filter)).toContain('blur');
+    await expect(tile).toContainText('NSFW');
+
+    // Holding shows it, letting go blurs it again, and a hold doesn't open the viewer.
     await tile.scrollIntoViewIfNeeded();
     const box = (await tile.boundingBox())!;
     await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
     await page.mouse.down();
     await expect(tile).toHaveAttribute('data-revealed', '');
-    expect(await img.evaluate((el) => getComputedStyle(el).filter)).toBe('none');
+    expect(await tile.locator('.ai-tile').evaluate((el) => getComputedStyle(el).filter)).toBe('none');
     await page.mouse.up();
     await expect(tile).not.toHaveAttribute('data-revealed', '');
     await expect(win.getByRole('dialog')).toHaveCount(0);
-    // A tap still opens the viewer, where the picture is blurred too.
-    await img.click();
+
+    // An NSFW video: holding plays it, letting go pauses it.
+    await win.getByRole('group', { name: 'What to make' }).getByRole('button', { name: 'Video' }).click();
+    await win.getByRole('textbox', { name: 'Describe it' }).fill('a naked dancer in the rain');
+    await win.getByRole('button', { name: 'Make video' }).click();
+    await expect(tiles).toHaveCount(2, { timeout: 10_000 });
+    const vid = win.locator('.ai-gallery .censor', { has: page.locator('video') }).first();
+    await vid.scrollIntoViewIfNeeded();
+    const vbox = (await vid.boundingBox())!;
+    const before = await page.evaluate(() => (window as unknown as { plays: number; pauses: number }).pauses);
+    await page.mouse.move(vbox.x + vbox.width / 2, vbox.y + vbox.height / 2);
+    await page.mouse.down();
+    await expect(vid).toHaveAttribute('data-revealed', '');
+    await expect.poll(() => page.evaluate(() => (window as unknown as { plays: number }).plays)).toBeGreaterThan(0);
+    await page.mouse.up();
+    await expect(vid).not.toHaveAttribute('data-revealed', '');
+    await expect.poll(() => page.evaluate(() => (window as unknown as { pauses: number }).pauses)).toBeGreaterThan(before);
+
+    // Tapping opens the viewer, where the NSFW picture is blurred too.
+    await win.getByRole('button', { name: 'Image: a topless woman on a beach' }).click();
     const viewer = win.locator('.ai-viewer-media.censor');
     await expect(viewer).toBeVisible();
-    expect(await viewer.locator('img').evaluate((el) => getComputedStyle(el).filter)).toContain('blur');
-    // Its words are blurred too.
-    expect(await win.locator('.ai-viewer-prompt').evaluate((el) => getComputedStyle(el).filter)).toContain('blur');
-    // Off again: nothing is blurred.
+    await expect(win.locator('.ai-viewer .censor-text')).toBeVisible();
     await page.keyboard.press('Escape');
-    await censor.click();
+
+    // Off: nothing is blurred.
+    await blur.click();
+    await expect(blur).not.toBeChecked();
     await expect(win.locator('.censor')).toHaveCount(0);
+    // (Back to pictures for the tap-size check: the video length chips are checked elsewhere.)
+    await win.getByRole('group', { name: 'What to make' }).getByRole('button', { name: 'Image' }).click();
     await expectTappable(page);
   });
 });

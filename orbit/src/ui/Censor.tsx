@@ -1,23 +1,40 @@
-import { useCallback, useRef, useState, type PointerEvent, type ReactNode } from 'react';
+import { useCallback, useEffect, useRef, useState, type PointerEvent, type ReactNode } from 'react';
 import { useShell } from '../state/shell';
 
 /**
- * The censor: with the setting on, pictures and videos are blurred. Press and hold one to see it;
- * let go and it blurs again. Wrap any picture or video in this. The setting lives in the shell, so
- * it covers the gallery, the viewer, the Lab and soReal at once.
+ * The NSFW blur. A picture or video marked `nsfw` (and the words that go with it) is blurred while
+ * the setting is on, which it is unless you turn it off. Keep a finger on it to see it: a video
+ * plays while you hold it, and the moment you let go it pauses and blurs again. Anything not marked
+ * NSFW is shown as is.
  */
-const HOLD_MS = 180;
+const HOLD_MS = 160;
 
+/** On unless you turned it off in Create. */
 export function useCensor(): boolean {
-  return useShell((s) => Boolean(s.settings.censor));
+  return useShell((s) => s.settings.censor !== false);
 }
 
-/** `text`: a lighter blur for words (prompts, captions, replies, story lines). */
-export function Censor({ children, className, as: Tag = 'span', text = false }: { children: ReactNode; className?: string; as?: 'span' | 'div'; text?: boolean }) {
-  const on = useCensor();
+/** `nsfw`: blur this one. `text`: a lighter blur for words (prompts, captions, replies). */
+export function Censor({
+  children,
+  className,
+  as: Tag = 'span',
+  text = false,
+  nsfw,
+}: {
+  children: ReactNode;
+  className?: string;
+  as?: 'span' | 'div';
+  text?: boolean;
+  nsfw: boolean;
+}) {
+  const on = useCensor() && nsfw;
   const [revealed, setRevealed] = useState(false);
   const timer = useRef<number | null>(null);
   const held = useRef(false);
+  const box = useRef<HTMLElement | null>(null);
+
+  const videos = () => Array.from(box.current?.querySelectorAll('video') ?? []);
 
   const clear = useCallback(() => {
     if (timer.current != null) window.clearTimeout(timer.current);
@@ -26,7 +43,15 @@ export function Censor({ children, className, as: Tag = 'span', text = false }: 
   const hide = useCallback(() => {
     clear();
     setRevealed(false);
+    // Lifting the finger pauses the video as it blurs.
+    for (const v of videos()) v.pause();
   }, [clear]);
+
+  // Never left playing behind the blur (the setting turned on, or the item became NSFW).
+  useEffect(() => {
+    if (on) for (const v of videos()) v.pause();
+  }, [on]);
+  useEffect(() => clear, [clear]);
 
   const onPointerDown = (e: PointerEvent) => {
     if (!on || e.button > 0) return;
@@ -35,9 +60,11 @@ export function Censor({ children, className, as: Tag = 'span', text = false }: 
     timer.current = window.setTimeout(() => {
       held.current = true;
       setRevealed(true);
+      // Holding plays the video (muted autoplay rules don't apply: this is a touch).
+      for (const v of videos()) void v.play().catch(() => {});
     }, HOLD_MS);
   };
-  // A hold must not also count as a tap (a tile opens the viewer on tap).
+  // A hold never counts as a tap (a tile opens the viewer on tap).
   const onClickCapture = (e: React.MouseEvent) => {
     if (!on || !held.current) return;
     e.preventDefault();
@@ -48,6 +75,7 @@ export function Censor({ children, className, as: Tag = 'span', text = false }: 
   if (!on) return <Tag className={className}>{children}</Tag>;
   return (
     <Tag
+      ref={(el: HTMLElement | null) => void (box.current = el)}
       className={['censor', text && 'censor-text', className].filter(Boolean).join(' ')}
       data-censored=""
       data-revealed={revealed ? '' : undefined}
@@ -57,12 +85,12 @@ export function Censor({ children, className, as: Tag = 'span', text = false }: 
       onPointerLeave={hide}
       onClickCapture={onClickCapture}
       onContextMenu={(e) => e.preventDefault()}
-      title={revealed ? undefined : 'Press and hold to see it'}
+      title={revealed ? undefined : 'NSFW: keep your finger on it to see it'}
     >
       {children}
       {!revealed && (
         <span className="censor-hint" aria-hidden>
-          Hold to see
+          {text ? 'NSFW · hold to read' : 'NSFW · hold to see'}
         </span>
       )}
     </Tag>
