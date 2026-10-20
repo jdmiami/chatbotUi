@@ -85,6 +85,12 @@ export function blockedPrompt(text) {
   if (ALWAYS.test(t)) return true;
   return SEXUAL.test(t) && MINOR.some((re) => re.test(t));
 }
+/** True when a prompt mentions a child or a teenager at all (used where only adults may appear). */
+export function mentionsMinor(text) {
+  const t = String(text || '').toLowerCase().replace(/[_*~`]/g, ' ');
+  return ALWAYS.test(t) || MINOR.some((re) => re.test(t)) || /\b(teen|teens|teenage\w*|adolescent\w*|high\s*school\w*|barely\s+legal|1[89]\s*(yo|y\/o|years?(\s*-?\s*old)?)|young[-\s]?looking|child[-\s]?like|baby[-\s]?face\w*)\b/.test(t) ||
+    /\b(look|looks|looking|appear|appears|appearing|seem|seems|passes?\s+for)\s+(like\s+)?(about\s+|around\s+)?(underage|younger|very\s+young|a\s+teen\w*|([1-9]|1[0-9]))\b/.test(t);
+}
 export const BLOCKED_MESSAGE = "This can't be made: sexual content involving minors is never allowed.";
 
 /** Photos you upload are often of real people: they can't be made sexual or undressed. */

@@ -10,7 +10,7 @@ export const ENTRIES: { id: AppId; title: string; line: string }[] = [
   { id: 'ai', title: 'Talk', line: 'Your own models' },
   { id: 'store', title: 'Store', line: 'Models, makers and styles' },
   { id: 'soreal', title: 'soReal', line: 'A movie from one idea' },
-  { id: 'lab', title: 'Lab', line: 'Comedy, made while the machine is on' },
+  { id: 'lab', title: 'Lab', line: 'Comedy or spicy, made while the machine is on' },
   { id: 'editor', title: 'Code', line: 'Your projects' },
   { id: 'terminal', title: 'Terminal', line: 'A shell that stays open' },
   { id: 'agent', title: 'Antigravity', line: 'The coding agent' },
