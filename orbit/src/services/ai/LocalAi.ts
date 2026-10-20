@@ -110,9 +110,12 @@ export interface LabIdea {
   /** Written or edited by you: made exactly as written. */
   yours: boolean;
 }
+export type LabStyle = 'comedy' | 'spicy';
 export interface MemeLabState {
   enabled: boolean;
-  /** Your comedy topics; the planned ideas are built around them. */
+  /** Comedy, or spicy: flirty thirst-trap clips of made-up adults, no nudity. Older machines don't say. */
+  style?: LabStyle;
+  /** Your topics; the planned ideas are built around them. */
   topics: string[];
   quietMinutes: number;
   readyScore: number;
@@ -524,6 +527,10 @@ export class LocalAi {
 
   async setMemeLab(enabled: boolean): Promise<MemeLabState> {
     return this.labAbsolute(await this.studioCall<MemeLabState>('/_orbit/studio/lab', { method: 'POST', body: JSON.stringify({ enabled }) }));
+  }
+
+  async setLabStyle(style: LabStyle): Promise<MemeLabState> {
+    return this.labAbsolute(await this.studioCall<MemeLabState>('/_orbit/studio/lab', { method: 'POST', body: JSON.stringify({ style }) }));
   }
 
   async setLabTopics(topics: string[]): Promise<MemeLabState> {

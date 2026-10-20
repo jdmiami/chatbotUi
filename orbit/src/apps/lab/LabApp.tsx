@@ -44,7 +44,7 @@ export default function LabApp({ isActive }: AppProps) {
 
   return (
     <div className="ag-root ai-root lab-root">
-      <AppHeader title="Lab" subtitle={machineOn ? 'Your AI machine: on' : status ? `Your AI machine: ${status.state === 'starting' || status.state === 'downloading' ? 'waking up' : 'resting'}` : 'Comedy videos, made while the machine is on'} />
+      <AppHeader title="Lab" subtitle={machineOn ? 'Your AI machine: on' : status ? `Your AI machine: ${status.state === 'starting' || status.state === 'downloading' ? 'waking up' : 'resting'}` : 'Videos made while the machine is on'} />
       <div className="lab-scroll">
         {status && !machineOn && status.state === 'off' && (
           <div className="ai-banner" role="status">

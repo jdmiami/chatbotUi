@@ -95,7 +95,7 @@ export const APPS: Record<AppId, AppMeta> = {
   lab: {
     id: 'lab',
     name: 'Lab',
-    description: 'Comedy videos made while your AI machine is on, scored for how viral they could go',
+    description: 'Comedy or spicy videos made while your AI machine is on, scored for how viral they could go',
     icon: 'sparkle',
     tile: 'linear-gradient(145deg, #ffd36b, #ff7a59 55%, #8a2be2)',
     glyph: '#ffffff',

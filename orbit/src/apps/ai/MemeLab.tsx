@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Icon } from '../../ui/Icon';
-import { IconButton, Toggle } from '../../ui/components';
+import { IconButton, Segmented, Toggle } from '../../ui/components';
 import { TextArea } from '../../ui/TextArea';
-import { AiError, type LabIdea, type LocalAi, type MemeLabState, type MemeRecord } from '../../services/ai/LocalAi';
+import { AiError, type LabIdea, type LabStyle, type LocalAi, type MemeLabState, type MemeRecord } from '../../services/ai/LocalAi';
 
 /**
- * The Lab: whenever the AI machine is on and ready, it makes short comedy videos about your topics,
+ * The Lab: whenever the AI machine is on and ready, it makes short videos about your topics (comedy,
+ * or spicy: flirty thirst-trap clips of made-up adults with no nudity),
  * one after another, planned to fill the hour before the machine turns itself off. A chat model
  * scores how viral each could go. Your own pictures and videos always come first. Nothing is posted.
  * Shown as the AI app's Lab tab and as the Lab app.
@@ -89,13 +90,29 @@ export function MemeLab({ ai, machineOn, isActive, onKept }: { ai: LocalAi; mach
   const records = [...(lab?.records ?? [])].sort((a, b) => (b.score ?? -1) - (a.score ?? -1));
   const job = lab?.making?.job;
   const queueMinutes = (lab?.queue.length ?? 0) * (lab?.minutesPerVideo ?? 6);
+  const style: LabStyle = lab?.style ?? 'comedy';
+  const spicy = style === 'spicy';
+  const kind = spicy ? 'spicy' : 'comedy';
 
   return (
     <section className="meme-lab" aria-labelledby="meme-lab-title">
-      <LabHead>{lab && <Toggle checked={lab.enabled} label="Make comedy videos while the machine is on" onChange={(on) => void act(ai.setMemeLab(on))} />}</LabHead>
+      <LabHead>{lab && <Toggle checked={lab.enabled} label={`Make ${kind} videos while the machine is on`} onChange={(on) => void act(ai.setMemeLab(on))} />}</LabHead>
+      {lab?.style && (
+        <Segmented<LabStyle>
+          label="Lab style"
+          value={style}
+          options={[
+            { value: 'spicy', label: 'Spicy' },
+            { value: 'comedy', label: 'Comedy' },
+          ]}
+          onChange={(v) => v !== style && void act(ai.setLabStyle(v))}
+        />
+      )}
       <p className="ai-muted meme-lab-dek">
-        While your AI machine is on, the Lab makes short vertical comedy videos about your topics, one after another, and another AI scores how viral each could go. Your own pictures
-        and videos always go first. Nothing is posted anywhere.
+        {spicy
+          ? 'While your AI machine is on, the Lab makes short vertical thirst-trap style videos: flirty, confident, stylish made-up adults, never nudity, so they can be posted. Another AI scores how viral each could go.'
+          : 'While your AI machine is on, the Lab makes short vertical comedy videos about your topics, one after another, and another AI scores how viral each could go.'}{' '}
+        Your own pictures and videos always go first. Nothing is posted anywhere.
       </p>
       {error && <p className="ai-error">{error}</p>}
 
@@ -133,7 +150,7 @@ export function MemeLab({ ai, machineOn, isActive, onKept }: { ai: LocalAi; mach
 
       <div className="meme-lab-block">
         <p className="o5-kicker">Your topics</p>
-        <p className="ai-muted meme-lab-dek">Comedy about whatever you list here. With no topics, it picks its own.</p>
+        <p className="ai-muted meme-lab-dek">{spicy ? 'A vibe or a place for each video, e.g. date night, beach, gym.' : 'Comedy about whatever you list here.'} With no topics, it picks its own.</p>
         {topics.length > 0 && (
           <ul className="meme-topics" aria-label="Topics">
             {topics.map((t) => (
@@ -153,7 +170,7 @@ export function MemeLab({ ai, machineOn, isActive, onKept }: { ai: LocalAi; mach
             addTopic();
           }}
         >
-          <input id="lab-topic" value={topic} onChange={(e) => setTopic(e.target.value)} placeholder="Add a topic, e.g. my cat, gym fails, Mondays" aria-label="New topic" autoComplete="off" />
+          <input id="lab-topic" value={topic} onChange={(e) => setTopic(e.target.value)} placeholder={spicy ? 'Add a topic, e.g. date night, rooftop, gym' : 'Add a topic, e.g. my cat, gym fails, Mondays'} aria-label="New topic" autoComplete="off" />
           <button type="submit" className="btn" disabled={!topic.trim()}>
             Add
           </button>
@@ -264,7 +281,7 @@ function LabHead({ children }: { children?: React.ReactNode }) {
   return (
     <header className="meme-lab-head">
       <div>
-        <p className="o5-kicker">Comedy, made while the machine is on</p>
+        <p className="o5-kicker">Videos made while the machine is on</p>
         <h3 className="o5-chapter-title" id="meme-lab-title">
           Lab
         </h3>

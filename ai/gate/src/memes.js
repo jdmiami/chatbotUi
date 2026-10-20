@@ -1,5 +1,7 @@
 // The meme lab: while the AI machine is on but nobody is using it, it makes short meme videos made
 // to go viral, one after another, and has a second AI watch each one and score how viral it could go.
+// Two styles: comedy, and spicy (flirty "thirst trap" clips: made-up adults, no nudity, made to
+// stay up on the big apps; see spicyProblem).
 //
 //   - Your jobs always come first. Lab videos wait at the back of the queue, and one being made
 //     stops the moment you ask for something (studio.js).
@@ -9,6 +11,9 @@ import { spawn } from 'node:child_process';
 import fsp from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
+import { mentionsMinor } from './studio.js';
+
+export const STYLES = ['comedy', 'spicy'];
 
 /** Meme setups that tend to travel: a relatable situation, a twist in the first second, a payoff. */
 export const FORMATS = [
@@ -31,22 +36,57 @@ const SLOTS = {
   thing: ['self-checkout machine', 'smart fridge', 'air fryer', 'ring light', 'robot lawnmower', 'karaoke machine', 'massage chair', 'bubble tea'],
   situation: ['you hear your name in a meeting you were not listening to', 'the Wi-Fi drops right before you send the message', 'your food arrives and it is not what you ordered', 'you finally sit down and the doorbell rings', 'someone says "quick question" at 4:59 p.m.'],
 };
+/** Thirst-trap setups that travel: a confident look, a reveal or a glance, a beat to loop on. */
+export const SPICY_FORMATS = [
+  { id: 'fit-check', title: 'Fit check: {vibe}', prompt: 'Vertical phone video. {person} in {outfit} does a slow confident turn in front of a mirror in a {place}, then a playful glance and smirk into the camera. Soft flattering light, fashion-reel style, realistic.' },
+  { id: 'glow-up', title: 'The glow-up hit different', prompt: 'Vertical video with a hard cut on the beat. First, {person} in a messy hoodie yawning in a {place}; then the same person in {outfit}, styled and confident, walking toward the camera. Trendy transition, realistic.' },
+  { id: 'over-shoulder', title: 'POV: you caught their eye at {place}', prompt: 'Vertical video, slow motion. {person} in {outfit} at a {place} looks back over their shoulder, smiles, and bites their lip slightly before turning away. Golden hour, shallow depth of field, cinematic.' },
+  { id: 'gym', title: 'Gym crush energy', prompt: 'Vertical video. {person} in fitted gym wear finishes a set in a modern gym, wipes their brow, and gives a confident nod to the camera. Dramatic side light, sweat sheen, fitness-reel style, realistic.' },
+  { id: 'beach-walk', title: 'Main character at the beach', prompt: 'Vertical slow-motion video. {person} in stylish swimwear and an open linen shirt walks along the shoreline at sunset, wind in their hair, glancing at the camera. Warm light, film grain, realistic.' },
+  { id: 'hair-flip', title: 'When the {vibe} hits', prompt: 'Vertical video. {person} in {outfit} in a {place} does a slow hair flip on the beat drop and looks straight into the lens with a confident half smile. Neon and soft light, music-video style, realistic.' },
+  { id: 'getting-ready', title: 'Getting ready for {vibe}', prompt: 'Vertical video, quick cuts. {person} getting ready in a stylish apartment: cologne or perfume, fixing a collar, a last look in the mirror in {outfit}, then a wink to the camera. Warm interior light, realistic.' },
+  { id: 'rooftop', title: 'Rooftop at night, no words needed', prompt: 'Vertical video. {person} in {outfit} leaning on a rooftop railing above city lights at night, turns slowly toward the camera, holds eye contact, and smiles. Moody cinematic light, shallow depth of field.' },
+];
+const SPICY_SLOTS = {
+  person: ['a confident woman in her late twenties', 'a confident man in his early thirties', 'a stylish woman in her thirties', 'a rugged man in his late twenties', 'a fitness coach in her thirties', 'a tall man in his thirties with a beard'],
+  outfit: ['a fitted black dress', 'a tailored suit with an open collar', 'a silk shirt and gold jewelry', 'a white tank top and jeans', 'a leather jacket', 'a satin slip dress', 'a crisp linen shirt'],
+  place: ['rooftop bar at sunset', 'beach at golden hour', 'neon-lit city street at night', 'hotel lobby', 'poolside lounge', 'stylish loft apartment', 'vineyard at sunset'],
+  vibe: ['date night', 'summer', 'the weekend', 'a night out', 'vacation mode', 'Friday'],
+};
+const ADULT_NOTE = ' The person is a fictional adult over 25, not a real or famous person. Flirty and confident but tasteful: clothed or in swimwear, no nudity, nothing explicit.';
 const fill = (tpl, pick) => tpl.replace(/\{(\w+)\}/g, (_, k) => pick(k));
 
 /** A ready-to-make idea from the written formats (used when no chat model is installed, or as the seed). */
-export function draftIdea(rand = Math.random, recent = [], topics = []) {
-  const formats = FORMATS.filter((f) => !recent.slice(-3).includes(f.id));
-  const format = formats[Math.floor(rand() * formats.length)] || FORMATS[0];
-  // Your topics drive the joke: a topic stands in for who or what it is about.
+export function draftIdea(rand = Math.random, recent = [], topics = [], style = 'comedy') {
+  const spicy = style === 'spicy';
+  const all = spicy ? SPICY_FORMATS : FORMATS;
+  const slots = spicy ? SPICY_SLOTS : SLOTS;
+  const formats = all.filter((f) => !recent.slice(-3).includes(f.id));
+  const format = formats[Math.floor(rand() * formats.length)] || all[0];
+  // Your topics drive it: a topic stands in for who or what the joke is about, or for the vibe and place.
   const topic = topics.length ? topics[Math.floor(rand() * topics.length)] : null;
-  const chosen = topic ? { subject: topic, thing: topic, situation: topic } : {};
-  const pick = (k) => (chosen[k] ??= SLOTS[k][Math.floor(rand() * SLOTS[k].length)]);
+  const chosen = !topic ? {} : spicy ? { vibe: topic } : { subject: topic, thing: topic, situation: topic };
+  const pick = (k) => (chosen[k] ??= slots[k][Math.floor(rand() * slots[k].length)]);
   // "a my dog" reads badly: drop the article in front of a topic that brings its own.
   const tidy = (t) => t.replace(/\b(a|an) (my|our|your|the|his|her|their) /gi, '$2 ');
-  const prompt = tidy(fill(format.prompt, pick));
+  const prompt = tidy(fill(format.prompt, pick)) + (spicy ? ADULT_NOTE : '');
   const title = tidy(fill(format.title, pick));
-  return { format: format.id, topic, title, prompt, caption: title, hashtags: ['#meme', '#funny', '#comedy', '#fyp'] };
+  return { format: format.id, style: spicy ? 'spicy' : 'comedy', topic, title, prompt, caption: title, hashtags: spicy ? ['#fitcheck', '#glowup', '#aesthetic', '#fyp'] : ['#meme', '#funny', '#comedy', '#fyp'] };
 }
+
+// Spicy means the kind of clip that stays up on TikTok, Reels and Shorts: anything that would be
+// taken down (nudity, sex) or that could involve someone under age is never made.
+const EXPLICIT = /\b(nude|nudes|naked|nsfw|porn\w*|explicit|topless|bottomless|nipples?|genital\w*|penis|vagina|pussy|cock|dick|orgasm\w*|masturbat\w*|undress\w*|strip(ping|s|ped|per|tease)?|sex|sexual|intercourse|blowjob|handjob|cum|fetish|bdsm|hentai|lewd|onlyfans|see[-\s]?through)\b/;
+const REAL = /\b(celebrity|famous|lookalike|look-alike|deepfake|influencer named|my (ex|girlfriend|boyfriend|wife|husband|coworker|neighbou?r|friend|crush))\b/;
+/** Why a spicy idea can't be made, or null when it's fine. */
+export function spicyProblem(text) {
+  const t = String(text || '').toLowerCase();
+  if (mentionsMinor(t)) return 'Spicy videos only ever show adults: leave out anything about kids, teens or school.';
+  if (EXPLICIT.test(t)) return 'Spicy stays flirty, not explicit: no nudity or sex, so the videos can be posted.';
+  if (REAL.test(t)) return 'Spicy videos only show made-up people, never real or famous ones.';
+  return null;
+}
+const badTag = (h) => Boolean(spicyProblem(String(h).replace(/#/g, ' ')));
 
 /** First JSON object in a model's answer. */
 export function parseJson(text) {
@@ -59,13 +99,23 @@ export function parseJson(text) {
   }
 }
 
-const IDEA_SYSTEM =
+const IDEA_SYSTEMS = {};
+IDEA_SYSTEMS.comedy =
   'You write ideas for 5-second vertical comedy meme videos made by an AI video model, for a comedy meme channel. Aim for instant recognition, a twist in the first second and a reaction people want to share. ' +
   'Keep it kind: no real people, celebrities, brands, politics, violence, or anything sexual. Answer only with JSON: ' +
   '{"title": short on-screen hook, "prompt": one detailed visual paragraph for the video model (camera, setting, action, mood, realistic), "caption": post caption under 120 characters, "hashtags": 3 to 5 hashtags}.';
-const SCORE_SYSTEM =
+IDEA_SYSTEMS.spicy =
+  'You write ideas for 5-second vertical "thirst trap" style videos made by an AI video model: flirty, confident, stylish clips of attractive fictional adults (25 or older) of the kind that go viral on TikTok and Reels: fit checks, glow-ups, slow-motion glances, gym and beach reels. ' +
+  'Aim for a strong look in the first second, eye contact, confidence and a beat to loop on. Keep it platform-safe: clothed or swimwear, no nudity, nothing sexual or explicit, never anyone under 25 or anyone young-looking, no real or famous people, no brands. Answer only with JSON: ' +
+  '{"title": short on-screen hook, "prompt": one detailed visual paragraph for the video model (camera, setting, outfit, action, light, realistic), "caption": post caption under 120 characters, "hashtags": 3 to 5 hashtags}.';
+const SCORE_SYSTEMS = {};
+SCORE_SYSTEMS.comedy =
   'You judge short meme videos for a meme channel. Look at the frames and the idea, then score how likely it is to go viral from 0 to 100 ' +
   '(hook in the first second, how relatable, how shareable, whether the joke reads without sound, visual quality). Be strict: 80+ is rare. ' +
+  'Answer only with JSON: {"score": number, "why": one sentence, "better_caption": optional improved caption}.';
+SCORE_SYSTEMS.spicy =
+  'You judge short flirty "thirst trap" style videos for a social channel. Look at the frames and the idea, then score how likely it is to go viral from 0 to 100 ' +
+  '(stopping power in the first second, confidence and charisma, styling and light, how well it loops, visual quality). Score 0 if it shows nudity, anything explicit, or anyone who looks under 25, since it would be taken down. Be strict: 80+ is rare. ' +
   'Answer only with JSON: {"score": number, "why": one sentence, "better_caption": optional improved caption}.';
 
 /** Three frames of a video (as base64 JPEGs) for the judge to look at. */
@@ -104,7 +154,8 @@ export function createMemeLab(o) {
   const quietMinutes = o.quietMinutes ?? 0;
   const maxPerHour = o.maxPerHour ?? 12;
   const minutesLeft = o.minutesLeft ?? (() => 60);
-  let saved = { enabled: true, topics: [], queue: [], records: [] };
+  let saved = { enabled: true, style: 'spicy', topics: [], queue: [], records: [] };
+  const spicy = () => saved.style === 'spicy';
   let loaded = false;
   let current = null; // { jobId, idea, startedAt }
   let ticking = false;
@@ -122,6 +173,7 @@ export function createMemeLab(o) {
       if (s && typeof s === 'object') {
         saved = {
           enabled: s.enabled !== false,
+          style: STYLES.includes(s.style) ? s.style : 'spicy',
           topics: Array.isArray(s.topics) ? s.topics.map(String).slice(0, 20) : [],
           queue: Array.isArray(s.queue) ? s.queue : [],
           records: Array.isArray(s.records) ? s.records : [],
@@ -146,30 +198,34 @@ export function createMemeLab(o) {
     let added = false;
     while (saved.queue.length < want) {
       const recent = [...saved.records, ...saved.queue].map((r) => r.format);
-      saved.queue.push({ qid: qid(), ...draftIdea(rand, recent, saved.topics), planned: true });
+      saved.queue.push({ qid: qid(), ...draftIdea(rand, recent, saved.topics, saved.style), planned: true });
       added = true;
     }
     return added;
   }
 
-  /** Make the next idea funnier with the chat model, unless you wrote or edited it yourself. */
+  /** Make the next idea sharper with the chat model, unless you wrote or edited it yourself. */
   async function sharpen(seed) {
     if (!o.chat || seed.yours) return seed;
+    const style = seed.style === 'spicy' ? 'spicy' : 'comedy';
     try {
       const recentTitles = saved.records.slice(-8).map((r) => r.title).join(' | ');
       const text = await o.chat({
-        system: IDEA_SYSTEM,
-        user: `${seed.topic ? `Topic: ${seed.topic}. ` : ''}Use this setup as a starting point and make it funnier and sharper: ${seed.title}. ${seed.prompt}\nDon't repeat these recent ones: ${recentTitles || 'none'}.`,
+        system: IDEA_SYSTEMS[style],
+        user: `${seed.topic ? `Topic: ${seed.topic}. ` : ''}Use this setup as a starting point and make it ${style === 'spicy' ? 'more striking and scroll-stopping' : 'funnier and sharper'}: ${seed.title}. ${seed.prompt}\nDon't repeat these recent ones: ${recentTitles || 'none'}.`,
       });
       const j = parseJson(text);
       if (j?.prompt && j?.title) {
-        return {
+        const idea = {
           ...seed,
           title: String(j.title).slice(0, 120),
-          prompt: String(j.prompt).slice(0, 1500),
+          prompt: String(j.prompt).slice(0, 1500) + (style === 'spicy' ? ADULT_NOTE : ''),
           caption: String(j.caption || j.title).slice(0, 200),
           hashtags: (Array.isArray(j.hashtags) ? j.hashtags : seed.hashtags).map(String).slice(0, 5),
         };
+        // A model that drifts past the line gets its idea thrown away; the written one is made instead.
+        if (style === 'spicy' && (spicyProblem(`${idea.title} ${idea.prompt.replace(ADULT_NOTE, '')} ${idea.caption}`) || idea.hashtags.some(badTag))) return seed;
+        return idea;
       }
     } catch (err) {
       log.warn?.(`[lab] idea model failed, using the written one: ${err.message}`);
@@ -181,7 +237,7 @@ export function createMemeLab(o) {
     if (!o.chat) return { score: null, why: 'No chat model is installed to judge it.' };
     const file = await studio.itemPath(record.id).catch(() => null);
     const images = file ? await framesOf(file, record.seconds || 5) : [];
-    const text = await o.chat({ system: SCORE_SYSTEM, user: `Idea: ${record.title}. Caption: ${record.caption}. Video prompt: ${record.prompt}`, images });
+    const text = await o.chat({ system: SCORE_SYSTEMS[record.style === 'spicy' ? 'spicy' : 'comedy'], user: `Idea: ${record.title}. Caption: ${record.caption}. Video prompt: ${record.prompt}`, images });
     const j = parseJson(text) || {};
     const score = Number.isFinite(Number(j.score)) ? Math.max(0, Math.min(100, Math.round(Number(j.score)))) : null;
     return { score, why: String(j.why || '').slice(0, 300), caption: j.better_caption ? String(j.better_caption).slice(0, 200) : undefined, judgedFrames: images.length };
@@ -233,6 +289,14 @@ export function createMemeLab(o) {
       const next = saved.queue.shift();
       if (!next) return;
       const idea = await sharpen(next);
+      // Last check before making: a spicy idea must still pass, whoever wrote it.
+      const problem = idea.style === 'spicy' ? spicyProblem(`${idea.title} ${idea.prompt.replace(ADULT_NOTE, '')}`) : null;
+      if (problem) {
+        lastError = `Skipped "${idea.title}": ${problem}`;
+        plan();
+        await persist();
+        return;
+      }
       const job = await studio.createJob({ kind: 'video', prompt: idea.prompt, size: 'portrait', seconds: 5, background: true });
       current = { jobId: job.id, idea, startedAt: now() };
       lastError = null;
@@ -262,21 +326,37 @@ export function createMemeLab(o) {
       const job = current ? studio.job(current.jobId) : null;
       return {
         enabled: saved.enabled,
+        style: saved.style,
         topics: saved.topics,
         quietMinutes,
         readyScore,
         minutesPerVideo: minutesPerVideo(),
         minutesLeft: Math.max(0, Math.round(Number(minutesLeft()) || 0)),
-        making: current ? { title: current.idea.title, topic: current.idea.topic || null, prompt: current.idea.prompt, job } : null,
-        queue: saved.queue.map(({ qid: id, title, prompt, topic, yours }) => ({ id, title, prompt, topic: topic || null, yours: Boolean(yours) })),
+        making: current ? { title: current.idea.title, topic: current.idea.topic || null, prompt: current.idea.prompt.replace(ADULT_NOTE, ''), job } : null,
+        queue: saved.queue.map(({ qid: id, title, prompt, topic, yours }) => ({ id, title, prompt: String(prompt).replace(ADULT_NOTE, ''), topic: topic || null, yours: Boolean(yours) })),
         madeLastHour: madeLastHour(),
         lastError,
         records,
       };
     },
-    /** { enabled?, topics? } */
-    async configure({ enabled, topics } = {}) {
+    /** { enabled?, style?, topics? } */
+    async configure({ enabled, style, topics } = {}) {
       await ensureLoaded();
+      if (Array.isArray(topics)) {
+        const clean = topics.map((t) => String(t).trim().slice(0, 60)).filter(Boolean);
+        const bad = clean.find((t) => mentionsMinor(t) || ((style ?? saved.style) === 'spicy' && spicyProblem(t)));
+        if (bad) throw Object.assign(new Error(spicyProblem(bad) || 'Lab topics can never be about kids or teens.'), { status: 422 });
+      }
+      if (STYLES.includes(style) && style !== saved.style) {
+        saved.style = style;
+        if (!Array.isArray(topics)) topics = saved.topics;
+        if (current) {
+          await studio.cancel(current.jobId).catch(() => {});
+          current = null;
+        }
+        // Your own ideas belong to the style you wrote them for.
+        saved.queue = [];
+      }
       if (typeof enabled === 'boolean') {
         saved.enabled = enabled;
         if (!enabled && current) {
@@ -308,7 +388,10 @@ export function createMemeLab(o) {
       await ensureLoaded();
       const p = String(prompt || title || '').trim().slice(0, 1500);
       if (!p) return false;
-      saved.queue.unshift({ qid: qid(), format: 'yours', topic: null, title: String(title || p).trim().slice(0, 120), prompt: p, caption: String(title || p).slice(0, 200), hashtags: ['#comedy', '#meme', '#fyp'], yours: true });
+      const problem = spicy() ? spicyProblem(`${title || ''} ${p}`) : null;
+      if (problem) throw Object.assign(new Error(problem), { status: 422 });
+      const tags = spicy() ? ['#fitcheck', '#aesthetic', '#fyp'] : ['#comedy', '#meme', '#fyp'];
+      saved.queue.unshift({ qid: qid(), format: 'yours', style: saved.style, topic: null, title: String(title || p).trim().slice(0, 120), prompt: spicy() ? p + ADULT_NOTE : p, caption: String(title || p).slice(0, 200), hashtags: tags, yours: true });
       await persist();
       return true;
     },
@@ -317,6 +400,9 @@ export function createMemeLab(o) {
       const i = find(id);
       if (i < 0) return false;
       const q = saved.queue[i];
+      const problem = q.style === 'spicy' ? spicyProblem(`${title ?? ''} ${prompt ?? ''}`) : null;
+      if (problem) throw Object.assign(new Error(problem), { status: 422 });
+      if (prompt != null && q.style === 'spicy' && !String(prompt).includes(ADULT_NOTE.trim())) prompt = String(prompt).trim().slice(0, 1500 - ADULT_NOTE.length) + ADULT_NOTE;
       if (title != null) q.title = String(title).trim().slice(0, 120) || q.title;
       if (prompt != null) q.prompt = String(prompt).trim().slice(0, 1500) || q.prompt;
       q.yours = true;
