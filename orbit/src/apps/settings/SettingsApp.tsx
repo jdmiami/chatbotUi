@@ -7,7 +7,7 @@ import { connection, getFileStore, resetDemoData } from '../../services';
 import { AGY_CAPABILITIES } from '../../services/runner/agyCapabilities';
 import type { CapabilityStatus } from '../../services/runner/types';
 import { cue } from '../../motion/feedback';
-import { requestTiltPermission, tiltNeedsPermission } from '../../motion/tilt';
+import { requestTiltPermission, tiltNeedsPermission } from '../../sensors/tilt';
 import { classicAllowed, useShell, type AppId, type MotionPref, type ThemePref, type WallpaperId } from '../../state/shell';
 import { useWorkspace } from '../../state/workspace';
 import { useLayout } from '../../state/viewport';

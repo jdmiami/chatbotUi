@@ -1,8 +1,19 @@
 /**
  * Tilt: the phone's motion sensor (or the mouse on a computer) moves the light and the depth layers
  * (docs/MOTION.md §1–2). Writes two numbers, --tx and --ty (−1…1), on <html> once per frame while
- * they change; CSS does the rest. Nothing else listens to the sensor.
+ * they change; CSS does the rest. The same two numbers go to the sensor hub as the tilt reading.
  */
+
+import type { Sensor } from './hub';
+
+/** How far the phone leans from how it's held: x to the right, y toward you, each −1…1. */
+export interface TiltValue {
+  x: number;
+  y: number;
+}
+
+/** The hub hears at most this often (ms) while the tilt is moving, and once more when it settles. */
+const PUBLISH_EVERY = 100;
 
 type DOE = typeof DeviceOrientationEvent & { requestPermission?: () => Promise<'granted' | 'denied'> };
 
@@ -23,11 +34,15 @@ export async function requestTiltPermission(): Promise<boolean> {
 
 const clamp = (v: number) => Math.max(-1, Math.min(1, v));
 
-/**
- * Start following the sensor and the mouse. `askOnTap`: on iPhone, once permission was given before,
- * ask again (silently) on the first tap of this visit. Returns a stop function that resets the tilt.
- */
-export function startTilt({ askOnTap = false } = {}): () => void {
+export interface TiltOptions {
+  /** On iPhone, once permission was given before, ask again (silently) on the first tap of this visit. */
+  askOnTap?: boolean;
+  /** Hears the eased tilt while it moves. */
+  publish?: (value: TiltValue) => void;
+}
+
+/** Start following the sensor and the mouse. Returns a stop function that resets the tilt. */
+export function startTilt({ askOnTap = false, publish }: TiltOptions = {}): () => void {
   const root = document.documentElement;
   let tx = 0;
   let ty = 0;
@@ -35,6 +50,7 @@ export function startTilt({ askOnTap = false } = {}): () => void {
   let gy = 0;
   let base: { beta: number; gamma: number } | null = null;
   let frame = 0;
+  let published = -Infinity;
 
   const step = () => {
     tx += (gx - tx) * 0.12;
@@ -42,6 +58,11 @@ export function startTilt({ askOnTap = false } = {}): () => void {
     root.style.setProperty('--tx', tx.toFixed(3));
     root.style.setProperty('--ty', ty.toFixed(3));
     frame = Math.abs(gx - tx) + Math.abs(gy - ty) > 0.002 ? requestAnimationFrame(step) : 0;
+    const now = performance.now();
+    if (publish && (!frame || now - published >= PUBLISH_EVERY)) {
+      published = now;
+      publish({ x: Number(tx.toFixed(3)), y: Number(ty.toFixed(3)) });
+    }
   };
   const kick = () => {
     if (!frame) frame = requestAnimationFrame(step);
@@ -89,17 +110,23 @@ export function startTilt({ askOnTap = false } = {}): () => void {
   };
 }
 
-/** Where the last tap or click landed (screen coordinates), so things can grow from it. */
-let lastTap: { x: number; y: number; at: number } | null = null;
-if (typeof window !== 'undefined') {
-  addEventListener(
-    'pointerdown',
-    (e) => {
-      lastTap = { x: e.clientX, y: e.clientY, at: performance.now() };
-    },
-    { capture: true, passive: true },
-  );
-}
-export function recentTap(withinMs = 700) {
-  return lastTap && performance.now() - lastTap.at < withinMs ? lastTap : null;
-}
+let stopTilt: (() => void) | null = null;
+
+/** Tilt as a hub sensor. Always available: without a motion sensor it follows the mouse. */
+export const tiltSensor: Sensor<TiltValue, Omit<TiltOptions, 'publish'>> = {
+  id: 'tilt',
+  label: 'Tilt',
+  source: 'device',
+  unit: '−1…1',
+  available: () => typeof window !== 'undefined',
+  needsPermission: tiltNeedsPermission,
+  permission: requestTiltPermission,
+  start(publish, options) {
+    stopTilt?.();
+    stopTilt = startTilt({ ...options, publish });
+  },
+  stop() {
+    stopTilt?.();
+    stopTilt = null;
+  },
+};

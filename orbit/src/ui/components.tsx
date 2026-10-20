@@ -10,7 +10,7 @@ import {
 import { animate } from 'motion/mini';
 import { springValue } from '../motion/physics';
 import { SPRING } from '../motion/springs';
-import { recentTap } from '../motion/tilt';
+import { recentTap } from '../motion/tap';
 import { useMotionLevel } from '../motion/MotionProvider';
 import { Icon, type IconName } from './Icon';
 import { useScrollDepth } from '../shell/o5/depth';
