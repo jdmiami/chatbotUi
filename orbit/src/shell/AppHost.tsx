@@ -1,10 +1,11 @@
-import { Component, Suspense, useCallback, useLayoutEffect, useRef, type ReactNode } from 'react';
+import { Component, Suspense, useCallback, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import { APPS } from '../apps/registry';
 import type { Placement } from '../apps/types';
 import { useShell, type AppId } from '../state/shell';
 import { useLayout } from '../state/viewport';
 import { useMotionLevel } from '../motion/MotionProvider';
-import { cancelMorph, morphIn, morphOut } from '../motion/morph';
+import { cancelMorph, morphIn, morphOut, pageTurnIn, pageTurnOut } from '../motion/morph';
+import { ENTRIES } from './o5/IndexMenu';
 
 /**
  * Renders every open app exactly once, in a stable order, and only changes its placement.
@@ -14,7 +15,14 @@ import { cancelMorph, morphIn, morphOut } from '../motion/morph';
 export function AppHost() {
   const { openApps, activeApp, split, launch } = useShell();
   const setSplit = useShell((s) => s.setSplit);
+  const o5 = useShell((s) => s.settings.skin === 'o5');
   const layout = useLayout();
+  // MagStyle: going straight from one app to another turns the page (instead of growing from an icon).
+  const lastApp = useRef<AppId | null>(activeApp);
+  const turning = o5 && lastApp.current !== null && activeApp !== null && lastApp.current !== activeApp;
+  useLayoutEffect(() => {
+    lastApp.current = activeApp;
+  }, [activeApp]);
 
   const splitActive =
     split.enabled &&
@@ -68,6 +76,8 @@ export function AppHost() {
             style={style}
             compact={paneWidth < 600}
             goingHome={activeApp === null}
+            turning={turning}
+            o5={o5}
             onFocusApp={() => {
               if (visible && activeApp !== id) launch(id);
             }}
@@ -90,6 +100,8 @@ function AppWindow({
   style,
   compact,
   goingHome,
+  turning,
+  o5,
   onFocusApp,
   Component,
 }: {
@@ -101,6 +113,8 @@ function AppWindow({
   style: React.CSSProperties;
   compact: boolean;
   goingHome: boolean;
+  turning: boolean;
+  o5: boolean;
   onFocusApp: () => void;
   Component: (typeof APPS)[AppId]['component'];
 }) {
@@ -108,6 +122,8 @@ function AppWindow({
   const level = useMotionLevel();
   // A window mounts when its app is first opened, already in place: treat that as coming from hidden.
   const prev = useRef<Placement>('hidden');
+  // MagStyle: each time the app comes into view it opens on its chapter page (a brief title card).
+  const [opener, setOpener] = useState(0);
 
   useLayoutEffect(() => {
     const el = ref.current;
@@ -116,9 +132,13 @@ function AppWindow({
     if (!el || was === placement) return;
     const split = (p: Placement) => p === 'split-left' || p === 'split-right';
     if (split(was) || split(placement)) return cancelMorph(el);
-    if (was === 'hidden') void morphIn(el, id, level);
-    else if (placement === 'hidden') void morphOut(el, id, level, goingHome);
-  }, [placement, id, level, goingHome]);
+    if (was === 'hidden') {
+      if (o5 && level !== 'off') setOpener((n) => n + 1);
+      void (turning ? pageTurnIn(el, level) : morphIn(el, id, level));
+    } else if (placement === 'hidden') void (turning ? pageTurnOut(el, level) : morphOut(el, id, level, goingHome));
+  }, [placement, id, level, goingHome, turning, o5]);
+  const chapter = ENTRIES.findIndex((e) => e.id === id);
+  const entry = ENTRIES[chapter];
 
   return (
     <section
@@ -142,6 +162,19 @@ function AppWindow({
           </Suspense>
         </AppLoadBoundary>
       </div>
+      {o5 && entry && (
+        <p className="o5-runhead" aria-hidden>
+          Orbit · {String(chapter + 1).padStart(2, '0')} · {entry.title}
+        </p>
+      )}
+      {o5 && entry && opener > 0 && placement === 'full' && (
+        <div key={opener} className="o5-opener" aria-hidden onAnimationEnd={(e) => e.target === e.currentTarget && setOpener(0)}>
+          <span className="o5-opener-n">{String(chapter + 1).padStart(2, '0')}</span>
+          <span className="o5-opener-kicker">Chapter {String(chapter + 1).padStart(2, '0')}</span>
+          <span className="o5-opener-title">{entry.title}</span>
+          <span className="o5-opener-line">{entry.line}</span>
+        </div>
+      )}
     </section>
   );
 }

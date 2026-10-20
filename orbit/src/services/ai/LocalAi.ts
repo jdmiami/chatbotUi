@@ -312,15 +312,22 @@ export async function readChatStream(body: ReadableStream<Uint8Array>, h: Stream
   }
 }
 
+const MACHINE_STATES: AiMachineState[] = ['unconfigured', 'off', 'starting', 'downloading', 'on', 'error'];
+/** A reply that isn't a machine status (a page instead of JSON, an older site) is an error, not a crash later. */
+function machineStatus(s: AiMachineStatus): AiMachineStatus {
+  if (!s || !MACHINE_STATES.includes(s.state)) throw new AiError('The site didn’t say how the AI machine is. Reload to try again.');
+  return s;
+}
+
 export class LocalAi {
   private grant: Grant | null = null;
 
-  status(): Promise<AiMachineStatus> {
-    return siteJson<AiMachineStatus>('/api/ai');
+  async status(): Promise<AiMachineStatus> {
+    return machineStatus(await siteJson<AiMachineStatus>('/api/ai'));
   }
 
-  power(action: 'start' | 'stop', tier?: string): Promise<AiMachineStatus> {
-    return siteJson<AiMachineStatus>('/api/ai', { method: 'POST', body: JSON.stringify({ action, tier }) });
+  async power(action: 'start' | 'stop', tier?: string): Promise<AiMachineStatus> {
+    return machineStatus(await siteJson<AiMachineStatus>('/api/ai', { method: 'POST', body: JSON.stringify({ action, tier }) }));
   }
 
   /** Address + token of the AI machine; null while it isn't ready. */
