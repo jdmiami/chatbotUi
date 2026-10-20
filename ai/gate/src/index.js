@@ -51,7 +51,8 @@ const studio = env.STUDIO_DIR
   ? createStudio({ dir: env.STUDIO_DIR, comfy: env.COMFY_URL || 'http://127.0.0.1:8188', ollama: OLLAMA, helper: HELPER, r2, inUseElsewhere: (id) => movies?.usedElsewhere(id) })
   : null;
 // soReal movies (chained video shots), kept with the studio's files.
-const movies = studio ? createMovies({ dir: env.STUDIO_DIR, studio, machine: HELPER ? 'helper' : 'main', mirror: studio.mirror }) : null;
+// A chat model on this machine writes each movie's story (labChat: below, the same as the meme lab's).
+const movies = studio ? createMovies({ dir: env.STUDIO_DIR, studio, machine: HELPER ? 'helper' : 'main', mirror: studio.mirror, chat: ({ system, user }) => labChat({ system, user }) }) : null;
 // R2 speed test (only when the R2 keys are set as Runpod secrets): the Qwen image model, volume vs R2.
 const QWEN = STUDIO_FILES.image[0];
 const r2test = studio && r2conf && !r2

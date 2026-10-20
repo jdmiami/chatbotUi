@@ -610,16 +610,26 @@ export function createGate(cfg, log = console) {
     const body = async () => JSON.parse((await readBody(req, 256 * 1024)) || '{}');
     if (path === '/_orbit/studio/movies' && req.method === 'GET') return send(res, 200, { movies: await movies.list() });
     if (path === '/_orbit/studio/movies' && req.method === 'POST') return send(res, 200, await movies.create(await body()));
-    const m = /^\/_orbit\/studio\/movies\/([A-Za-z0-9_-]+)(?:\/(run|stop|render))?$/.exec(path);
+    // How long a movie like this takes, before it is made: { length, size, maker, lead }.
+    if (path === '/_orbit/studio/movies/estimate' && req.method === 'POST') return send(res, 200, movies.estimate(await body()));
+    const m = /^\/_orbit\/studio\/movies\/([A-Za-z0-9_-]+)(?:\/(run|stop|render|plan|lead))?$/.exec(path);
     if (!m) return send(res, 404, { error: 'Not found' });
     const [, id, action] = m;
+    // The AI writes (or rewrites) the story: the shots, the storyboard, the lead, look and sound.
+    if (action === 'plan' && req.method === 'POST') return send(res, 200, await movies.plan(id));
+    // A photo of the lead ({ photo: data URL }): becomes the lead's reference picture.
+    if (action === 'lead' && req.method === 'POST') {
+      const { photo } = JSON.parse((await readBody(req, 30 * 1024 * 1024)) || '{}');
+      return send(res, 200, await movies.leadPhoto(id, photo));
+    }
     if (!action && req.method === 'GET') {
       const movie = await movies.get(id);
       return movie ? send(res, 200, movie) : send(res, 404, { error: 'No such movie.' });
     }
     if (!action && req.method === 'PUT') return send(res, 200, await movies.update(id, await body()));
     if (!action && req.method === 'DELETE') return send(res, 200, { ok: await movies.remove(id) });
-    if (action === 'run' && req.method === 'POST') return send(res, 200, await movies.run(id));
+    // { approve: true }: the storyboard looks right, make the shots.
+    if (action === 'run' && req.method === 'POST') return send(res, 200, await movies.run(id, await body()));
     if (action === 'stop' && req.method === 'POST') {
       const movie = await movies.stop(id);
       return movie ? send(res, 200, movie) : send(res, 404, { error: 'No such movie.' });

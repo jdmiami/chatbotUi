@@ -615,7 +615,9 @@ export function createStudio(o) {
     // A gallery picture or video that came from someone's photo keeps the photo rule.
     const fromId = req.fromLastFrameOf || req.fromItem;
     const source = fromId ? await readItem(String(fromId)) : null;
-    const photo = uploads.length > 0 || Boolean(source?.photo);
+    // soReal: a gallery picture a video should end on (first and last frame).
+    const toSource = req.toItem && mode === 'video' ? await readItem(String(req.toItem)) : null;
+    const photo = uploads.length > 0 || Boolean(source?.photo) || Boolean(toSource?.photo);
     if (photo && blockedForPhoto(prompt)) throw Object.assign(new Error(PHOTO_MESSAGE), { status: 422, blocked: true });
     if (!(await makerReady(maker))) {
       const pct = (await makers()).find((m) => m.id === maker.id)?.percent ?? 0;
@@ -653,15 +655,16 @@ export function createStudio(o) {
     if (mode === 'video') {
       seconds = Math.min(10, Math.max(2, Math.round(Number(req.seconds) || 5)));
       const image = inputs[0] || null;
+      const endImage = toSource ? await copyFromGallery(toSource.id) : null;
       if (flow === 'h3') {
         // H3 is trained on clips of about 5 to 15 s; shorter ones come out poorly.
         seconds = Math.max(5, seconds);
         [width, height] = SIZES.h3[req.size] || SIZES.h3.landscape;
-        workflow = h3Workflow({ prompt, width, height, seconds, image, prefix, ...(maker.id !== 'h3-max' ? { unet: FILES[maker.files[0]].name } : {}), turbo: maker.turbo ? FILES[maker.turbo].name : null });
+        workflow = h3Workflow({ prompt, width, height, seconds, image, endImage, prefix, ...(maker.id !== 'h3-max' ? { unet: FILES[maker.files[0]].name } : {}), turbo: maker.turbo ? FILES[maker.turbo].name : null });
         stages = 'h3';
       } else {
         [width, height] = SIZES.video[req.size] || SIZES.video.landscape;
-        workflow = videoWorkflow({ prompt, width, height, seconds, image, prefix, ...(maker.builtIn ? {} : { ckpt: FILES[maker.files[0]].name }), lora: !maker.noLora });
+        workflow = videoWorkflow({ prompt, width, height, seconds, image, endImage, prefix, ...(maker.builtIn ? {} : { ckpt: FILES[maker.files[0]].name }), lora: !maker.noLora });
       }
     } else if (mode === 'edit') {
       const lora = maker.lora ? FILES[maker.lora].name : null;
@@ -1180,6 +1183,14 @@ export function createStudio(o) {
     removeMaker,
     createJob,
     job: (id) => (jobs.has(id) ? publicJob(jobs.get(id)) : null),
+    /** soReal: how long a job like this usually takes here (learned timings), in seconds. */
+    estimate({ kind = 'image', maker, size, seconds, cold = false } = {}) {
+      const m = makerById(String(maker || (kind === 'video' ? 'ltx' : 'qwen')));
+      const k = m?.kind === 'video' ? 'video' : 'image';
+      const table = k === 'video' ? (m?.id === 'h3-max' || m?.workflow === 'h3' ? SIZES.h3 : SIZES.video) : m?.id === 'krea-real' ? SIZES.krea : SIZES.image;
+      const [width, height] = table[size] || Object.values(table)[0];
+      return Math.round(expectedMs({ kind: k, maker: m?.id || maker, width: m?.kind === 'edit' ? undefined : width, height: m?.kind === 'edit' ? undefined : height, seconds }, cold) / 1000);
+    },
     cancel,
     items,
     labItems: (limit = 200) => items(limit, true),

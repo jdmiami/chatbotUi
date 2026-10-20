@@ -134,8 +134,8 @@ export function Path({ hidden }: { hidden: boolean }) {
         <Go label="Store" art="store" hint="Chat models, makers and styles, with every detail" onClick={() => launch('store')} />
       </Chapter>
 
-      <Chapter n="03" id="o5-make" title="Make" dek="Pictures, videos, and whole films shot by shot, each one picking up from the last frame.">
-        <Go label="soReal" art="soreal" hint="Movies, shot by shot" onClick={() => launch('soreal')} />
+      <Chapter n="03" id="o5-make" title="Make" dek="Pictures, videos, and whole short films from one idea.">
+        <Go label="soReal" art="soreal" hint="A movie from one idea" onClick={() => launch('soreal')} />
         <Go
           label="Images & video"
           hint="In the AI app, under Create"
