@@ -2,6 +2,7 @@ import { useRef, useState } from 'react';
 import { Icon } from '../../ui/Icon';
 import { Sheet } from '../../ui/components';
 import type { LocalAi } from '../../services/ai/LocalAi';
+import { TextArea } from '../../ui/TextArea';
 
 const QUICK = [
   { label: 'Shorter', ask: 'Make it about half as long. Keep every important point.' },
@@ -106,7 +107,7 @@ export function Canvas({
             </button>
           ))}
         </div>
-        <textarea
+        <TextArea
           className="ai-canvas-text"
           value={text}
           onChange={(e) => setText(e.target.value)}

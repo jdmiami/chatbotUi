@@ -29,15 +29,36 @@ body {
 button,
 input,
 textarea,
+.ta-plain,
 select {
   font: inherit;
   color: inherit;
 }
 
+/* The plain text box Chrome on iPhone gets instead of a <textarea> (see ui/TextArea.tsx). */
+.ta-plain {
+  display: block;
+  box-sizing: border-box;
+  min-height: calc(var(--ta-rows, 2) * 1.5em + 16px);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  overflow-y: auto;
+  cursor: text;
+  -webkit-user-select: text;
+  user-select: text;
+}
+.ta-plain:empty::before {
+  content: attr(data-placeholder);
+  color: var(--text-3, #8f877b);
+  pointer-events: none;
+}
+.ta-plain[aria-disabled='true'] { opacity: .6; cursor: default; }
+
 /* iOS zooms into inputs with font-size < 16px; keep editable text at >= 16px on touch devices. */
 @media (pointer: coarse) {
   input,
   textarea,
+  .ta-plain,
   select {
     font-size: max(16px, var(--fs-md));
   }

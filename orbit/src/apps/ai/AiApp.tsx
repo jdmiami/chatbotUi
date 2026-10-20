@@ -20,6 +20,7 @@ import { ModelPicker, useModelList } from './models';
 import '../agent/agent.css';
 import './ai.css';
 import { AiOrb } from './AiOrb';
+import { TextArea } from '../../ui/TextArea';
 
 const STATE_TEXT: Record<AiMachineStatus['state'], string> = {
   unconfigured: 'Not set up',
@@ -1025,7 +1026,7 @@ export default function AiApp({ isActive, compact, placement }: AppProps) {
                   e.target.value = '';
                 }}
               />
-              <textarea
+              <TextArea
                 onPaste={(e) => {
                   const files = Array.from(e.clipboardData.files);
                   if (files.length) {

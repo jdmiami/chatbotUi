@@ -456,7 +456,7 @@
 :root[data-skin='o5'] .segmented button { border-radius: 999px; min-width: var(--tap); min-height: var(--tap); }
 :root[data-skin='o5'] .segmented button[aria-pressed='true'] { background: var(--text); color: var(--bg); box-shadow: none; }
 :root[data-skin='o5'] .chip { background: transparent; border: 1px solid var(--o5-hair); }
-:root[data-skin='o5'] :is(input, textarea, select):not([type='range']):not([type='checkbox']) { border-radius: var(--radius-md); }
+:root[data-skin='o5'] :is(input, textarea, .ta-plain, select):not([type='range']):not([type='checkbox']) { border-radius: var(--radius-md); }
 :root[data-skin='o5'] .state h3 { font-family: var(--font-display); font-weight: 380; font-size: calc(30px * var(--text-scale)); letter-spacing: -0.02em; }
 :root[data-skin='o5'] :is(.sr-shots-head h2, .settings-section h2, .list-title) { font-family: var(--font-display); font-weight: 400; letter-spacing: -0.01em; }
 
@@ -839,7 +839,7 @@
 }
 :root[data-skin='o5'][data-skin] .ai-maker-row .btn:disabled { color: var(--text-3, var(--text-2)); text-decoration: none; }
 :root[data-skin='o5'] .ai-maker-row .btn svg { display: none; }
-:root[data-skin='o5'] .ai-create textarea {
+:root[data-skin='o5'] .ai-create :is(textarea, .ta-plain) {
   border: 0;
   border-bottom: 1px solid var(--o5-hair);
   border-radius: 0;
@@ -850,7 +850,7 @@
   line-height: 1.45;
   box-shadow: none;
 }
-:root[data-skin='o5'] .ai-create textarea:focus { outline: none; border-bottom-color: var(--text); }
+:root[data-skin='o5'] .ai-create :is(textarea, .ta-plain):focus { outline: none; border-bottom-color: var(--text); }
 :root[data-skin='o5'] .ai-make { align-self: flex-start; min-width: 200px; min-height: 56px; font-size: var(--fs-lg); }
 /* The gallery reads like a spread: the newest piece large, the rest beneath. */
 :root[data-skin='o5'] .ai-gallery { gap: clamp(6px, 1.5vw, 14px); }
@@ -876,7 +876,7 @@
 .o5-choice { justify-items: start; }
 .o5-choice .o5-go-label, .o5-choice .o5-go-hint { grid-area: auto; }
 .o5-choice:last-child { border-bottom: 0; }
-:root[data-skin='o5'] .ai-create .ai-create-form textarea:not([type]) { border-radius: 0; border-width: 0 0 1px; }
+:root[data-skin='o5'] .ai-create .ai-create-form :is(textarea, .ta-plain):not([type]) { border-radius: 0; border-width: 0 0 1px; }
 
 /* ---------------------------------------------------------------- soReal: contents, then one movie as a walk-through */
 :root[data-skin='o5'] .sr-side, :root[data-skin='o5'] .sr-side-full { background: none; border: 0; }
@@ -897,7 +897,7 @@
   box-shadow: none;
 }
 :root[data-skin='o5'] .sr-root .input:focus-visible { outline: none; border-bottom-color: var(--text); }
-:root[data-skin='o5'] .sr-root :is(input, textarea).input:not([type]) { border-radius: 0; border-width: 0 0 1px; }
+:root[data-skin='o5'] .sr-root :is(input, textarea, .ta-plain).input:not([type]) { border-radius: 0; border-width: 0 0 1px; }
 :root[data-skin='o5'] .sr-options { grid-template-columns: 1fr; gap: 18px; }
 :root[data-skin='o5'] .sr-shots-head { justify-content: flex-start; }
 :root[data-skin='o5'] .sr-shot { grid-template-columns: minmax(0, 1fr) auto; }
@@ -905,7 +905,7 @@
 /* A shot not made yet is just its numeral, not an empty frame. */
 :root[data-skin='o5'] .sr-shot-media:not(:has(video)) { aspect-ratio: auto; background: none; place-items: start; overflow: visible; }
 :root[data-skin='o5'] .sr-shot-media:not(:has(video, .sr-spin)) { display: none; }
-:root[data-skin='o5'] .sr-root textarea.input { font-size: calc(19px * var(--text-scale)); min-height: 5.6em; }
+:root[data-skin='o5'] .sr-root :is(textarea, .ta-plain).input { font-size: calc(19px * var(--text-scale)); min-height: 5.6em; }
 :root[data-skin='o5'] .sr-shot-num { font-family: var(--font-display); font-weight: 340; font-size: calc(44px * var(--text-scale)); }
 :root[data-skin='o5'] .sr-shot-label { font-family: var(--font-display); font-weight: 400; font-size: calc(19px * var(--text-scale)); }
 :root[data-skin='o5'] .sr-badge { background: none; padding: 0; letter-spacing: 0.14em; text-transform: uppercase; font-size: calc(10px * var(--text-scale)); }

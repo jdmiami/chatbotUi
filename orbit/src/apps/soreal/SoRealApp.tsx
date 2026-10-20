@@ -19,6 +19,7 @@ import { latestVideo, parseShots, planMessages } from './plan';
 import { BANNER_KICKER } from '../ai/banner';
 import '../ai/ai.css';
 import './soreal.css';
+import { TextArea } from '../../ui/TextArea';
 
 const SIZES = [
   { value: 'landscape', label: 'Landscape' },
@@ -388,10 +389,11 @@ export default function SoRealApp({ isActive, compact, placement }: AppProps) {
         </label>
         <label className="sr-field">
           <span>Look and characters</span>
-          <textarea
+          <TextArea
             className="input"
             rows={3}
             value={draft.look}
+            aria-label="Look and characters"
             maxLength={2000}
             disabled={running}
             placeholder="Who is in it and the style, e.g. “A woman in a red coat, neon city at night, 35 mm film look.” Added to every shot so it stays consistent."
@@ -505,7 +507,7 @@ export default function SoRealApp({ isActive, compact, placement }: AppProps) {
                     </span>
                     <span className={`sr-badge sr-badge-${s.status}`}>{{ todo: 'To make', making: 'Making…', done: 'Made', error: 'Problem' }[s.status]}</span>
                   </div>
-                  <textarea
+                  <TextArea
                     className="input"
                     rows={2}
                     value={s.prompt}
@@ -731,7 +733,7 @@ function PlanSheet({ movie, onClose, onPlan }: { movie: Movie; onClose: () => vo
           <>
             <label className="sr-field">
               <span>What is the movie about?</span>
-              <textarea className="input" rows={4} value={idea} onChange={(e) => setIdea(e.target.value)} placeholder="A courier races across a rainy city to deliver a mysterious box before midnight." />
+              <TextArea className="input" rows={4} value={idea} onChange={(e) => setIdea(e.target.value)} placeholder="A courier races across a rainy city to deliver a mysterious box before midnight." />
             </label>
             <div className="sr-field">
               <span>Shots</span>

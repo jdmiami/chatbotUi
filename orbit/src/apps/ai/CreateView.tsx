@@ -5,6 +5,7 @@ import { Icon } from '../../ui/Icon';
 import { ConfirmSheet, EmptyState, IconButton, Segmented, Sheet } from '../../ui/components';
 import { AiError, type LocalAi, type StudioItem, type StudioJob, type StudioKind, type StudioMakerInfo, type StudioState } from '../../services/ai/LocalAi';
 import { MAKER_CATALOG, rememberMakers, rememberedMakers } from './makerCatalog';
+import { TextArea } from '../../ui/TextArea';
 
 type Mode = StudioKind | 'edit';
 const DEFAULT_PICK: Record<Mode, string> = { image: 'qwen', video: 'ltx', edit: 'edit' };
@@ -384,7 +385,7 @@ export function CreateView({
           </div>
         )}
         {!sharpen && (
-          <textarea
+          <TextArea
             value={prompt}
             onChange={(e) => setPrompt(e.target.value)}
             rows={3}
