@@ -120,7 +120,7 @@ test.describe('Orbit 0.5', () => {
     page.on('pageerror', (e) => errors.push(e.message));
     await mockAi(page, 'off');
     await page.addInitScript(() =>
-      localStorage.setItem('orbit:shell:v1', JSON.stringify({ state: { settings: { orb: false, motion: 'full', motionPicked: true, skin: 'o5', introSeen: true } }, version: 0 })),
+      localStorage.setItem('orbit:shell:v1', JSON.stringify({ state: { settings: { orb: false, motion: 'full', motionPicked: true, skin: 'o5', introSeen: true, space: false } }, version: 0 })),
     );
     await page.goto('/');
     const path = page.getByRole('main', { name: 'Home' });
