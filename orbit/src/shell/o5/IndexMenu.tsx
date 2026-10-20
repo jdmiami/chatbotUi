@@ -4,6 +4,7 @@ import { classicAllowed, useShell, type AppId } from '../../state/shell';
 import { useWorkspace } from '../../state/workspace';
 import { Icon } from '../../ui/Icon';
 import { ConfirmSheet } from '../../ui/components';
+import { AppArt } from '../../ui/AppArt';
 
 export const ENTRIES: { id: AppId; title: string; line: string }[] = [
   { id: 'ai', title: 'Talk', line: 'Your own models' },
@@ -11,6 +12,10 @@ export const ENTRIES: { id: AppId; title: string; line: string }[] = [
   { id: 'editor', title: 'Code', line: 'Your projects' },
   { id: 'terminal', title: 'Terminal', line: 'A shell that stays open' },
   { id: 'agent', title: 'Antigravity', line: 'The coding agent' },
+  { id: 'playground', title: 'Playground', line: 'The full AI playground' },
+  { id: 'vscode', title: 'VS Code', line: 'The full editor' },
+  { id: 'desktop', title: 'Linux desktop', line: 'The whole machine' },
+  { id: 'windows', title: 'Windows PC', line: 'Your computer at home' },
   { id: 'settings', title: 'Settings', line: 'Make it yours' },
 ];
 /** The folio for an app, as on the contents page: "04 · Terminal". */
@@ -116,6 +121,7 @@ export function IndexMenu() {
               <li key={e.id} style={{ '--i': i + 1 } as React.CSSProperties}>
                 <button type="button" className="o5-index-go" aria-current={activeApp === e.id || undefined} onClick={go(() => launch(e.id))}>
                   <span className="o5-index-n">{String(i + 1).padStart(2, '0')}</span>
+                  <AppArt id={e.id} size={48} className="o5-index-art" />
                   <span className="o5-index-title">{e.title}</span>
                   <span className="o5-go-hint">{e.line}</span>
                 </button>

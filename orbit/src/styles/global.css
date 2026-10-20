@@ -1080,3 +1080,6 @@ a.btn {
 :root[data-typing] .app-window :is(.ai-banner, .sr-helper):not([data-folding]) {
   display: none;
 }
+/* App icons are drawings now (ui/AppArt): the tile itself carries no colour or shadow of its own. */
+.glyph.glyph-art { background: none; box-shadow: none; overflow: visible; }
+.glyph.glyph-art > svg { display: block; }

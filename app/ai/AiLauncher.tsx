@@ -66,7 +66,7 @@ export default function AiLauncher({ target, next }: { target: 'chat' | 'code'; 
         window.location.href = url;
       } else {
         setOpening(false);
-        if (target === 'code') setCodeNote('The Linux machine needs to be on for coding. Turn it on from Contents.');
+        if (target === 'code') setCodeNote('The Linux machine needs to be on for coding. Turn it on in Orbit (Settings → Usage).');
       }
     } catch (err) {
       setOpening(false);
@@ -226,8 +226,8 @@ export default function AiLauncher({ target, next }: { target: 'chat' | 'code'; 
               Turn off AI machine
             </button>
           )}
-          <a className="button secondary" href="/?choose=1">
-            Contents
+          <a className="button secondary" href="/orbit">
+            Back to Orbit
           </a>
         </div>
         {(status?.url || status?.consoleUrl) && (

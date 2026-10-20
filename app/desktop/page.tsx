@@ -1,6 +1,6 @@
 import { redirect } from 'next/navigation';
 
-/** The workspace chooser now lives at "/". */
+/** The desktops are apps in Orbit now. */
 export default function DesktopIndex() {
-  redirect('/?choose=1');
+  redirect('/orbit');
 }

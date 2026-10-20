@@ -69,7 +69,18 @@ const CARET_W = 2.5;
 type Mode = 'follow' | 'parked' | 'tucked' | 'drag' | 'acting' | 'caret';
 type Line = { who: 'you' | 'orb'; text: string };
 
-const APP_NAME: Record<AppId, string> = { terminal: 'Terminal', editor: 'Code', agent: 'Antigravity', ai: 'AI', soreal: 'soReal', settings: 'Settings' };
+const APP_NAME: Record<AppId, string> = {
+  terminal: 'Terminal',
+  editor: 'Code',
+  agent: 'Antigravity',
+  ai: 'AI',
+  soreal: 'soReal',
+  settings: 'Settings',
+  playground: 'Playground',
+  vscode: 'VS Code',
+  desktop: 'Linux desktop',
+  windows: 'Windows PC',
+};
 const SUGGESTIONS = ['Explain this screen', 'Open Terminal', 'Make a picture of a red fox in snow', 'Dark mode', 'What can I do here?', 'Turn on the AI machine'];
 
 function viewport(): Rect {

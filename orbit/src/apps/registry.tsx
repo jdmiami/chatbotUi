@@ -1,6 +1,7 @@
 import { lazy, type ComponentType, type LazyExoticComponent } from 'react';
 import type { AppId } from '../state/shell';
-import { Icon, type IconName } from '../ui/Icon';
+import type { IconName } from '../ui/Icon';
+import { AppArt } from '../ui/AppArt';
 import type { AppProps } from './types';
 
 // Each app is its own download (CodeMirror and xterm are large), fetched the first time it opens.
@@ -12,6 +13,10 @@ const loaders: Record<AppId, () => Promise<{ default: ComponentType<AppProps> }>
   ai: () => import('./ai/AiApp'),
   soreal: () => import('./soreal/SoRealApp'),
   settings: () => import('./settings/SettingsApp'),
+  playground: () => import('./portal/PortalApp').then((m) => ({ default: m.PlaygroundApp })),
+  vscode: () => import('./portal/PortalApp').then((m) => ({ default: m.VsCodeApp })),
+  desktop: () => import('./portal/PortalApp').then((m) => ({ default: m.DesktopApp })),
+  windows: () => import('./portal/PortalApp').then((m) => ({ default: m.WindowsApp })),
 };
 
 export function preloadApps() {
@@ -76,6 +81,42 @@ export const APPS: Record<AppId, AppMeta> = {
     glyph: '#fff1e0',
     component: lazy(loaders.soreal),
   },
+  playground: {
+    id: 'playground',
+    name: 'Playground',
+    description: 'The full AI playground (Open WebUI) on your AI machine',
+    icon: 'sliders',
+    tile: 'linear-gradient(145deg, #ffb547, #f0517a)',
+    glyph: '#ffffff',
+    component: lazy(loaders.playground),
+  },
+  vscode: {
+    id: 'vscode',
+    name: 'VS Code',
+    description: 'VS Code in the browser on your Linux machine, with an AI agent',
+    icon: 'code',
+    tile: 'linear-gradient(145deg, #3aa0ff, #0b4fa8)',
+    glyph: '#ffffff',
+    component: lazy(loaders.vscode),
+  },
+  desktop: {
+    id: 'desktop',
+    name: 'Linux desktop',
+    description: 'The whole Ubuntu desktop of your Linux machine',
+    icon: 'sidebar',
+    tile: 'linear-gradient(145deg, #f0743e, #6b2457)',
+    glyph: '#ffffff',
+    component: lazy(loaders.desktop),
+  },
+  windows: {
+    id: 'windows',
+    name: 'Windows PC',
+    description: 'Your Windows PC at home',
+    icon: 'switcher',
+    tile: 'linear-gradient(145deg, #5ad1ff, #1666d6)',
+    glyph: '#ffffff',
+    component: lazy(loaders.windows),
+  },
   settings: {
     id: 'settings',
     name: 'Settings',
@@ -89,16 +130,8 @@ export const APPS: Record<AppId, AppMeta> = {
 
 export function AppGlyph({ app, size = 64 }: { app: AppMeta; size?: number }) {
   return (
-    <span
-      className="glyph"
-      style={{ background: app.tile, color: app.glyph, width: size, height: size }}
-      aria-hidden
-    >
-      <IconByName name={app.icon} size={Math.round(size * 0.5)} />
+    <span className="glyph glyph-art" style={{ width: size, height: size }} aria-hidden>
+      <AppArt id={app.id} size={size} />
     </span>
   );
-}
-
-function IconByName({ name, size }: { name: IconName; size: number }) {
-  return <Icon name={name} size={size} strokeWidth={2} />;
 }
