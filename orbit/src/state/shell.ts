@@ -66,6 +66,8 @@ export interface Settings {
   cloudAi?: boolean;
   /** Ghost text and rewrites in text boxes (needs cloud AI). Unset = on. */
   writeHelp?: boolean;
+  /** Home is Orbit Space, the 3D space of pages; false = the flat path you scroll. Unset = space. */
+  space?: boolean;
   /** Seen the first-run "what is simulated" sheet. */
   introSeen: boolean;
 }

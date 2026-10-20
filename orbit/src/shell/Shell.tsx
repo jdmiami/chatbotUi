@@ -14,6 +14,7 @@ import { Toasts } from './Toasts';
 import { AiOffWarning } from './AiOffWarning';
 import { IntroSheet } from './IntroSheet';
 import { Path } from './o5/Path';
+import { Space } from '../space/Space';
 import { Handle } from './o5/Handle';
 import { IndexMenu } from './o5/IndexMenu';
 import { useChromeOnScroll } from './o5/chrome';
@@ -34,6 +35,7 @@ export function Shell() {
 
   const inApp = activeApp !== null;
   const o5 = settings.skin === 'o5';
+  const space = o5 && settings.space !== false;
   useChromeOnScroll(o5);
   return (
     <div
@@ -41,6 +43,7 @@ export function Shell() {
       data-in-app={inApp}
       data-compact={layout.compact}
       data-keyboard={layout.keyboardOpen}
+      data-space={space}
       style={
         {
           // Apps reserve space for the floating dock, except while the keyboard is up (dock hides).
@@ -53,7 +56,7 @@ export function Shell() {
       }
     >
       {o5 ? (
-        <Path hidden={inApp} />
+        space ? <Space hidden={inApp} /> : <Path hidden={inApp} />
       ) : (
         <>
           <HomeLight active={!inApp} />

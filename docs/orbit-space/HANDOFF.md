@@ -90,9 +90,25 @@ When a node has many children, such as choices, results, files or pictures, the 
 
 Settle is `cubic-bezier(.22,1,.36,1)`. Spring is stiffness 180, damping 22.
 
-## 4. Questions still open for the owner
+## 4. Owner's answers (20 October 2026)
 
-Ask these first. Their answers set the build.
+| # | Question | Answer |
+|---|---|---|
+| 1 | Look | **Mix A + C**: the ink space of Look A, with Look C's corridor of history and chapter numerals. |
+| 2 | Motion speed | **As agreed** (the table above). |
+| 3 | Where you land | **Straight into the space.** The flat path stays one tap away ("Flat"). |
+| 4 | Reading and typing | Flat and full screen (default, not asked again). |
+| 5 | Touch, tilt, AR | Touch now; AR and headset later (default). |
+| 6 | Who arranges | **The orb.** No dragging pages around. |
+| 7 | Which things are pages | **Everything**, machine logs included, in the path. |
+| 8 | Threads | The path and room threads; the current path brightest (default). |
+| 9 | Camera | **Follows the orb; free while you drag.** |
+| 10 | Sound and haptics | Use the existing Settings switches (default). |
+| 11 | List, stack, grid | **A gesture**: pinch a room's pages apart to spread (stack → list → grid), together to gather; double tap the room page to go round; swipe sideways on a stack to flip. |
+| 12 | Built apps | **Always saved** in an Apps room. |
+
+### The questions as first asked
+
 1. Which look: A, B, C, or a mix?
 2. Which motion study feels right, and should it be faster or slower?
 3. Should Orbit open straight into the space, or keep a flat home you pinch out of?
@@ -106,7 +122,21 @@ Ask these first. Their answers set the build.
 11. For list, stack and grid: one gesture to switch, a control on the parent node, or the agent decides?
 12. For generated apps: should they be saved as reusable apps in a room, or disposable by default?
 
-## 5. Suggested build order (only after the owner answers)
+## 5. Build order and progress
+
+Done (PR into `claude/orbit-space`, see the branch history):
+- **Step 1, engine:** `orbit/src/space/engine.ts` (camera, gestures, CSS-3D pages, canvas threads, dust and orb trail; dependency-free).
+- **Step 2, node model:** `orbit/src/space/model.ts` turns chats, pictures, recent files, sessions, apps and the machines into pages and rooms. `place.ts` is the orb's arrangement (pure and tested). `store.ts` remembers each room's layout in the browser.
+- **Step 4, list, stack, grid:** cards fly between layouts (480 ms settle, 40 ms apart) with the gestures above, plus keys L, S, G and , . for the keyboard.
+- **Entry:** with Orbit 0.5, the home is `Space` (`orbit/src/space/Space.tsx`). Settings `space: false` (the "Flat" button) shows the old path; the path's last chapter has a "Space" link back.
+- **Opening:** tap a page to go to it, tap again and the camera dives in and the page opens as its app, full screen. That is a first version of step 3; the full morph is still to do.
+
+Not done yet / known gaps:
+- The global 2D orb (`OrbCursor`, tap to talk, hold to ask) still floats above the space, so with it switched on there are two orbs. Merge them in step 5: the space orb should listen and run the Compass.
+- Step 3 (a real page-to-screen morph), step 5 (Compass), step 6 (generative canvas, saved to an Apps room per answer 12), step 7 (asset library).
+- Pictures load from their saved URLs; nothing is generated for empty rooms (they are skipped).
+
+Original suggested order:
 
 1. Port the prototype engine into Orbit as a `space` module (`orbit/src/space/`). Keep it dependency-free, or move to three.js with CSS3DRenderer if needed.
 2. Node model: one type for every node (kind, content, parent, children, layout = list | stack | grid, position). Store it locally first.
