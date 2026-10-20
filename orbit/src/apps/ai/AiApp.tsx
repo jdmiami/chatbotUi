@@ -16,7 +16,7 @@ import { VoiceMode } from './VoiceMode';
 import { canSpeak, createSpeaker, unlockSpeech } from './speech';
 import { cue } from '../../motion/feedback';
 import { CreateView } from './CreateView';
-import { ModelPicker, ModelStore, useModelList } from './models';
+import { ModelPicker, useModelList } from './models';
 import '../agent/agent.css';
 import './ai.css';
 import { AiOrb } from './AiOrb';
@@ -102,7 +102,6 @@ export default function AiApp({ isActive, compact, placement }: AppProps) {
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
   const [powering, setPowering] = useState(false);
   const [pickerOpen, setPickerOpen] = useState(false);
-  const [storeOpen, setStoreOpen] = useState(false);
   const [atBottom, setAtBottom] = useState(true);
   const [now, setNow] = useState(() => Date.now());
   const [mode, setMode] = useState<'chat' | 'create'>(() => {
@@ -163,21 +162,28 @@ export default function AiApp({ isActive, compact, placement }: AppProps) {
     return () => clearInterval(t);
   }, [isActive, refresh, status?.state]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const modelStore = useModelList(ai, ready && (isActive || storeOpen));
-  const [makersSignal, setMakersSignal] = useState(0);
-  // "Open the model store" / "open the makers" from anywhere in Orbit (home, index, settings, orb).
+  const modelStore = useModelList(ai, ready && isActive);
+  // The Store is its own app now: models and makers are added there.
+  const launchApp = useShell((s) => s.launch);
+  const openStore = (shelf: 'chat' | 'makers') => {
+    useWorkspace.getState().sendIntent({ app: 'store', type: 'open', shelf });
+    launchApp('store');
+  };
+  // "Open Create" / "chat with this model" / "open this chat" from anywhere in Orbit (home, store, orb).
   const intent = useWorkspace((s) => s.intent);
   useEffect(() => {
     if (intent?.app !== 'ai') return;
     useWorkspace.getState().consumeIntent(intent.seq);
-    if (intent.type === 'open-store') setStoreOpen(true);
-    else if (intent.type === 'open-chat') {
+    if (intent.type === 'use-model') {
+      chooseMode('chat');
+      setModel(intent.model);
+      if (ready) ai.loadModel(intent.model).catch(() => {});
+    } else if (intent.type === 'open-chat') {
       const id = intent.chatId;
       chooseMode('chat');
       update((s) => (s.chats.some((c) => c.id === id) ? { ...s, activeId: id } : s));
     } else {
       chooseMode('create');
-      setMakersSignal((n) => n + 1);
     }
   }, [intent]); // eslint-disable-line react-hooks/exhaustive-deps
   const installed = modelStore.list?.installed;
@@ -648,7 +654,7 @@ export default function AiApp({ isActive, compact, placement }: AppProps) {
             <>
               {mode === 'chat' && <IconButton icon="plus" label="New chat" onClick={startChat} disabled={busy} />}
               {mode === 'chat' && <IconButton icon="user" label="Personas & memory" onClick={() => setMemoryOpen(true)} />}
-              <IconButton icon="download" label="Model store" onClick={() => setStoreOpen(true)} />
+              <IconButton icon="download" label="Store" onClick={() => openStore('chat')} />
               <IconButton icon="external" label="Open the full AI playground" onClick={() => window.open('/ai', '_blank', 'noopener')} />
               <IconButton icon="code" label="Code with AI (VS Code)" onClick={() => window.open('/code', '_blank', 'noopener')} />
             </>
@@ -731,8 +737,7 @@ export default function AiApp({ isActive, compact, placement }: AppProps) {
           ai={ai}
           machineOn={ready}
           isActive={isActive}
-          openMakers={makersSignal}
-          onTurnOn={machine.state === 'off' && !powering ? () => void power('start', chosenTier?.id) : undefined}
+          onOpenMakers={() => openStore('makers')}
         />
       )}
 
@@ -1113,7 +1118,7 @@ export default function AiApp({ isActive, compact, placement }: AppProps) {
           onPick={setModel}
           onOpenStore={() => {
             setPickerOpen(false);
-            setStoreOpen(true);
+            openStore('chat');
           }}
           onClose={() => setPickerOpen(false)}
         />
@@ -1127,7 +1132,7 @@ export default function AiApp({ isActive, compact, placement }: AppProps) {
           onPick={(m) => void compareWith(m)}
           onOpenStore={() => {
             setCompareFor(null);
-            setStoreOpen(true);
+            openStore('chat');
           }}
           onClose={() => setCompareFor(null)}
         />
@@ -1158,8 +1163,8 @@ export default function AiApp({ isActive, compact, placement }: AppProps) {
                   ['Model', model || (ready ? 'Choose one' : 'Appears when the machine is on'), () => setPickerOpen(true), !ready],
                   ['Talk out loud', 'A voice conversation', () => { unlockSpeech(); setVoiceOpen(true); }, !ready || !model],
                   ['Personas & memory', 'Who it is, what it remembers', () => setMemoryOpen(true), false],
-                  ['Model store', ready ? 'Add or remove chat models' : 'Browse now, add when it is on', () => setStoreOpen(true), false],
-                  ['Makers', 'Picture and video makers', () => { chooseMode('create'); setMakersSignal((n) => n + 1); }, false],
+                  ['Store', 'Chat models, with every detail', () => openStore('chat'), false],
+                  ['Makers', 'Picture and video makers, in the Store', () => openStore('makers'), false],
                   ['Full playground', 'Opens in a new tab', () => window.open('/ai', '_blank', 'noopener'), false],
                   ['Code with AI', 'VS Code in a new tab', () => window.open('/code', '_blank', 'noopener'), false],
                 ] as const
@@ -1198,16 +1203,6 @@ export default function AiApp({ isActive, compact, placement }: AppProps) {
               : null
           }
           onClose={() => setMemoryOpen(false)}
-        />
-      )}
-      {storeOpen && (
-        <ModelStore
-          ai={ai}
-          list={ready ? modelStore.list : null}
-          refresh={modelStore.refresh}
-          machineOn={ready}
-          onTurnOn={machine.state === 'off' && !powering ? () => void power('start', chosenTier?.id) : undefined}
-          onClose={() => setStoreOpen(false)}
         />
       )}
       {confirmDelete && (

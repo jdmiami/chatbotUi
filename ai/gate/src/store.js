@@ -2,46 +2,15 @@
 // featured shelf, search across Hugging Face's GGUF models, and install / delete / load. Models
 // live on the network volume; only the one in use is in GPU memory.
 import fs from 'node:fs/promises';
+import { readFileSync } from 'node:fs';
 import { installModel, parseModelSpec } from './machine.js';
 
-/** Hand-checked chat models that fit a 48 GB GPU. `spec` uses parseModelSpec's format. */
-export const FEATURED = [
-  {
-    spec: 'qwen3.8:27b',
-    title: 'Qwen 3.8 27B',
-    blurb: 'Best all-rounder. Sees images, uses tools, thinks step by step.',
-    tags: ['general', 'vision', 'tools'],
-    size: 17.7e9,
-  },
-  {
-    spec: 'qwen3.6:35b',
-    title: 'Qwen 3.6 35B (coder)',
-    blurb: 'Fast mixture-of-experts model, strongest for code and agents.',
-    tags: ['coding', 'tools', 'fast'],
-    size: 22.6e9,
-  },
-  {
-    spec: 'qwen3.8-obliterated:27b=hf.co/OBLITERATUS/Qwen3.8-27B-OBLITERATED:Q6_K|like=qwen3.8:27b|temperature=0|repeat_penalty=1.15',
-    title: 'Qwen 3.8 27B OBLITERATED',
-    blurb: 'Uncensored (refusals removed) Qwen 3.8, high-quality 6-bit.',
-    tags: ['uncensored', 'tools'],
-    size: 23.4e9,
-  },
-  {
-    spec: 'qwen3.8-abliterated:27b=hf.co/huihui-ai/Huihui-Qwen3.8-27B-abliterated-GGUF:UD-Q4_K_XL|like=qwen3.8:27b',
-    title: 'Qwen 3.8 27B abliterated (huihui)',
-    blurb: 'Popular uncensored Qwen 3.8 that keeps image understanding. Smaller 4-bit.',
-    tags: ['uncensored', 'vision'],
-    size: 18.3e9,
-  },
-  {
-    spec: 'defiant-fable:9b=hf.co/DavidAU/Qwen3.5-9B-The-Defiant-Fable-Uncensored-Heretic-NEO-IMATRIX-MAX-MTP-GGUF:NEO-MAX-Q6_K',
-    title: 'Defiant Fable 9B',
-    blurb: 'Small, very fast uncensored storyteller. Good for role-play and quick chats.',
-    tags: ['uncensored', 'fast', 'creative'],
-    size: 9.5e9,
-  },
-];
+/**
+ * Hand-checked chat models that fit a 48 GB GPU, with their details for the store (catalog.json, shared
+ * with Orbit's Store app). `spec` uses parseModelSpec's format.
+ */
+export const CATALOG = JSON.parse(readFileSync(new URL('../catalog.json', import.meta.url), 'utf8'));
+export const FEATURED = CATALOG.chat;
 
 const nameOf = (spec) => parseModelSpec(spec).name;
 const HF = 'https://huggingface.co';

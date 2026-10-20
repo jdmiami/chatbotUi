@@ -594,6 +594,8 @@ export function createStudio(o) {
     const maker = req.maker ? makerById(String(req.maker)) : makerById(req.kind === 'video' ? 'ltx' : 'qwen');
     if (!maker || maker.kind === 'style') throw Object.assign(new Error('No such maker.'), { status: 400 });
     const mode = maker.kind; // image | video | edit | upscale
+    // Which recipe: krea (Krea 2 family), qwen (Qwen Image family), ltx or h3 (video).
+    const flow = maker.workflow || (maker.id === 'krea-real' ? 'krea' : maker.id === 'h3-max' ? 'h3' : mode === 'video' ? 'ltx' : 'qwen');
     const kind = mode === 'video' ? 'video' : 'image';
     let prompt = String(req.prompt || '').trim().slice(0, 4000);
     if (!prompt && mode !== 'upscale') throw Object.assign(new Error(mode === 'edit' ? 'Describe the change.' : 'Describe what to make.'), { status: 400 });
@@ -610,11 +612,13 @@ export function createStudio(o) {
       throw Object.assign(new Error(`${what}. Try again when it's done.`), { status: 503 });
     }
     let style = null;
+    let styleTrigger = null;
     if (req.style) {
       const s = makerById(String(req.style));
       if (!s || s.kind !== 'style' || s.for !== maker.id) throw Object.assign(new Error('That style is not for this maker.'), { status: 400 });
       if (!(await makerReady(s))) throw Object.assign(new Error(`The ${s.name} style is not installed yet.`), { status: 503 });
       style = s.loraFile.name;
+      styleTrigger = s.trigger || null;
     }
     if (!(await comfyUp())) throw Object.assign(new Error('The image and video maker is still starting. Try again in a minute.'), { status: 503 });
 
@@ -638,27 +642,28 @@ export function createStudio(o) {
     if (mode === 'video') {
       seconds = Math.min(10, Math.max(2, Math.round(Number(req.seconds) || 5)));
       const image = inputs[0] || null;
-      if (maker.id === 'h3-max') {
+      if (flow === 'h3') {
         // H3 is trained on clips of about 5 to 15 s; shorter ones come out poorly.
         seconds = Math.max(5, seconds);
         [width, height] = SIZES.h3[req.size] || SIZES.h3.landscape;
-        workflow = h3Workflow({ prompt, width, height, seconds, image, prefix });
+        workflow = h3Workflow({ prompt, width, height, seconds, image, prefix, ...(maker.id !== 'h3-max' ? { unet: FILES[maker.files[0]].name } : {}) });
         stages = 'h3';
       } else {
         [width, height] = SIZES.video[req.size] || SIZES.video.landscape;
-        workflow = videoWorkflow({ prompt, width, height, seconds, image, prefix });
+        workflow = videoWorkflow({ prompt, width, height, seconds, image, prefix, ...(maker.builtIn ? {} : { ckpt: FILES[maker.files[0]].name }) });
       }
     } else if (mode === 'edit') {
       const lora = maker.lora ? FILES[maker.lora].name : null;
-      if (maker.id === 'angles' && !prompt.startsWith('<mva>')) prompt = `<mva> ${prompt}`;
+      // Some edit LoRAs only wake up on their trigger words.
+      if (maker.trigger && !prompt.startsWith(maker.trigger)) prompt = `${maker.trigger} ${prompt}`;
       workflow = editWorkflow({ prompt, images: inputs.slice(0, need), lora, prefix });
     } else if (mode === 'upscale') {
       prompt = prompt || 'Sharpened 4×';
-      workflow = upscaleWorkflow({ image: inputs[0], prefix });
+      workflow = upscaleWorkflow({ image: inputs[0], prefix, model: FILES[maker.files[0]].name });
       stages = 'upscale';
-    } else if (maker.id === 'krea-real') {
+    } else if (flow === 'krea') {
       [width, height] = SIZES.krea[req.size] || SIZES.krea.portrait;
-      workflow = kreaWorkflow({ prompt, width, height, style, prefix });
+      workflow = kreaWorkflow({ prompt, width, height, style, trigger: styleTrigger, unet: FILES[maker.files[0]].name, prefix });
     } else {
       [width, height] = SIZES.image[req.size] || SIZES.image.square;
       workflow =

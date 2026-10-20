@@ -4,7 +4,6 @@ import { useShell } from '../../state/shell';
 import { Icon } from '../../ui/Icon';
 import { ConfirmSheet, EmptyState, IconButton, Segmented, Sheet } from '../../ui/components';
 import { AiError, type LocalAi, type StudioItem, type StudioJob, type StudioKind, type StudioMakerInfo, type StudioState } from '../../services/ai/LocalAi';
-import { MakersSheet } from './Makers';
 import { MAKER_CATALOG, rememberMakers, rememberedMakers } from './makerCatalog';
 
 type Mode = StudioKind | 'edit';
@@ -79,15 +78,13 @@ export function CreateView({
   ai,
   machineOn,
   isActive,
-  onTurnOn,
-  openMakers,
+  onOpenMakers,
 }: {
   ai: LocalAi;
   machineOn: boolean;
   isActive: boolean;
-  onTurnOn?: () => void;
-  /** Bumped by the AI app to open the Makers page (from the home, the index, settings…). */
-  openMakers?: number;
+  /** Opens the Store at its picture and video makers. */
+  onOpenMakers?: () => void;
 }) {
   const toast = useShell((s) => s.toast);
   const o5 = useShell((s) => s.settings.skin === 'o5');
@@ -105,7 +102,7 @@ export function CreateView({
   const [studio, setStudio] = useState<StudioState | null>(null);
   const [studioError, setStudioError] = useState<string | null>(null);
   const [makers, setMakersState] = useState<StudioMakerInfo[] | null>(null);
-  const [makersError, setMakersError] = useState<string | null>(null);
+  const [, setMakersError] = useState<string | null>(null);
   // Until the machine answers (or while it is off): the makers it last had, else what it offers.
   const [offline] = useState(() => rememberedMakers() ?? MAKER_CATALOG);
   const known = makers ?? offline;
@@ -114,11 +111,6 @@ export function CreateView({
     setMakersError(null);
     rememberMakers(list);
   }, []);
-  const [makersOpen, setMakersOpen] = useState(false);
-  useEffect(() => {
-    if (openMakers) setMakersOpen(true);
-  }, [openMakers]);
-  const [makerBusy, setMakerBusy] = useState<string | null>(null);
   const [pick, setPickState] = useState<Record<Mode, string>>(loadPick);
   const [style, setStyle] = useState<string>('');
   const [jobs, setJobs] = useState<StudioJob[]>([]);
@@ -273,17 +265,6 @@ export function CreateView({
     if (maker !== 'sharpen') toast('Describe the change, then tap Edit.', 'info');
   };
 
-  const changeMaker = async (fn: () => Promise<StudioMakerInfo[]>, id: string) => {
-    setMakerBusy(id);
-    try {
-      setMakers(await fn());
-    } catch (err) {
-      toast((err as Error).message, 'error');
-    } finally {
-      setMakerBusy(null);
-    }
-  };
-
   const status = (() => {
     if (!machineOn) return 'Turn on your AI machine to make images and videos.';
     if (studioError) return studioError;
@@ -359,7 +340,7 @@ export function CreateView({
               {!m.installed && <span className="ai-muted"> {m.percent}%</span>}
             </button>
           ))}
-          <button type="button" className="ai-maker-chip ai-maker-more" onClick={() => setMakersOpen(true)}>
+          <button type="button" className="ai-maker-chip ai-maker-more" onClick={() => onOpenMakers?.()}>
             <Icon name="plus" size={14} /> Makers
           </button>
         </div>
@@ -606,19 +587,6 @@ export function CreateView({
             </div>
           </div>
         </Sheet>
-      )}
-      {makersOpen && (
-        <MakersSheet
-          makers={makers ?? (machineOn ? null : offline)}
-          machineOn={machineOn}
-          error={machineOn ? makersError : null}
-          onRetry={() => void refresh()}
-          onTurnOn={onTurnOn}
-          busy={makerBusy}
-          onInstall={(id) => void changeMaker(() => ai.installStudioMaker(id), id)}
-          onRemove={(id) => void changeMaker(() => ai.removeStudioMaker(id), id)}
-          onClose={() => setMakersOpen(false)}
-        />
       )}
       {confirmDelete && (
         <ConfirmSheet

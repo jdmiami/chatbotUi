@@ -1,0 +1,324 @@
+{
+ "_about": "The AI Store catalog: every model and maker the store offers, with its details. Read by the AI machine (ai/gate) and by Orbit (the Store app). Sizes are bytes.",
+ "chat": [
+  {
+   "id": "qwen3.8-27b",
+   "spec": "qwen3.8:27b",
+   "title": "Qwen 3.8 27B",
+   "publisher": "Qwen (Alibaba)",
+   "family": "Qwen 3.8",
+   "params": "27B",
+   "quant": "Q4_K_M",
+   "size": 17700000000.0,
+   "tags": [
+    "general",
+    "vision",
+    "tools",
+    "reasoning"
+   ],
+   "abilities": {
+    "vision": true,
+    "tools": true,
+    "thinking": true
+   },
+   "source": "ollama",
+   "blurb": "Best all-rounder. Sees images, uses tools, thinks step by step.",
+   "about": "The default model on your machine. Strong at everyday questions, writing, documents and photos, and it can think through harder problems before answering.",
+   "tryIt": [
+    "Explain this photo of my fridge and suggest dinner",
+    "Plan a 3-day trip to Lisbon on a budget"
+   ]
+  },
+  {
+   "id": "qwen3.6-35b",
+   "spec": "qwen3.6:35b",
+   "title": "Qwen 3.6 35B (coder)",
+   "publisher": "Qwen (Alibaba)",
+   "family": "Qwen 3.6 MoE",
+   "params": "35B (mixture of experts)",
+   "quant": "Q4_K_M",
+   "size": 22600000000.0,
+   "tags": [
+    "coding",
+    "tools",
+    "fast",
+    "agents"
+   ],
+   "abilities": {
+    "vision": false,
+    "tools": true,
+    "thinking": true
+   },
+   "source": "ollama",
+   "blurb": "Fast mixture-of-experts model, strongest for code and agents.",
+   "about": "Only a small part of the model works on each word, so it answers quickly for its size. The best pick for code, the Antigravity agent and anything that uses tools.",
+   "tryIt": [
+    "Write a Python script that renames photos by date",
+    "Find the bug in this function"
+   ]
+  },
+  {
+   "id": "qwen3.8-obliterated-27b",
+   "spec": "qwen3.8-obliterated:27b=hf.co/OBLITERATUS/Qwen3.8-27B-OBLITERATED:Q6_K|like=qwen3.8:27b|temperature=0|repeat_penalty=1.15",
+   "title": "Qwen 3.8 27B OBLITERATED",
+   "publisher": "OBLITERATUS",
+   "family": "Qwen 3.8",
+   "params": "27B",
+   "quant": "Q6_K",
+   "size": 23400000000.0,
+   "repo": "OBLITERATUS/Qwen3.8-27B-OBLITERATED",
+   "tags": [
+    "uncensored",
+    "tools"
+   ],
+   "abilities": {
+    "vision": false,
+    "tools": true,
+    "thinking": true
+   },
+   "source": "hf",
+   "blurb": "Uncensored (refusals removed) Qwen 3.8, high-quality 6-bit.",
+   "about": "Qwen 3.8 with its refusals removed, in a high-quality 6-bit size. Adults only: it will not lecture or decline.",
+   "tryIt": [
+    "Write a dark, gritty crime scene"
+   ]
+  },
+  {
+   "id": "qwen3.8-abliterated-27b",
+   "spec": "qwen3.8-abliterated:27b=hf.co/huihui-ai/Huihui-Qwen3.8-27B-abliterated-GGUF:UD-Q4_K_XL|like=qwen3.8:27b",
+   "title": "Qwen 3.8 27B abliterated (huihui)",
+   "publisher": "huihui-ai",
+   "family": "Qwen 3.8",
+   "params": "27B",
+   "quant": "UD-Q4_K_XL",
+   "size": 18300000000.0,
+   "repo": "huihui-ai/Huihui-Qwen3.8-27B-abliterated-GGUF",
+   "tags": [
+    "uncensored",
+    "vision"
+   ],
+   "abilities": {
+    "vision": true,
+    "tools": true,
+    "thinking": true
+   },
+   "source": "hf",
+   "blurb": "Popular uncensored Qwen 3.8 that keeps image understanding. Smaller 4-bit.",
+   "about": "An uncensored Qwen 3.8 that can still look at pictures. Smaller than OBLITERATED, so it loads faster.",
+   "tryIt": [
+    "Describe this picture honestly, no filter"
+   ]
+  },
+  {
+   "id": "defiant-fable-9b",
+   "spec": "defiant-fable:9b=hf.co/DavidAU/Qwen3.5-9B-The-Defiant-Fable-Uncensored-Heretic-NEO-IMATRIX-MAX-MTP-GGUF:NEO-MAX-Q6_K",
+   "title": "Defiant Fable 9B",
+   "publisher": "DavidAU",
+   "family": "Qwen 3.5",
+   "params": "9B",
+   "quant": "NEO-MAX-Q6_K",
+   "size": 9500000000.0,
+   "repo": "DavidAU/Qwen3.5-9B-The-Defiant-Fable-Uncensored-Heretic-NEO-IMATRIX-MAX-MTP-GGUF",
+   "tags": [
+    "uncensored",
+    "fast",
+    "creative"
+   ],
+   "abilities": {
+    "vision": false,
+    "tools": false,
+    "thinking": false
+   },
+   "source": "hf",
+   "blurb": "Small, very fast uncensored storyteller. Good for role-play and quick chats.",
+   "about": "A small storyteller tuned for fiction and role-play. Very quick, and happy to go where the story goes.",
+   "tryIt": [
+    "Start a noir story set in a rainy harbour town"
+   ]
+  }
+ ],
+ "makers": {
+  "qwen": {
+   "publisher": "abenzerps",
+   "base": "Qwen-Image 2.1",
+   "repo": "abenzerps/Qwen-Image-2.1-Uncensored-Quantized",
+   "output": "Pictures",
+   "resolution": "1024 × 1024 (square), also tall and wide",
+   "steps": 25,
+   "about": "The built-in picture maker. Strong at following long descriptions and at writing real words inside pictures (signs, posters, labels).",
+   "tryIt": [
+    "A neon “OPEN 24H” sign over a rainy diner, cinematic",
+    "A children’s book page: a fox reading under a tree"
+   ]
+  },
+  "qwen-real": {
+   "publisher": "Noctaluna",
+   "base": "Qwen-Image 2.1 (Noct-Q v4)",
+   "repo": "Noctaluna/Noct-Q-Uncensored-Qwen-Image-2.1",
+   "output": "Pictures",
+   "resolution": "1024 × 1024",
+   "steps": 25,
+   "about": "A Qwen-Image finetune for photoreal people and places: skin, light and lenses that look like a camera took them.",
+   "tryIt": [
+    "Street portrait of an old fisherman at golden hour, 85 mm"
+   ]
+  },
+  "anime": {
+   "publisher": "Noctaluna",
+   "base": "Qwen-Image 2.1 (Noct-Q Anime)",
+   "repo": "Noctaluna/Noct-Q-Anime-Uncensored-Qwen-Image-2.1",
+   "output": "Pictures",
+   "resolution": "1024 × 1024",
+   "steps": 25,
+   "about": "Anime and illustration: clean line art, cel shading and lively colour.",
+   "tryIt": [
+    "A girl with a red umbrella on a rooftop, anime key visual"
+   ]
+  },
+  "krea-real": {
+   "publisher": "Noctaluna",
+   "base": "Krea 2 (Noct v4)",
+   "repo": "Noctaluna/Krea2-Noct-Uncensored",
+   "output": "Pictures",
+   "resolution": "1024 × 1536 (tall)",
+   "steps": 8,
+   "about": "Krea 2 tuned for photographs, and fast: only 8 steps. Takes the style add-ons below.",
+   "tryIt": [
+    "Moody film photo of a jazz bar, grain, warm light"
+   ]
+  },
+  "ltx": {
+   "publisher": "TenStrip",
+   "base": "LTX-2.3 (10Eros)",
+   "repo": "TenStrip/LTX2.3-10Eros",
+   "output": "Video with sound, 25 fps, up to 10 s",
+   "resolution": "1280 × 720",
+   "about": "The built-in video maker: moving pictures with matching sound, from words or from a starting picture.",
+   "tryIt": [
+    "Waves crashing on black rocks at dusk, seagulls, wind"
+   ]
+  },
+  "h3-max": {
+   "publisher": "TenStrip",
+   "base": "MiniMax H3 (10Eros Max)",
+   "repo": "TenStrip/10Eros-Max",
+   "output": "Video with sound, 24 fps, 5–10 s",
+   "resolution": "1280 × 704",
+   "steps": 8,
+   "about": "The best motion: people and animals move naturally, with sound. A larger download.",
+   "tryIt": [
+    "A dancer spinning in a sunlit studio, slow motion"
+   ]
+  },
+  "edit": {
+   "publisher": "abenzerps",
+   "base": "Qwen-Image 2.1 edit",
+   "repo": "abenzerps/Qwen-Image-2.1-Uncensored-Quantized",
+   "output": "An edited picture",
+   "steps": 25,
+   "about": "Change a picture by describing the change. Uses the built-in Qwen model.",
+   "tryIt": [
+    "Make it night with a full moon",
+    "Change the jacket to red leather"
+   ]
+  },
+  "outfit": {
+   "publisher": "ausboss",
+   "base": "Qwen-Image 2.1 edit + LoRA",
+   "repo": "ausboss/Qwen-Image-2.1-Outfit-Swap-Consistency-LoRA",
+   "output": "An edited picture",
+   "about": "Dress the person in picture 1 in the outfit from picture 2."
+  },
+  "angles": {
+   "publisher": "akhaliq",
+   "base": "Qwen-Image 2.1 edit + LoRA",
+   "repo": "akhaliq/Qwen-Image-2.1-Multiple-Angles-LoRA",
+   "trigger": "<mva>",
+   "output": "An edited picture",
+   "about": "The same subject from another camera angle.",
+   "tryIt": [
+    "Turn the camera 45 degrees to the left",
+    "View from above"
+   ]
+  },
+  "sharpen": {
+   "publisher": "Xintao Wang (Real-ESRGAN)",
+   "base": "Real-ESRGAN x4plus",
+   "repo": "Comfy-Org/Real-ESRGAN_repackaged",
+   "output": "A 4× larger picture",
+   "about": "Makes a picture four times larger and crisper. No description needed."
+  },
+  "style-softwatercolor": {
+   "publisher": "Krea / Comfy-Org",
+   "base": "Krea 2 style LoRA",
+   "repo": "Comfy-Org/Krea-2",
+   "trigger": "art deco watercolor style",
+   "output": "A look for Krea Real",
+   "about": "Lay this look over Krea Real. It switches on with its trigger words, which Orbit adds for you."
+  },
+  "style-retroanime": {
+   "publisher": "Krea / Comfy-Org",
+   "base": "Krea 2 style LoRA",
+   "repo": "Comfy-Org/Krea-2",
+   "trigger": "purple retro anime style",
+   "output": "A look for Krea Real",
+   "about": "Lay this look over Krea Real. It switches on with its trigger words, which Orbit adds for you."
+  },
+  "style-darkbrush": {
+   "publisher": "Krea / Comfy-Org",
+   "base": "Krea 2 style LoRA",
+   "repo": "Comfy-Org/Krea-2",
+   "trigger": "monochrome ink wash style",
+   "output": "A look for Krea Real",
+   "about": "Lay this look over Krea Real. It switches on with its trigger words, which Orbit adds for you."
+  },
+  "style-neondrip": {
+   "publisher": "Krea / Comfy-Org",
+   "base": "Krea 2 style LoRA",
+   "repo": "Comfy-Org/Krea-2",
+   "trigger": "textured abstract style",
+   "output": "A look for Krea Real",
+   "about": "Lay this look over Krea Real. It switches on with its trigger words, which Orbit adds for you."
+  },
+  "style-vintagetarot": {
+   "publisher": "Krea / Comfy-Org",
+   "base": "Krea 2 style LoRA",
+   "repo": "Comfy-Org/Krea-2",
+   "trigger": "vintage tarot style",
+   "output": "A look for Krea Real",
+   "about": "Lay this look over Krea Real. It switches on with its trigger words, which Orbit adds for you."
+  },
+  "style-rainywindow": {
+   "publisher": "Krea / Comfy-Org",
+   "base": "Krea 2 style LoRA",
+   "repo": "Comfy-Org/Krea-2",
+   "trigger": "rainy window style",
+   "output": "A look for Krea Real",
+   "about": "Lay this look over Krea Real. It switches on with its trigger words, which Orbit adds for you."
+  },
+  "style-sunsetblur": {
+   "publisher": "Krea / Comfy-Org",
+   "base": "Krea 2 style LoRA",
+   "repo": "Comfy-Org/Krea-2",
+   "trigger": "ethereal motion blur style",
+   "output": "A look for Krea Real",
+   "about": "Lay this look over Krea Real. It switches on with its trigger words, which Orbit adds for you."
+  },
+  "style-dotmatrix": {
+   "publisher": "Krea / Comfy-Org",
+   "base": "Krea 2 style LoRA",
+   "repo": "Comfy-Org/Krea-2",
+   "trigger": "monochrome stippling style",
+   "output": "A look for Krea Real",
+   "about": "Lay this look over Krea Real. It switches on with its trigger words, which Orbit adds for you."
+  },
+  "style-kidsdrawing": {
+   "publisher": "Krea / Comfy-Org",
+   "base": "Krea 2 style LoRA",
+   "repo": "Comfy-Org/Krea-2",
+   "trigger": "naive expressive sketch style",
+   "output": "A look for Krea Real",
+   "about": "Lay this look over Krea Real. It switches on with its trigger words, which Orbit adds for you."
+  }
+ }
+}
