@@ -168,6 +168,7 @@ export function Path({ hidden }: { hidden: boolean }) {
 
       <Chapter n="06" id="o5-tune" title="Tune" dek="Make it yours, or go back to the classic look at any time.">
         <Go label="Settings" art="settings" hint="Theme, motion, text size" onClick={() => launch('settings')} />
+        <Go label="Space" hint="Everything as pages in 3D, with the orb" onClick={() => updateSettings({ space: true })} />
         <Go label="Classic look" hint="Icons, dock and tiles" onClick={() => updateSettings({ skin: 'classic' })} />
       </Chapter>
 

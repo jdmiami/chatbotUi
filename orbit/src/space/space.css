@@ -1,0 +1,408 @@
+/*
+ * Orbit Space: one full-bleed 3D stage. Paper pages are real HTML placed in 3D by the engine;
+ * threads, dust and the orb's trail are drawn on a canvas behind them. Look A (ink night) with
+ * Look C's chapter numerals in the corridor of history. Square corners everywhere: only the orb,
+ * its rings and status dots are round. Always night, whatever the theme.
+ */
+.sp {
+  --ink: #0e0d0b;
+  --cream: #f3eee6;
+  --stone: #8f877b;
+  --soft: #c9c1b4;
+  --orb: #6c7cff;
+  --void: #0e0d0b;
+  --paperfill: linear-gradient(165deg, #1d1a16 0%, #151310 100%);
+  --paper2: #191613;
+  --paper3: #141210;
+  --text: #f3eee6;
+  --muted: #8f877b;
+  --soft2: #c9c1b4;
+  --rule: rgb(243 238 230 / 0.13);
+  --rule2: rgb(243 238 230 / 0.36);
+  --drop: 0 40px 80px -24px rgb(0 0 0 / 0.75);
+  --numfill: rgb(243 238 230 / 0.03);
+  --numstroke: rgb(232 214 186 / 0.26);
+  --serif: var(--font-display, 'Fraunces Variable', Georgia, serif);
+  --sans: var(--font-ui, system-ui, sans-serif);
+  --mono: var(--font-mono, ui-monospace, Menlo, monospace);
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  color: var(--text);
+  background: radial-gradient(120% 80% at 50% 38%, #1b1814 0%, #0e0d0b 62%, #080706 100%);
+  color-scheme: dark;
+  transition: opacity 520ms cubic-bezier(0.22, 1, 0.36, 1), transform 520ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+.sp[data-hidden='true'] {
+  opacity: 0;
+  transform: scale(1.06);
+  pointer-events: none;
+}
+:root[data-motion='off'] .sp {
+  transition: none;
+}
+
+/* ---------------------------------------------------------------- stage */
+.sp-stage {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  touch-action: none;
+  cursor: grab;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
+  outline: none;
+}
+.sp-stage[data-dragging] {
+  cursor: grabbing;
+}
+.sp-stage:focus-visible {
+  outline: 1px solid var(--cream);
+  outline-offset: -4px;
+}
+.sp-bg {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+}
+.sp-world {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+}
+.sp-grain {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  pointer-events: none;
+  background-image: var(--noise);
+  background-size: 180px 180px;
+  opacity: 0.09;
+  mix-blend-mode: overlay;
+}
+
+/* ---------------------------------------------------------------- pages */
+.sp-node {
+  position: absolute;
+  left: 50%;
+  top: var(--cy, 50%);
+  transform-origin: 50% 50%;
+  appearance: none;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+.sp-node:focus-visible {
+  outline: 1px solid var(--cream);
+  outline-offset: 6px;
+}
+.sp-chapter {
+  pointer-events: none;
+}
+.sp .pg {
+  position: relative;
+  box-sizing: border-box;
+  width: 100%;
+  height: 100%;
+  padding: 20px 20px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  font-family: var(--serif);
+  color: var(--text);
+  background: var(--paperfill);
+  border: 1px solid var(--rule2);
+  outline: 1px solid var(--rule);
+  outline-offset: -7px;
+  box-shadow: var(--drop);
+  overflow: hidden;
+}
+/* Fog: pages far away melt into the night. */
+.sp .pg::after {
+  content: '';
+  position: absolute;
+  inset: -2px;
+  background: var(--void);
+  opacity: var(--fog, 0);
+  pointer-events: none;
+}
+.sp .pg .k {
+  margin: 0;
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  font: 600 9px/1.2 var(--sans);
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: var(--muted);
+  border-bottom: 1px solid var(--rule);
+  padding-bottom: 7px;
+}
+.sp .pg .k span:last-child {
+  white-space: nowrap;
+}
+.sp .pg .t {
+  margin: 0;
+  font-size: 25px;
+  line-height: 1.04;
+  letter-spacing: -0.02em;
+  font-weight: 360;
+  text-wrap: balance;
+  overflow-wrap: anywhere;
+}
+.sp .pg .d {
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.42;
+  color: var(--soft2);
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-line-clamp: 7;
+  -webkit-box-orient: vertical;
+}
+.sp .pg .d.mono {
+  font: 400 11px/1.5 var(--mono);
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+.sp .pg .q {
+  margin: 0;
+  font-style: italic;
+  font-weight: 300;
+  font-size: 40px;
+  line-height: 1.02;
+  letter-spacing: -0.025em;
+  text-wrap: balance;
+}
+.sp .pg .q.sm {
+  font-size: 23px;
+  line-height: 1.08;
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-line-clamp: 4;
+  -webkit-box-orient: vertical;
+}
+.sp .pg .ft {
+  margin: auto 0 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font: 500 11px/1.2 var(--sans);
+  letter-spacing: 0.02em;
+  color: var(--text);
+  border-top: 1px solid var(--rule);
+  padding-top: 8px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.sp .pg .dc::first-letter {
+  float: left;
+  font-size: 50px;
+  line-height: 0.82;
+  padding: 5px 7px 0 0;
+  font-style: italic;
+  color: var(--text);
+}
+.sp .pg .dot {
+  flex: none;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--orb);
+  box-shadow: 0 0 10px var(--orb);
+}
+.sp .pg.slip {
+  padding: 16px 16px 12px;
+  border-top: 2px dashed var(--rule2);
+  border-bottom: 2px dashed var(--rule2);
+  gap: 6px;
+}
+.sp .pg .ln {
+  margin: 0;
+  display: flex;
+  gap: 10px;
+  font: 400 11px/1.55 var(--mono);
+  color: var(--text);
+}
+.sp .pg .ln b {
+  font-weight: 400;
+  color: var(--muted);
+  min-width: 4ch;
+}
+.sp .pg .cap2 {
+  margin: 0;
+  font: 400 11px/1.3 var(--mono);
+  color: var(--muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+/* A room: a page with more pages behind it. */
+.sp .pg.stack {
+  box-shadow: 7px -7px 0 -1px var(--paper2), 7px -7px 0 0 var(--rule2), 14px -14px 0 -1px var(--paper3), 14px -14px 0 0 var(--rule), var(--drop);
+  overflow: visible;
+}
+.sp .pg .plate {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  border: 1px solid var(--rule2);
+  overflow: hidden;
+  background: linear-gradient(180deg, #1d2438 0%, #2c3550 40%, #40465e 52%, #151b2a 53%, #0c111c 100%);
+}
+.sp .pg .plate img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.sp .pg.app .art {
+  display: block;
+  margin: 2px 0 0;
+}
+.sp .pg.cover .q {
+  font-size: 44px;
+}
+/* The page you are at: a double rule. */
+.sp-node[data-at] .pg {
+  border: 3px double var(--rule2);
+  outline-offset: -9px;
+}
+/* Cards inside a room: a little tighter. */
+.sp-card .pg {
+  padding: 15px 15px 12px;
+  gap: 8px;
+}
+.sp-card .pg .t {
+  font-size: 21px;
+}
+.sp-card .pg .d {
+  font-size: 12.5px;
+  -webkit-line-clamp: 4;
+}
+
+/* Typographic sculpture: chapter numerals hanging between days. */
+.sp .num {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  color: var(--numfill);
+  -webkit-text-stroke: 1.2px var(--numstroke);
+}
+.sp .num span {
+  font: italic 300 400px/0.8 var(--serif);
+  letter-spacing: -0.06em;
+  white-space: nowrap;
+}
+.sp .num small {
+  margin-top: 28px;
+  font: 600 14px/1 var(--sans);
+  letter-spacing: 0.3em;
+  text-transform: uppercase;
+  color: var(--stone);
+  -webkit-text-stroke: 0;
+}
+
+/* ---------------------------------------------------------------- the orb */
+.sp-orb {
+  position: absolute;
+  left: 50%;
+  top: var(--cy, 50%);
+  width: 60px;
+  height: 60px;
+  margin: -30px 0 0 -30px;
+  pointer-events: none;
+}
+.sp-orb .core {
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  background: radial-gradient(circle at 35% 30%, #fff 0%, #cdd2ff 16%, #6c7cff 46%, #252a77 100%);
+  box-shadow: 0 0 0 1px rgb(255 255 255 / 0.2) inset, 0 0 36px 6px rgb(108 124 255 / 0.5), 0 0 120px 24px rgb(108 124 255 / 0.22);
+}
+.sp-orb .ring {
+  position: absolute;
+  inset: -14px;
+  border-radius: 50%;
+  border: 1px solid rgb(150 160 255 / 0.55);
+  transform: scale(calc(1 + var(--ring, 0) * 0.55));
+  opacity: calc(0.12 + var(--ring, 0) * 0.65);
+}
+.sp-orb .r2 {
+  inset: -30px;
+  border-color: rgb(150 160 255 / 0.28);
+  transform: scale(calc(1 + var(--ring, 0) * 0.32));
+}
+
+/* ---------------------------------------------------------------- masthead */
+.sp-mast {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: calc(var(--safe-top, 0px) + 6px) max(16px, var(--safe-right, 0px)) 6px max(16px, var(--safe-left, 0px));
+  background: linear-gradient(180deg, rgb(14 13 11 / 0.92), rgb(14 13 11 / 0.6) 70%, transparent);
+  border-bottom: 3px double rgb(243 238 230 / 0.2);
+}
+.sp-kick {
+  margin: 0;
+  min-width: 0;
+  font: 600 10px/1.2 var(--sans);
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: var(--stone);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.sp-kick em {
+  font: italic 400 13px/1.2 var(--serif);
+  letter-spacing: 0;
+  text-transform: none;
+  color: var(--soft);
+}
+.sp-mast-ctl {
+  display: flex;
+  gap: 8px;
+  flex: none;
+}
+.sp-btn {
+  appearance: none;
+  min-height: 44px;
+  min-width: 44px;
+  padding: 0 14px;
+  border: 1px solid rgb(243 238 230 / 0.36);
+  border-radius: 0;
+  background: transparent;
+  color: var(--cream);
+  font: 500 13px/1 var(--sans);
+  letter-spacing: 0.02em;
+  cursor: pointer;
+}
+.sp-btn:focus-visible {
+  outline: 1px solid var(--cream);
+  outline-offset: 2px;
+}
+/* The index line at the bottom reads on the night, in either theme. */
+:root[data-skin='o5'] .shell[data-space='true'] .o5-handle[data-home='true'] {
+  color: var(--cream, #f3eee6);
+  --text: #f3eee6;
+}
