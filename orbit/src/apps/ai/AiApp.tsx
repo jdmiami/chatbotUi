@@ -22,6 +22,7 @@ import '../agent/agent.css';
 import './ai.css';
 import { AiOrb } from './AiOrb';
 import { TextArea } from '../../ui/TextArea';
+import { Censor } from '../../ui/Censor';
 
 const STATE_TEXT: Record<AiMachineStatus['state'], string> = {
   unconfigured: 'Not set up',
@@ -860,12 +861,18 @@ export default function AiApp({ isActive, compact, placement }: AppProps) {
                             ))}
                           </div>
                         )}
-                        {m.content && <p className="ai-user-text">{m.content}</p>}
+                        {m.content && (
+                          <Censor as="div" text>
+                            <p className="ai-user-text">{m.content}</p>
+                          </Censor>
+                        )}
                       </>
                     ) : m.picture ? (
                       <figure className="ai-picture">
                         {m.picture.url ? (
-                          <img src={m.picture.url} alt={m.picture.prompt} />
+                          <Censor as="div">
+                            <img src={m.picture.url} alt={m.picture.prompt} />
+                          </Censor>
                         ) : (
                           <div className="ai-picture-wait" role="status">
                             <span className="ai-shimmer">Making your picture… {Math.round(m.picture.progress ?? 0)}%</span>
@@ -883,9 +890,9 @@ export default function AiApp({ isActive, compact, placement }: AppProps) {
                         {waited >= 4 && <span className="ai-muted">Loading the model into the GPU… {waited} s</span>}
                       </div>
                     ) : (
-                      <div className={m.streaming ? 'ai-streaming' : undefined}>
+                      <Censor as="div" text className={m.streaming ? 'ai-streaming' : undefined}>
                         <MessageBody text={m.content} onCopy={onCopy} />
-                      </div>
+                      </Censor>
                     )}
                     {m.searching && (
                       <p className="ai-searching ai-shimmer" role="status">

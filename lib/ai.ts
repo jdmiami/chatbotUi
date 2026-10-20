@@ -120,19 +120,18 @@ export function aiTiers(): AiTier[] {
     {
       id: 'turbo',
       label: 'Turbo',
-      gpu: 'NVIDIA H100 80GB HBM3',
+      gpu: 'NVIDIA H100 PCIe',
       gpuName: 'H100 80 GB',
-      pricePerHour: 3.99,
+      pricePerHour: 2.89,
       idleMinutes: 10,
-      speed: 'about 4–6× faster',
+      speed: 'about 3–4× faster',
       // Big, fast GPUs that never cost more than Turbo itself.
       fallbacks: [
         { gpu: 'NVIDIA A100-SXM4-80GB', gpuName: 'A100 80 GB', pricePerHour: 1.79 },
         { gpu: 'NVIDIA A100 80GB PCIe', gpuName: 'A100 80 GB', pricePerHour: 1.79 },
         { gpu: 'NVIDIA RTX PRO 6000 Blackwell Server Edition', gpuName: 'RTX PRO 6000 96 GB', pricePerHour: 2.49 },
-        { gpu: 'NVIDIA H100 NVL', gpuName: 'H100 NVL 94 GB', pricePerHour: 3.19 },
       ],
-      maxFallbackPrice: 3.99,
+      maxFallbackPrice: 2.89,
     },
   ];
 }

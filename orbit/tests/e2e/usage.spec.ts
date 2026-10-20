@@ -21,7 +21,7 @@ function status(over: Record<string, unknown> = {}) {
         tier: 'standard',
         tiers: [
           { id: 'standard', label: 'Standard', gpuName: 'A40 48 GB', pricePerHour: 0.59 },
-          { id: 'turbo', label: 'Turbo', gpuName: 'H100 80 GB', pricePerHour: 3.99 },
+          { id: 'turbo', label: 'Turbo', gpuName: 'H100 80 GB', pricePerHour: 2.89 },
         ],
         gpuName: 'A40 48 GB',
         live: { cpu: 12, memory: 30, gpu: 64, gpuMemory: 48 },

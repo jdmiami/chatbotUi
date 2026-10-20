@@ -18,7 +18,7 @@ test.describe('AI app', () => {
     await expectNoHorizontalOverflow(page);
     await expectTappable(page);
     await page.getByRole('group', { name: 'Speed' }).getByRole('button', { name: /Turbo/ }).click();
-    await expect(banner).toContainText('$3.99/h');
+    await expect(banner).toContainText('$2.89/h');
     await expect(banner).toContainText('10 minutes unused');
     await page.getByRole('button', { name: 'Turn on' }).click();
     await expect(page.getByText('Your AI machine: Ready · Turbo')).toBeVisible();
@@ -348,6 +348,47 @@ test.describe('AI app: Create', () => {
     await page.getByRole('textbox', { name: 'Describe it' }).fill('naked child');
     await page.getByRole('button', { name: 'Make image' }).click();
     await expect(page.getByText('sexual content involving minors is never allowed')).toBeVisible();
+  });
+
+  test('the censor: blurs the gallery and the viewer; press and hold to see; off by default', async ({ page }) => {
+    await mockAi(page, 'on');
+    await mockStudio(page);
+    await openOrbit(page);
+    await openCreate(page);
+    const win = page.locator('.app-window[data-app="ai"]');
+    const censor = win.getByRole('switch', { name: 'Censor: blur pictures and videos' });
+    await expect(censor).not.toBeChecked();
+    await expect(win.locator('.censor')).toHaveCount(0);
+    await censor.click();
+    await expect(censor).toBeChecked();
+    await expect(win.getByText('Press and hold one to see it')).toBeVisible();
+    const tiles = win.locator('.ai-gallery .censor');
+    await expect(tiles).toHaveCount(2);
+    const tile = tiles.first();
+    const img = tile.locator('.ai-tile');
+    expect(await img.evaluate((el) => getComputedStyle(el).filter)).toContain('blur');
+    // Hold: the picture shows while the finger is down, and the hold does not open the viewer.
+    await tile.scrollIntoViewIfNeeded();
+    const box = (await tile.boundingBox())!;
+    await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+    await page.mouse.down();
+    await expect(tile).toHaveAttribute('data-revealed', '');
+    expect(await img.evaluate((el) => getComputedStyle(el).filter)).toBe('none');
+    await page.mouse.up();
+    await expect(tile).not.toHaveAttribute('data-revealed', '');
+    await expect(win.getByRole('dialog')).toHaveCount(0);
+    // A tap still opens the viewer, where the picture is blurred too.
+    await img.click();
+    const viewer = win.locator('.ai-viewer-media.censor');
+    await expect(viewer).toBeVisible();
+    expect(await viewer.locator('img').evaluate((el) => getComputedStyle(el).filter)).toContain('blur');
+    // Its words are blurred too.
+    expect(await win.locator('.ai-viewer-prompt').evaluate((el) => getComputedStyle(el).filter)).toContain('blur');
+    // Off again: nothing is blurred.
+    await page.keyboard.press('Escape');
+    await censor.click();
+    await expect(win.locator('.censor')).toHaveCount(0);
+    await expectTappable(page);
   });
 });
 

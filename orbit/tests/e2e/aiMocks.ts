@@ -19,7 +19,7 @@ export function sse(text: string) {
 
 export const TIERS = [
   { id: 'standard', label: 'Standard', gpuName: 'A40 48 GB', pricePerHour: 0.59, idleMinutes: 30, speed: 'normal speed' },
-  { id: 'turbo', label: 'Turbo', gpuName: 'H100 80 GB', pricePerHour: 3.99, idleMinutes: 10, speed: 'about 4–6× faster' },
+  { id: 'turbo', label: 'Turbo', gpuName: 'H100 80 GB', pricePerHour: 2.89, idleMinutes: 10, speed: 'about 3–4× faster' },
 ];
 
 export const INSTALLED = [
