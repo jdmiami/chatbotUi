@@ -26,7 +26,7 @@ import {
   type OrbitExport,
 } from './dataTransfer';
 import { Section, chapterId } from './parts';
-import { CloudAiSection, OrbSection, UsageSection } from './UsageSection';
+import { CloudAiSection, NotifySection, OrbSection, UsageSection } from './UsageSection';
 import './settings.css';
 
 const VERSION = '0.2';
@@ -301,6 +301,7 @@ export default function SettingsApp({ isActive }: AppProps) {
           <SplitSection />
           <ShortcutsSection />
           <UsageSection active={isActive} />
+          <NotifySection />
 
           <Section title="Data & storage">
             <div className="list">

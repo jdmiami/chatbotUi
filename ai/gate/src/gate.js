@@ -325,6 +325,25 @@ export function createGate(cfg, log = console) {
       }
     }
 
+    // ---- notifications: a browser signs up for the "turning off soon" notice (or stops)
+    if (path === '/_orbit/push' && cfg.push) {
+      if (!cors(req, res)) return send(res, 403, { error: 'Origin not allowed' });
+      if (req.method === 'OPTIONS') return send(res, 204, '');
+      if (!apiToken(req) && !session(req)) return send(res, 401, { error: 'Unauthorized' });
+      try {
+        if (req.method === 'GET') return send(res, 200, { publicKey: cfg.push.publicKey, devices: await cfg.push.count() });
+        const { subscription, endpoint } = JSON.parse((await readBody(req, 8192)) || '{}');
+        if (req.method === 'POST') return send(res, 200, { devices: await cfg.push.add(subscription) });
+        if (req.method === 'DELETE') {
+          await cfg.push.remove(String(endpoint || subscription?.endpoint || ''));
+          return send(res, 200, { ok: true });
+        }
+        return send(res, 405, { error: 'Method not allowed' });
+      } catch (err) {
+        return send(res, 400, { error: err.message });
+      }
+    }
+
     // ---- web search and speech to text for Orbit's chat
     if ((cfg.search && path === '/_orbit/search') || (cfg.voice && path === '/_orbit/voice/transcribe')) {
       if (!cors(req, res)) return send(res, 403, { error: 'Origin not allowed' });

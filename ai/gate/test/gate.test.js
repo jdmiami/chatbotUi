@@ -5,6 +5,7 @@ import net from 'node:net';
 import crypto from 'node:crypto';
 import { createGate, COOKIE, originMatcher } from '../src/gate.js';
 import { signJwt, verifyJwt } from '../src/jwt.js';
+import { createPush } from '../src/push.js';
 import { createIdleWatch, createModelKeeper, parseModelSpec, runpodStopSelf } from '../src/machine.js';
 
 const SECRET = 'x'.repeat(40);
@@ -52,6 +53,7 @@ before(async () => {
       stats: async () => ({ cpu: { percent: 12 }, gpus: [{ name: 'A40' }] }),
       keepAwake: (m) => Date.UTC(2030, 0, 1) + m * 60_000,
       idleState: () => ({ limitMinutes: 20, idleMinutes: 3 }),
+      push: createPush({ secret: SECRET, subject: 'mailto:o@x', log: {} }),
     },
     { warn() {}, info() {} },
   );
@@ -394,6 +396,19 @@ test('keep awake: pushes the turn-off time back and counts as activity', async (
   assert.equal(res.status, 200);
   assert.equal((await res.json()).offAt, new Date(Date.UTC(2030, 0, 1) + 30 * 60_000).toISOString());
   assert.equal(activity, before + 1);
+});
+
+test('push: a browser signs up for notifications and can stop', async () => {
+  const call = (method, body) =>
+    fetch(`${base}/_orbit/push`, { method, headers: { authorization: `Bearer ${apiToken()}`, 'content-type': 'application/json' }, body: body && JSON.stringify(body) });
+  assert.equal((await fetch(`${base}/_orbit/push`)).status, 401);
+  const info = await (await call('GET')).json();
+  assert.equal(Buffer.from(info.publicKey, 'base64url').length, 65);
+  assert.equal(info.devices, 0);
+  assert.equal((await call('POST', { subscription: { endpoint: 'http://evil.local/' } })).status, 400);
+  assert.equal((await (await call('POST', { subscription: { endpoint: 'https://web.push.apple.com/x' } })).json()).devices, 1);
+  assert.equal((await call('DELETE', { endpoint: 'https://web.push.apple.com/x' })).status, 200);
+  assert.equal((await (await call('GET')).json()).devices, 0);
 });
 
 test('playground pages get the status pill, with a token for the site; other responses are untouched', async () => {
