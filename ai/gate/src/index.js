@@ -10,6 +10,7 @@ import { createPush } from './push.js';
 import fs from 'node:fs/promises';
 import { createStudio } from './studio.js';
 import { createMovies } from './movies.js';
+import { createMemeLab } from './memes.js';
 import { createSysStats } from './sysstats.js';
 import { createGpuStats } from './gpustats.js';
 import { createSearch } from './search.js';
@@ -79,11 +80,12 @@ const push = HELPER
       log: console,
     });
 
-// Turns itself off after 20 minutes without a job (IDLE_MINUTES can only make that shorter).
+// Turns itself off after an hour without a job (IDLE_MINUTES can only make that shorter). The meme
+// lab fills that hour with videos, but its videos never count as a job.
 const idle = createIdleWatch({
-  limitMinutes: Math.min(Number(env.IDLE_MINUTES) || 20, 20),
-  // Busy while a picture, video or movie shot is being made or a download is running (so the 20
-  // minutes start once every download is done). A model merely sitting in GPU memory is not a job.
+  limitMinutes: Math.min(Number(env.IDLE_MINUTES) || 60, 60),
+  // Busy while a picture, video or movie shot is being made or a download is running (so the hour
+  // starts once every download is done). A model merely sitting in GPU memory is not a job.
   busy: async () => Boolean(models.pulling() || store.busy() || studio?.busy() || r2test?.running() || ollamaSync?.busy() || webuiBackup?.busy()),
   // 10 minutes before turning off: a notification, so the owner can keep it on.
   warnMinutes: 10,
@@ -95,6 +97,55 @@ const idle = createIdleWatch({
   },
   log: console,
 });
+
+// The meme lab (memes.js): makes meme videos while nobody is using the machine, and has a chat
+// model on this machine score how viral each could go. Only on the main machine.
+const LAB_KEY = 'state/meme-lab.json';
+const labFile = path.join(env.PERSIST_DIR || '/workspace', '.orbit-meme-lab.json');
+async function labChatModel() {
+  const tags = await ollamaJson(OLLAMA, '/api/tags').catch(() => null);
+  const names = (tags?.models || []).map((m) => m.name);
+  if (env.MEME_MODEL && names.includes(env.MEME_MODEL)) return { name: env.MEME_MODEL, vision: /gemma|vl|llava|vision|pixtral|minicpm/i.test(env.MEME_MODEL) };
+  const vision = names.find((n) => /gemma3|gemma4|qwen2\.5vl|qwen3-vl|llava|vision|minicpm-v|pixtral/i.test(n));
+  if (vision) return { name: vision, vision: true };
+  const small = names.find((n) => !/embed/i.test(n));
+  return small ? { name: small, vision: false } : null;
+}
+async function labChat({ system, user, images }) {
+  const m = await labChatModel();
+  if (!m) throw new Error('No chat model is installed on the AI machine.');
+  const ask = async (withImages) => {
+    const res = await fetch(`${OLLAMA}/api/chat`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        model: m.name,
+        stream: false,
+        options: { temperature: 0.9 },
+        messages: [
+          { role: 'system', content: system },
+          { role: 'user', content: user, ...(withImages && images?.length ? { images } : {}) },
+        ],
+      }),
+      signal: AbortSignal.timeout(180_000),
+    });
+    if (!res.ok) throw new Error(`chat model: ${res.status}`);
+    return (await res.json())?.message?.content || '';
+  };
+  // A model that can't see answers from the idea alone.
+  return m.vision ? ask(true).catch(() => ask(false)) : ask(false);
+}
+const lab =
+  studio && !HELPER
+    ? createMemeLab({
+        studio,
+        quietSeconds: () => idle.state().idleSeconds,
+        chat: labChat,
+        load: async () => (r2 ? r2.getJson(LAB_KEY) : JSON.parse(await fs.readFile(labFile, 'utf8'))),
+        save: async (state) => (r2 ? r2.put(LAB_KEY, JSON.stringify(state), 'application/json') : fs.writeFile(labFile, JSON.stringify(state))),
+        log: console,
+      })
+    : null;
 
 const sys = createSysStats({ volume: env.PERSIST_DIR || '/workspace' });
 const gpu = createGpuStats({ ollama: OLLAMA, comfy: studio ? env.COMFY_URL || 'http://127.0.0.1:8188' : null });
@@ -173,6 +224,7 @@ const server = createGate({
   },
   studio,
   movies,
+  lab,
   r2test,
   studioKey: env.STUDIO_KEY || '',
   store,
@@ -187,6 +239,7 @@ idle.start();
 webuiBackup?.start();
 
 if (studio) studio.start();
+lab?.start();
 if (studio && !HELPER) {
   // Put the Image/Video maker models in the playground once Open WebUI is up.
   const codePath = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'openwebui', 'studio_pipe.py');

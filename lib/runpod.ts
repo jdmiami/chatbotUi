@@ -221,8 +221,8 @@ export async function setMachinePower(want: 'start' | 'stop'): Promise<void> {
   if (process.env.VERCEL_GIT_COMMIT_SHA && main?.env) {
     // Start on this deployment's code, so fixes (like the idle shut-off) reach the machine.
     const repoRaw = `https://raw.githubusercontent.com/jdmiami/chatbotUi/${process.env.VERCEL_GIT_COMMIT_SHA}`;
-    if (main.env.REPO_RAW !== repoRaw || main.env.IDLE_MINUTES !== '20') {
-      const env = { ...main.env, REPO_RAW: repoRaw, IDLE_MINUTES: '20' };
+    if (main.env.REPO_RAW !== repoRaw || main.env.IDLE_MINUTES !== '60') {
+      const env = { ...main.env, REPO_RAW: repoRaw, IDLE_MINUTES: '60' };
       await runpod(`/pods/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify({ env }) }).catch(() => {});
       main = { ...main, env };
     }

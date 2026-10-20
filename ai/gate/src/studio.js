@@ -469,8 +469,13 @@ export function createStudio(o) {
   // machine can tell when one takes too long, and a stuck one can be stopped and tried again.
   const active = () => [...jobs.values()].filter((j) => j.status === 'queued' || j.status === 'running');
   /** Jobs waiting their turn, in order (a job being tried again goes first). */
+  // Your jobs before the meme lab's (memes.js), which only fill time nobody is using.
   const waiting = () =>
-    [...jobs.values()].filter((j) => j.status === 'queued' && !j.promptId).sort((a, b) => a.queuedAt - b.queuedAt || a.seq - b.seq);
+    [...jobs.values()]
+      .filter((j) => j.status === 'queued' && !j.promptId)
+      .sort((a, b) => Number(Boolean(a.background)) - Number(Boolean(b.background)) || a.queuedAt - b.queuedAt || a.seq - b.seq);
+  /** A job someone asked for is waiting or being made (not just the meme lab's). */
+  const hasUserWork = () => active().some((j) => !j.background);
   /** The job ComfyUI is working on (or about to start). */
   const inFlight = () => [...jobs.values()].find((j) => j.promptId && (j.status === 'queued' || j.status === 'running')) || null;
   let seq = 0;
@@ -691,6 +696,7 @@ export function createStudio(o) {
       height,
       seconds,
       fromImage: inputs.length > 0,
+      background: Boolean(req.background),
       photo,
       workflow,
       status: 'queued',
@@ -703,6 +709,14 @@ export function createStudio(o) {
     };
     jobs.set(id, job);
     connectWs();
+    // Your job doesn't wait behind a meme-lab video: that one stops and makes way.
+    if (!job.background) {
+      const lab = inFlight();
+      if (lab?.background) {
+        note(lab, 'Made way for your job.');
+        await cancel(lab.id).catch(() => {});
+      }
+    }
     await dispatch();
     return publicJob(job);
   }
@@ -799,6 +813,8 @@ export function createStudio(o) {
         seconds: job.seconds,
         fromImage: job.fromImage,
         photo: job.photo || undefined,
+        // Made by the meme lab: kept out of the gallery until you keep it.
+        lab: job.background || undefined,
         file,
         createdAt: job.createdAt,
       };
@@ -973,7 +989,8 @@ export function createStudio(o) {
       if (pid) {
         byPrompt.delete(pid);
         await comfyJson('/queue', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ delete: [pid] }) }).catch(() => {});
-        if (job.status === 'running') await comfyJson('/interrupt', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ prompt_id: pid }) }).catch(() => {});
+        // Sent to ComfyUI means it may already be running there, before its first progress event.
+        await comfyJson('/interrupt', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ prompt_id: pid }) }).catch(() => {});
       }
       await finish(job, 'Stopped.');
     }
@@ -1038,17 +1055,27 @@ export function createStudio(o) {
     return null;
   }
 
-  async function items(limit = 200) {
+  async function items(limit = 200, lab = false) {
     await syncGallery();
     const names = await fsp.readdir(metaDir).catch(() => []);
     const list = [];
     for (const n of names) {
       if (!n.endsWith('.json')) continue;
       const it = await readItem(n.slice(0, -5));
-      if (it) list.push(it);
+      if (it && Boolean(it.lab) === lab) list.push(it);
     }
     list.sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)));
     return list.slice(0, limit);
+  }
+
+  /** Move a meme-lab video into the gallery. */
+  async function promote(id) {
+    const it = await readItem(id);
+    if (!it?.lab) return false;
+    delete it.lab;
+    await fsp.writeFile(path.join(metaDir, `${id}.json`), JSON.stringify(it));
+    await keep(it);
+    return true;
   }
 
   async function remove(id) {
@@ -1115,7 +1142,7 @@ export function createStudio(o) {
       video: { ready: videoReady && up, downloaded: videoReady, percent: videoReady ? 100 : kindProgress('video') },
       downloading: download.current ? { name: download.current.name, saving: Boolean(download.current.saving), percent: download.current.total ? Math.floor((download.current.completed / download.current.total) * 100) : 0 } : null,
       downloadError: download.error,
-      jobs: active().map(publicJob),
+      jobs: active().filter((j) => !j.background).map(publicJob),
     };
   }
 
@@ -1130,7 +1157,9 @@ export function createStudio(o) {
     },
     // A job counts for an hour at most: one that never finishes (the maker crashed under it) must not
     // keep the machine on all night.
-    busy: () => download.running || active().some((j) => now() - (j.startedAt || Date.parse(j.createdAt)) < STUCK_JOB_MS),
+    // Meme-lab videos never count: they only fill time and must not keep the machine on.
+    busy: () => download.running || active().some((j) => !j.background && now() - (j.startedAt || Date.parse(j.createdAt)) < STUCK_JOB_MS),
+    hasUserWork,
     /** A chat needs the GPU: hand it back from ComfyUI now if nothing is being made. */
     async yieldGpu() {
       if (!comfyHoldsGpu || active().length) return;
@@ -1147,6 +1176,8 @@ export function createStudio(o) {
     job: (id) => (jobs.has(id) ? publicJob(jobs.get(id)) : null),
     cancel,
     items,
+    labItems: (limit = 200) => items(limit, true),
+    promote,
     item: readItem,
     itemPath,
     addItem,

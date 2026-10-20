@@ -402,3 +402,24 @@
 .ai-orb-eyes[data-sleepy] i { animation-duration: 7s; transform: scaleY(0.45); }
 @keyframes ai-orb-blink { 0%, 93%, 100% { scale: 1 1; } 96% { scale: 1 0.1; } }
 .ai-orb:has(.ai-orb-eyes) { animation: ai-breathe 4s ease-in-out infinite; }
+
+/* Meme lab: videos made while the machine is unused, best first. Square, printed, like the rest. */
+.meme-lab { margin-top: 32px; padding-top: 16px; border-top: 3px double var(--border-strong, var(--border)); display: grid; gap: 10px; }
+.meme-lab-head { display: flex; align-items: flex-end; justify-content: space-between; gap: 12px; }
+.meme-lab-head .o5-chapter-title { margin: 0; }
+.meme-lab-dek { margin: 0; max-width: 62ch; }
+.meme-lab-now { margin: 0; display: flex; align-items: center; gap: 8px; font-size: 14px; }
+.meme-lab-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--accent, #6c7cff); box-shadow: 0 0 10px var(--accent, #6c7cff); animation: meme-pulse 1.6s ease-in-out infinite; }
+@keyframes meme-pulse { 50% { opacity: .35; } }
+@media (prefers-reduced-motion: reduce) { .meme-lab-dot { animation: none; } }
+.meme-lab-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 14px; grid-template-columns: repeat(auto-fill, minmax(min(100%, 300px), 1fr)); }
+.meme-card { display: grid; grid-template-columns: 120px minmax(0, 1fr); gap: 12px; padding: 10px; border: 1px solid var(--border); outline: 1px solid color-mix(in srgb, var(--border) 50%, transparent); outline-offset: -5px; background: var(--surface); }
+.meme-card[data-ready] { border: 3px double var(--text-2, var(--text)); }
+.meme-card video { width: 120px; aspect-ratio: 9 / 16; object-fit: cover; background: #000; border-radius: 0; }
+.meme-card-text { min-width: 0; display: flex; flex-direction: column; gap: 6px; }
+.meme-card-kicker { margin: 0; display: flex; justify-content: space-between; align-items: baseline; font-size: 10px; font-weight: 600; letter-spacing: .18em; text-transform: uppercase; color: var(--text-3, var(--text-2)); border-bottom: 1px solid var(--border); padding-bottom: 5px; }
+.meme-score { font-family: var(--font-display, Georgia, serif); font-size: 22px; letter-spacing: 0; text-transform: none; color: var(--text); font-variant-numeric: tabular-nums; }
+.meme-card-title { margin: 0; font-family: var(--font-display, Georgia, serif); font-size: 18px; line-height: 1.15; }
+.meme-card-why, .meme-card-caption { margin: 0; font-size: 13px; line-height: 1.4; overflow-wrap: anywhere; }
+.meme-card-actions { margin-top: auto; display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.meme-card-actions .btn { min-height: 36px; padding: 0 10px; font-size: 13px; border-radius: 0; }

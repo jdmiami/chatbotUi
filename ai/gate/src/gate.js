@@ -105,6 +105,7 @@ const bearer = (req) => {
  *   idleState()             numbers for the unauthenticated /_orbit/idle (the site's watchdog reads it)
  *   status()                async () => object for /_orbit/status
  *   studio                  image/video maker (studio.js), optional
+ *   lab                     meme lab (memes.js), optional
  *   studioKey               key Open WebUI uses for the studio from inside the machine (loopback only)
  *   r2test                  R2 speed test (r2.js createR2Test), optional
  */
@@ -530,6 +531,7 @@ export function createGate(cfg, log = console) {
       }
       if (path === '/_orbit/studio/jobs' && req.method === 'POST') {
         const body = JSON.parse((await readBody(req, 30 * 1024 * 1024)) || '{}');
+        delete body.background; // only the meme lab makes background jobs
         return send(res, 200, withJobUrl(await studio.createJob(body)));
       }
       const jobMatch = /^\/_orbit\/studio\/jobs\/([A-Za-z0-9_-]+)(\/cancel)?$/.exec(path);
@@ -542,6 +544,25 @@ export function createGate(cfg, log = console) {
         return j ? send(res, 200, withJobUrl(j)) : send(res, 404, { error: 'No such job' });
       }
       if (movies && path.startsWith('/_orbit/studio/movies')) return await handleMovies(req, res, path, withUrl);
+      // Meme lab: GET its videos and scores; POST { enabled } turns it on or off;
+      // POST /lab/<id>/keep moves a video into the gallery; DELETE /lab/<id> throws it away.
+      if (path === '/_orbit/studio/lab' || path.startsWith('/_orbit/studio/lab/')) {
+        if (!cfg.lab) return send(res, 404, { error: 'The meme lab runs on the main AI machine only.' });
+        const labState = async () => {
+          const s = await cfg.lab.state();
+          return { ...s, making: s.making ? { ...s.making, job: withJobUrl(s.making.job) } : null, records: s.records.map((r) => ({ ...r, url: withUrl({ id: r.id }).url })) };
+        };
+        if (path === '/_orbit/studio/lab' && req.method === 'GET') return send(res, 200, await labState());
+        if (path === '/_orbit/studio/lab' && req.method === 'POST') {
+          const { enabled } = JSON.parse((await readBody(req, 4096)) || '{}');
+          await cfg.lab.setEnabled(Boolean(enabled));
+          return send(res, 200, await labState());
+        }
+        const labMatch = /^\/_orbit\/studio\/lab\/([A-Za-z0-9_-]+)(\/keep)?$/.exec(path);
+        if (labMatch && req.method === 'POST' && labMatch[2]) return send(res, (await cfg.lab.keep(labMatch[1])) ? 200 : 404, await labState());
+        if (labMatch && req.method === 'DELETE' && !labMatch[2]) return send(res, (await cfg.lab.remove(labMatch[1])) ? 200 : 404, await labState());
+        return send(res, 404, { error: 'Not found' });
+      }
       // R2 speed test: GET shows the last run, POST starts one ({ chunkMiB, concurrency, reupload }).
       if (path === '/_orbit/studio/r2test') {
         if (!r2test) return send(res, 404, { error: 'R2 is not set up on this machine.' });

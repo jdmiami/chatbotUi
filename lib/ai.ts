@@ -84,8 +84,9 @@ const env = () => ({
   // Standard: whichever of these is free (both 48 GB, same price).
   gpuTypes: list(process.env.AI_GPU_TYPES || 'NVIDIA A40,NVIDIA RTX A6000'),
   image: process.env.AI_IMAGE || 'ghcr.io/open-webui/open-webui:0.12.2-ollama',
-  // The machines never wait longer than 20 minutes without a job (the gate enforces it too).
-  idleMinutes: String(Math.min(Number(process.env.AI_IDLE_MINUTES) || 20, 20)),
+  // The machines never wait longer than an hour without a job (the gate enforces it too). The meme lab
+  // fills that hour on the main machine, without ever counting as a job.
+  idleMinutes: String(Math.min(Number(process.env.AI_IDLE_MINUTES) || 60, 60)),
   models: process.env.AI_MODELS || 'qwen3.8:27b,qwen3.6:35b,qwen3.8-obliterated:27b=hf.co/OBLITERATUS/Qwen3.8-27B-OBLITERATED:Q6_K|like=qwen3.8:27b|temperature=0|repeat_penalty=1.15',
   secret: process.env.LINUX_GATEWAY_SECRET || '',
 });
@@ -106,7 +107,7 @@ export function aiTiers(): AiTier[] {
       alsoGpus: env().gpuTypes.slice(1),
       gpuName: 'A40 / A6000 48 GB',
       pricePerHour: 0.59,
-      idleMinutes: Number(env().idleMinutes) || 20,
+      idleMinutes: Number(env().idleMinutes) || 60,
       speed: 'normal speed',
       // Same 48 GB of memory (everything fits), newer and a little faster, a little dearer.
       fallbacks: [
