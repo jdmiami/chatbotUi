@@ -60,7 +60,7 @@ export function imageWorkflow({ prompt, width = 1024, height = 1024, seed = rand
  * half-size pass, then a 2x latent upscale and a short refining pass. `image` is the name of an
  * uploaded ComfyUI input image to start from, or null for text-to-video.
  */
-export function videoWorkflow({ prompt, width = 1280, height = 720, seconds = 5, image = null, seed = randomSeed(), prefix = 'orbit/video', ckpt = LTX_CKPT }) {
+export function videoWorkflow({ prompt, width = 1280, height = 720, seconds = 5, image = null, seed = randomSeed(), prefix = 'orbit/video', ckpt = LTX_CKPT, lora = true }) {
   // LTX makes 8k+1 frames (other counts are cut down to that, while the sound would keep the full
   // length and run past the pictures).
   const frames = 8 * Math.max(1, Math.round((seconds * VIDEO_FPS) / 8)) + 1;
@@ -96,7 +96,8 @@ export function videoWorkflow({ prompt, width = 1280, height = 720, seconds = 5,
     32: { class_type: 'LTXVEmptyLatentAudio', inputs: { frames_number: frames, frame_rate: VIDEO_FPS, batch_size: 1, audio_vae: ['3', 0] } },
     33: { class_type: 'LTXVConcatAVLatent', inputs: { video_latent: ['31', 0], audio_latent: ['32', 0] } },
     34: { class_type: 'RandomNoise', inputs: { noise_seed: seed } },
-    35: { class_type: 'CFGGuider', inputs: { model: ['4', 0], positive: ['12', 0], negative: ['12', 1], cfg: 1 } },
+    // A distilled checkpoint has the speed-up built in: no distilled LoRA on top.
+    35: { class_type: 'CFGGuider', inputs: { model: lora ? ['4', 0] : ['1', 0], positive: ['12', 0], negative: ['12', 1], cfg: 1 } },
     36: { class_type: 'KSamplerSelect', inputs: { sampler_name: 'euler' } },
     37: { class_type: 'ManualSigmas', inputs: { sigmas: '1.0, 0.99375, 0.9875, 0.98125, 0.975, 0.909375, 0.725, 0.421875, 0.0' } },
     38: { class_type: 'SamplerCustomAdvanced', inputs: { noise: ['34', 0], guider: ['35', 0], sampler: ['36', 0], sigmas: ['37', 0], latent_image: ['33', 0] } },
@@ -107,7 +108,7 @@ export function videoWorkflow({ prompt, width = 1280, height = 720, seconds = 5,
     41: { class_type: 'LTXVImgToVideoInplace', inputs: { vae: ['1', 2], image: ['23', 0], latent: ['40', 0], strength: 1, bypass: !fromImage } },
     42: { class_type: 'LTXVConcatAVLatent', inputs: { video_latent: ['41', 0], audio_latent: ['39', 1] } },
     43: { class_type: 'LTXVCropGuides', inputs: { positive: ['12', 0], negative: ['12', 1], latent: ['39', 0] } },
-    44: { class_type: 'CFGGuider', inputs: { model: ['5', 0], positive: ['43', 0], negative: ['43', 1], cfg: 1 } },
+    44: { class_type: 'CFGGuider', inputs: { model: lora ? ['5', 0] : ['1', 0], positive: ['43', 0], negative: ['43', 1], cfg: 1 } },
     45: { class_type: 'RandomNoise', inputs: { noise_seed: 42 } },
     46: { class_type: 'ManualSigmas', inputs: { sigmas: '0.85, 0.7250, 0.4219, 0.0' } },
     47: { class_type: 'SamplerCustomAdvanced', inputs: { noise: ['45', 0], guider: ['44', 0], sampler: ['36', 0], sigmas: ['46', 0], latent_image: ['42', 0] } },
@@ -248,7 +249,9 @@ export function h3Length(seconds) {
 export const H3_FPS = 24;
 
 /** MiniMax H3 (H3 Max): text or picture to video with sound, from ComfyUI's H3 templates (turbo baked in: 8 steps). */
-export function h3Workflow({ prompt, width = 1280, height = 704, seconds = 5, image = null, seed = randomSeed(), steps = 8, prefix = 'orbit/video', unet = FILES.h3Unet.name }) {
+export function h3Workflow({ prompt, width = 1280, height = 704, seconds = 5, image = null, seed = randomSeed(), steps = 8, prefix = 'orbit/video', unet = FILES.h3Unet.name, turbo = null }) {
+  // Models without the speed-up built in get the 8-step turbo LoRA.
+  const model = turbo ? ['15', 0] : ['1', 0];
   return {
     1: { class_type: 'UNETLoader', inputs: { unet_name: unet, weight_dtype: 'default' } },
     2: { class_type: 'CLIPLoader', inputs: { clip_name: FILES.h3Te.name, type: 'minimax', device: 'default' } },
@@ -259,14 +262,15 @@ export function h3Workflow({ prompt, width = 1280, height = 704, seconds = 5, im
       inputs: { clip: ['2', 0], vae: ['3', 0], prompt, width, height, length: h3Length(seconds), ...(image ? { first_frame: ['21', 0] } : {}) },
     },
     6: { class_type: 'RandomNoise', inputs: { noise_seed: seed } },
-    7: { class_type: 'BasicGuider', inputs: { model: ['1', 0], conditioning: ['5', 0] } },
+    7: { class_type: 'BasicGuider', inputs: { model, conditioning: ['5', 0] } },
     8: { class_type: 'KSamplerSelect', inputs: { sampler_name: 'res_multistep' } },
-    9: { class_type: 'BasicScheduler', inputs: { model: ['1', 0], scheduler: 'simple', steps, denoise: 1 } },
+    9: { class_type: 'BasicScheduler', inputs: { model, scheduler: 'simple', steps, denoise: 1 } },
     10: { class_type: 'SamplerCustomAdvanced', inputs: { noise: ['6', 0], guider: ['7', 0], sampler: ['8', 0], sigmas: ['9', 0], latent_image: ['5', 1] } },
     11: { class_type: 'VAEDecode', inputs: { samples: ['10', 0], vae: ['3', 0] } },
     12: { class_type: 'VAEDecodeAudio', inputs: { samples: ['10', 0], vae: ['4', 0] } },
     13: { class_type: 'CreateVideo', inputs: { images: ['11', 0], audio: ['12', 0], fps: H3_FPS } },
     14: { class_type: 'SaveVideo', inputs: { video: ['13', 0], filename_prefix: prefix, format: 'mp4', 'format.codec': 'h264' } },
+    ...(turbo ? { 15: { class_type: 'LoraLoaderModelOnly', inputs: { model: ['1', 0], lora_name: turbo, strength_model: 1 } } } : {}),
     ...(image
       ? {
           20: { class_type: 'LoadImage', inputs: { image } },

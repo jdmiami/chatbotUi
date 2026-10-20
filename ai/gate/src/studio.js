@@ -646,17 +646,17 @@ export function createStudio(o) {
         // H3 is trained on clips of about 5 to 15 s; shorter ones come out poorly.
         seconds = Math.max(5, seconds);
         [width, height] = SIZES.h3[req.size] || SIZES.h3.landscape;
-        workflow = h3Workflow({ prompt, width, height, seconds, image, prefix, ...(maker.id !== 'h3-max' ? { unet: FILES[maker.files[0]].name } : {}) });
+        workflow = h3Workflow({ prompt, width, height, seconds, image, prefix, ...(maker.id !== 'h3-max' ? { unet: FILES[maker.files[0]].name } : {}), turbo: maker.turbo ? FILES[maker.turbo].name : null });
         stages = 'h3';
       } else {
         [width, height] = SIZES.video[req.size] || SIZES.video.landscape;
-        workflow = videoWorkflow({ prompt, width, height, seconds, image, prefix, ...(maker.builtIn ? {} : { ckpt: FILES[maker.files[0]].name }) });
+        workflow = videoWorkflow({ prompt, width, height, seconds, image, prefix, ...(maker.builtIn ? {} : { ckpt: FILES[maker.files[0]].name }), lora: !maker.noLora });
       }
     } else if (mode === 'edit') {
       const lora = maker.lora ? FILES[maker.lora].name : null;
       // Some edit LoRAs only wake up on their trigger words.
       if (maker.trigger && !prompt.startsWith(maker.trigger)) prompt = `${maker.trigger} ${prompt}`;
-      workflow = editWorkflow({ prompt, images: inputs.slice(0, need), lora, prefix });
+      workflow = editWorkflow({ prompt, images: inputs.slice(0, need), lora, strength: maker.strength ?? 1, prefix });
     } else if (mode === 'upscale') {
       prompt = prompt || 'Sharpened 4×';
       workflow = upscaleWorkflow({ image: inputs[0], prefix, model: FILES[maker.files[0]].name });
@@ -669,7 +669,15 @@ export function createStudio(o) {
       workflow =
         maker.id === 'qwen'
           ? imageWorkflow({ prompt, width, height, prefix })
-          : qwenWorkflow({ unet: FILES[maker.files[0]].name, prompt, width, height, cfg: 3, negative: NOCT_NEGATIVE, prefix });
+          : qwenWorkflow({
+              unet: FILES[maker.files[0]].name,
+              prompt,
+              width,
+              height,
+              // Turbo models: few steps, no guidance (cfg 1, so no negative prompt either).
+              ...(maker.steps ? { steps: maker.steps, cfg: maker.cfg ?? 1 } : { cfg: 3, negative: NOCT_NEGATIVE }),
+              prefix,
+            });
     }
 
     const job = {

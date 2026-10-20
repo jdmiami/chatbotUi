@@ -135,6 +135,422 @@
    "tryIt": [
     "Start a noir story set in a rainy harbour town"
    ]
+  },
+  {
+   "id": "gemma4-31b",
+   "spec": "gemma4:31b=hf.co/unsloth/gemma-4-31B-it-GGUF:Q5_K_M",
+   "title": "Gemma 4 31B",
+   "publisher": "Google (quantized by unsloth)",
+   "family": "Gemma 4",
+   "params": "31B",
+   "quant": "Q5_K_M",
+   "size": 22857358752,
+   "context": 262144,
+   "license": "Apache 2.0",
+   "released": "2026-07-17",
+   "repo": "unsloth/gemma-4-31B-it-GGUF",
+   "downloads": 5200000,
+   "likes": 644,
+   "tags": [
+    "general",
+    "vision",
+    "tools",
+    "multilingual"
+   ],
+   "abilities": {
+    "vision": true,
+    "tools": true,
+    "thinking": true
+   },
+   "blurb": "Google's strongest open all-rounder: sees images, uses tools, many languages.",
+   "about": "A big, careful all-rounder from Google. Reads photos and documents, follows instructions closely and writes well in dozens of languages.",
+   "tryIt": [
+    "Summarise this contract in plain words",
+    "Translate this menu photo into English"
+   ],
+   "source": "hf"
+  },
+  {
+   "id": "gemma4-26b-a4b",
+   "spec": "gemma4:26b=hf.co/unsloth/gemma-4-26B-A4B-it-GGUF:UD-Q4_K_XL",
+   "title": "Gemma 4 26B-A4B",
+   "publisher": "Google (quantized by unsloth)",
+   "family": "Gemma 4 (mixture of experts)",
+   "params": "26B (about 4B active)",
+   "quant": "UD-Q4_K_XL",
+   "size": 18204039360,
+   "context": 262144,
+   "license": "Apache 2.0",
+   "released": "2026-07-17",
+   "repo": "unsloth/gemma-4-26B-A4B-it-GGUF",
+   "downloads": 11800000,
+   "likes": 1229,
+   "tags": [
+    "general",
+    "vision",
+    "multilingual",
+    "fast"
+   ],
+   "abilities": {
+    "vision": true,
+    "tools": true,
+    "thinking": true
+   },
+   "blurb": "Quick mixture-of-experts Gemma that sees images; snappy replies.",
+   "about": "Only a few of its experts work on each word, so it answers fast while still seeing pictures and speaking many languages.",
+   "tryIt": [
+    "What breed is the dog in this photo?"
+   ],
+   "source": "hf",
+   "moe": true
+  },
+  {
+   "id": "gemma4-12b",
+   "spec": "gemma4:12b=hf.co/unsloth/gemma-4-12b-it-GGUF:Q6_K",
+   "title": "Gemma 4 12B",
+   "publisher": "Google (quantized by unsloth)",
+   "family": "Gemma 4",
+   "params": "12B",
+   "quant": "Q6_K",
+   "size": 9961138560,
+   "context": 262144,
+   "license": "Apache 2.0",
+   "released": "2026-07-17",
+   "repo": "unsloth/gemma-4-12b-it-GGUF",
+   "downloads": 5000000,
+   "likes": 921,
+   "tags": [
+    "fast",
+    "vision",
+    "multilingual"
+   ],
+   "abilities": {
+    "vision": true,
+    "tools": true,
+    "thinking": true
+   },
+   "blurb": "Small, fast and sharp, with image understanding.",
+   "about": "Loads in seconds and answers quickly. Good for everyday questions, quick translations and reading screenshots.",
+   "tryIt": [
+    "Rewrite this email to sound friendlier"
+   ],
+   "source": "hf"
+  },
+  {
+   "id": "muse-glimmer-30b",
+   "spec": "muse-glimmer:30b=hf.co/unsloth/Muse-Glimmer-30B-GGUF:UD-Q5_K_XL",
+   "title": "Muse Glimmer 30B",
+   "publisher": "Meta (quantized by unsloth)",
+   "family": "Muse Glimmer",
+   "params": "30B",
+   "quant": "UD-Q5_K_XL",
+   "size": 23841304064,
+   "context": 131072,
+   "license": "Apache 2.0",
+   "released": "2026-08-10",
+   "repo": "unsloth/Muse-Glimmer-30B-GGUF",
+   "downloads": 1700000,
+   "likes": 573,
+   "tags": [
+    "general",
+    "tools",
+    "vision",
+    "reasoning",
+    "multilingual"
+   ],
+   "abilities": {
+    "vision": true,
+    "tools": true,
+    "thinking": true
+   },
+   "blurb": "Built for agents: reliable tool calls, multi-step plans, reads screenshots, 100+ languages.",
+   "about": "Made to get things done: it plans in steps, calls tools reliably and can read a screenshot of what it is working on.",
+   "tryIt": [
+    "Plan my week from these three emails",
+    "Find what is wrong in this screenshot"
+   ],
+   "source": "hf"
+  },
+  {
+   "id": "nemotron3.5-lightning-30b",
+   "spec": "nemotron3.5-lightning:30b=hf.co/unsloth/NVIDIA-Nemotron-3.5-Lightning-30B-A3B-GGUF:UD-Q4_K_XL",
+   "title": "Nemotron 3.5 Lightning 30B",
+   "publisher": "NVIDIA (quantized by unsloth)",
+   "family": "Nemotron 3.5 (hybrid Mamba + experts)",
+   "params": "30B (about 3B active)",
+   "quant": "UD-Q4_K_XL",
+   "size": 25505724480,
+   "context": 262144,
+   "license": "NVIDIA Open Model (OpenMDW 1.1)",
+   "released": "2026-08-13",
+   "repo": "unsloth/NVIDIA-Nemotron-3.5-Lightning-30B-A3B-GGUF",
+   "downloads": 228400,
+   "likes": 120,
+   "tags": [
+    "reasoning",
+    "tools"
+   ],
+   "abilities": {
+    "vision": false,
+    "tools": true,
+    "thinking": true
+   },
+   "blurb": "NVIDIA's fast thinker; strong at tool use and long documents.",
+   "about": "Thinks before it answers, but quickly. Very long memory, so it handles big documents and long sessions.",
+   "tryIt": [
+    "Work out the cheapest way to ship 40 boxes to Spain"
+   ],
+   "source": "hf",
+   "moe": true
+  },
+  {
+   "id": "lfm2.5-24b",
+   "spec": "lfm2.5:24b=hf.co/unsloth/LFM2.5-24B-A2B-GGUF:UD-Q4_K_XL",
+   "title": "LFM2.5 24B-A2B",
+   "publisher": "Liquid AI (quantized by unsloth)",
+   "family": "LFM2.5",
+   "params": "24B (about 2.5B active)",
+   "quant": "UD-Q4_K_XL",
+   "size": 14876901632,
+   "context": 131072,
+   "license": "LFM Open License",
+   "released": "2026-10-13",
+   "repo": "unsloth/LFM2.5-24B-A2B-GGUF",
+   "downloads": 44100,
+   "likes": 90,
+   "tags": [
+    "multilingual",
+    "tools",
+    "reasoning",
+    "fast"
+   ],
+   "abilities": {
+    "vision": false,
+    "tools": true,
+    "thinking": true
+   },
+   "blurb": "Very fast reasoning agent that speaks 16 languages.",
+   "about": "A light, very fast model from Liquid AI that can still think through problems and use tools.",
+   "tryIt": [
+    "Explain compound interest in Spanish"
+   ],
+   "source": "hf",
+   "moe": true
+  },
+  {
+   "id": "mimo-v2.6-9b",
+   "spec": "mimo-v2.6:9b=hf.co/bartowski/MiMo-V2.6-Distill-Qwen-9B-GGUF:Q6_K",
+   "title": "MiMo V2.6 Distill 9B",
+   "publisher": "Xiaomi (quantized by bartowski)",
+   "family": "Qwen-based distill",
+   "params": "9B",
+   "quant": "Q6_K",
+   "size": 8711876672,
+   "released": "2026-09-21",
+   "repo": "bartowski/MiMo-V2.6-Distill-Qwen-9B-GGUF",
+   "downloads": 853300,
+   "likes": 157,
+   "tags": [
+    "fast",
+    "reasoning",
+    "tools",
+    "coding",
+    "vision"
+   ],
+   "abilities": {
+    "vision": true,
+    "tools": true,
+    "thinking": true
+   },
+   "blurb": "Small, quick thinker for code and tools.",
+   "about": "A small model taught by a much bigger one. Quick to load and surprisingly good at step-by-step problems and code.",
+   "tryIt": [
+    "Write a regex that matches UK postcodes"
+   ],
+   "source": "hf"
+  },
+  {
+   "id": "tiel-coder-35b",
+   "spec": "tiel-coder:35b=hf.co/peculiar-ragdoll/Tiel-Coder-35B-A3B-GGUF:UD-Q4_K_XL",
+   "title": "Tiel Coder 35B-A3B",
+   "publisher": "peculiar-ragdoll",
+   "family": "Qwen 3.5 MoE (Ornith 1.5)",
+   "params": "35B (about 3B active)",
+   "quant": "UD-Q4_K_XL",
+   "size": 22360478080,
+   "license": "MIT",
+   "released": "2026-09-10",
+   "repo": "peculiar-ragdoll/Tiel-Coder-35B-A3B-GGUF",
+   "downloads": 765900,
+   "likes": 392,
+   "tags": [
+    "coding",
+    "tools"
+   ],
+   "abilities": {
+    "vision": true,
+    "tools": true,
+    "thinking": true
+   },
+   "blurb": "Fast coding agent that fixes real bugs in real codebases.",
+   "about": "A coding specialist tuned to work like an agent: read the code, find the bug, fix it, run the tests.",
+   "tryIt": [
+    "Find why this test fails and fix it"
+   ],
+   "source": "hf",
+   "moe": true
+  },
+  {
+   "id": "qwen3-coder-30b",
+   "spec": "qwen3-coder:30b",
+   "title": "Qwen3 Coder 30B-A3B",
+   "publisher": "Qwen (Alibaba)",
+   "family": "Qwen 3 MoE",
+   "params": "30B (about 3B active)",
+   "quant": "Q4_K_M",
+   "size": 18600000000.0,
+   "context": 262144,
+   "license": "Apache 2.0",
+   "released": "2026-01-30",
+   "repo": "unsloth/Qwen3-Coder-30B-A3B-Instruct-GGUF",
+   "downloads": 1478416,
+   "likes": 1157,
+   "tags": [
+    "coding",
+    "tools"
+   ],
+   "abilities": {
+    "vision": false,
+    "tools": true,
+    "thinking": false
+   },
+   "moe": true,
+   "source": "ollama",
+   "blurb": "Proven, fast coding specialist.",
+   "about": "A tried-and-tested coder from the Ollama library: quick, steady, great at writing and explaining code.",
+   "tryIt": [
+    "Turn this script into a command-line tool"
+   ]
+  },
+  {
+   "id": "qwen3.8-heretic-27b",
+   "spec": "qwen3.8-heretic:27b=hf.co/0bserverx/Qwen3.8-27B-Heretic-Abliterated-Uncensored-GGUF:Q4_K_M|like=qwen3.8:27b",
+   "title": "Qwen 3.8 27B Heretic",
+   "publisher": "0bserverx",
+   "family": "Qwen 3.8",
+   "params": "27B",
+   "quant": "Q4_K_M",
+   "size": 16547400032,
+   "license": "Apache 2.0",
+   "released": "2026-09-20",
+   "repo": "0bserverx/Qwen3.8-27B-Heretic-Abliterated-Uncensored-GGUF",
+   "downloads": 3300000,
+   "likes": 716,
+   "tags": [
+    "uncensored",
+    "creative"
+   ],
+   "abilities": {
+    "vision": false,
+    "tools": true,
+    "thinking": true
+   },
+   "blurb": "Very popular uncensored Qwen 3.8 (Heretic method).",
+   "about": "Qwen 3.8 with refusals removed by the Heretic method, which keeps more of the original smarts than older methods.",
+   "tryIt": [
+    "Write the villain’s monologue, no holding back"
+   ],
+   "source": "hf"
+  },
+  {
+   "id": "ortenzya-31b",
+   "spec": "ortenzya:31b=hf.co/llmfan46/gemma-4-Ortenzya-The-Creative-Wordsmith-31B-it-uncensored-heretic-GGUF:Q5_K_M",
+   "title": "Ortenzya 31B",
+   "publisher": "llmfan46",
+   "family": "Gemma 4 (creative finetune)",
+   "params": "31B",
+   "quant": "Q5_K_M",
+   "size": 23046296128,
+   "context": 262144,
+   "license": "Apache 2.0",
+   "released": "2026-05-23",
+   "repo": "llmfan46/gemma-4-Ortenzya-The-Creative-Wordsmith-31B-it-uncensored-heretic-GGUF",
+   "downloads": 407100,
+   "likes": 85,
+   "tags": [
+    "creative",
+    "uncensored",
+    "vision"
+   ],
+   "abilities": {
+    "vision": true,
+    "tools": true,
+    "thinking": true
+   },
+   "blurb": "Uncensored Gemma 4 tuned for stories, role-play and translation.",
+   "about": "A wordsmith: rich prose, strong characters and dialogue, no refusals. Can also look at a picture for inspiration.",
+   "tryIt": [
+    "Write the opening of a gothic novel set in Lisbon"
+   ],
+   "source": "hf"
+  },
+  {
+   "id": "artemis-31b",
+   "spec": "artemis:31b=hf.co/bartowski/TheDrummer_Artemis-31B-v1.2-GGUF:Q5_K_M",
+   "title": "Artemis 31B v1.2",
+   "publisher": "TheDrummer (quantized by bartowski)",
+   "family": "Gemma 4 (role-play finetune)",
+   "params": "31B",
+   "quant": "Q5_K_M",
+   "size": 24700766944,
+   "released": "2026-09-25",
+   "repo": "bartowski/TheDrummer_Artemis-31B-v1.2-GGUF",
+   "downloads": 50700,
+   "likes": 24,
+   "tags": [
+    "creative"
+   ],
+   "abilities": {
+    "vision": true,
+    "tools": true,
+    "thinking": true
+   },
+   "blurb": "Role-play and creative-writing finetune from TheDrummer.",
+   "about": "Plays characters and keeps a story going over long sessions, with lively, natural dialogue.",
+   "tryIt": [
+    "You are a ship’s captain in a storm. Stay in character."
+   ],
+   "source": "hf"
+  },
+  {
+   "id": "orion-26b",
+   "spec": "orion:26b=hf.co/bartowski/TheDrummer_Orion-26B-A4B-v1.1-GGUF:Q5_K_M",
+   "title": "Orion 26B-A4B v1.1",
+   "publisher": "TheDrummer (quantized by bartowski)",
+   "family": "Gemma 4 MoE (role-play finetune)",
+   "params": "26B (about 4B active)",
+   "quant": "Q5_K_M",
+   "size": 21203145760,
+   "released": "2026-09-13",
+   "repo": "bartowski/TheDrummer_Orion-26B-A4B-v1.1-GGUF",
+   "downloads": 50900,
+   "likes": 30,
+   "tags": [
+    "creative",
+    "fast"
+   ],
+   "abilities": {
+    "vision": true,
+    "tools": true,
+    "thinking": true
+   },
+   "blurb": "Faster role-play and storytelling model.",
+   "about": "The quick sibling of Artemis: storytelling and role-play with fast replies.",
+   "tryIt": [
+    "Continue the story: the lighthouse light went out at midnight"
+   ],
+   "source": "hf",
+   "moe": true
   }
  ],
  "makers": {
@@ -319,6 +735,646 @@
    "trigger": "naive expressive sketch style",
    "output": "A look for Krea Real",
    "about": "Lay this look over Krea Real. It switches on with its trigger words, which Orbit adds for you."
+  },
+  "qwen-turbo": {
+   "publisher": "Qwen / Comfy-Org",
+   "base": "Qwen-Image 2.1 Turbo",
+   "repo": "Comfy-Org/Qwen-Image-2.1",
+   "license": "Qwen Research",
+   "steps": 8,
+   "output": "Pictures",
+   "resolution": "1024 × 1024",
+   "about": "The official fast version of the built-in picture maker. Same look in a third of the time. Filtered, not uncensored."
+  },
+  "viggle-turbo": {
+   "publisher": "Viggle",
+   "base": "Qwen-Image 2.1",
+   "repo": "Viggle/Qwen-Image-2.1-viggle-turbo",
+   "license": "Qwen Research",
+   "steps": 6,
+   "output": "Pictures",
+   "resolution": "1024 × 1024",
+   "about": "Qwen-Image distilled to 6 steps: pictures in a few seconds with nearly the same quality."
+  },
+  "krea-hd": {
+   "publisher": "wikeeyang",
+   "base": "Krea 2 Turbo",
+   "repo": "wikeeyang/Krea2-Turbo-HD-V1",
+   "license": "Krea 2 Community",
+   "steps": 8,
+   "output": "Pictures",
+   "resolution": "1024 × 1536",
+   "about": "A Krea 2 finetune for fine detail: skin, fabric, brushwork."
+  },
+  "krea-moody": {
+   "publisher": "Quiho",
+   "base": "Krea 2 mix",
+   "repo": "Quiho/Krea2_NSFW_Uncensored_Complete",
+   "license": "Krea 2 Community",
+   "steps": 8,
+   "output": "Pictures",
+   "resolution": "1024 × 1536",
+   "about": "An uncensored Krea 2 blend with deep shadows and a film look."
+  },
+  "ltx-official": {
+   "publisher": "Lightricks",
+   "base": "LTX-2.3 dev",
+   "repo": "Lightricks/LTX-2.3-fp8",
+   "license": "LTX-2 Community",
+   "output": "Video with sound, 25 fps",
+   "resolution": "1280 × 720",
+   "about": "The original LTX-2.3 from its makers: follows your words closely. Filtered."
+  },
+  "ltx-distilled": {
+   "publisher": "Lightricks",
+   "base": "LTX-2.3 distilled",
+   "repo": "Lightricks/LTX-2.3-fp8",
+   "license": "LTX-2 Community",
+   "output": "Video with sound, 25 fps",
+   "resolution": "1280 × 720",
+   "steps": 8,
+   "about": "The fastest official LTX-2.3. Filtered."
+  },
+  "h3-beta6": {
+   "publisher": "TenStrip",
+   "base": "MiniMax H3 (10Eros Max beta6)",
+   "repo": "TenStrip/10Eros-Max",
+   "license": "MiniMax H3 Community",
+   "steps": 8,
+   "output": "Video with sound, 24 fps",
+   "resolution": "1280 × 704",
+   "about": "The newer 10Eros Max, best when you start from a picture."
+  },
+  "h3-cobijada": {
+   "publisher": "Winnougan",
+   "base": "MiniMax H3 hybrid + 8-step turbo",
+   "repo": "Winnougan/Cobijada_Minimax-H3_Hybrid_Pruned_ComfyUI",
+   "license": "MiniMax H3 Community",
+   "steps": 8,
+   "output": "Video with sound, 24 fps",
+   "resolution": "1280 × 704",
+   "about": "An uncensored H3 blend that keeps first and last frames faithful."
+  },
+  "h3-singularity": {
+   "publisher": "WarmBloodAban",
+   "base": "MiniMax H3 + 8-step turbo",
+   "repo": "WarmBloodAban/Minimax-h3_Singularity",
+   "license": "Apache 2.0 (MiniMax H3 terms apply)",
+   "steps": 8,
+   "output": "Video with sound, 24 fps",
+   "resolution": "1280 × 704",
+   "about": "Tuned for sharp, HDR-looking video with good faces at a distance, action and magic effects."
+  },
+  "h3-official": {
+   "publisher": "MiniMax / Comfy-Org",
+   "base": "MiniMax H3 + 8-step turbo",
+   "repo": "Comfy-Org/MiniMax-H3",
+   "license": "MiniMax H3 Community",
+   "steps": 8,
+   "output": "Video with sound, 24 fps",
+   "resolution": "1280 × 704",
+   "about": "The stock H3 model with a speed-up. Filtered."
+  },
+  "restore": {
+   "publisher": "ausboss",
+   "base": "Qwen-Image 2.1 edit + LoRA",
+   "repo": "ausboss/Qwen-Image-2.1-Restore-LoRA",
+   "license": "Qwen Research",
+   "output": "A restored picture",
+   "about": "Bring old or damaged photos back: removes blur, noise, scratches and fading.",
+   "tryIt": [
+    "Restore the old photo: remove scratches, dust and fading, keep the people and colours"
+   ]
+  },
+  "exposure": {
+   "publisher": "prithivMLmods",
+   "base": "Qwen-Image 2.1 edit + LoRA",
+   "repo": "prithivMLmods/Qwen-Image-2.1-Natural-Exposure-LoRA",
+   "license": "Qwen Research",
+   "trigger": "Transform the image with balanced neutral exposure",
+   "output": "A re-lit picture",
+   "about": "Fixes photos that are too dark or too bright. Experimental."
+  },
+  "next-scene": {
+   "publisher": "akhaliq",
+   "base": "Qwen-Image 2.1 edit + LoRA",
+   "repo": "akhaliq/Qwen-Image-2.1-Next-Scene-LoRA",
+   "license": "Apache 2.0",
+   "trigger": "Next Scene:",
+   "output": "The next shot",
+   "about": "Makes the next frame of a story from your picture: describe the camera move first, then what changes.",
+   "tryIt": [
+    "The camera pulls back to a wide shot as rain begins"
+   ]
+  },
+  "clay": {
+   "publisher": "prithivMLmods",
+   "base": "Qwen-Image 2.1 edit + LoRA",
+   "repo": "prithivMLmods/Qwen-Image-2.1-Clay-Sculpture-Style",
+   "license": "Qwen Research",
+   "trigger": "Transform the image into a clay sculpture style",
+   "output": "A clay version",
+   "about": "Your picture as a hand-modelled clay sculpture."
+  },
+  "ultrasharp": {
+   "publisher": "Kim2091",
+   "base": "ESRGAN",
+   "repo": "Kim2091/UltraSharp",
+   "license": "CC BY-NC-SA 4.0",
+   "output": "A 4× larger picture",
+   "about": "The classic: crisp, clean enlargements, especially of compressed JPEGs."
+  },
+  "ultrasharp2": {
+   "publisher": "Kim2091",
+   "base": "DAT2",
+   "repo": "Kim2091/UltraSharpV2",
+   "license": "CC BY-NC-SA 4.0",
+   "output": "A 4× larger picture",
+   "about": "A newer, cleaner all-rounder for photos, art, anime and text. Slower than V1."
+  },
+  "clearreality": {
+   "publisher": "Kim2091",
+   "base": "SPAN",
+   "repo": "Kim2091/ClearRealityV1",
+   "license": "Apache 2.0",
+   "output": "A 4× larger picture",
+   "about": "A soft, natural look for faces, hair and nature. Very fast."
+  },
+  "animesharp": {
+   "publisher": "Kim2091",
+   "base": "RCAN",
+   "repo": "Kim2091/2x-AnimeSharpV4",
+   "license": "CC BY-NC-SA 4.0",
+   "output": "A 2× larger picture",
+   "about": "Faithful enlargement for anime and drawings: clean lines, no smearing."
+  },
+  "style-baroqueoil": {
+   "publisher": "ilkerzgi",
+   "base": "Krea 2 style LoRA",
+   "repo": "ilkerzgi/fal-Krea-2-Style-LoRAs",
+   "license": "Krea 2 Community",
+   "trigger": "baroque dreamscape oil style",
+   "output": "A look for Krea Real",
+   "about": "Lay a baroque oil look over Krea Real. Its trigger words are added for you."
+  },
+  "style-linocut": {
+   "publisher": "ilkerzgi",
+   "base": "Krea 2 style LoRA",
+   "repo": "ilkerzgi/fal-Krea-2-Style-LoRAs",
+   "license": "Krea 2 Community",
+   "trigger": "black ink linocut style",
+   "output": "A look for Krea Real",
+   "about": "Lay a ink linocut look over Krea Real. Its trigger words are added for you."
+  },
+  "style-paperdiorama": {
+   "publisher": "ilkerzgi",
+   "base": "Krea 2 style LoRA",
+   "repo": "ilkerzgi/fal-Krea-2-Style-LoRAs",
+   "license": "Krea 2 Community",
+   "trigger": "azure paper diorama style",
+   "output": "A look for Krea Real",
+   "about": "Lay a paper diorama look over Krea Real. Its trigger words are added for you."
+  },
+  "style-celshaded": {
+   "publisher": "ilkerzgi",
+   "base": "Krea 2 style LoRA",
+   "repo": "ilkerzgi/fal-Krea-2-Style-LoRAs",
+   "license": "Krea 2 Community",
+   "trigger": "azure cel shaded style",
+   "output": "A look for Krea Real",
+   "about": "Lay a cel shaded look over Krea Real. Its trigger words are added for you."
   }
- }
+ },
+ "files": {
+  "qwenTurbo": {
+   "dir": "diffusion_models",
+   "name": "qwen_image_2.1_turbo_int8_convrot.safetensors",
+   "repo": "Comfy-Org/Qwen-Image-2.1",
+   "path": "diffusion_models/qwen_image_2.1_turbo_int8_convrot.safetensors",
+   "size": 7256787829
+  },
+  "qwenViggle": {
+   "dir": "diffusion_models",
+   "name": "Qwen-Image-2.1-viggle-turbo-v0.3-6step-int8_convrot.safetensors",
+   "repo": "Viggle/Qwen-Image-2.1-viggle-turbo",
+   "path": "Qwen-Image-2.1-viggle-turbo-v0.3-6step-int8_convrot.safetensors",
+   "size": 7256783064
+  },
+  "kreaHd": {
+   "dir": "diffusion_models",
+   "name": "Krea2-Turbo-HD-V1-int8_convrot.safetensors",
+   "repo": "wikeeyang/Krea2-Turbo-HD-V1",
+   "path": "Krea2-Turbo-HD-V1-int8_convrot.safetensors",
+   "size": 13960749936
+  },
+  "kreaMoody": {
+   "dir": "diffusion_models",
+   "name": "moodyKrea2Mix_v3-Global-FP8.safetensors",
+   "repo": "Quiho/Krea2_NSFW_Uncensored_Complete",
+   "path": "moodyKrea2Mix_v3-Global-FP8.safetensors",
+   "size": 13485164976
+  },
+  "ltxDev": {
+   "dir": "checkpoints",
+   "name": "ltx-2.3-22b-dev-fp8.safetensors",
+   "repo": "Lightricks/LTX-2.3-fp8",
+   "path": "ltx-2.3-22b-dev-fp8.safetensors",
+   "size": 29145431166
+  },
+  "ltxDistilled": {
+   "dir": "checkpoints",
+   "name": "ltx-2.3-22b-distilled-fp8.safetensors",
+   "repo": "Lightricks/LTX-2.3-fp8",
+   "path": "ltx-2.3-22b-distilled-fp8.safetensors",
+   "size": 29531884062
+  },
+  "h3Turbo": {
+   "dir": "loras",
+   "name": "minimax_h3_fl2v_turbo_8step_v1.0_comfyui_bf16.safetensors",
+   "repo": "lightx2v/Minimax-h3-Turbo",
+   "path": "minimax_h3_fl2v_turbo_8step_v1.0_comfyui_bf16.safetensors",
+   "size": 1956193000
+  },
+  "h3Cobijada": {
+   "dir": "diffusion_models",
+   "name": "Cobijada_H3_Hybrid_Uncensored_pruned_hybrid_int8_convrot_pruned.safetensors",
+   "repo": "Winnougan/Cobijada_Minimax-H3_Hybrid_Pruned_ComfyUI",
+   "path": "Cobijada_H3_Hybrid_Uncensored_pruned_hybrid_int8_convrot_pruned.safetensors",
+   "size": 20970382008
+  },
+  "h3Singularity": {
+   "dir": "diffusion_models",
+   "name": "Minimax-h3_Singularity_ref2va_Pruned_v1.3_int8.safetensors",
+   "repo": "WarmBloodAban/Minimax-h3_Singularity",
+   "path": "Minimax-h3_Singularity_ref2va_Pruned_v1.3_int8.safetensors",
+   "size": 20967647456
+  },
+  "h3Official": {
+   "dir": "diffusion_models",
+   "name": "minimax_h3_fl2va_pruned_int8_convrot.safetensors",
+   "repo": "Comfy-Org/MiniMax-H3",
+   "path": "diffusion_models/minimax_h3_fl2va_pruned_int8_convrot.safetensors",
+   "size": 20970379616
+  },
+  "h3Beta6": {
+   "dir": "diffusion_models",
+   "name": "10Eros_Max_h3_8stepTURBO_beta6_int8.safetensors",
+   "repo": "TenStrip/10Eros-Max",
+   "path": "10Eros_Max_h3_8stepTURBO_beta6_int8.safetensors",
+   "size": 21709633539
+  },
+  "restoreLora": {
+   "dir": "loras",
+   "name": "qwen-image-2.1-restore.safetensors",
+   "repo": "ausboss/Qwen-Image-2.1-Restore-LoRA",
+   "path": "qwen-image-2.1-restore.safetensors",
+   "size": 159436584
+  },
+  "exposureLora": {
+   "dir": "loras",
+   "name": "Qwen-Image-2.1-Natural-Exposure-LoRA-4000.safetensors",
+   "repo": "prithivMLmods/Qwen-Image-2.1-Natural-Exposure-LoRA",
+   "path": "Qwen-Image-2.1-Natural-Exposure-LoRA-4000.safetensors",
+   "size": 83943952
+  },
+  "nextSceneLora": {
+   "dir": "loras",
+   "name": "next_scene_step2500.safetensors",
+   "repo": "akhaliq/Qwen-Image-2.1-Next-Scene-LoRA",
+   "path": "next_scene_step2500.safetensors",
+   "size": 335605648
+  },
+  "clayLora": {
+   "dir": "loras",
+   "name": "Qwen-Image-2.1-Clay-Sculpture-Style-3000.safetensors",
+   "repo": "prithivMLmods/Qwen-Image-2.1-Clay-Sculpture-Style",
+   "path": "Qwen-Image-2.1-Clay-Sculpture-Style-3000.safetensors",
+   "size": 83943944
+  },
+  "ultrasharp": {
+   "dir": "upscale_models",
+   "name": "4x-UltraSharp.safetensors",
+   "repo": "Kim2091/UltraSharp",
+   "path": "4x-UltraSharp.safetensors",
+   "size": 66864028
+  },
+  "ultrasharp2": {
+   "dir": "upscale_models",
+   "name": "4x-UltraSharpV2.safetensors",
+   "repo": "Kim2091/UltraSharpV2",
+   "path": "4x-UltraSharpV2.safetensors",
+   "size": 139792588
+  },
+  "clearreality": {
+   "dir": "upscale_models",
+   "name": "4x-ClearRealityV1.safetensors",
+   "repo": "Kim2091/ClearRealityV1",
+   "path": "4x-ClearRealityV1.safetensors",
+   "size": 4492232
+  },
+  "animesharp": {
+   "dir": "upscale_models",
+   "name": "2x-AnimeSharpV4_RCAN.safetensors",
+   "repo": "Kim2091/2x-AnimeSharpV4",
+   "path": "2x-AnimeSharpV4_RCAN.safetensors",
+   "size": 31053198
+  },
+  "style_baroqueoil": {
+   "dir": "loras",
+   "name": "krea2_baroqueoil.safetensors",
+   "repo": "ilkerzgi/fal-Krea-2-Style-LoRAs",
+   "path": "comfy/baroque-dreamscape-oil.safetensors",
+   "size": 469287984
+  },
+  "style_linocut": {
+   "dir": "loras",
+   "name": "krea2_linocut.safetensors",
+   "repo": "ilkerzgi/fal-Krea-2-Style-LoRAs",
+   "path": "comfy/black-ink-linocut.safetensors",
+   "size": 469287984
+  },
+  "style_paperdiorama": {
+   "dir": "loras",
+   "name": "krea2_paperdiorama.safetensors",
+   "repo": "ilkerzgi/fal-Krea-2-Style-LoRAs",
+   "path": "comfy/azure-paper-diorama.safetensors",
+   "size": 469287984
+  },
+  "style_celshaded": {
+   "dir": "loras",
+   "name": "krea2_celshaded.safetensors",
+   "repo": "ilkerzgi/fal-Krea-2-Style-LoRAs",
+   "path": "comfy/azure-cel-shaded.safetensors",
+   "size": 469287984
+  }
+ },
+ "makerDefs": [
+  {
+   "id": "qwen-turbo",
+   "kind": "image",
+   "name": "Qwen Turbo",
+   "blurb": "Official 8-step Qwen-Image 2.1: about 3× faster, same look.",
+   "files": [
+    "qwenTurbo",
+    "qwenTe",
+    "qwenVae"
+   ],
+   "workflow": "qwen",
+   "steps": 8,
+   "cfg": 1
+  },
+  {
+   "id": "viggle-turbo",
+   "kind": "image",
+   "name": "Viggle Turbo",
+   "blurb": "Qwen-Image 2.1 in 6 steps: about 5× faster, nearly the same quality.",
+   "files": [
+    "qwenViggle",
+    "qwenTe",
+    "qwenVae"
+   ],
+   "workflow": "qwen",
+   "steps": 6,
+   "cfg": 1
+  },
+  {
+   "id": "krea-hd",
+   "kind": "image",
+   "name": "Krea HD",
+   "blurb": "Krea 2 tuned for sharper, higher-detail portraits and painterly scenes.",
+   "files": [
+    "kreaHd",
+    "kreaTe",
+    "kreaVae"
+   ],
+   "workflow": "krea"
+  },
+  {
+   "id": "krea-moody",
+   "kind": "image",
+   "name": "Krea Moody",
+   "blurb": "Uncensored Krea 2 mix with a moody, cinematic look.",
+   "files": [
+    "kreaMoody",
+    "kreaTe",
+    "kreaVae"
+   ],
+   "workflow": "krea"
+  },
+  {
+   "id": "ltx-official",
+   "kind": "video",
+   "name": "LTX 2.3 Official",
+   "blurb": "Lightricks' own LTX-2.3: clean, faithful video with sound.",
+   "files": [
+    "ltxDev"
+   ],
+   "workflow": "ltx"
+  },
+  {
+   "id": "ltx-distilled",
+   "kind": "video",
+   "name": "LTX 2.3 Distilled",
+   "blurb": "The official fast LTX-2.3: quickest video with sound.",
+   "files": [
+    "ltxDistilled"
+   ],
+   "workflow": "ltx",
+   "noLora": true
+  },
+  {
+   "id": "h3-beta6",
+   "kind": "video",
+   "name": "H3 Max beta6",
+   "blurb": "Newer 10Eros Max with turbo built in, uncensored.",
+   "files": [
+    "h3Beta6",
+    "h3Te",
+    "h3Vae",
+    "h3AudioVae"
+   ],
+   "workflow": "h3"
+  },
+  {
+   "id": "h3-cobijada",
+   "kind": "video",
+   "name": "H3 Cobijada",
+   "blurb": "Uncensored H3 hybrid: strong first and last frames.",
+   "files": [
+    "h3Cobijada",
+    "h3Turbo",
+    "h3Te",
+    "h3Vae",
+    "h3AudioVae"
+   ],
+   "workflow": "h3",
+   "turbo": "h3Turbo"
+  },
+  {
+   "id": "h3-singularity",
+   "kind": "video",
+   "name": "H3 Singularity",
+   "blurb": "Sharper HDR video, better distant faces, action and effects.",
+   "files": [
+    "h3Singularity",
+    "h3Turbo",
+    "h3Te",
+    "h3Vae",
+    "h3AudioVae"
+   ],
+   "workflow": "h3",
+   "turbo": "h3Turbo"
+  },
+  {
+   "id": "h3-official",
+   "kind": "video",
+   "name": "H3 Official",
+   "blurb": "Stock MiniMax H3 with the 8-step turbo.",
+   "files": [
+    "h3Official",
+    "h3Turbo",
+    "h3Te",
+    "h3Vae",
+    "h3AudioVae"
+   ],
+   "workflow": "h3",
+   "turbo": "h3Turbo"
+  },
+  {
+   "id": "restore",
+   "kind": "edit",
+   "name": "Restore photo",
+   "blurb": "Clears blur, noise, scratches and fading; keeps the people and colours.",
+   "files": [
+    "restoreLora",
+    "qwenUnet",
+    "qwenTe",
+    "qwenVae"
+   ],
+   "lora": "restoreLora"
+  },
+  {
+   "id": "exposure",
+   "kind": "edit",
+   "name": "Fix lighting",
+   "blurb": "Balances a too dark or too bright photo to natural light.",
+   "files": [
+    "exposureLora",
+    "qwenUnet",
+    "qwenTe",
+    "qwenVae"
+   ],
+   "lora": "exposureLora",
+   "trigger": "Transform the image with balanced neutral exposure."
+  },
+  {
+   "id": "next-scene",
+   "kind": "edit",
+   "name": "Next scene",
+   "blurb": "The next shot of your picture: move the camera, change the moment.",
+   "files": [
+    "nextSceneLora",
+    "qwenUnet",
+    "qwenTe",
+    "qwenVae"
+   ],
+   "lora": "nextSceneLora",
+   "strength": 0.8,
+   "trigger": "Next Scene:"
+  },
+  {
+   "id": "clay",
+   "kind": "edit",
+   "name": "Clay sculpture",
+   "blurb": "Turns a picture into a hand-made clay sculpture.",
+   "files": [
+    "clayLora",
+    "qwenUnet",
+    "qwenTe",
+    "qwenVae"
+   ],
+   "lora": "clayLora",
+   "trigger": "Transform the image into a clay sculpture style."
+  },
+  {
+   "id": "ultrasharp",
+   "kind": "upscale",
+   "name": "UltraSharp 4×",
+   "blurb": "The classic crisp 4× upscaler; great on blurry JPEGs.",
+   "files": [
+    "ultrasharp"
+   ]
+  },
+  {
+   "id": "ultrasharp2",
+   "kind": "upscale",
+   "name": "UltraSharp V2 4×",
+   "blurb": "Cleaner all-rounder for photos, art and text; slower.",
+   "files": [
+    "ultrasharp2"
+   ]
+  },
+  {
+   "id": "clearreality",
+   "kind": "upscale",
+   "name": "Clear Reality 4×",
+   "blurb": "Soft, natural upscale for faces, hair and nature; very fast.",
+   "files": [
+    "clearreality"
+   ]
+  },
+  {
+   "id": "animesharp",
+   "kind": "upscale",
+   "name": "Anime Sharp 2×",
+   "blurb": "Faithful 2× for anime and drawings.",
+   "files": [
+    "animesharp"
+   ]
+  },
+  {
+   "id": "style-baroqueoil",
+   "kind": "style",
+   "name": "Baroque oil",
+   "blurb": "A baroque oil look for Krea Real.",
+   "files": [
+    "style_baroqueoil"
+   ],
+   "trigger": "baroque dreamscape oil style",
+   "for": "krea-real"
+  },
+  {
+   "id": "style-linocut",
+   "kind": "style",
+   "name": "Ink linocut",
+   "blurb": "A ink linocut look for Krea Real.",
+   "files": [
+    "style_linocut"
+   ],
+   "trigger": "black ink linocut style",
+   "for": "krea-real"
+  },
+  {
+   "id": "style-paperdiorama",
+   "kind": "style",
+   "name": "Paper diorama",
+   "blurb": "A paper diorama look for Krea Real.",
+   "files": [
+    "style_paperdiorama"
+   ],
+   "trigger": "azure paper diorama style",
+   "for": "krea-real"
+  },
+  {
+   "id": "style-celshaded",
+   "kind": "style",
+   "name": "Cel shaded",
+   "blurb": "A cel shaded look for Krea Real.",
+   "files": [
+    "style_celshaded"
+   ],
+   "trigger": "azure cel shaded style",
+   "for": "krea-real"
+  }
+ ]
 }
