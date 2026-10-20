@@ -18,7 +18,7 @@ Orbit stops waiting for taps. It reads what the phone or iPad senses (how it's h
 
 | Sensor | Web API | Already in Orbit | Notes |
 |---|---|---|---|
-| Tilt and orientation | `DeviceOrientationEvent` | `orbit/src/motion/tilt.ts` (writes `--tx`/`--ty`; asks permission on iPhone) | Start here: generalise it into the sensor hub. |
+| Tilt and orientation | `DeviceOrientationEvent` | `orbit/src/sensors/tilt.ts` (writes `--tx`/`--ty`; asks permission on iPhone) | The first sensor in the hub. |
 | Motion: shake, flick, step rhythm | `DeviceMotionEvent` | — | Same permission as tilt on iOS. |
 | Microphone | `getUserMedia({ audio })` | `orbit/src/shell/orb/listen.ts`, `apps/ai/VoiceMode.tsx` | Level, voice, clap or whistle triggers. |
 | Camera | `getUserMedia({ video })` | — | Hand or face presence, light level from frames. Processing stays on the device. |
@@ -60,7 +60,7 @@ Next step for the machines: stream instead of poll (a WebSocket or Server-Sent E
 
 ## 4. First steps on this branch
 
-1. Sensor hub, with tilt moved into it and a test that tilt behaves exactly as before.
+1. ~~Sensor hub, with tilt moved into it and a test that tilt behaves exactly as before.~~ Done: `orbit/src/sensors/hub.ts` (store, `startSensor`/`stopSensor`, `useReading`), `orbit/src/sensors/tilt.ts`, the list in `orbit/src/sensors/index.ts`. `orbit/tests/unit/tilt.test.ts` holds the `--tx`/`--ty` frames recorded before the move.
 2. The privacy panel (Settings → Sensors), with every phone sensor's availability and permission state.
 3. The machine stream: `/_orbit/sensors` on the AI gate and the Linux gateway, reusing `gpustats` and `sysstats`.
 4. One live screen: the orb reacts to GPU heat and load, and to phone motion.

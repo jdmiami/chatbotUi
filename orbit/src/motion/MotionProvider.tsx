@@ -3,7 +3,7 @@ import { useShell } from '../state/shell';
 import { useMediaQuery } from '../hooks/useApplySettings';
 import { cachedProbe, measureFrames, rememberProbe, resolveLevel, type MotionLevel } from './level';
 import { transitionFor, type SpringName } from './springs';
-import { startTilt } from './tilt';
+import { startSensor, tiltSensor } from '../sensors';
 
 const Ctx = createContext<MotionLevel>('full');
 
@@ -40,7 +40,7 @@ export function MotionProvider({ children }: { children: ReactNode }) {
   const tiltGranted = useShell((s) => s.settings.tiltGranted);
   useEffect(() => {
     if (level !== 'full' || !tilt) return;
-    return startTilt({ askOnTap: Boolean(tiltGranted) });
+    return startSensor(tiltSensor, { askOnTap: Boolean(tiltGranted) });
   }, [level, tilt, tiltGranted]);
 
   return (
