@@ -1276,3 +1276,18 @@
     overflow-wrap: anywhere;
   }
 }
+
+/* ---------------------------------------------------------------- the last accent-filled controls
+   Orbit 0.5's one strong mark is ink on paper (like .btn.primary): send buttons, the active tab
+   rule, numbered sources and chosen options use the text colour, not a bright accent fill. */
+:root[data-skin='o5'] :is(.term-compose-send, .ag-send, .ai-send) {
+  background: var(--text) !important;
+  color: var(--bg) !important;
+  box-shadow: none;
+}
+:root[data-skin='o5'] .ed-tab[data-active='true']::before { background: var(--text); height: 1px; }
+:root[data-skin='o5'] .ed-dot { background: var(--text-2); }
+:root[data-skin='o5'] .ai-source-n { background: none; color: var(--text); border: 1px solid var(--o5-hair); font-family: var(--font-display); }
+:root[data-skin='o5'] .ai-compare-tab[aria-selected='true'] { background: none; border-color: transparent; color: var(--text); font-style: italic; text-decoration: underline; text-underline-offset: 6px; }
+:root[data-skin='o5'] .term-panbar span { background: var(--text-2); }
+:root[data-skin='o5'] .app-header { background: color-mix(in srgb, var(--bg) 90%, transparent); }
