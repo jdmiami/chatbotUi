@@ -4,6 +4,7 @@ import { Icon } from '../../ui/Icon';
 import { ConfirmSheet, IconButton, Segmented } from '../../ui/components';
 import { TextArea } from '../../ui/TextArea';
 import { Censor } from '../../ui/Censor';
+import { isNsfw } from '../../ui/nsfw';
 import { getLocalAi, type AiMachine, type Movie, type MovieDraft, type MovieShot, type StudioItem } from '../../services/ai/LocalAi';
 import { TEMPLATES, aboutTime, phaseLine, stages } from './plan';
 
@@ -51,6 +52,8 @@ export function MovieView({
   const running = m.running;
   const frames = m.frames ?? [];
   const final = m.render && !m.render.stale ? itemById.get(m.render.itemId) : null;
+  // One verdict for the whole movie: every shot and picture comes from the same story.
+  const nsfw = isNsfw(m.idea, m.title, m.look, m.lead?.description, ...m.shots.flatMap((s) => [s.prompt, s.says, s.end]), ...(m.frames ?? []).map((f) => f.prompt));
   const template = TEMPLATES.find((t) => t.id === m.template);
   const review = auto && m.phase === 'review' && !running;
   const left = !running && (m.phase === 'stopped' || m.phase === 'error' || (auto && m.phase !== 'done' && m.phase !== 'review' && m.phase !== 'draft') || (!auto && m.shots.some((s) => s.status !== 'done')));
@@ -179,7 +182,7 @@ export function MovieView({
             {final ? 'Your movie' : 'The final cut'}
           </h3>
           {final && (
-            <Censor as="div">
+            <Censor as="div" nsfw={nsfw}>
               <video className={`sr-final-video${m.size === 'portrait' ? ' is-tall' : ''}`} src={final.url} controls playsInline preload="metadata" aria-label={`${m.title}, the movie`} />
             </Censor>
           )}
@@ -213,7 +216,7 @@ export function MovieView({
               const it = f.itemId ? itemById.get(f.itemId) : null;
               return (
                 <li key={f.id} className="sr-frame" data-status={f.status}>
-                  <Censor className="sr-frame-pic">
+                  <Censor className="sr-frame-pic" nsfw={nsfw}>
                     {it ? <img src={it.url} alt={`Picture ${k + 1}: ${f.prompt}`} /> : f.status === 'making' ? <span className="sr-spin" aria-hidden /> : <span className="sr-frame-n" aria-hidden>{k + 1}</span>}
                   </Censor>
                   <span className="sr-frame-cap">{k === 0 ? 'Start' : `End of shot ${k}`}</span>
@@ -260,7 +263,7 @@ export function MovieView({
               const editable = canEdit && s.status !== 'making' && (m.continuity === 'keyframes' || s.status === 'done' || s.status === 'error');
               return (
                 <li key={s.id} className="sr-shot" data-status={s.status}>
-                  <Censor as="div" className={`sr-shot-media${m.size === 'portrait' ? ' is-tall' : ''}`}>
+                  <Censor as="div" nsfw={nsfw} className={`sr-shot-media${m.size === 'portrait' ? ' is-tall' : ''}`}>
                     {it ? <video src={it.url} controls playsInline preload="metadata" aria-label={`Shot ${i + 1}`} /> : <span className="sr-shot-num" aria-hidden>{s.status === 'making' ? <span className="sr-spin" /> : i + 1}</span>}
                   </Censor>
                   <div className="sr-shot-body">
@@ -269,7 +272,7 @@ export function MovieView({
                       <span className={`sr-badge sr-badge-${s.status}`}>{STATUS[s.status]}</span>
                       {trimmed > 0 && <span className="ai-muted sr-small">trimmed {trimmed} s</span>}
                     </p>
-                    <Censor as="div" text>
+                    <Censor as="div" text nsfw={nsfw}>
                       <p className="sr-shot-text">{s.prompt}</p>
                       {s.says?.trim() && (
                         <p className="sr-shot-says" aria-label={`Said or sung in shot ${i + 1}`}>

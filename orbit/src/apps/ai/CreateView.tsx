@@ -4,6 +4,7 @@ import { useShell } from '../../state/shell';
 import { Icon } from '../../ui/Icon';
 import { ConfirmSheet, EmptyState, IconButton, Segmented, Sheet, Toggle } from '../../ui/components';
 import { Censor } from '../../ui/Censor';
+import { isNsfw } from '../../ui/nsfw';
 import { AiError, type LocalAi, type StudioItem, type StudioJob, type StudioKind, type StudioMakerInfo, type StudioState } from '../../services/ai/LocalAi';
 import { MAKER_CATALOG, rememberMakers, rememberedMakers } from './makerCatalog';
 import { TextArea } from '../../ui/TextArea';
@@ -90,7 +91,7 @@ export function CreateView({
 }) {
   const toast = useShell((s) => s.toast);
   const o5 = useShell((s) => s.settings.skin === 'o5');
-  const censor = useShell((s) => Boolean(s.settings.censor));
+  const censor = useShell((s) => s.settings.censor !== false);
   const updateSettings = useShell((s) => s.updateSettings);
   // The next step glides into view once this one is answered.
   const next = (id: string) => nextStep(o5, id);
@@ -472,10 +473,10 @@ export function CreateView({
 
       <section className="ai-censor" aria-labelledby="ai-censor-title">
         <div className="ai-censor-text">
-          <p className="o5-kicker" id="ai-censor-title">Censor</p>
-          <p className="ai-muted">{censor ? 'On: pictures, videos and their words are blurred everywhere in Orbit. Press and hold one to see it.' : 'Off. Turn it on to blur every picture, video and its words; press and hold one to see it.'}</p>
+          <p className="o5-kicker" id="ai-censor-title">NSFW blur</p>
+          <p className="ai-muted">{censor ? 'On: NSFW pictures and videos, and their words, are blurred everywhere in Orbit. Keep your finger on one to see it; a video plays while you hold it and pauses when you let go.' : 'Off: NSFW pictures and videos show as they are.'}</p>
         </div>
-        <Toggle checked={censor} label="Censor: blur pictures and videos" onChange={(on) => updateSettings({ censor: on })} />
+        <Toggle checked={censor} label="Blur NSFW pictures and videos" onChange={(on) => updateSettings({ censor: on })} />
       </section>
 
       {o5 && jobs.length > 0 && (
@@ -534,7 +535,7 @@ export function CreateView({
         <ul className="ai-gallery" aria-label="Your creations">
           {items.map((it, n) => (
             <li key={it.id} style={{ '--i': Math.min(n, 14) } as React.CSSProperties}>
-              <Censor as="div">
+              <Censor as="div" nsfw={isNsfw(it.prompt)}>
               <button type="button" className="ai-tile" onClick={(e) => {
                 viewFrom.current = (e.currentTarget.querySelector('img, video') ?? e.currentTarget).getBoundingClientRect();
                 setViewing(it);
@@ -559,14 +560,14 @@ export function CreateView({
       {viewing && (
         <Sheet title={viewing.kind === 'image' ? 'Image' : 'Video'} origin={viewFrom.current} onClose={() => setViewing(null)}>
           <div className="ai-viewer">
-            <Censor as="div" className="ai-viewer-media">
+            <Censor as="div" className="ai-viewer-media" nsfw={isNsfw(viewing.prompt)}>
               {viewing.kind === 'image' ? (
                 <DevelopImg src={viewing.url} alt={viewing.prompt} />
               ) : (
                 <video src={viewing.url} controls playsInline autoPlay />
               )}
             </Censor>
-            <Censor as="div" text>
+            <Censor as="div" text nsfw={isNsfw(viewing.prompt)}>
               <p className="ai-viewer-prompt">{viewing.prompt}</p>
             </Censor>
             <div className="ai-viewer-actions">

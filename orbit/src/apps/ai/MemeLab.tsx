@@ -3,6 +3,7 @@ import { Icon } from '../../ui/Icon';
 import { IconButton, Segmented, Toggle } from '../../ui/components';
 import { TextArea } from '../../ui/TextArea';
 import { Censor } from '../../ui/Censor';
+import { isNsfw } from '../../ui/nsfw';
 import { AiError, type LabIdea, type LabStyle, type LocalAi, type MemeLabState, type MemeRecord } from '../../services/ai/LocalAi';
 
 /**
@@ -124,7 +125,7 @@ export function MemeLab({ ai, machineOn, isActive, onKept }: { ai: LocalAi; mach
           <div className="meme-now" role="status" aria-label="Making now">
             <span className="meme-lab-dot" aria-hidden />
             <div className="meme-now-text">
-              <Censor as="div" text>
+              <Censor as="div" text nsfw={isNsfw(lab.making.title, lab.making.prompt)}>
                 <p className="meme-card-title">{lab.making.title}</p>
               </Censor>
               {job && (
@@ -192,7 +193,7 @@ export function MemeLab({ ai, machineOn, isActive, onKept }: { ai: LocalAi; mach
                 <span className="meme-queue-n" aria-hidden>
                   {String(i + 1).padStart(2, '0')}
                 </span>
-                <Censor as="div" text className="meme-queue-text">
+                <Censor as="div" text className="meme-queue-text" nsfw={editing?.id !== q.id && isNsfw(q.title, q.prompt)}>
                   {editing?.id === q.id ? (
                     <form
                       onSubmit={(e) => {
@@ -251,7 +252,7 @@ export function MemeLab({ ai, machineOn, isActive, onKept }: { ai: LocalAi; mach
           <ol className="meme-lab-list" aria-label="Lab videos, best first">
             {records.map((r) => (
               <li key={r.id} className="meme-card" data-ready={r.status === 'ready' || undefined}>
-                <Censor as="div" className="meme-card-media">
+                <Censor as="div" className="meme-card-media" nsfw={labNsfw(r)}>
                   <video src={r.url ? `${r.url}#t=0.1` : undefined} controls playsInline preload="metadata" muted aria-label={r.title} />
                 </Censor>
                 <div className="meme-card-text">
@@ -259,7 +260,7 @@ export function MemeLab({ ai, machineOn, isActive, onKept }: { ai: LocalAi; mach
                     {r.status === 'ready' ? 'Ready to post' : r.status === 'judged' ? 'Judged' : 'Waiting to be judged'}
                     {r.score != null && <span className="meme-score">{r.score}</span>}
                   </p>
-                  <Censor as="div" text>
+                  <Censor as="div" text nsfw={labNsfw(r)}>
                     <p className="meme-card-title">{r.title}</p>
                     {r.why && <p className="ai-muted meme-card-why">{r.why}</p>}
                     <p className="meme-card-caption">
@@ -284,6 +285,9 @@ export function MemeLab({ ai, machineOn, isActive, onKept }: { ai: LocalAi; mach
     </section>
   );
 }
+
+/** A Lab video is NSFW when its words say so, or when it was made in the spicy style. */
+const labNsfw = (r: MemeRecord & { style?: string }) => r.style === 'spicy' || isNsfw(r.title, r.prompt, r.caption);
 
 function LabHead({ children }: { children?: React.ReactNode }) {
   return (
