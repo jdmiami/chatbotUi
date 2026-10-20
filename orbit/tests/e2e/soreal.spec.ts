@@ -198,7 +198,10 @@ test.describe('soReal', () => {
     const redo = api.calls.filter((c) => c.method === 'PUT').pop()!.body!.shots as Shot[];
     expect(redo.map((s) => Boolean(s.redo))).toEqual([true, false]);
     await expect.poll(runs).toBe(2);
+    // The remake starts (the old "ready" line goes), then it's ready again.
+    await expect(win.getByText('Your movie is ready')).toHaveCount(0);
     await expect(win.getByText('Your movie is ready')).toBeVisible({ timeout: 20_000 });
+    await expect(win.getByRole('button', { name: 'Move shot 1 later' })).toBeEnabled();
 
     // Swap the shots, trim the first: nothing is remade, the cut is updated.
     const [first] = redo;
