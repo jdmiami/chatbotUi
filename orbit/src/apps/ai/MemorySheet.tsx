@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { Icon } from '../../ui/Icon';
 import { IconButton, Sheet, Toggle } from '../../ui/components';
 import { addFact, allPersonas, type MemoryStore } from './memory';
+import { TextArea } from '../../ui/TextArea';
 
 /** Personas (how the AI behaves) and memory (what it always knows about you), in one place. */
 export function MemorySheet({
@@ -71,7 +72,7 @@ export function MemorySheet({
               }}
             >
               <input value={newName} onChange={(e) => setNewName(e.target.value)} placeholder="Name, e.g. Chef" aria-label="Persona name" />
-              <textarea value={newPrompt} onChange={(e) => setNewPrompt(e.target.value)} placeholder="How should it behave? e.g. “You are a friendly chef who suggests quick recipes.”" aria-label="Persona instructions" rows={3} />
+              <TextArea value={newPrompt} onChange={(e) => setNewPrompt(e.target.value)} placeholder="How should it behave? e.g. “You are a friendly chef who suggests quick recipes.”" aria-label="Persona instructions" rows={3} />
               <button type="submit" className="btn primary" disabled={!newName.trim() || !newPrompt.trim()}>
                 Add persona
               </button>

@@ -147,7 +147,7 @@
 @keyframes orb-caret-breathe { 50% { opacity: 0.3; } }
 /* The orb is the caret now: the field's own one steps aside (text boxes, the code editor's drawn
    cursor, the terminal's block). */
-:root[data-orb-caret] :is(input, textarea, [contenteditable='true']):focus { caret-color: transparent; }
+:root[data-orb-caret] :is(input, textarea, .ta-plain, [contenteditable='true']):focus { caret-color: transparent; }
 :root[data-orb-caret] .cm-editor.cm-focused .cm-cursorLayer { visibility: hidden; }
 :root[data-orb-caret] .xterm.focus .xterm-rows .xterm-cursor {
   background-color: transparent !important;

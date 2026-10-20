@@ -3,6 +3,7 @@ import type { ModelOption, RunnerCapabilities, RunnerMode, SessionSummary } from
 import { Icon } from '../../ui/Icon';
 import { InlineText } from './Transcript';
 import { MODES, MODE_LABELS, enterAction, isSignInError } from './model';
+import { TextArea } from '../../ui/TextArea';
 
 export type ModelsState =
   | { status: 'idle' }
@@ -300,7 +301,7 @@ export function Composer({
         )}
 
         <div className="ag-input-row">
-          <textarea
+          <TextArea
             ref={textareaRef}
             className="ag-input"
             rows={1}
