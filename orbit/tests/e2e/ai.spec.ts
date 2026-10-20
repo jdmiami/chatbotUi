@@ -136,6 +136,8 @@ async function mockStudio(page: Page) {
     return route.fulfill({ json: { ok: true } });
   });
   await page.route('**/fake-ai/_orbit/studio/file/**', (route) => route.fulfill({ status: 200, headers: { 'content-type': 'image/png' }, body: PNG }));
+  // An AI machine without the meme lab (tests that want it add their own route).
+  await page.route('**/fake-ai/_orbit/studio/lab**', (route) => route.fulfill({ status: 404, json: { error: 'Not found' } }));
   await page.route('**/fake-ai/_orbit/studio/jobs', async (route) => {
     const body = route.request().postDataJSON() as Record<string, unknown>;
     requests.push(body);
@@ -193,6 +195,55 @@ async function openCreate(page: Page) {
 }
 
 test.describe('AI app: Create', () => {
+  test('meme lab: videos made while unused, best first, scores shown, keep one, turn it off', async ({ page }, testInfo) => {
+    await mockAi(page, 'on');
+    const studio = await mockStudio(page);
+    const rec = (id: string, title: string, score: number | null, status: string) => ({
+      id, title, score, status, url: `/_orbit/studio/file/${id}?t=tok`, prompt: `${title} prompt`, caption: `${title} caption`, hashtags: ['#meme', '#fyp'], seconds: 5,
+      createdAt: '2026-10-20T10:00:00Z', why: score ? 'Hook lands in the first second.' : 'No chat model is installed to judge it.',
+    });
+    const lab = {
+      enabled: true, quietMinutes: 3, readyScore: 75, madeLastHour: 2, lastError: null as string | null,
+      making: { title: 'Grandma discovers bubble tea', job: { id: 'lab9', kind: 'video', prompt: 'x', status: 'running', progress: 42, error: null, createdAt: '', item: null } } as unknown,
+      records: [rec('m1', 'The goose has a 9-to-5', 62, 'judged'), rec('m2', 'Nobody: … the capybara:', 91, 'ready')],
+    };
+    const calls: string[] = [];
+    await page.route('**/fake-ai/_orbit/studio/lab**', async (route) => {
+      const url = new URL(route.request().url());
+      const method = route.request().method();
+      calls.push(`${method} ${url.pathname.replace(/.*\/_orbit\/studio/, '')}`);
+      if (method === 'POST' && url.pathname.endsWith('/lab')) lab.enabled = (route.request().postDataJSON() as { enabled: boolean }).enabled;
+      const keep = /\/lab\/(\w+)\/keep$/.exec(url.pathname);
+      if (keep) {
+        const r = lab.records.find((x) => x.id === keep[1])!;
+        lab.records = lab.records.filter((x) => x.id !== keep[1]);
+        studio.items.unshift({ id: r.id, kind: 'video', prompt: r.prompt, width: 704, height: 1280, seconds: 5, createdAt: r.createdAt, url: r.url });
+      }
+      return route.fulfill({ json: lab });
+    });
+    const errors = await openOrbit(page);
+    await openCreate(page);
+    const section = page.getByRole('region', { name: 'Meme lab' });
+    await section.scrollIntoViewIfNeeded();
+    await expect(section.getByRole('status')).toContainText('Making “Grandma discovers bubble tea” · 42%');
+    const list = section.getByRole('list', { name: 'Meme lab videos, best first' });
+    await expect(list.getByRole('listitem')).toHaveCount(2);
+    await expect(list.getByRole('listitem').first()).toContainText('Ready to post');
+    await expect(list.getByRole('listitem').first()).toContainText('91');
+    await expect(list.getByRole('listitem').nth(1)).toContainText('62');
+    await expectNoHorizontalOverflow(page);
+    await page.screenshot({ path: testInfo.outputPath('meme-lab.png'), fullPage: false });
+
+    await list.getByRole('listitem').first().getByRole('button', { name: 'Keep in gallery' }).click();
+    await expect(list.getByRole('listitem')).toHaveCount(1);
+    await expect(page.getByRole('list', { name: 'Your creations' }).getByRole('listitem')).toHaveCount(3);
+    expect(calls).toContain('POST /lab/m2/keep');
+
+    await section.getByRole('switch', { name: 'Make meme videos while the machine is unused' }).click();
+    await expect.poll(() => lab.enabled).toBe(false);
+    expect(errors).toEqual([]);
+  });
+
   test('make an image: progress, then it lands in the gallery; fits and is tappable', async ({ page }, testInfo) => {
     await mockAi(page, 'on');
     const studio = await mockStudio(page);

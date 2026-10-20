@@ -1,4 +1,4 @@
-// The Linux machine turns itself off after 20 minutes without touch, mouse or keyboard input
+// The Linux machine turns itself off after an hour without touch, mouse or keyboard input
 // (in the desktop, the terminal, Orbit or VS Code) while no Antigravity turn is running.
 // An open page or a live connection is not input: only what a person does counts.
 

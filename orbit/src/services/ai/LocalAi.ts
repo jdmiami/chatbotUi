@@ -86,6 +86,32 @@ export interface StudioState {
 }
 
 /** A maker in the studio's store (Create → Makers). */
+/** A meme-lab video: made while the AI machine was unused, scored by a chat model for how viral it could go. */
+export interface MemeRecord {
+  id: string;
+  url?: string;
+  title: string;
+  prompt: string;
+  caption: string;
+  hashtags: string[];
+  seconds?: number;
+  createdAt: string;
+  /** 0–100, or null when there was no chat model to judge it. */
+  score?: number | null;
+  why?: string;
+  /** judging · made (waiting to be judged) · judged · ready (scored high enough to post) */
+  status: 'judging' | 'made' | 'judged' | 'ready';
+}
+export interface MemeLabState {
+  enabled: boolean;
+  quietMinutes: number;
+  readyScore: number;
+  making: { title: string; job: StudioJob | null } | null;
+  madeLastHour: number;
+  lastError: string | null;
+  records: MemeRecord[];
+}
+
 export interface StudioMakerInfo {
   id: string;
   kind: 'image' | 'video' | 'edit' | 'upscale' | 'style';
@@ -469,6 +495,29 @@ export class LocalAi {
 
   async cancelStudioJob(id: string): Promise<void> {
     await this.studioCall(`/_orbit/studio/jobs/${encodeURIComponent(id)}/cancel`, { method: 'POST', body: '{}' });
+  }
+
+  // ---- meme lab (made while the machine is unused; never keeps it on)
+
+  private labAbsolute(st: MemeLabState): MemeLabState {
+    return { ...st, making: st.making ? { ...st.making, job: st.making.job ? this.absoluteJob(st.making.job) : null } : null, records: st.records.map((r) => this.absolute(r)) };
+  }
+
+  async memeLab(): Promise<MemeLabState> {
+    return this.labAbsolute(await this.studioCall<MemeLabState>('/_orbit/studio/lab'));
+  }
+
+  async setMemeLab(enabled: boolean): Promise<MemeLabState> {
+    return this.labAbsolute(await this.studioCall<MemeLabState>('/_orbit/studio/lab', { method: 'POST', body: JSON.stringify({ enabled }) }));
+  }
+
+  /** Move a meme-lab video into the gallery. */
+  async keepMeme(id: string): Promise<MemeLabState> {
+    return this.labAbsolute(await this.studioCall<MemeLabState>(`/_orbit/studio/lab/${encodeURIComponent(id)}/keep`, { method: 'POST', body: '{}' }));
+  }
+
+  async deleteMeme(id: string): Promise<MemeLabState> {
+    return this.labAbsolute(await this.studioCall<MemeLabState>(`/_orbit/studio/lab/${encodeURIComponent(id)}`, { method: 'DELETE' }));
   }
 
   async deleteStudioItem(id: string): Promise<void> {

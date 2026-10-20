@@ -281,3 +281,35 @@ test('an edited or sharpened picture records its real size, read from the PNG', 
   assert.equal(await pngSize(path.join(dir, 'b.png')), null);
   assert.equal(await pngSize(path.join(dir, 'missing.png')), null);
 });
+
+test('meme lab jobs: yours go first, a running lab job makes way, and lab jobs never keep the machine on', async () => {
+  const { c, studio, done } = await setup();
+  const lab1 = await studio.createJob({ kind: 'image', prompt: 'a goose at a desk', background: true });
+  const lab2 = await studio.createJob({ kind: 'image', prompt: 'a cat in a gym', background: true });
+  assert.deepEqual(c.prompts, ['p1'], 'the first lab job runs');
+  assert.equal(studio.busy(), false, 'lab jobs do not keep the machine on');
+  assert.equal(studio.hasUserWork(), false);
+  assert.deepEqual((await studio.state()).jobs, [], 'lab jobs stay out of your queue');
+
+  const mine = await studio.createJob({ kind: 'image', prompt: 'a red fox' });
+  assert.equal(studio.job(lab1.id).status, 'stopped', 'the running lab job stopped for yours');
+  assert.ok(c.calls.includes('/interrupt'));
+  assert.equal(studio.busy(), true);
+  assert.equal(studio.hasUserWork(), true);
+  assert.deepEqual(c.prompts, ['p1', 'p2'], 'yours went next, ahead of the waiting lab job');
+  assert.equal(studio.job(mine.id).position, 0);
+
+  await done('p2');
+  await studio.poll();
+  assert.equal(studio.job(mine.id).status, 'done');
+  assert.deepEqual(c.prompts, ['p1', 'p2', 'p3'], 'then the lab carries on');
+  await done('p3');
+  await studio.poll();
+  assert.equal(studio.job(lab2.id).status, 'done');
+  // Lab results stay out of the gallery until kept.
+  assert.deepEqual((await studio.items()).map((i) => i.id), [mine.id]);
+  assert.deepEqual((await studio.labItems()).map((i) => i.id), [lab2.id]);
+  assert.equal(await studio.promote(lab2.id), true);
+  assert.deepEqual((await studio.items()).map((i) => i.id).sort(), [mine.id, lab2.id].sort());
+  assert.deepEqual(await studio.labItems(), []);
+});

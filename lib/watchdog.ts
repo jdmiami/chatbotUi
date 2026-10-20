@@ -4,14 +4,14 @@ import { runpod, podId as linuxPodId } from '@/lib/runpod';
 /**
  * The outside fail-safe. Every few minutes (a GitHub Actions schedule, plus Vercel's daily cron) this
  * looks at every machine that is on and turns off the ones that should have turned themselves off:
- *  - no job (AI) or no input (Linux) for 20 minutes, with a 5-minute grace for the machine's own timer;
- *  - or the machine doesn't say how idle it is (broken or still on old code) and has been on for an hour.
+ *  - no job (AI) or no input (Linux) for an hour, with a 5-minute grace for the machine's own timer;
+ *  - or the machine doesn't say how idle it is (broken or still on old code) and has been on for 90 minutes.
  * It only ever stops machines, never starts or changes them, so it needs no sign-in.
  */
 
-const LIMIT_MINUTES = 20;
+const LIMIT_MINUTES = 60;
 const GRACE_MINUTES = 5;
-const BLIND_LIMIT_MINUTES = 60;
+const BLIND_LIMIT_MINUTES = 90;
 
 interface Pod {
   id: string;
