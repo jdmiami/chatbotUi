@@ -174,5 +174,10 @@ export function createModelStore(o) {
     await json('/api/generate', { method: 'POST', body: JSON.stringify({ model: name, keep_alive: 0 }), timeout: 30_000 });
   }
 
-  return { list, featured, search, files, install, remove, load, unload, dismiss: (name) => pulls.delete(name) };
+  return {
+    list, featured, search, files, install, remove, load, unload,
+    dismiss: (name) => pulls.delete(name),
+    /** A model is still downloading (or being saved to R2): the machine must not turn itself off. */
+    busy: () => [...pulls.values()].some((p) => !p.done),
+  };
 }

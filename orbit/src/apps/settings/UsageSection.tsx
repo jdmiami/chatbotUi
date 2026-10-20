@@ -3,6 +3,7 @@ import { useShell } from '../../state/shell';
 import { cloudStatus, type CloudStatus } from '../../services/ai/CloudAi';
 import { Toggle } from '../../ui/components';
 import { Section } from './parts';
+import { disableNotify, enableNotify, notifyState, type NotifyState } from '../../services/notify';
 
 /**
  * What the status pill used to show at the top of every screen, now here: money (balance, spending
@@ -291,6 +292,63 @@ export function CloudAiSection() {
             </span>
           </div>
         )}
+      </div>
+    </Section>
+  );
+}
+
+const NOTIFY_NOTE: Record<NotifyState, string> = {
+  unsupported: 'This browser cannot show notifications. Orbit still warns you on screen while it is open.',
+  'home-screen': 'On iPhone and iPad: tap Share, then Add to Home Screen, open Orbit from your Home Screen, and turn this on there.',
+  blocked: 'Notifications are blocked for Orbit. Allow them in your device settings (Notifications → Orbit) or the browser’s site settings.',
+  off: 'Off: you only see the warning while Orbit is open.',
+  on: 'On: this device gets a notification 10 minutes before the AI machine turns itself off. Tap it to keep the machine on.',
+};
+
+/** "Turning off in 10 minutes" notifications from the AI machine. */
+export function NotifySection() {
+  const toast = useShell((s) => s.toast);
+  const [state, setState] = useState<NotifyState | null>(null);
+  const [busy, setBusy] = useState(false);
+  useEffect(() => {
+    let live = true;
+    void notifyState().then((s) => live && setState(s));
+    return () => {
+      live = false;
+    };
+  }, []);
+  const change = async (on: boolean) => {
+    setBusy(true);
+    try {
+      if (on) {
+        const r = await enableNotify();
+        setState(r.state);
+        if (r.state === 'on') toast(r.saved ? 'Notifications on' : 'Notifications on. Your AI machine learns about this device the next time it is on.', 'success');
+      } else {
+        await disableNotify();
+        setState('off');
+      }
+    } catch (err) {
+      toast((err as Error).message, 'error');
+      setState(await notifyState());
+    } finally {
+      setBusy(false);
+    }
+  };
+  const canToggle = state === 'on' || state === 'off';
+  return (
+    <Section
+      title="Notifications"
+      caption="The AI machine turns itself off after 20 minutes with nothing to do (the 20 minutes start once every download has finished). Ten minutes before, it can tell you."
+    >
+      <div className="list">
+        <label className={canToggle ? 'row st-row st-click' : 'row st-row'}>
+          <span className="st-main">
+            <span className="st-label">Before the AI machine turns off</span>
+            <span className="st-sub" data-testid="notify-state">{state ? NOTIFY_NOTE[state] : 'Checking…'}</span>
+          </span>
+          {canToggle && <Toggle checked={state === 'on'} label="Notify before the AI machine turns off" onChange={(v) => !busy && void change(v)} />}
+        </label>
       </div>
     </Section>
   );

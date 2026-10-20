@@ -199,6 +199,9 @@ export function createIdleWatch({
   maxBusyMinutes = 180,
   maxHoldMinutes = 120,
   retryMinutes = 2,
+  // Called once when the turn-off time is `warnMinutes` away (the "turning off in 10 minutes" notice).
+  warnMinutes = 10,
+  warn = null,
 }) {
   let last = now(); // last request for work (or boot)
   let lastBusy = 0; // last time busy() said a job was running
@@ -206,6 +209,7 @@ export function createIdleWatch({
   let stopping = null; // last stop attempt result
   let retryAt = 0;
   let timer = null;
+  let warnedFor = 0; // the turn-off time already warned about
   const limitMs = limitMinutes * 60_000;
   // Busy only counts while the last real request is recent enough.
   const busyCounts = () => now() - last < maxBusyMinutes * 60_000;
@@ -218,6 +222,13 @@ export function createIdleWatch({
       else log.warn?.(`[gate] a job has kept the machine busy for over ${maxBusyMinutes} min with no new request; ignoring it`);
     }
     const t = now();
+    const offAt = Math.max(idleSince() + limitMs, hold);
+    if (warn && offAt - t <= warnMinutes * 60_000 && offAt > t && offAt !== warnedFor) {
+      warnedFor = offAt;
+      Promise.resolve()
+        .then(() => warn(offAt))
+        .catch((err) => log.warn?.(`[gate] could not send the turn-off warning: ${err.message}`));
+    }
     if (t - idleSince() < limitMs || t < hold || t < retryAt) return;
     log.info?.(`[gate] no job for ${limitMinutes} min, stopping the machine`);
     try {

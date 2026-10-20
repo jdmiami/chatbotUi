@@ -6,6 +6,8 @@ import { createGate } from './gate.js';
 import { createIdleWatch, createModelKeeper, ollamaJson, runpodStopSelf } from './machine.js';
 import { installStudioFunction } from './openwebui.js';
 import { createModelStore } from './store.js';
+import { createPush } from './push.js';
+import fs from 'node:fs/promises';
 import { createStudio } from './studio.js';
 import { createMovies } from './movies.js';
 import { createSysStats } from './sysstats.js';
@@ -55,12 +57,37 @@ const r2test = studio && r2conf && !r2
   ? createR2Test({ r2: createR2(r2conf), file: path.join(env.STUDIO_DIR, 'models', QWEN.dir, QWEN.name), key: `models/${QWEN.dir}/${QWEN.name}` })
   : null;
 
+// Models added from the Model store (their downloads count as a job, like the default models').
+const store = createModelStore({
+  ollama: OLLAMA,
+  volume: env.PERSIST_DIR || '/workspace',
+  saved: async () => ollamaSync && (await ollamaSync.backup()),
+  removed: async () => ollamaSync && (await ollamaSync.prune().catch((err) => console.warn(`[gate] could not remove it from R2: ${err.message}`))),
+});
+
+// Notifications to the owner's phone/computer. The list of browsers is kept in R2 when the disk
+// is wiped at each stop, otherwise next to the models.
+const PUSH_KEY = 'orbit/push-subscriptions.json';
+const pushFile = path.join(env.PERSIST_DIR || '/workspace', '.orbit-push.json');
+const push = HELPER
+  ? null
+  : createPush({
+      secret: env.GATEWAY_SECRET,
+      subject: /^https:\/\//.test(env.SITE_URL || '') ? env.SITE_URL.replace(/\/$/, '') : 'mailto:owner@orbit.local',
+      load: async () => (r2 ? r2.getJson(PUSH_KEY) : JSON.parse(await fs.readFile(pushFile, 'utf8'))),
+      save: async (list) => (r2 ? r2.put(PUSH_KEY, JSON.stringify(list), 'application/json') : fs.writeFile(pushFile, JSON.stringify(list))),
+      log: console,
+    });
+
 // Turns itself off after 20 minutes without a job (IDLE_MINUTES can only make that shorter).
 const idle = createIdleWatch({
   limitMinutes: Math.min(Number(env.IDLE_MINUTES) || 20, 20),
-  // Busy while a picture, video or movie shot is being made or a download is running. A model merely
-  // sitting in GPU memory is not a job.
-  busy: async () => Boolean(models.pulling() || studio?.busy() || r2test?.running() || ollamaSync?.busy() || webuiBackup?.busy()),
+  // Busy while a picture, video or movie shot is being made or a download is running (so the 20
+  // minutes start once every download is done). A model merely sitting in GPU memory is not a job.
+  busy: async () => Boolean(models.pulling() || store.busy() || studio?.busy() || r2test?.running() || ollamaSync?.busy() || webuiBackup?.busy()),
+  // 10 minutes before turning off: a notification, so the owner can keep it on.
+  warnMinutes: 10,
+  warn: push ? async () => void (await push.send()) : null,
   stop: async () => {
     // Last chats first: the disk is wiped when the machine stops.
     if (webuiBackup) await webuiBackup.snapshot().catch((err) => console.warn(`[gate] could not save the playground: ${err.message}`));
@@ -148,12 +175,8 @@ const server = createGate({
   movies,
   r2test,
   studioKey: env.STUDIO_KEY || '',
-  store: createModelStore({
-    ollama: OLLAMA,
-    volume: env.PERSIST_DIR || '/workspace',
-    saved: async () => ollamaSync && (await ollamaSync.backup()),
-    removed: async () => ollamaSync && (await ollamaSync.prune().catch((err) => console.warn(`[gate] could not remove it from R2: ${err.message}`))),
-  }),
+  store,
+  push,
   search: createSearch(),
   voice: createVoice({ webui: WEBUI, email: env.AI_USER_EMAIL || 'owner@orbit.local', name: env.AI_USER_NAME || 'Owner' }),
 });

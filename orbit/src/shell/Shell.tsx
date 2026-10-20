@@ -11,6 +11,7 @@ import { AppHost } from './AppHost';
 import { AppSwitcher } from './AppSwitcher';
 import { ControlCenter } from './ControlCenter';
 import { Toasts } from './Toasts';
+import { AiOffWarning } from './AiOffWarning';
 import { IntroSheet } from './IntroSheet';
 import { Path } from './o5/Path';
 import { Handle } from './o5/Handle';
@@ -66,6 +67,7 @@ export function Shell() {
       {overlay === 'control-center' && <ControlCenter />}
       {!settings.introSeen && <IntroSheet />}
       <Toasts />
+      <AiOffWarning />
       <OrbCursor />
       <WriteHelp />
     </div>

@@ -808,6 +808,25 @@ button.row:hover {
   animation: sheet-up var(--dur-med) var(--ease-out);
 }
 
+/* "AI machine turns off in 10 minutes" (AiOffWarning) */
+.ai-offwarn {
+  position: absolute;
+  left: 50%;
+  bottom: calc(var(--app-bottom-inset, var(--safe-bottom)) + 16px);
+  transform: translateX(-50%);
+  z-index: 91;
+  width: min(440px, calc(100% - 24px));
+  padding: 14px 16px;
+  border-radius: var(--radius-md);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  animation: sheet-up var(--dur-med) var(--ease-out);
+}
+.ai-offwarn-text { margin: 0; font-size: var(--fs-sm); line-height: 1.4; color: var(--text-2); }
+.ai-offwarn-text strong { color: var(--text); font-weight: 600; }
+.ai-offwarn-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+
 /* App switcher */
 .switcher {
   position: absolute;

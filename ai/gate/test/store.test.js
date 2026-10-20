@@ -84,13 +84,16 @@ test('store: Hugging Face search and the sizes a model comes in', async () => {
 
 test('store: install from search gets a friendly name; delete and load', async () => {
   const { state, store } = newStore();
+  assert.equal(store.busy(), false);
   const name = store.install({ repo: 'org/Cool-Model-GGUF', quant: 'Q4_K_M' });
   assert.equal(name, 'cool-model:q4_k_m');
+  assert.equal(store.busy(), true, 'a download keeps the machine on');
   for (let i = 0; i < 50 && !state.models.includes(name); i++) await new Promise((r) => setTimeout(r, 5));
   await new Promise((r) => setTimeout(r, 10));
   assert.ok(state.models.includes(name));
   assert.ok(!state.models.includes('hf.co/org/Cool-Model-GGUF:Q4_K_M'), 'the long source name is removed');
   assert.deepEqual((await store.list()).pulls, []);
+  assert.equal(store.busy(), false);
   await store.load(name);
   assert.deepEqual(state.loaded, [name]);
   await store.remove(name);

@@ -17,6 +17,6 @@ export async function proxy(request: NextRequest) {
 
 export const config = {
   matcher: [
-    '/((?!login|api/ai/endpoint|api/orb/ai|api/status|api/watchdog|orbit/island.js|_next/static|_next/image|favicon.ico|icon.svg|apple-icon.png|robots.txt|orbit/manifest.webmanifest|orbit/icon.svg|orbit/apple-touch-icon.png).*)',
+    '/((?!login|api/ai/endpoint|api/orb/ai|api/status|api/watchdog|orbit/island.js|_next/static|_next/image|favicon.ico|icon.svg|apple-icon.png|robots.txt|orbit/manifest.webmanifest|orbit/icon.svg|orbit/apple-touch-icon.png|orbit/sw.js).*)',
   ],
 };
