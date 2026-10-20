@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { Icon } from '../../ui/Icon';
 import { IconButton, Segmented, Toggle } from '../../ui/components';
 import { TextArea } from '../../ui/TextArea';
+import { Censor } from '../../ui/Censor';
 import { AiError, type LabIdea, type LabStyle, type LocalAi, type MemeLabState, type MemeRecord } from '../../services/ai/LocalAi';
 
 /**
@@ -71,7 +72,7 @@ export function MemeLab({ ai, machineOn, isActive, onKept }: { ai: LocalAi; mach
     );
 
   const copy = (r: MemeRecord) => {
-    const text = `${r.caption} ${r.hashtags.join(' ')}`.trim();
+    const text = `${r.caption ?? ''} ${(r.hashtags ?? []).join(' ')}`.trim();
     navigator.clipboard?.writeText(text).then(
       () => {
         setCopied(r.id);
@@ -82,14 +83,15 @@ export function MemeLab({ ai, machineOn, isActive, onKept }: { ai: LocalAi; mach
   };
 
   const topics = lab?.topics ?? [];
+  const queue = lab?.queue ?? [];
   const addTopic = () => {
     const t = topic.trim();
     if (!t || topics.includes(t)) return;
     void act(ai.setLabTopics([...topics, t]), () => setTopic(''));
   };
-  const records = [...(lab?.records ?? [])].sort((a, b) => (b.score ?? -1) - (a.score ?? -1));
+  const records = [...(lab?.records ?? [])].filter((r) => r && r.id).sort((a, b) => (b.score ?? -1) - (a.score ?? -1));
   const job = lab?.making?.job;
-  const queueMinutes = (lab?.queue.length ?? 0) * (lab?.minutesPerVideo ?? 6);
+  const queueMinutes = queue.length * (lab?.minutesPerVideo ?? 6);
   const style: LabStyle = lab?.style ?? 'comedy';
   const spicy = style === 'spicy';
   const kind = spicy ? 'spicy' : 'comedy';
@@ -179,11 +181,11 @@ export function MemeLab({ ai, machineOn, isActive, onKept }: { ai: LocalAi; mach
 
       <div className="meme-lab-block">
         <p className="o5-kicker">
-          Up next{lab && lab.queue.length > 0 ? ` · ${lab.queue.length} planned, about ${queueMinutes} min · machine off in about ${lab.minutesLeft} min` : ''}
+          Up next{queue.length > 0 ? ` · ${queue.length} planned, about ${queueMinutes} min · machine off in about ${lab?.minutesLeft ?? 0} min` : ''}
         </p>
-        {lab && lab.queue.length > 0 && (
+        {queue.length > 0 && (
           <ol className="meme-queue" aria-label="Up next">
-            {lab.queue.map((q: LabIdea, i) => (
+            {queue.map((q: LabIdea, i) => (
               <li key={q.id} className="meme-queue-item">
                 <span className="meme-queue-n" aria-hidden>
                   {String(i + 1).padStart(2, '0')}
@@ -247,7 +249,9 @@ export function MemeLab({ ai, machineOn, isActive, onKept }: { ai: LocalAi; mach
           <ol className="meme-lab-list" aria-label="Lab videos, best first">
             {records.map((r) => (
               <li key={r.id} className="meme-card" data-ready={r.status === 'ready' || undefined}>
-                <video src={r.url ? `${r.url}#t=0.1` : undefined} controls playsInline preload="metadata" muted aria-label={r.title} />
+                <Censor as="div" className="meme-card-media">
+                  <video src={r.url ? `${r.url}#t=0.1` : undefined} controls playsInline preload="metadata" muted aria-label={r.title} />
+                </Censor>
                 <div className="meme-card-text">
                   <p className="meme-card-kicker">
                     {r.status === 'ready' ? 'Ready to post' : r.status === 'judged' ? 'Judged' : 'Waiting to be judged'}
@@ -256,7 +260,7 @@ export function MemeLab({ ai, machineOn, isActive, onKept }: { ai: LocalAi; mach
                   <p className="meme-card-title">{r.title}</p>
                   {r.why && <p className="ai-muted meme-card-why">{r.why}</p>}
                   <p className="meme-card-caption">
-                    {r.caption} <span className="ai-muted">{r.hashtags.join(' ')}</span>
+                    {r.caption} <span className="ai-muted">{(r.hashtags ?? []).join(' ')}</span>
                   </p>
                   <div className="meme-card-actions">
                     <button type="button" className="btn" onClick={() => copy(r)}>

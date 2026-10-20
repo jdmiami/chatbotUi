@@ -1123,3 +1123,16 @@ a.btn {
 /* App icons are drawings now (ui/AppArt): the tile itself carries no colour or shadow of its own. */
 .glyph.glyph-art { background: none; box-shadow: none; overflow: visible; }
 .glyph.glyph-art > svg { display: block; }
+
+/* The censor: blurred pictures and videos; press and hold to see one. */
+.censor { position: relative; display: block; overflow: hidden; -webkit-touch-callout: none; user-select: none; -webkit-user-select: none; touch-action: manipulation; }
+.censor > img, .censor > video, .censor > button, .censor > .ai-dev, .censor > .ai-tile { filter: blur(22px) saturate(0.6); transform: scale(1.08); transition: filter 160ms ease, transform 160ms ease; }
+.censor[data-revealed] > img, .censor[data-revealed] > video, .censor[data-revealed] > button, .censor[data-revealed] > .ai-dev, .censor[data-revealed] > .ai-tile { filter: none; transform: none; }
+.censor-hint {
+  position: absolute; inset: auto 0 0 0; margin: auto; width: max-content; max-width: 90%; padding: 4px 10px; margin-bottom: 8px;
+  font: 500 11px/1.4 var(--font-ui, system-ui); letter-spacing: 0.04em; text-transform: uppercase; color: #fff;
+  background: rgba(0, 0, 0, 0.55); border-radius: 999px; pointer-events: none;
+}
+.censor > video { pointer-events: none; }
+.censor[data-revealed] > video { pointer-events: auto; }
+@media (prefers-reduced-motion: reduce) { .censor > *, .censor[data-revealed] > * { transition: none; } }

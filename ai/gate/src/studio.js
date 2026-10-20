@@ -100,8 +100,6 @@ export function blockedForPhoto(text) {
   return SEXUAL.test(t) || UNDRESS.test(t);
 }
 export const PHOTO_MESSAGE = "Photos you upload can't be made sexual or have clothes removed: they may show real people. Pictures made here from a description can.";
-/** With the censor on, nothing sexual is made at all: the photo rule applies to every job. */
-export const CENSOR_MESSAGE = 'The censor is on: nothing sexual or undressed is made. Turn it off in Create to allow it.';
 
 // ---------------------------------------------------------------- helpers
 
@@ -192,12 +190,8 @@ export function createStudio(o) {
   const modelPath = (file) => path.join(dir, 'models', file.dir, file.name);
   const wantedPath = path.join(dir, 'makers.json');
   let wanted = new Set();
-  // The censor: when on, nothing sexual is made (saved with the makers; off until you turn it on).
-  let censor = false;
   try {
-    const saved = JSON.parse(fs.readFileSync(wantedPath, 'utf8'));
-    wanted = new Set(saved.wanted || []);
-    censor = saved.censor === true;
+    wanted = new Set(JSON.parse(fs.readFileSync(wantedPath, 'utf8')).wanted || []);
   } catch {
     /* none yet */
   }
@@ -335,9 +329,8 @@ export function createStudio(o) {
   }
 
   async function saveWanted() {
-    const saved = { wanted: [...wanted], censor };
-    await fsp.writeFile(wantedPath, JSON.stringify(saved));
-    if (r2) await r2.putJson('state/makers.json', saved).catch((err) => log.warn?.(`[studio] could not save makers in R2: ${err.message}`));
+    await fsp.writeFile(wantedPath, JSON.stringify({ wanted: [...wanted] }));
+    if (r2) await r2.putJson('state/makers.json', { wanted: [...wanted] }).catch((err) => log.warn?.(`[studio] could not save makers in R2: ${err.message}`));
   }
 
   async function installMaker(id) {
@@ -618,7 +611,6 @@ export function createStudio(o) {
     let prompt = String(req.prompt || '').trim().slice(0, 4000);
     if (!prompt && mode !== 'upscale') throw Object.assign(new Error(mode === 'edit' ? 'Describe the change.' : 'Describe what to make.'), { status: 400 });
     if (blockedPrompt(prompt)) throw Object.assign(new Error(BLOCKED_MESSAGE), { status: 422, blocked: true });
-    if (censor && blockedForPhoto(prompt)) throw Object.assign(new Error(CENSOR_MESSAGE), { status: 422, blocked: true });
     const uploads = [...(req.image ? [req.image] : []), ...(Array.isArray(req.images) ? req.images : [])].slice(0, 2);
     // A gallery picture or video that came from someone's photo keeps the photo rule.
     const fromId = req.fromLastFrameOf || req.fromItem;
@@ -1141,8 +1133,7 @@ export function createStudio(o) {
       const saved = await r2.getJson('state/makers.json');
       if (saved?.wanted) {
         wanted = new Set(saved.wanted);
-        censor = saved.censor === true;
-        await fsp.writeFile(wantedPath, JSON.stringify({ wanted: [...wanted], censor })).catch(() => {});
+        await fsp.writeFile(wantedPath, JSON.stringify({ wanted: [...wanted] })).catch(() => {});
       }
       const t = await r2.getJson(`state/${path.basename(timingsPath)}`);
       if (t && typeof t === 'object') timings = { ...t, ...timings };
@@ -1160,7 +1151,6 @@ export function createStudio(o) {
       video: { ready: videoReady && up, downloaded: videoReady, percent: videoReady ? 100 : kindProgress('video') },
       downloading: download.current ? { name: download.current.name, saving: Boolean(download.current.saving), percent: download.current.total ? Math.floor((download.current.completed / download.current.total) * 100) : 0 } : null,
       downloadError: download.error,
-      censor,
       jobs: active().filter((j) => !j.background).map(publicJob),
     };
   }
@@ -1211,13 +1201,6 @@ export function createStudio(o) {
     remove,
     file,
     poll,
-    /** Turn the censor on or off (nothing sexual is made while it is on). */
-    async setCensor(on) {
-      censor = Boolean(on);
-      await saveWanted();
-      return censor;
-    },
-    censor: () => censor,
     sizes: SIZES,
     mirror,
   };

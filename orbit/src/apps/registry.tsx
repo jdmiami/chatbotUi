@@ -6,7 +6,29 @@ import type { AppProps } from './types';
 
 // Each app is its own download (CodeMirror and xterm are large), fetched the first time it opens.
 // preloadApps() fetches them in the background once Orbit has started, so later opens are instant.
-const loaders: Record<AppId, () => Promise<{ default: ComponentType<AppProps> }>> = {
+// Orbit is deployed often: a page from before a deploy asks for app code that no longer exists (a
+// 404 or a failed fetch). The first time that happens, reload once so the page matches the deploy;
+// if it still fails after that, the app's own "couldn't load" message shows.
+function fresh<T>(load: () => Promise<T>): () => Promise<T> {
+  return () =>
+    load().catch((err: unknown) => {
+      const key = 'orbit:reloaded-for-chunk';
+      let reloaded = false;
+      try {
+        reloaded = sessionStorage.getItem(key) === location.href;
+        if (!reloaded) sessionStorage.setItem(key, location.href);
+      } catch {
+        /* storage blocked: just fail */
+      }
+      if (!reloaded && typeof location !== 'undefined' && /fetch|import|load|module/i.test(String((err as Error)?.message || err))) {
+        location.reload();
+        return new Promise<T>(() => {}); // the page is going away
+      }
+      throw err;
+    });
+}
+
+const raw: Record<AppId, () => Promise<{ default: ComponentType<AppProps> }>> = {
   terminal: () => import('./terminal/TerminalApp'),
   editor: () => import('./editor/EditorApp'),
   agent: () => import('./agent/AgentApp'),
@@ -21,8 +43,11 @@ const loaders: Record<AppId, () => Promise<{ default: ComponentType<AppProps> }>
   windows: () => import('./portal/PortalApp').then((m) => ({ default: m.WindowsApp })),
 };
 
+const loaders = Object.fromEntries(Object.entries(raw).map(([id, load]) => [id, fresh(load)])) as typeof raw;
+
+/** Quietly, and never with a reload: a failed preload only means the app downloads when opened. */
 export function preloadApps() {
-  Object.values(loaders).forEach((load) => void load().catch(() => {}));
+  Object.values(raw).forEach((load) => void load().catch(() => {}));
 }
 
 export interface AppMeta {

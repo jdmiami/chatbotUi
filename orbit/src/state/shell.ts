@@ -67,6 +67,8 @@ export interface Settings {
   cloudAi?: boolean;
   /** Ghost text and rewrites in text boxes (needs cloud AI). Unset = on. */
   writeHelp?: boolean;
+  /** The censor: pictures and videos are blurred until you press and hold them. Unset = off. */
+  censor?: boolean;
   /** Seen the first-run "what is simulated" sheet. */
   introSeen: boolean;
 }

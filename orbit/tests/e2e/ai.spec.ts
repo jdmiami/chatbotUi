@@ -126,13 +126,9 @@ async function mockStudio(page: Page) {
   ];
   const requests: Record<string, unknown>[] = [];
   const polls: Record<string, number> = {};
-  let censor = false;
-  const studioState = () => ({ setup: 'running', running: true, image: READY, video: READY, downloading: null, downloadError: null, censor, jobs: [] });
-  await page.route('**/fake-ai/_orbit/studio', (route) => route.fulfill({ json: studioState() }));
-  await page.route('**/fake-ai/_orbit/studio/censor', (route) => {
-    censor = Boolean((route.request().postDataJSON() as { on: boolean }).on);
-    return route.fulfill({ json: studioState() });
-  });
+  await page.route('**/fake-ai/_orbit/studio', (route) =>
+    route.fulfill({ json: { setup: 'running', running: true, image: READY, video: READY, downloading: null, downloadError: null, jobs: [] } }),
+  );
   await page.route('**/fake-ai/_orbit/studio/items', (route) => route.fulfill({ json: { items } }));
   await page.route('**/fake-ai/_orbit/studio/items/*', (route) => {
     const id = route.request().url().split('/').pop()!;
@@ -147,9 +143,6 @@ async function mockStudio(page: Page) {
     requests.push(body);
     if (/naked child/.test(String(body.prompt))) {
       return route.fulfill({ status: 422, json: { error: "This can't be made: sexual content involving minors is never allowed.", blocked: true } });
-    }
-    if (censor && /topless/.test(String(body.prompt))) {
-      return route.fulfill({ status: 422, json: { error: 'The censor is on: nothing sexual or undressed is made. Turn it off in Create to allow it.', blocked: true } });
     }
     const id = `job${requests.length}`;
     return route.fulfill({ json: { id, kind: body.kind, prompt: body.prompt, status: 'queued', progress: 0, error: null, createdAt: new Date().toISOString(), item: null } });
@@ -357,20 +350,42 @@ test.describe('AI app: Create', () => {
     await expect(page.getByText('sexual content involving minors is never allowed')).toBeVisible();
   });
 
-  test('the censor: off by default, on blocks anything sexual, and says so', async ({ page }) => {
+  test('the censor: blurs the gallery and the viewer; press and hold to see; off by default', async ({ page }) => {
     await mockAi(page, 'on');
     await mockStudio(page);
     await openOrbit(page);
     await openCreate(page);
-    const censor = page.getByRole('switch', { name: 'Censor: block anything sexual or undressed' });
+    const win = page.locator('.app-window[data-app="ai"]');
+    const censor = win.getByRole('switch', { name: 'Censor: blur pictures and videos' });
     await expect(censor).not.toBeChecked();
-    await expect(page.getByText('Off: the makers are uncensored')).toBeVisible();
+    await expect(win.locator('.censor')).toHaveCount(0);
     await censor.click();
     await expect(censor).toBeChecked();
-    await expect(page.getByText('On: nothing sexual or undressed is made')).toBeVisible();
-    await page.getByRole('textbox', { name: 'Describe it' }).fill('a topless woman on a beach');
-    await page.getByRole('button', { name: 'Make image' }).click();
-    await expect(page.getByText('The censor is on')).toBeVisible();
+    await expect(win.getByText('Press and hold one to see it')).toBeVisible();
+    const tiles = win.locator('.ai-gallery .censor');
+    await expect(tiles).toHaveCount(2);
+    const tile = tiles.first();
+    const img = tile.locator('.ai-tile');
+    expect(await img.evaluate((el) => getComputedStyle(el).filter)).toContain('blur');
+    // Hold: the picture shows while the finger is down, and the hold does not open the viewer.
+    await tile.scrollIntoViewIfNeeded();
+    const box = (await tile.boundingBox())!;
+    await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+    await page.mouse.down();
+    await expect(tile).toHaveAttribute('data-revealed', '');
+    expect(await img.evaluate((el) => getComputedStyle(el).filter)).toBe('none');
+    await page.mouse.up();
+    await expect(tile).not.toHaveAttribute('data-revealed', '');
+    await expect(win.getByRole('dialog')).toHaveCount(0);
+    // A tap still opens the viewer, where the picture is blurred too.
+    await img.click();
+    const viewer = win.locator('.ai-viewer-media.censor');
+    await expect(viewer).toBeVisible();
+    expect(await viewer.locator('img').evaluate((el) => getComputedStyle(el).filter)).toContain('blur');
+    // Off again: nothing is blurred.
+    await page.keyboard.press('Escape');
+    await censor.click();
+    await expect(win.locator('.censor')).toHaveCount(0);
     await expectTappable(page);
   });
 });

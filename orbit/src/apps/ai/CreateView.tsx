@@ -3,6 +3,7 @@ import { Step, nextStep } from '../../shell/o5/Step';
 import { useShell } from '../../state/shell';
 import { Icon } from '../../ui/Icon';
 import { ConfirmSheet, EmptyState, IconButton, Segmented, Sheet, Toggle } from '../../ui/components';
+import { Censor } from '../../ui/Censor';
 import { AiError, type LocalAi, type StudioItem, type StudioJob, type StudioKind, type StudioMakerInfo, type StudioState } from '../../services/ai/LocalAi';
 import { MAKER_CATALOG, rememberMakers, rememberedMakers } from './makerCatalog';
 import { TextArea } from '../../ui/TextArea';
@@ -89,6 +90,8 @@ export function CreateView({
 }) {
   const toast = useShell((s) => s.toast);
   const o5 = useShell((s) => s.settings.skin === 'o5');
+  const censor = useShell((s) => Boolean(s.settings.censor));
+  const updateSettings = useShell((s) => s.updateSettings);
   // The next step glides into view once this one is answered.
   const next = (id: string) => nextStep(o5, id);
   const [kind, setKind] = useState<Mode>('image');
@@ -467,19 +470,13 @@ export function CreateView({
         </Step>
       </form>
 
-      {studio && typeof studio.censor === 'boolean' && (
-        <section className="ai-censor" aria-labelledby="ai-censor-title">
-          <div className="ai-censor-text">
-            <p className="o5-kicker" id="ai-censor-title">Censor</p>
-            <p className="ai-muted">
-              {studio.censor
-                ? 'On: nothing sexual or undressed is made, by any maker, until you turn it off.'
-                : 'Off: the makers are uncensored. Turn it on to block anything sexual or undressed. Sexual content involving minors is always blocked.'}
-            </p>
-          </div>
-          <Toggle checked={studio.censor} label="Censor: block anything sexual or undressed" onChange={(on) => void ai.setCensor(on).then(setStudio, (err: Error) => setStudioError(err.message))} />
-        </section>
-      )}
+      <section className="ai-censor" aria-labelledby="ai-censor-title">
+        <div className="ai-censor-text">
+          <p className="o5-kicker" id="ai-censor-title">Censor</p>
+          <p className="ai-muted">{censor ? 'On: pictures and videos are blurred everywhere in Orbit. Press and hold one to see it.' : 'Off. Turn it on to blur every picture and video; press and hold one to see it.'}</p>
+        </div>
+        <Toggle checked={censor} label="Censor: blur pictures and videos" onChange={(on) => updateSettings({ censor: on })} />
+      </section>
 
       {o5 && jobs.length > 0 && (
         <h3 className="o5-chapter-title" id="o5-making">
@@ -537,6 +534,7 @@ export function CreateView({
         <ul className="ai-gallery" aria-label="Your creations">
           {items.map((it, n) => (
             <li key={it.id} style={{ '--i': Math.min(n, 14) } as React.CSSProperties}>
+              <Censor as="div">
               <button type="button" className="ai-tile" onClick={(e) => {
                 viewFrom.current = (e.currentTarget.querySelector('img, video') ?? e.currentTarget).getBoundingClientRect();
                 setViewing(it);
@@ -552,6 +550,7 @@ export function CreateView({
                   </>
                 )}
               </button>
+              </Censor>
             </li>
           ))}
         </ul>
@@ -560,11 +559,13 @@ export function CreateView({
       {viewing && (
         <Sheet title={viewing.kind === 'image' ? 'Image' : 'Video'} origin={viewFrom.current} onClose={() => setViewing(null)}>
           <div className="ai-viewer">
-            {viewing.kind === 'image' ? (
-              <DevelopImg src={viewing.url} alt={viewing.prompt} />
-            ) : (
-              <video src={viewing.url} controls playsInline autoPlay />
-            )}
+            <Censor as="div" className="ai-viewer-media">
+              {viewing.kind === 'image' ? (
+                <DevelopImg src={viewing.url} alt={viewing.prompt} />
+              ) : (
+                <video src={viewing.url} controls playsInline autoPlay />
+              )}
+            </Censor>
             <p className="ai-viewer-prompt">{viewing.prompt}</p>
             <div className="ai-viewer-actions">
               <a className="btn" href={withParam(viewing.url, 'download=1')} download>
