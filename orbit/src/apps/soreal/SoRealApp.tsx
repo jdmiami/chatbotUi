@@ -393,6 +393,7 @@ export default function SoRealApp({ isActive, compact, placement }: AppProps) {
             className="input"
             rows={3}
             value={draft.look}
+            aria-label="Look and characters"
             maxLength={2000}
             disabled={running}
             placeholder="Who is in it and the style, e.g. “A woman in a red coat, neon city at night, 35 mm film look.” Added to every shot so it stays consistent."
