@@ -7,11 +7,12 @@ import { applyCors, bearer, verifyOrbitToken } from './auth.js';
 import { HttpError } from './files.js';
 import { killTerminalSession, hasTmux, terminalHistory } from './pty.js';
 import { AGY_CAPABILITIES } from './agent.js';
+import { CLAW_CAPABILITIES } from './claw.js';
 import { createSysStats } from '../sysstats.js';
 
 const MAX_BODY = 5 * 1024 * 1024;
 
-export function createOrbitApi({ secret, allowedOrigins, files, agent, log, stats = createSysStats({ volume: files.root }), onInput = () => {} }) {
+export function createOrbitApi({ secret, allowedOrigins, files, agent, claw = null, log, stats = createSysStats({ volume: files.root }), onInput = () => {} }) {
   return async function handle(req, res, url) {
     if (!applyCors(req, res, allowedOrigins)) return json(res, 403, { error: 'Origin not allowed' });
     if (req.method === 'OPTIONS') {
@@ -88,52 +89,58 @@ export function createOrbitApi({ secret, allowedOrigins, files, agent, log, stat
         return json(res, 200, { ok: true });
       }
 
-      // ---- agent
-      if (route === '/agent/capabilities' && req.method === 'GET') return json(res, 200, AGY_CAPABILITIES);
-      if (route === '/agent/projects' && req.method === 'GET') return json(res, 200, await agent.listProjects());
-      if (route === '/agent/models' && req.method === 'GET') return json(res, 200, await agent.listModels());
-      if (route === '/agent/sessions') {
-        if (req.method === 'GET') return json(res, 200, agent.listSessions(url.searchParams.get('project')));
-        if (req.method === 'POST') return json(res, 201, await agent.createSession(JSON.parse((await readBody(req)) || '{}')));
-      }
-      if ((match = m(/^\/agent\/sessions\/([\w-]+)$/))) {
-        const sid = match[1];
-        if (req.method === 'GET') return json(res, 200, agent.getSession(sid));
-        if (req.method === 'PATCH') return json(res, 200, await agent.updateSession(sid, JSON.parse((await readBody(req)) || '{}')));
-        if (req.method === 'DELETE') {
-          await agent.deleteSession(sid);
-          return json(res, 200, { ok: true });
+      // ---- agents: Antigravity at /agent, OpenClaw at /claw (same routes; OpenClaw adds approvals)
+      for (const [prefix, svc, caps] of [['agent', agent, AGY_CAPABILITIES], ['claw', claw, CLAW_CAPABILITIES]]) {
+        if (!svc || !route.startsWith(`/${prefix}/`)) continue;
+        const sub = route.slice(prefix.length + 1);
+        const sm = (re) => sub.match(re);
+        if (sub === '/info' && req.method === 'GET') return json(res, 200, await svc.info());
+        if (sub === '/capabilities' && req.method === 'GET') return json(res, 200, caps);
+        if (sub === '/projects' && req.method === 'GET') return json(res, 200, await svc.listProjects());
+        if (sub === '/models' && req.method === 'GET') return json(res, 200, await svc.listModels());
+        if (sub === '/sessions') {
+          if (req.method === 'GET') return json(res, 200, svc.listSessions(url.searchParams.get('project')));
+          if (req.method === 'POST') return json(res, 201, await svc.createSession(JSON.parse((await readBody(req)) || '{}')));
         }
-      }
-      if ((match = m(/^\/agent\/sessions\/([\w-]+)\/transcript$/)) && req.method === 'GET') {
-        return json(res, 200, agent.transcript(match[1]));
-      }
-      if ((match = m(/^\/agent\/sessions\/([\w-]+)\/stop$/)) && req.method === 'POST') {
-        return json(res, 200, { stopped: agent.stop(match[1]) });
-      }
-      if ((match = m(/^\/agent\/sessions\/([\w-]+)\/send$/)) && req.method === 'POST') {
-        const { text } = JSON.parse((await readBody(req)) || '{}');
-        const sse = openSse(res);
-        try {
-          await agent.send(match[1], text, sse.emit);
-        } catch (err) {
-          sse.emit('error', { message: err.message, status: err.status ?? 500 });
-          sse.end();
+        if ((match = sm(/^\/sessions\/([\w-]+)$/))) {
+          const sid = match[1];
+          if (req.method === 'GET') return json(res, 200, svc.getSession(sid));
+          if (req.method === 'PATCH') return json(res, 200, await svc.updateSession(sid, JSON.parse((await readBody(req)) || '{}')));
+          if (req.method === 'DELETE') {
+            await svc.deleteSession(sid);
+            return json(res, 200, { ok: true });
+          }
+        }
+        if ((match = sm(/^\/sessions\/([\w-]+)\/transcript$/)) && req.method === 'GET') return json(res, 200, svc.transcript(match[1]));
+        if ((match = sm(/^\/sessions\/([\w-]+)\/stop$/)) && req.method === 'POST') return json(res, 200, { stopped: svc.stop(match[1]) });
+        if ((match = sm(/^\/sessions\/([\w-]+)\/approvals\/([\w-]+)$/)) && req.method === 'POST' && svc.decide) {
+          const { decision } = JSON.parse((await readBody(req)) || '{}');
+          return json(res, 200, await svc.decide(match[1], match[2], decision));
+        }
+        if ((match = sm(/^\/sessions\/([\w-]+)\/send$/)) && req.method === 'POST') {
+          const { text } = JSON.parse((await readBody(req)) || '{}');
+          const sse = openSse(res);
+          try {
+            await svc.send(match[1], text, sse.emit);
+          } catch (err) {
+            sse.emit('error', { message: err.message, status: err.status ?? 500 });
+            sse.end();
+            return;
+          }
+          sse.endOn('done');
           return;
         }
-        sse.endOn('done');
-        return;
-      }
-      if ((match = m(/^\/agent\/sessions\/([\w-]+)\/events$/)) && req.method === 'GET') {
-        // Follow a turn started elsewhere (e.g. on the other device).
-        const sse = openSse(res);
-        const unwatch = agent.watch(match[1], sse.emit);
-        if (!unwatch) {
-          sse.emit('idle', agent.getSession(match[1]));
-          return sse.end();
+        if ((match = sm(/^\/sessions\/([\w-]+)\/events$/)) && req.method === 'GET') {
+          // Follow a turn started elsewhere (e.g. on the other device).
+          const sse = openSse(res);
+          const unwatch = svc.watch(match[1], sse.emit);
+          if (!unwatch) {
+            sse.emit('idle', svc.getSession(match[1]));
+            return sse.end();
+          }
+          sse.endOn('done', unwatch);
+          return;
         }
-        sse.endOn('done', unwatch);
-        return;
       }
 
       throw new HttpError(404, 'Not found', 'not-found');

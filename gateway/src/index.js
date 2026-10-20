@@ -33,9 +33,29 @@ if (/^(1|true|yes)$/i.test(process.env.ORBIT_HOST || '')) {
     log,
   });
   await agent.init();
+  // OpenClaw (when installed on this machine): Orbit's agent screen talks to it through the gateway.
+  let claw = null;
+  if (process.env.CLAW_URL && process.env.CLAW_TOKEN_FILE) {
+    const { ClawService } = await import('./orbit/claw.js');
+    const dataDir = process.env.ORBIT_DATA_DIR || path.join(home, '.orbit');
+    claw = new ClawService({
+      url: process.env.CLAW_URL,
+      tokenFile: process.env.CLAW_TOKEN_FILE,
+      identityFile: path.join(dataDir, 'claw-device.json'),
+      dataFile: path.join(dataDir, 'claw.json'),
+      projectsDir,
+      models: [
+        { id: 'orbit/qwen3.6:35b', label: 'Your AI machine (Qwen 3.6 35B)' },
+        { id: 'orbit-cloud/orbit-agent', label: 'Cloud AI (works with the AI machine off)' },
+      ],
+      log,
+    });
+    await claw.init();
+    log.info(`[orbit] OpenClaw at ${process.env.CLAW_URL}`);
+  }
   orbit = {
     agent,
-    api: createOrbitApi({ secret: config.secret, allowedOrigins: config.allowedOrigins, files, agent, log, onInput: () => idle.input() }),
+    api: createOrbitApi({ secret: config.secret, allowedOrigins: config.allowedOrigins, files, agent, claw, log, onInput: () => idle.input() }),
     pty: { cwd: projectsDir },
   };
   log.info(`[orbit] host enabled: projects at ${projectsDir}`);

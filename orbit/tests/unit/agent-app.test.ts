@@ -171,6 +171,9 @@ vi.mock('../../src/services', () => ({
     return services.connection;
   },
   getRunner: () => services.runner,
+  // OpenClaw isn't installed in these tests: the screen is Antigravity only, with no agent switch.
+  getClawRunner: () => null,
+  clawAvailable: async () => false,
 }));
 
 const { default: AgentApp } = await import('../../src/apps/agent/AgentApp');

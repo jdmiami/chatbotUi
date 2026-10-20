@@ -8,6 +8,8 @@
 #   Coding:         browser --https/wss--> gateway :8080 /code/ --> code-server 127.0.0.1:8443
 #                   (VS Code with the Kilo Code agent, using the AI machine's model through
 #                    the gateway's local endpoint 127.0.0.1:8090/v1)
+#   Agent:          Orbit's agent screen --> gateway :8080 /orbit/api/claw --> OpenClaw 127.0.0.1:18789
+#                   (asks before every command; models: cloud AI via 8090/cloud/v1, AI machine via 8090/v1)
 #
 # Only port 8080 needs to be exposed. Everything else listens on localhost. Every Orbit and desktop
 # request needs a short-lived token signed with GATEWAY_SECRET by the signed-in web app.
@@ -28,6 +30,9 @@ NODE_VERSION=22.20.0
 CODE_SERVER_VERSION=4.141.0
 KILO_VERSION=7.8.12
 CODE_MODEL="${CODE_MODEL:-qwen3.6:35b}"
+# OpenClaw (the agent behind Orbit's agent screen) needs Node 24.16+; it gets its own copy in /opt.
+OPENCLAW_VERSION=2026.10.4
+OPENCLAW_NODE_VERSION=24.16.0
 export DEBIAN_FRONTEND=noninteractive
 
 log() { echo "[pod-setup] $*"; }
@@ -79,7 +84,7 @@ log "updating the gateway and Orbit host"
 rm -rf /opt/gateway.new && mkdir -p /opt/gateway.new/src/orbit /opt/gateway.new/bin /opt/gateway
 fetched=1
 for f in package.json package-lock.json src/index.js src/server.js src/protocol.js src/origins.js \
-  src/code.js src/ai-local.js src/sysstats.js src/idle.js src/orbit/auth.js src/orbit/files.js src/orbit/pty.js src/orbit/agent.js src/orbit/http.js src/orbit/seed.js \
+  src/code.js src/ai-local.js src/sysstats.js src/idle.js src/orbit/auth.js src/orbit/files.js src/orbit/pty.js src/orbit/agent.js src/orbit/claw.js src/orbit/claw-client.js src/orbit/http.js src/orbit/seed.js \
   bin/workspace-secrets.mjs; do
   curl -fsSL "${REPO_RAW}/gateway/${f}" -o "/opt/gateway.new/${f}" || { fetched=0; log "could not fetch gateway/${f}"; break; }
 done
@@ -139,10 +144,75 @@ if [ ! -x "$user_home/.local/bin/agy" ]; then
     || log "Antigravity install failed (continuing)"
 fi
 
+as_user() { sudo -u "$DESKTOP_USER" -H "$@"; }
+# OpenClaw: its own Node 24 and package in /opt (reinstalled on a fresh start, like the rest of
+# /opt); its config, state and token in the desktop user's home (kept on the volume).
+if [ ! -x /opt/openclaw/bin/openclaw ] || [ "$(cat /opt/openclaw/.version 2>/dev/null)" != "$OPENCLAW_VERSION" ]; then
+  log "installing OpenClaw ${OPENCLAW_VERSION} (Node ${OPENCLAW_NODE_VERSION})"
+  arch=$(dpkg --print-architecture | sed 's/amd64/x64/')
+  rm -rf /opt/node24 && mkdir -p /opt/node24
+  if curl -fsSL "https://nodejs.org/dist/v${OPENCLAW_NODE_VERSION}/node-v${OPENCLAW_NODE_VERSION}-linux-${arch}.tar.xz" | tar -xJ -C /opt/node24 --strip-components=1 \
+    && PATH="/opt/node24/bin:$PATH" npm install -g --prefix /opt/openclaw --no-fund --no-audit "openclaw@${OPENCLAW_VERSION}"; then
+    echo "$OPENCLAW_VERSION" > /opt/openclaw/.version
+  else
+    log "OpenClaw install failed (continuing without it)"
+  fi
+fi
+claw_dir="$user_home/.openclaw-orbit"
+if [ -x /opt/openclaw/bin/openclaw ]; then
+  as_user mkdir -p "$claw_dir/state"
+  chmod 700 "$claw_dir"
+  # The token Orbit's gateway signs in with (only the desktop user can read it).
+  if [ ! -s "$claw_dir/token" ]; then
+    head -c 32 /dev/urandom | od -An -tx1 | tr -d ' \n' > "$claw_dir/token"
+    chown "$DESKTOP_USER:$DESKTOP_USER" "$claw_dir/token" && chmod 600 "$claw_dir/token"
+  fi
+  # The safe setup is ours: rewritten on every boot so it can't drift.
+  #  - loopback only, token sign-in; no chat channels, no web, no browser, no heartbeat or dreaming
+  #  - every command asks first (allowlist + ask always); no elevated mode
+  #  - file tools stay inside ~/projects
+  #  - models: cloud AI first (free, works with the AI machine off), then your AI machine
+  cat > "$claw_dir/openclaw.json" <<JSON
+{
+  "gateway": { "mode": "local", "port": 18789, "bind": "loopback", "auth": { "mode": "token" }, "controlUi": { "enabled": false } },
+  "models": {
+    "mode": "merge",
+    "providers": {
+      "orbit-cloud": {
+        "baseUrl": "http://127.0.0.1:8090/cloud/v1", "apiKey": "local", "api": "openai-completions", "timeoutSeconds": 120,
+        "request": { "allowPrivateNetwork": true },
+        "models": [ { "id": "orbit-agent", "name": "Cloud AI (NVIDIA)", "input": ["text"], "contextWindow": 65536, "maxTokens": 8192, "compat": { "supportsTools": true } } ]
+      },
+      "orbit": {
+        "baseUrl": "http://127.0.0.1:8090/v1", "apiKey": "local", "api": "openai-completions", "timeoutSeconds": 600,
+        "request": { "allowPrivateNetwork": true },
+        "models": [ { "id": "${CODE_MODEL}", "name": "Your AI machine", "input": ["text"], "contextWindow": 65536, "maxTokens": 8192, "compat": { "supportsTools": true } } ]
+      }
+    }
+  },
+  "agents": {
+    "defaults": {
+      "model": { "primary": "orbit-cloud/orbit-agent", "fallbacks": ["orbit/${CODE_MODEL}"] },
+      "workspace": "$user_home/projects",
+      "heartbeat": { "every": "0m" }
+    }
+  },
+  "tools": {
+    "exec": { "host": "gateway", "security": "allowlist", "ask": "always", "notifyOnExit": false },
+    "elevated": { "enabled": false },
+    "fs": { "workspaceOnly": true },
+    "deny": ["group:web", "group:ui", "browser", "group:messaging", "group:nodes", "group:automation"]
+  },
+  "browser": { "enabled": false },
+  "plugins": { "entries": { "memory-core": { "config": { "dreaming": { "enabled": false } } } } }
+}
+JSON
+  chown "$DESKTOP_USER:$DESKTOP_USER" "$claw_dir/openclaw.json" && chmod 600 "$claw_dir/openclaw.json"
+fi
+
 # VS Code for the desktop user: settings, extensions and the agent's config live in the home
 # directory (on the volume), and are only written when missing so your own changes stay.
 cs_data="$user_home/.local/share/code-server"
-as_user() { sudo -u "$DESKTOP_USER" -H "$@"; }
 as_user mkdir -p "$cs_data/User" "$user_home/.config/kilo"
 if [ ! -f "$cs_data/User/settings.json" ]; then
   cat > "$cs_data/User/settings.json" <<'JSON'
@@ -216,6 +286,23 @@ log "starting VS Code on 127.0.0.1:8443 (as $DESKTOP_USER)"
   done
 ) > /var/log/code-server.log 2>&1 &
 
+if [ -s "$claw_dir/openclaw.json" ]; then
+  log "starting OpenClaw on 127.0.0.1:18789 (as $DESKTOP_USER)"
+  # The token reaches it through its environment (readable only by the desktop user), never a command line.
+  (
+    while true; do
+      setpriv --reuid="$DESKTOP_USER" --regid="$DESKTOP_USER" --init-groups env -i \
+        "HOME=$user_home" "USER=$DESKTOP_USER" "SHELL=/bin/bash" "LANG=en_US.UTF-8" \
+        "PATH=/opt/node24/bin:$user_home/.local/bin:/usr/local/bin:/usr/bin:/bin" \
+        "OPENCLAW_CONFIG_PATH=$claw_dir/openclaw.json" "OPENCLAW_STATE_DIR=$claw_dir/state" \
+        "OPENCLAW_GATEWAY_TOKEN=$(cat "$claw_dir/token")" \
+        "OPENCLAW_SKIP_CHANNELS=1" "OPENCLAW_DISABLE_BONJOUR=1" "OPENCLAW_NO_RESPAWN=1" \
+        /opt/node24/bin/node /opt/openclaw/lib/node_modules/openclaw/openclaw.mjs gateway run --port 18789 --bind loopback --auth token || true
+      sleep 5
+    done
+  ) > /var/log/openclaw.log 2>&1 &
+fi
+
 log "starting gateway + Orbit host on :8080 (as $DESKTOP_USER)"
 # Run as the desktop user so Orbit's terminal, files and Antigravity act as that user.
 gateway_env=(
@@ -226,6 +313,7 @@ gateway_env=(
   "RDP_SECURITY=${RDP_SECURITY:-any}" "RDP_IGNORE_CERT=true" "GUACD_HOST=127.0.0.1" "GUACD_PORT=4822" "PORT=8080"
   "ORBIT_HOST=1" "ORBIT_PROJECTS_DIR=$user_home/projects" "AGY_PATH=$user_home/.local/bin/agy"
   "CODE_SERVER_URL=http://127.0.0.1:8443" "AI_LOCAL_PORT=8090" "SITE_URL=${SITE_URL:-}"
+  "CLAW_URL=ws://127.0.0.1:18789" "CLAW_TOKEN_FILE=$claw_dir/token"
   # Runpod's key for this pod only: the gateway turns the machine off after 20 minutes without input.
   "RUNPOD_POD_ID=${RUNPOD_POD_ID:-}" "RUNPOD_API_KEY=${RUNPOD_API_KEY:-}" "IDLE_MINUTES=${IDLE_MINUTES:-20}"
 )

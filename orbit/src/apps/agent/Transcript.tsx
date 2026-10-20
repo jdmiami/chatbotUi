@@ -1,5 +1,5 @@
 import { memo, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import type { TranscriptItem } from '../../services/runner/types';
+import type { ApprovalDecision, TranscriptItem } from '../../services/runner/types';
 import { Icon } from '../../ui/Icon';
 import { relativeTime } from '../../ui/format';
 import { isSignInError, parseBlocks, parseInline, parseMessage, type Block } from './model';
@@ -165,6 +165,46 @@ function ActivityRow({ item }: { item: Extract<TranscriptItem, { kind: 'activity
   );
 }
 
+/** OpenClaw wants to run a command: nothing runs until you allow it (once), or deny it. */
+function ApprovalCard({ item, onDecide }: { item: Extract<TranscriptItem, { kind: 'approval' }>; onDecide?: DecideFn }) {
+  const [busy, setBusy] = useState<ApprovalDecision | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const decide = async (d: ApprovalDecision) => {
+    if (!onDecide) return;
+    setBusy(d);
+    setError(null);
+    try {
+      await onDecide(item.approvalId, d);
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setBusy(null);
+    }
+  };
+  const label = { pending: 'Wants to run', allowed: 'Allowed once', denied: 'Denied', expired: 'No longer waiting' }[item.status];
+  return (
+    <div className="ag-approval" data-status={item.status} role={item.status === 'pending' ? 'group' : undefined} aria-label="Command approval">
+      <p className="ag-approval-kicker">{label}</p>
+      <pre className="ag-approval-cmd">{item.command || '(no command shown)'}</pre>
+      {item.cwd && <p className="ag-approval-cwd">in {item.cwd}</p>}
+      {item.warning && <p className="ag-approval-warn">{item.warning}</p>}
+      {item.status === 'pending' && (
+        <div className="ag-approval-actions">
+          <button type="button" className="btn primary" disabled={busy !== null} onClick={() => void decide('allow-once')}>
+            {busy === 'allow-once' ? 'Allowing…' : 'Allow once'}
+          </button>
+          <button type="button" className="btn ghost" disabled={busy !== null} onClick={() => void decide('deny')}>
+            {busy === 'deny' ? 'Denying…' : 'Deny'}
+          </button>
+        </div>
+      )}
+      {error && <p className="ag-approval-warn" role="alert">{error}</p>}
+    </div>
+  );
+}
+
+type DecideFn = (approvalId: string, decision: ApprovalDecision) => Promise<void>;
+
 interface ItemProps {
   item: TranscriptItem;
   demo: boolean;
@@ -172,9 +212,11 @@ interface ItemProps {
   now: number;
   onCopy: CopyFn;
   onOpenTerminal: () => void;
+  agentName: string;
+  onDecide?: DecideFn;
 }
 
-const ItemView = memo(function ItemView({ item, demo, hostMode, now, onCopy, onOpenTerminal }: ItemProps) {
+const ItemView = memo(function ItemView({ item, demo, hostMode, now, onCopy, onOpenTerminal, agentName, onDecide }: ItemProps) {
   switch (item.kind) {
     case 'user':
       return (
@@ -185,9 +227,9 @@ const ItemView = memo(function ItemView({ item, demo, hostMode, now, onCopy, onO
       );
     case 'assistant':
       return (
-        <article className="ag-msg ag-msg-assistant" aria-label="Antigravity reply">
+        <article className="ag-msg ag-msg-assistant" aria-label={`${agentName} reply`}>
           <div className="ag-msg-head">
-            <span className="ag-msg-who">Antigravity</span>
+            <span className="ag-msg-who">{agentName}</span>
             {demo && <span className="ag-tag">Simulated reply</span>}
             <span className="ag-msg-time">{relativeTime(item.at, now)}</span>
           </div>
@@ -211,6 +253,8 @@ const ItemView = memo(function ItemView({ item, demo, hostMode, now, onCopy, onO
       );
     case 'activity':
       return <ActivityRow item={item} />;
+    case 'approval':
+      return <ApprovalCard item={item} onDecide={onDecide} />;
     case 'notice': {
       const signIn = hostMode && item.tone === 'error' && isSignInError(item.text);
       return (
@@ -230,6 +274,10 @@ const ItemView = memo(function ItemView({ item, demo, hostMode, now, onCopy, onO
 
 export interface TranscriptProps {
   sessionId: string;
+  /** Who replies: "Antigravity" or "OpenClaw". */
+  agentName?: string;
+  /** OpenClaw's command approvals. */
+  onDecide?: DecideFn;
   items: TranscriptItem[];
   demo: boolean;
   hostMode: boolean;
@@ -269,6 +317,8 @@ export function Transcript({
   scrollSignal,
   header,
   empty,
+  agentName = 'Antigravity',
+  onDecide,
 }: TranscriptProps) {
   const ref = useRef<HTMLDivElement>(null);
   const stuck = useRef(true);
@@ -347,6 +397,8 @@ export function Transcript({
                   now={now}
                   onCopy={onCopy}
                   onOpenTerminal={onOpenTerminal}
+                  agentName={agentName}
+                  onDecide={onDecide}
                 />
               ))}
         </div>

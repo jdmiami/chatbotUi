@@ -1,5 +1,6 @@
 import { AGY_CAPABILITIES } from '../agyCapabilities';
 import type {
+  ApprovalDecision,
   ModelOption,
   Project,
   RunHandle,
@@ -29,18 +30,24 @@ const isFinal = (err: unknown) => err instanceof HostError && err.status >= 400 
  * so iPhone and iPad share the same history.
  */
 export class HostRunner implements RunnerAdapter {
-  readonly kind = 'antigravity-cli' as const;
-  readonly label = 'Antigravity CLI on your Linux machine';
+  readonly kind: 'antigravity-cli' | 'openclaw';
+  readonly label: string;
   capabilities: RunnerCapabilities = AGY_CAPABILITIES;
 
   private listeners = new Set<() => void>();
   private timer: ReturnType<typeof setInterval> | null = null;
   private lastFingerprint = '';
 
-  constructor(private readonly host: HostClient) {
+  /** `base`: 'agent' for Antigravity, 'claw' for OpenClaw (same API on the host, plus approvals). */
+  constructor(
+    private readonly host: HostClient,
+    private readonly base: 'agent' | 'claw' = 'agent',
+  ) {
+    this.kind = base === 'claw' ? 'openclaw' : 'antigravity-cli';
+    this.label = base === 'claw' ? 'OpenClaw on your Linux machine' : 'Antigravity CLI on your Linux machine';
     // Use the host's own capability list (it is the one actually running agy).
     void this.host
-      .json<RunnerCapabilities>('/agent/capabilities')
+      .json<RunnerCapabilities>(`/${this.base}/capabilities`)
       .then((caps) => {
         this.capabilities = caps;
         this.emit();
@@ -48,31 +55,39 @@ export class HostRunner implements RunnerAdapter {
       .catch(() => {});
   }
 
+  async decide(sessionId: string, approvalId: string, decision: ApprovalDecision): Promise<void> {
+    await this.host.json(`/${this.base}/sessions/${encodeURIComponent(sessionId)}/approvals/${encodeURIComponent(approvalId)}`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ decision }),
+    });
+  }
+
   listProjects(): Promise<Project[]> {
-    return this.host.json<Project[]>('/agent/projects');
+    return this.host.json<Project[]>(`/${this.base}/projects`);
   }
 
   listSessions(projectId: string): Promise<SessionSummary[]> {
-    return this.host.json<SessionSummary[]>(`/agent/sessions?project=${encodeURIComponent(projectId)}`);
+    return this.host.json<SessionSummary[]>(`/${this.base}/sessions?project=${encodeURIComponent(projectId)}`);
   }
 
   async getSession(sessionId: string): Promise<SessionSummary | undefined> {
     try {
-      return await this.host.json<SessionSummary>(`/agent/sessions/${encodeURIComponent(sessionId)}`);
+      return await this.host.json<SessionSummary>(`/${this.base}/sessions/${encodeURIComponent(sessionId)}`);
     } catch {
       return undefined;
     }
   }
 
   getTranscript(sessionId: string): Promise<TranscriptItem[]> {
-    return this.host.json<TranscriptItem[]>(`/agent/sessions/${encodeURIComponent(sessionId)}/transcript`);
+    return this.host.json<TranscriptItem[]>(`/${this.base}/sessions/${encodeURIComponent(sessionId)}/transcript`);
   }
 
   async createSession(
     projectId: string,
     opts: { title?: string; model?: string; mode?: RunnerMode } = {},
   ): Promise<SessionSummary> {
-    const s = await this.host.json<SessionSummary>('/agent/sessions', {
+    const s = await this.host.json<SessionSummary>(`/${this.base}/sessions`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ projectId, ...opts }),
@@ -85,7 +100,7 @@ export class HostRunner implements RunnerAdapter {
     sessionId: string,
     patch: Partial<Pick<SessionSummary, 'title' | 'model' | 'mode'>>,
   ): Promise<SessionSummary> {
-    const s = await this.host.json<SessionSummary>(`/agent/sessions/${encodeURIComponent(sessionId)}`, {
+    const s = await this.host.json<SessionSummary>(`/${this.base}/sessions/${encodeURIComponent(sessionId)}`, {
       method: 'PATCH',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify(patch),
@@ -95,12 +110,12 @@ export class HostRunner implements RunnerAdapter {
   }
 
   async deleteSession(sessionId: string): Promise<void> {
-    await this.host.json(`/agent/sessions/${encodeURIComponent(sessionId)}`, { method: 'DELETE' });
+    await this.host.json(`/${this.base}/sessions/${encodeURIComponent(sessionId)}`, { method: 'DELETE' });
     this.emit();
   }
 
   listModels(): Promise<ModelOption[]> {
-    return this.host.json<ModelOption[]>('/agent/models');
+    return this.host.json<ModelOption[]>(`/${this.base}/models`);
   }
 
   send(sessionId: string, text: string, handlers: SendHandlers): RunHandle {
@@ -120,7 +135,7 @@ export class HostRunner implements RunnerAdapter {
     };
     void this.host
       .stream(
-        `/agent/sessions/${encodeURIComponent(sessionId)}/send`,
+        `/${this.base}/sessions/${encodeURIComponent(sessionId)}/send`,
         {
           method: 'POST',
           headers: { 'content-type': 'application/json' },
@@ -162,7 +177,7 @@ export class HostRunner implements RunnerAdapter {
 
   /** Stop a running turn by session id (also works for a turn started on another device). */
   stopSession(sessionId: string): Promise<{ stopped: boolean }> {
-    return this.host.json<{ stopped: boolean }>(`/agent/sessions/${encodeURIComponent(sessionId)}/stop`, {
+    return this.host.json<{ stopped: boolean }>(`/${this.base}/sessions/${encodeURIComponent(sessionId)}/stop`, {
       method: 'POST',
     });
   }
@@ -178,7 +193,7 @@ export class HostRunner implements RunnerAdapter {
     if (signal.aborted) return;
     const [items, session] = await Promise.all([
       this.getTranscript(sessionId),
-      this.host.json<SessionSummary>(`/agent/sessions/${encodeURIComponent(sessionId)}`),
+      this.host.json<SessionSummary>(`/${this.base}/sessions/${encodeURIComponent(sessionId)}`),
     ]);
     if (signal.aborted) return;
     // Items are merged by id, so re-sending ones already shown just refreshes them.
@@ -196,7 +211,7 @@ export class HostRunner implements RunnerAdapter {
       let ended = false;
       try {
         await this.host.stream(
-          `/agent/sessions/${encodeURIComponent(sessionId)}/events`,
+          `/${this.base}/sessions/${encodeURIComponent(sessionId)}/events`,
           { method: 'GET', signal },
           (event, data) => {
             if (event === 'item') handlers.onItem(data as TranscriptItem);
@@ -245,7 +260,7 @@ export class HostRunner implements RunnerAdapter {
   private async poll() {
     if (typeof document !== 'undefined' && document.visibilityState !== 'visible') return;
     try {
-      const all = await this.host.json<SessionSummary[]>('/agent/sessions');
+      const all = await this.host.json<SessionSummary[]>(`/${this.base}/sessions`);
       const fp = all.map((s) => `${s.id}:${s.updatedAt}:${s.status}`).join('|');
       if (fp !== this.lastFingerprint) {
         this.lastFingerprint = fp;

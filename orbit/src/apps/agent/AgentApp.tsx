@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { AppProps } from '../types';
-import { connection, getRunner } from '../../services';
+import { clawAvailable, connection, getClawRunner, getRunner } from '../../services';
 import type {
   Project,
   RunHandle,
@@ -116,8 +116,64 @@ const SUGGESTIONS = [
  *
  * Stays mounted while open, so drafts, transcripts and in-flight turns survive app switching.
  */
-export default function AgentApp({ placement, compact }: AppProps) {
-  const runner = useMemo(() => getRunner(), []);
+type Which = 'antigravity' | 'openclaw';
+const WHICH_KEY = 'orbit:agent:which';
+
+/**
+ * The agent screen hosts two agents on the Linux machine: Antigravity (agy) and, when it is
+ * installed, OpenClaw (which asks before every command). A slim switch at the top picks one; the
+ * choice is remembered. Each keeps its own sessions; switching re-opens the screen for that agent.
+ */
+export default function AgentApp(props: AppProps) {
+  const [claw, setClaw] = useState(false);
+  const [which, setWhich] = useState<Which>(() => {
+    try {
+      return localStorage.getItem(WHICH_KEY) === 'openclaw' ? 'openclaw' : 'antigravity';
+    } catch {
+      return 'antigravity';
+    }
+  });
+  useEffect(() => {
+    let live = true;
+    void clawAvailable().then((ok) => live && setClaw(ok));
+    return () => {
+      live = false;
+    };
+  }, []);
+  const pick = (w: Which) => {
+    setWhich(w);
+    try {
+      localStorage.setItem(WHICH_KEY, w);
+    } catch {
+      /* private mode */
+    }
+  };
+  const use = claw && which === 'openclaw' ? 'openclaw' : 'antigravity';
+  const runner = use === 'openclaw' ? getClawRunner() : null;
+  return (
+    <div className="ag-which-wrap">
+      {claw && (
+        <div className="ag-which" role="tablist" aria-label="Agent">
+          {(['antigravity', 'openclaw'] as const).map((w) => (
+            <button key={w} type="button" role="tab" aria-selected={use === w} className="ag-which-btn" onClick={() => pick(w)}>
+              {w === 'antigravity' ? 'Antigravity' : 'OpenClaw'}
+            </button>
+          ))}
+          {use === 'openclaw' && <span className="ag-which-note">Asks before every command</span>}
+        </div>
+      )}
+      <AgentScreen key={use} {...props} runnerOverride={runner} agentName={use === 'openclaw' ? 'OpenClaw' : 'Antigravity'} />
+    </div>
+  );
+}
+
+function AgentScreen({
+  placement,
+  compact,
+  runnerOverride,
+  agentName,
+}: AppProps & { runnerOverride: ReturnType<typeof getClawRunner>; agentName: string }) {
+  const runner = useMemo(() => runnerOverride ?? getRunner(), [runnerOverride]);
   const demo = connection.mode === 'demo';
   const hostMode = connection.mode === 'host';
   const visible = placement !== 'hidden';
@@ -719,7 +775,7 @@ export default function AgentApp({ placement, compact }: AppProps) {
   const sessionsEmpty = sessions.status === 'ready' && sessions.data.length === 0;
   const currentProject = projectList.find((p) => p.id === projectId);
 
-  const title = showChat && selected ? selected.title : 'Antigravity';
+  const title = showChat && selected ? selected.title : agentName;
   const subtitle =
     showChat && selected
       ? `${projectName(selected.projectId)} · ${running ? 'Running…' : statusLabel(selected)}`
@@ -823,6 +879,15 @@ export default function AgentApp({ placement, compact }: AppProps) {
       )}
       <Transcript
         sessionId={selected.id}
+        agentName={agentName}
+        onDecide={
+          runner.decide
+            ? async (approvalId, decision) => {
+                await runner.decide!(selected.id, approvalId, decision);
+                await refreshOne(selected.id);
+              }
+            : undefined
+        }
         items={conv?.items ?? []}
         demo={demo}
         hostMode={hostMode}

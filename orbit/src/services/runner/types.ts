@@ -80,7 +80,21 @@ export type TranscriptItem =
       detail?: string;
       status: 'running' | 'done' | 'failed';
     }
-  | { kind: 'notice'; id: string; at: number; text: string; tone: 'info' | 'warning' | 'error' };
+  | { kind: 'notice'; id: string; at: number; text: string; tone: 'info' | 'warning' | 'error' }
+  /** OpenClaw asks before running a command: allow it once, or deny it. */
+  | {
+      kind: 'approval';
+      id: string;
+      at: number;
+      approvalId: string;
+      command: string;
+      cwd?: string;
+      warning?: string;
+      expiresAt?: number;
+      status: 'pending' | 'allowed' | 'denied' | 'expired';
+    };
+
+export type ApprovalDecision = 'allow-once' | 'deny';
 
 export interface ModelOption {
   id: string;
@@ -103,7 +117,7 @@ export interface RunHandle {
 }
 
 export interface RunnerAdapter {
-  readonly kind: 'demo' | 'antigravity-cli';
+  readonly kind: 'demo' | 'antigravity-cli' | 'openclaw';
   readonly label: string;
   readonly capabilities: RunnerCapabilities;
 
@@ -117,6 +131,8 @@ export interface RunnerAdapter {
   listModels(): Promise<ModelOption[]>;
   /** Start one turn. Rejects synchronously-ish (via onError) if the session is already running. */
   send(sessionId: string, text: string, handlers: SendHandlers): RunHandle;
+  /** Answer a command the agent wants to run (runners with approvals only). */
+  decide?(sessionId: string, approvalId: string, decision: ApprovalDecision): Promise<void>;
   /** Fires when sessions/projects change. */
   subscribe(listener: () => void): () => void;
 }
