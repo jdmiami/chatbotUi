@@ -257,7 +257,8 @@ test.describe('the orb', () => {
   test('asks before turning a machine on', async ({ page }) => {
     const calls: unknown[] = [];
     await page.route('**/api/status', (route) => {
-      calls.push(route.request().postDataJSON());
+      // Only actions count (Orbit also reads the status on its own, for the turn-off warning).
+      if (route.request().method() === 'POST') calls.push(route.request().postDataJSON());
       return route.fulfill({ json: { machines: [], money: null } });
     });
     const { orb } = await openWithOrb(page);
