@@ -1,0 +1,916 @@
+<title>Orbit Space Samples</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,300..600;1,9..144,300..500&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: one full-bleed 3D stage. An ink masthead band on top, an ink caption band at the bottom.
+   Paper pages are real HTML placed in 3D; threads, dust and floor are drawn on a canvas behind them. */
+:root{
+  --ink:#0e0d0b;
+  --band:#0e0d0b;
+  --cream:#f3eee6;
+  --stone:#8f877b;
+  --soft:#c9c1b4;
+  --orb:#6c7cff;
+  --hair:rgba(243,238,230,.14);
+  --hair2:rgba(243,238,230,.36);
+  --serif:"Fraunces",Georgia,"Times New Roman",serif;
+  --sans:"Inter",system-ui,-apple-system,"Segoe UI",sans-serif;
+  --mono:"JetBrains Mono",ui-monospace,Menlo,Consolas,monospace;
+  color-scheme:dark;
+}
+html,body{height:100%}
+body{background:var(--ink);color:var(--cream);font-family:var(--sans);overflow:hidden;-webkit-font-smoothing:antialiased}
+.app{position:relative;height:100%;overflow:hidden}
+
+/* ---------- stage ---------- */
+#stage{position:absolute;inset:0;overflow:hidden;touch-action:none;cursor:grab;user-select:none;-webkit-user-select:none;outline:none}
+#stage.dragging{cursor:grabbing}
+#stage.motion{cursor:default}
+#bg{position:absolute;inset:0;z-index:0;pointer-events:none}
+#world{position:absolute;inset:0;z-index:1}
+.grain{position:absolute;inset:0;z-index:2;pointer-events:none;background-image:var(--noise);background-size:180px 180px}
+
+.t-ink{--void:#0e0d0b;background:radial-gradient(120% 80% at 50% 38%,#1b1814 0%,#0e0d0b 62%,#080706 100%)}
+.t-ink .grain{opacity:.09;mix-blend-mode:overlay}
+.t-cream{--void:#ece6db;background:linear-gradient(180deg,#f6f2ea 0%,#efe9df 46%,#e6dfd2 64%,#ddd5c6 100%)}
+.t-cream .grain{opacity:.07;mix-blend-mode:multiply}
+.t-folio{--void:#15110d;background:radial-gradient(110% 70% at 50% 30%,#2b231b 0%,#17130f 55%,#0c0a08 100%)}
+.t-folio .grain{opacity:.1;mix-blend-mode:overlay}
+
+/* ---------- nodes (paper in space) ---------- */
+.node{position:absolute;left:50%;top:var(--cy,50%);transform-origin:50% 50%;backface-visibility:visible}
+.node.sp{transform-style:preserve-3d}
+.pg{position:relative;box-sizing:border-box;width:100%;height:100%;padding:20px 20px 16px;display:flex;flex-direction:column;gap:10px;
+  font-family:var(--serif);color:var(--text);background:var(--paperfill);border:1px solid var(--rule2);outline:1px solid var(--rule);outline-offset:-7px;box-shadow:var(--drop);overflow:hidden}
+.pg::after{content:"";position:absolute;inset:-2px;background:var(--void);opacity:var(--fog,0);pointer-events:none}
+.pg .k{margin:0;display:flex;justify-content:space-between;gap:8px;font:600 9px/1.2 var(--sans);letter-spacing:.2em;text-transform:uppercase;color:var(--muted);border-bottom:1px solid var(--rule);padding-bottom:7px}
+.pg .t{margin:0;font-size:25px;line-height:1.04;letter-spacing:-.02em;font-weight:360;text-wrap:balance}
+.pg .d{margin:0;font-size:14px;line-height:1.42;color:var(--soft2)}
+.pg .q{margin:0;font-style:italic;font-weight:300;font-size:33px;line-height:1.02;letter-spacing:-.025em}
+.pg .ft{margin:auto 0 0;display:flex;align-items:center;gap:8px;font:500 11px/1.2 var(--sans);letter-spacing:.02em;color:var(--text);border-top:1px solid var(--rule);padding-top:8px}
+.pg .dc::first-letter{float:left;font-size:50px;line-height:.82;padding:5px 7px 0 0;font-style:italic;color:var(--text)}
+.pg .dot{width:7px;height:7px;border-radius:50%;background:var(--orb);box-shadow:0 0 10px var(--orb)}
+.pg.sel{border:3px double var(--rule2);outline-offset:-9px}
+.pg.sel .k span:last-child{color:var(--text)}
+.pg.mini{padding:14px 15px 12px;gap:7px}
+.pg.mini .t{font-size:20px}
+.pg.slip{padding:16px 16px 12px;border-top:2px dashed var(--rule2);border-bottom:2px dashed var(--rule2);gap:6px}
+.pg .ln{margin:0;display:flex;gap:10px;font:400 11px/1.55 var(--mono);color:var(--text)}
+.pg .ln b{font-weight:400;color:var(--muted)}
+.pg .cap2{margin:0;font:400 11px/1.3 var(--mono);color:var(--muted)}
+.pg.stack{box-shadow:7px -7px 0 -1px var(--paper2),7px -7px 0 0 var(--rule2),14px -14px 0 -1px var(--paper3),14px -14px 0 0 var(--rule),var(--drop)}
+
+.plate{position:relative;flex:1;min-height:0;border:1px solid var(--rule2);overflow:hidden;
+  background:linear-gradient(180deg,#f4cfa6 0%,#eeb092 26%,#a99aab 50%,#4b5a74 53%,#2a374d 100%)}
+.plate.night{background:linear-gradient(180deg,#1d2438 0%,#2c3550 40%,#40465e 52%,#151b2a 53%,#0c111c 100%)}
+.plate i{position:absolute;display:block}
+.plate .sea{left:0;right:0;bottom:0;height:47%;background:repeating-linear-gradient(180deg,transparent 0 7px,rgba(255,255,255,.13) 7px 8px)}
+.plate .rock{left:54%;bottom:44%;width:46px;height:9px;background:#1d1a16}
+.plate .tower{left:63%;bottom:46%;width:8px;height:52px;background:#1d1a16}
+.plate .lamp{left:calc(63% - 3px);bottom:calc(46% + 52px);width:14px;height:6px;background:#ffd58a;box-shadow:0 0 14px 4px rgba(255,200,120,.75)}
+.plate.night .lamp{box-shadow:0 0 22px 8px rgba(255,200,120,.85)}
+
+/* spread that folds (motion 1) */
+.spread{position:absolute;inset:0;transform-style:preserve-3d}
+.half{position:absolute;top:0;width:50%;height:100%}
+.half.left{left:0}
+.half.right{left:50%;transform-origin:0 50%;transform-style:preserve-3d;transform:rotateY(var(--fold,0deg))}
+.half.right .face{position:absolute;inset:0;backface-visibility:hidden;-webkit-backface-visibility:hidden}
+.half.right .back{transform:rotateY(180deg)}
+.half.right .front::before{content:"";position:absolute;inset:0;background:linear-gradient(90deg,rgba(0,0,0,.45),rgba(0,0,0,0) 70%);opacity:var(--shade,0);pointer-events:none;z-index:1}
+.pg .rv{transition:none}
+
+/* typographic sculpture */
+.num{font:italic 300 440px/.8 var(--serif);letter-spacing:-.06em;white-space:nowrap;color:var(--numfill);-webkit-text-stroke:1.2px var(--numstroke);display:flex;align-items:center;justify-content:center;width:100%;height:100%}
+.say{margin:0;white-space:nowrap;text-align:center;font:italic 300 30px/1.1 var(--serif);color:var(--onvoid);letter-spacing:-.01em}
+.say.big{font-size:46px}
+
+/* theme paper */
+.t-ink{--paperfill:linear-gradient(165deg,#1d1a16 0%,#151310 100%);--paper2:#191613;--paper3:#141210;--text:#f3eee6;--muted:#8f877b;--soft2:#c9c1b4;--rule:rgba(243,238,230,.13);--rule2:rgba(243,238,230,.36);--drop:0 40px 80px -24px rgba(0,0,0,.75);--onvoid:#f3eee6;--numfill:rgba(243,238,230,.03);--numstroke:rgba(243,238,230,.22)}
+.t-cream{--paperfill:linear-gradient(165deg,#fefcf8 0%,#f4eee4 100%);--paper2:#f6f1e8;--paper3:#efe8dc;--text:#1d1a16;--muted:#8a8073;--soft2:#4a443c;--rule:rgba(29,26,22,.12);--rule2:rgba(29,26,22,.34);--drop:0 1px 0 rgba(0,0,0,.04),0 26px 40px -30px rgba(70,50,30,.45);--onvoid:#1d1a16;--numfill:rgba(29,26,22,.03);--numstroke:rgba(29,26,22,.2)}
+.t-folio{--paperfill:linear-gradient(165deg,#f7f2e9 0%,#e8dfd0 100%);--paper2:#ece4d6;--paper3:#e2d8c7;--text:#1d1a16;--muted:#857a6b;--soft2:#47403a;--rule:rgba(29,26,22,.13);--rule2:rgba(29,26,22,.36);--drop:0 50px 90px -26px rgba(0,0,0,.8);--onvoid:#efe4d2;--numfill:rgba(232,214,186,.035);--numstroke:rgba(232,214,186,.3)}
+
+/* orb */
+.orb{pointer-events:none}
+.orb .core{position:absolute;inset:0;border-radius:50%;background:radial-gradient(circle at 35% 30%,#fff 0%,#cdd2ff 16%,#6c7cff 46%,#252a77 100%);
+  box-shadow:0 0 0 1px rgba(255,255,255,.2) inset,0 0 36px 6px rgba(108,124,255,.5),0 0 120px 24px rgba(108,124,255,.22)}
+.orb .ring{position:absolute;inset:-14px;border-radius:50%;border:1px solid rgba(150,160,255,.55);transform:scale(calc(1 + var(--ring,0) * .55));opacity:calc(.12 + var(--ring,0) * .65)}
+.orb .r2{inset:-30px;border-color:rgba(150,160,255,.28);transform:scale(calc(1 + var(--ring,0) * .32))}
+.orb .compass{position:absolute;inset:-22px;border-radius:50%;border:1px dashed rgba(243,238,230,.6);opacity:var(--think,0);transform:rotate(var(--rot,0deg)) scale(calc(1.3 - var(--think,0) * .3))}
+.t-cream .orb .compass{border-color:rgba(29,26,22,.55)}
+
+/* ---------- masthead ---------- */
+.mast{position:absolute;top:0;left:0;right:0;z-index:5;background:var(--band);border-bottom:3px double var(--hair2);
+  padding-block:10px 10px;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));display:flex;flex-direction:column;gap:9px}
+.mast-row{display:flex;justify-content:space-between;align-items:baseline;gap:12px}
+.kick{margin:0;font:600 10px/1.2 var(--sans);letter-spacing:.22em;text-transform:uppercase;color:var(--stone)}
+.folio{margin:0;font:italic 400 12px/1.2 var(--serif);color:var(--stone);white-space:nowrap}
+.tabs{display:flex;align-items:stretch;gap:6px;flex-wrap:nowrap}
+.grp{align-self:center;font:600 9px/1 var(--sans);letter-spacing:.2em;text-transform:uppercase;color:var(--stone);margin-right:2px}
+.sep{width:1px;background:var(--hair2);margin:4px 6px}
+.tab{appearance:none;border:1px solid var(--hair);background:transparent;color:var(--soft);min-width:52px;min-height:44px;padding:5px 10px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;cursor:pointer;border-radius:0;font:inherit}
+.tab b{font:italic 400 19px/1 var(--serif);color:var(--cream)}
+.tab span{font:600 8.5px/1 var(--sans);letter-spacing:.16em;text-transform:uppercase;color:var(--stone)}
+.tab:hover{border-color:var(--hair2)}
+.tab[aria-selected="true"]{border:3px double var(--hair2);background:#191613}
+.tab[aria-selected="true"] span{color:var(--soft)}
+.tab:focus-visible,.btn:focus-visible,#stage:focus-visible{outline:1px solid var(--cream);outline-offset:2px}
+
+/* ---------- caption band ---------- */
+.cap{position:absolute;left:0;right:0;bottom:0;z-index:5;background:var(--band);border-top:3px double var(--hair2);
+  padding-block:12px 12px;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));display:flex;flex-direction:column;gap:8px}
+.cap-inner{display:grid;grid-template-columns:minmax(0,1fr);gap:8px;max-width:1100px}
+.cap-head{display:flex;justify-content:space-between;align-items:baseline;gap:12px}
+.cap h1{margin:0;font:italic 300 30px/1 var(--serif);letter-spacing:-.025em;text-wrap:balance}
+.dek{margin:0;max-width:68ch;font:400 14.5px/1.45 var(--serif);color:var(--soft)}
+.phases{margin:0;padding:0;list-style:none;display:flex;flex-wrap:wrap;gap:4px 14px;font:500 11px/1.4 var(--sans);color:var(--stone)}
+.phases li{display:flex;gap:6px;align-items:baseline}
+.phases li em{font:italic 400 11px var(--serif);color:var(--stone)}
+.phases li.on{color:var(--cream)}
+.phases li.on::before{content:"";width:6px;height:6px;border-radius:50%;background:var(--orb);box-shadow:0 0 8px var(--orb);align-self:center}
+.ctrl{display:flex;flex-wrap:wrap;align-items:center;gap:8px 10px}
+.btn{appearance:none;border:1px solid var(--hair2);background:transparent;color:var(--cream);min-height:40px;padding:0 14px;font:500 13px/1 var(--sans);letter-spacing:.02em;cursor:pointer;border-radius:0}
+.btn.primary{background:var(--cream);color:var(--ink);border-color:var(--cream);outline:1px solid rgba(14,13,11,.45);outline-offset:-4px}
+.link{appearance:none;border:0;background:none;color:var(--stone);font:600 10px/1 var(--sans);letter-spacing:.2em;text-transform:uppercase;cursor:pointer;padding:6px 0;border-bottom:1px solid var(--hair2)}
+.hint{margin:0;font:italic 400 12.5px/1.35 var(--serif);color:var(--stone);min-width:0}
+.prog{height:1px;background:var(--hair);position:relative}
+.prog i{position:absolute;left:0;top:-1px;height:3px;width:0;background:var(--cream)}
+
+@media (max-width:520px){
+  .grp{display:none}
+  .folio{display:none}
+  .tab{min-width:48px;padding:5px 6px}
+  .cap h1{font-size:24px}
+  .dek{font-size:13px;line-height:1.38}
+  .phases{font-size:10.5px;gap:2px 10px}
+  .cap{padding-block:10px 10px;gap:7px}
+  .btn{min-height:38px}
+}
+@media (min-width:900px){
+  .cap-inner{grid-template-columns:minmax(0,1.1fr) minmax(0,1fr);column-gap:36px;align-items:start}
+  .cap h1{font-size:36px}
+}
+</style>
+
+<div class="app">
+  <div id="stage" class="t-ink" tabindex="0" aria-label="3D sample. Drag to look around, use arrow keys to turn, plus and minus to move closer.">
+    <canvas id="bg" aria-hidden="true"></canvas>
+    <div id="world"></div>
+    <div class="grain" aria-hidden="true"></div>
+  </div>
+
+  <header class="mast">
+    <div class="mast-row">
+      <p class="kick">Orbit · Space · samples for review</p>
+      <p class="folio">Everything is a page. The orb lives in the space between.</p>
+    </div>
+    <div class="tabs" role="tablist" aria-label="Samples">
+      <span class="grp">Looks</span>
+      <button class="tab" role="tab" id="tab-look-a" data-s="look-a" aria-selected="true"><b>A</b><span>Ink</span></button>
+      <button class="tab" role="tab" id="tab-look-b" data-s="look-b" aria-selected="false"><b>B</b><span>Paper</span></button>
+      <button class="tab" role="tab" id="tab-look-c" data-s="look-c" aria-selected="false"><b>C</b><span>Folio</span></button>
+      <span class="sep" aria-hidden="true"></span>
+      <span class="grp">Motion</span>
+      <button class="tab" role="tab" id="tab-motion-1" data-s="motion-1" aria-selected="false"><b>1</b><span>Approach</span></button>
+      <button class="tab" role="tab" id="tab-motion-2" data-s="motion-2" aria-selected="false"><b>2</b><span>Forks</span></button>
+      <button class="tab" role="tab" id="tab-motion-3" data-s="motion-3" aria-selected="false"><b>3</b><span>Nodes</span></button>
+    </div>
+  </header>
+
+  <section class="cap" id="cap" aria-live="polite">
+    <div class="cap-inner">
+      <div>
+        <div class="cap-head">
+          <p class="kick" id="capKick">Look A · night</p>
+          <button class="link" id="notes" aria-expanded="true" aria-controls="capBody">Hide notes</button>
+        </div>
+        <h1 id="capTitle">Ink Constellation</h1>
+      </div>
+      <div id="capBody" style="display:flex;flex-direction:column;gap:8px;min-width:0">
+        <p class="dek" id="capDek"></p>
+        <ol class="phases" id="phases"></ol>
+      </div>
+    </div>
+    <div class="ctrl">
+      <button class="btn primary" id="replay" hidden>Replay</button>
+      <button class="btn" id="pause" hidden>Pause</button>
+      <button class="btn" id="back" hidden>Back to overview</button>
+      <p class="hint" id="hint"></p>
+    </div>
+    <div class="prog" id="progWrap" hidden><i id="bar"></i></div>
+  </section>
+</div>
+
+<script>
+(() => {
+'use strict';
+const $ = s => document.querySelector(s);
+const stage = $('#stage'), world = $('#world'), cv = $('#bg'), ctx = cv.getContext('2d');
+const mast = $('.mast'), cap = $('#cap');
+const mq = window.matchMedia('(prefers-reduced-motion: reduce)');
+let reduced = mq.matches;
+
+/* ---------- math ---------- */
+const clamp = (v, a, b) => v < a ? a : v > b ? b : v;
+const lerp = (a, b, p) => a + (b - a) * p;
+const seg = (t, s, d) => clamp((t - s) / d, 0, 1);
+const settle = p => 1 - Math.pow(1 - p, 5);              // close to cubic-bezier(.22,1,.36,1)
+const inout = p => p < .5 ? 4 * p * p * p : 1 - Math.pow(-2 * p + 2, 3) / 2;
+const spring = p => p <= 0 ? 0 : p >= 1 ? 1 : 1 - Math.exp(-6.5 * p) * Math.cos(8 * p); // ~8% overshoot
+const bump = p => Math.sin(Math.PI * clamp(p, 0, 1));
+const V = (x, y, z) => ({ x, y, z });
+const vlerp = (a, b, p) => V(lerp(a.x, b.x, p), lerp(a.y, b.y, p), lerp(a.z, b.z, p));
+const vadd = (a, b) => V(a.x + b.x, a.y + b.y, a.z + b.z);
+const vdist = (a, b) => Math.hypot(a.x - b.x, a.y - b.y, a.z - b.z);
+const rotY = (v, a) => V(v.x * Math.cos(a) + v.z * Math.sin(a), v.y, -v.x * Math.sin(a) + v.z * Math.cos(a));
+function rng(seed) { return () => { seed |= 0; seed = seed + 0x6D2B79F5 | 0; let t = Math.imul(seed ^ seed >>> 15, 1 | seed); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; }; }
+
+/* ---------- viewport ---------- */
+let W = 0, H = 0, P = 800, DPR = 1, CX = 0, CY = 0, VIS = 600, AX = 1, AY = 1, RM = 1;
+const S = (x, y, z) => V(x * AX, y * AY, z);
+
+/* ---------- camera ---------- */
+const cam = { pos: V(0, 0, 1200), look: V(0, 0, 0), a: 0, b: 0, ca: 1, sa: 0, cb: 1, sb: 0, fd: 1200 };
+function camBasis() {
+  const tx = cam.look.x - cam.pos.x, ty = cam.look.y - cam.pos.y, tz = cam.look.z - cam.pos.z;
+  const h = Math.hypot(tx, tz) || 1e-6;
+  cam.b = Math.atan2(tx, -tz); cam.a = Math.atan2(-ty, h);
+  cam.ca = Math.cos(cam.a); cam.sa = Math.sin(cam.a); cam.cb = Math.cos(cam.b); cam.sb = Math.sin(cam.b);
+  cam.fd = Math.hypot(tx, ty, tz);
+}
+function toCam(p) {
+  const x = p.x - cam.pos.x, y = p.y - cam.pos.y, z = p.z - cam.pos.z;
+  const x1 = x * cam.cb + z * cam.sb, z1 = -x * cam.sb + z * cam.cb;
+  return [x1, y * cam.ca - z1 * cam.sa, y * cam.sa + z1 * cam.ca];
+}
+function proj(v) { const d = -v[2], s = P / d; return { x: CX + v[0] * s, y: CY + v[1] * s, s, d }; }
+function camForward() { const d = cam.fd || 1; return V((cam.look.x - cam.pos.x) / d, (cam.look.y - cam.pos.y) / d, (cam.look.z - cam.pos.z) / d); }
+const readDist = (w, h) => P * Math.max(h / (0.66 * VIS), w / (0.86 * W));
+
+/* ---------- scene graph ---------- */
+let nodes = [], byId = {}, threads = [], dust = [], floorOn = false, FLOOR = 300, theme = null, orb = null, trail = [];
+const THEMES = {
+  ink:   { cls: 't-ink',   fog: .8,  thread: '243,238,230', ta: .34, dust: 230, dustRGB: '243,238,230', shadow: null },
+  cream: { cls: 't-cream', fog: .74, thread: '29,26,22',    ta: .5,  dust: 0,   dustRGB: '29,26,22', shadow: '70,52,34' },
+  folio: { cls: 't-folio', fog: .84, thread: '232,214,186', ta: .42, dust: 150, dustRGB: '240,214,170', shadow: null }
+};
+
+function clearScene() { world.innerHTML = ''; nodes = []; byId = {}; threads = []; dust = []; trail = []; orb = null; floorOn = false; }
+function addNode(id, html, o) {
+  const el = document.createElement('div');
+  el.className = 'node' + (o.cls ? ' ' + o.cls : '');
+  el.dataset.id = id;
+  el.style.width = o.w + 'px'; el.style.height = o.h + 'px';
+  el.style.marginLeft = (-o.w / 2) + 'px'; el.style.marginTop = (-o.h / 2) + 'px';
+  el.innerHTML = html;
+  world.appendChild(el);
+  const n = { id, el, w: o.w, h: o.h, x: o.x || 0, y: o.y || 0, z: o.z || 0, yaw: o.yaw || 0, tilt: o.tilt || 0, s: 1, a: o.a == null ? 1 : o.a,
+    bill: !!o.bill, shadow: !!o.shadow, tap: o.tap !== false, fog: o.fog !== false, vis: true };
+  nodes.push(n); byId[id] = n; return n;
+}
+function setPos(n, p) { n.x = p.x; n.y = p.y; n.z = p.z; }
+function thread(a, b, o = {}) { threads.push(Object.assign({ a, b, dash: false, prog: 1, alpha: 1, sag: .05, base: false }, o)); }
+function makeDust(n, seed) {
+  const r = rng(seed);
+  for (let i = 0; i < n; i++) dust.push({ p: V(r() * 7000 - 3500, r() * 4000 - 2000, r() * 8000 - 6500), ph: r() * 6.28, sp: .4 + r() * .8 });
+}
+function makeOrb(p) {
+  orb = addNode('orb', '<span class="ring r2"></span><span class="ring"></span><span class="compass"></span><span class="core"></span>', { w: 60, h: 60, bill: true, tap: false, fog: false, cls: 'orb' });
+  setPos(orb, p); orb.ring = .1; orb.think = 0; orb.rot = 0; return orb;
+}
+
+/* ---------- page templates ---------- */
+const words = s => s.split(' ').map(w => `<span class="w">${w}</span>`).join(' ');
+const PLATE = (night) => `<div class="plate${night ? ' night' : ''}"><i class="sea"></i><i class="rock"></i><i class="tower"></i><i class="lamp"></i></div>`;
+const T = {
+  said: (q = '“Let’s make a video.”', time = '21:04', foot = 'Voice · two seconds') =>
+    `<div class="pg said"><p class="k"><span>You said</span><span>${time}</span></p><p class="q">${words(q)}</p><p class="ft">${foot}</p></div>`,
+  reply: () =>
+    `<div class="pg reply"><p class="k"><span>Orbit · reply</span><span>21:04</span></p><p class="t">Three ways to begin.</p><p class="d dc">Your usual is H3 Max, landscape, with sound. Shot 3 ended on the lighthouse, so a fourth shot could pick up there.</p><p class="ft">Three next steps below</p></div>`,
+  fork: (n, title, dek, say, sel) =>
+    `<div class="pg fork${sel ? ' sel' : ''}"><p class="k"><span>${n}</span><span>${sel ? 'Nearest' : 'Next'}</span></p><p class="t">${title}</p><p class="d">${dek}</p><p class="ft"><i class="dot"></i>${say}</p></div>`,
+  file: (capt = 'lighthouse-dawn.png', when = 'Monday', night = false) =>
+    `<div class="pg file"><p class="k"><span>File</span><span>${when}</span></p>${PLATE(night)}<p class="cap2">${capt}</p></div>`,
+  log: (lines) =>
+    `<div class="pg slip"><p class="k"><span>Machine log</span><span>AI</span></p>${lines.map(l => `<p class="ln"><b>${l[0]}</b>${l[1]}</p>`).join('')}<p class="ft">Linux resting · AI on</p></div>`,
+  room: (name, cnt, foot = 'Room · open it') =>
+    `<div class="pg stack"><p class="k"><span>Room</span><span class="cnt">${cnt}</span></p><p class="t">${name}</p><p class="ft">${foot}</p></div>`,
+  mini: (kind, name) => `<div class="pg mini"><p class="k"><span>${kind}</span></p><p class="t">${name}</p></div>`,
+  num: s => `<div class="num">${s}</div>`,
+  say: (s, big) => `<p class="say${big ? ' big' : ''}">${s}</p>`,
+  spread: () =>
+    `<div class="spread">
+      <div class="half left"><div class="pg"><p class="k"><span>File</span><span>Monday</span></p>${PLATE(false)}<p class="cap2">lighthouse-dawn.png</p></div></div>
+      <div class="half right">
+        <div class="pg face front"><p class="k"><span>About this file</span><span>2.1 MB</span></p><p class="t">Lighthouse at dawn</p>
+          <p class="d rv">Made with Krea on Monday, 1536 × 1024.</p><p class="d rv">Used in Short film, shot 3.</p><p class="ft rv"><i class="dot"></i>Say “animate it”</p></div>
+        <div class="pg face back"><p class="k"><span>File</span><span>Folded</span></p><p class="t">lighthouse-dawn</p><p class="d">A picture, kept in Short film.</p><p class="ft">Tap to open</p></div>
+      </div>
+    </div>`
+};
+const LOG4 = [['21:04', 'AI machine on'], ['21:05', 'H3 Max ready'], ['21:06', 'Shot 4 · making'], ['21:07', 'About a minute left']];
+const FORKS = [
+  ['01', 'A new 5-second clip', 'H3 Max, landscape, with sound. Your usual.', 'Say yes'],
+  ['02', 'Continue Short film, shot 4', 'Picks up from the lighthouse.', 'Say two'],
+  ['03', 'Animate the lighthouse picture', 'From Monday’s gallery.', 'Say three']
+];
+
+/* ---------- shared look helpers ---------- */
+function orbSpot(n) {
+  if (Math.abs(n.tilt) > 1) return V(n.x - n.w * .3, n.y - 80, n.z);
+  return vadd(n, rotY(V(-n.w / 2 - 6, -n.h / 2 - 6, 36), n.yaw));
+}
+let OT = null; // orb travel
+function orbTo(p, now, dur = 720, arc = 140) { OT = { from: V(orb.x, orb.y, orb.z), to: p, t0: now, dur, arc }; }
+
+/* =========================================================
+   SCENES
+   ========================================================= */
+const SCENES = {};
+
+/* ---------- Look A · Ink Constellation ---------- */
+SCENES['look-a'] = {
+  kind: 'look', theme: 'ink', kick: 'Look A · night', title: 'Ink Constellation',
+  dek: 'A dark, endless room. Every prompt, reply, file and log is a sheet of paper hanging in space, tied by a fine thread to the page it came from. The three next steps hang at different depths. The orb waits at the nearest one.',
+  build() {
+    const L = {
+      said: [S(-430, -210, -120), .32], reply: [S(-40, -60, -430), .08],
+      f1: [S(330, 110, 90), -.24], f2: [S(500, -270, -560), -.46], f3: [S(690, 250, -930), -.58],
+      file: [S(-660, 250, -720), .5], log: [S(-300, 400, -1200), .22], room: [S(120, -470, -1450), 0]
+    };
+    corePages(L);
+    const far = [['Lisbon trip', -1150, -320, -2150, .3], ['Website', 950, -560, -2350, -.3], ['Inbox', -320, -780, -2900, .1], ['Music', 1350, 330, -2700, -.4], ['Recipes', -1550, 520, -2650, .4], ['Taxes', 420, 660, -3150, -.1]];
+    far.forEach((f, i) => { const p = S(f[1], f[2], f[3]); addNode('m' + i, T.mini('Room', f[0]), { w: 190, h: 120, x: p.x, y: p.y, z: p.z, yaw: f[4] }); thread('room', 'm' + i, { alpha: .45 }); });
+    thread('said', 'reply'); thread('reply', 'f1', { dash: true }); thread('reply', 'f2', { dash: true }); thread('reply', 'f3', { dash: true });
+    thread('reply', 'file'); thread('file', 'log', { alpha: .7 }); thread('reply', 'room', { alpha: .7 });
+    makeDust(THEMES.ink.dust, 7);
+    makeOrb(orbSpot(byId.f1));
+    return { focus: S(0, -20, -480), r: 1600 * RM, th: -.2, ph: .1 };
+  }
+};
+
+/* ---------- Look B · Paper Atelier ---------- */
+SCENES['look-b'] = {
+  kind: 'look', theme: 'cream', kick: 'Look B · daylight', title: 'Paper Atelier',
+  dek: 'A white studio with no walls. Pages stand on the floor like prints propped up in a gallery, and a log slip lies where it was dropped. The paths between pages are drawn on the floor in ink. The orb throws a pool of light where it hovers.',
+  build() {
+    floorOn = true; FLOOR = 300;
+    const st = (x, z, h, yaw) => [V(x * AX, FLOOR - h / 2 - 1, z), yaw, true];
+    const L = {
+      said: st(-560, -160, 196, .4), reply: st(-130, -470, 350, .1),
+      f1: st(320, -30, 300, -.27), f2: st(560, -640, 300, -.5), f3: st(820, -1160, 300, -.62),
+      file: st(-820, -860, 280, .55), room: st(80, -1420, 200, 0),
+      log: [V(-250 * AX, FLOOR - 1, 140), .28, false, Math.PI / 2]
+    };
+    corePages(L);
+    const far = [['Lisbon trip', -1250, -2250, .3], ['Website', 1000, -2450, -.3], ['Inbox', -300, -3050, .05], ['Music', 1500, -2850, -.4], ['Recipes', -1700, -2750, .45]];
+    far.forEach((f, i) => { addNode('m' + i, T.mini('Room', f[0]), { w: 190, h: 120, x: f[1] * AX, y: FLOOR - 61, z: f[2], yaw: f[3], shadow: true }); thread('room', 'm' + i, { alpha: .45, base: true, sag: 0 }); });
+    const fb = { base: true, sag: 0 };
+    thread('said', 'reply', fb); thread('reply', 'f1', { ...fb, dash: true }); thread('reply', 'f2', { ...fb, dash: true }); thread('reply', 'f3', { ...fb, dash: true });
+    thread('reply', 'file', fb); thread('said', 'log', fb); thread('reply', 'room', { ...fb, alpha: .7 });
+    const o = orbSpot(byId.f1); o.y -= 40; makeOrb(o);
+    return { focus: V(0, 120, -460), r: 1700 * RM, th: -.16, ph: .32 };
+  }
+};
+
+/* ---------- Look C · Folio Corridor ---------- */
+SCENES['look-c'] = {
+  kind: 'look', theme: 'folio', kick: 'Look C · editorial', title: 'Folio Corridor',
+  dek: 'Your history runs back into the distance like a magazine opened in space, the oldest page farthest away. Big chapter numerals hang in the air between pages. The three next steps branch out of the newest page in three directions: ahead, up and to the left, down and to the right.',
+  build() {
+    const pages = [
+      ['h5', T.said('“Start a short film about the coast.”', 'Sat', 'Typed'), 290, 196, S(320, -20, -3900), -.38],
+      ['h4', T.file('Shot 2 · harbour at night', 'Sat', true), 220, 280, S(-380, 30, -3200), .38],
+      ['h3', T.log(LOG4), 210, 290, S(380, 50, -2450), -.38],
+      ['h2', T.said('“Make the sea angrier.”', 'Sun', 'Voice · one second'), 290, 196, S(-360, -50, -1700), .36],
+      ['h1', T.file('Shot 3 · lighthouse', 'Mon'), 220, 280, S(340, 30, -950), -.34],
+      ['reply', T.reply(), 300, 350, S(0, -20, -250), 0]
+    ];
+    pages.forEach(p => addNode(p[0], p[1], { w: p[2], h: p[3], x: p[4].x, y: p[4].y, z: p[4].z, yaw: p[5] }));
+    const nums = [['n4', '04', S(-820, -300, -600)], ['n3', '03', S(820, -260, -2100)], ['n2', '02', S(-820, 180, -3500)], ['n1', '01', S(-200, 560, -5000)]];
+    nums.forEach(n => addNode(n[0], T.num(n[1]), { w: 620, h: 420, x: n[2].x, y: n[2].y, z: n[2].z, fog: false, tap: false, a: .95 }));
+    const F = [[S(60, 60, 330), -.06], [S(-500, -300, 60), .42], [S(540, 280, 20), -.42]];
+    FORKS.forEach((f, i) => addNode('f' + (i + 1), T.fork(f[0], f[1], f[2], f[3], i === 0), { w: 240, h: 300, x: F[i][0].x, y: F[i][0].y, z: F[i][0].z, yaw: F[i][1] }));
+    ['h5', 'h4', 'h3', 'h2', 'h1', 'reply'].reduce((a, b) => (thread(a, b, { sag: .02 }), b));
+    thread('reply', 'f1', { dash: true }); thread('reply', 'f2', { dash: true }); thread('reply', 'f3', { dash: true });
+    makeDust(THEMES.folio.dust, 11);
+    makeOrb(orbSpot(byId.f1));
+    return { focus: S(0, -20, -900), r: 3000 * RM, th: .3, ph: .13 };
+  }
+};
+
+function corePages(L) {
+  const mk = (id, html, w, h, k) => {
+    const [p, yaw, shadow, tilt] = k;
+    return addNode(id, html, { w, h, x: p.x, y: p.y, z: p.z, yaw, tilt: tilt || 0, shadow: !!shadow });
+  };
+  mk('said', T.said(), 290, 196, L.said);
+  mk('reply', T.reply(), 300, 350, L.reply);
+  FORKS.forEach((f, i) => mk('f' + (i + 1), T.fork(f[0], f[1], f[2], f[3], i === 0), 240, 300, L['f' + (i + 1)]));
+  mk('file', T.file(), 220, 280, L.file);
+  mk('log', T.log(LOG4), 210, 290, L.log);
+  mk('room', T.room('Short film', '12 pages'), 290, 200, L.room);
+}
+
+/* ---------- Motion 1 · Approach ---------- */
+SCENES['motion-1'] = {
+  kind: 'motion', theme: 'ink', kick: 'Motion 1 · the orb goes to a page', title: 'Approach',
+  dek: 'You ask for the lighthouse picture. The orb travels to it, the camera follows, the folded page turns to face you, opens like a spread and lifts to reading distance. Then it folds and you drift back.',
+  D: 6900, still: 3600,
+  phases: [[0, 'Listen'], [700, 'Travel', '900 ms spring'], [1600, 'Turn to face', '450 ms'], [2050, 'Unfold', '550 ms'], [2600, 'Lift to read', '600 ms'], [3200, 'Read'], [4800, 'Fold and drift back', '1.1 s']],
+  build() {
+    addNode('said', T.said('“Show me the lighthouse picture.”', '21:09'), { w: 290, h: 196, ...S(-380, -170, -260), yaw: .3 });
+    addNode('reply', T.reply(), { w: 300, h: 350, ...S(60, -30, -680), yaw: .05 });
+    addNode('room', T.room('Short film', '12 pages'), { w: 290, h: 200, ...S(-720, 160, -1300), yaw: .35 });
+    addNode('log', T.log(LOG4), { w: 210, h: 290, ...S(420, 300, -1000), yaw: -.2 });
+    this.FILE = S(820, -150, -1700);
+    addNode('file', T.spread(), { w: 440, h: 300, cls: 'sp', ...this.FILE, yaw: .75 });
+    [['Lisbon trip', -1300, -400, -2600], ['Website', 1500, 420, -2800], ['Inbox', -200, -800, -3200], ['Music', 300, 700, -3000]]
+      .forEach((f, i) => { addNode('m' + i, T.mini('Room', f[0]), { w: 190, h: 120, ...S(f[1], f[2], f[3]), yaw: (i % 2 ? -.3 : .3) }); thread('room', 'm' + i, { alpha: .4 }); });
+    thread('said', 'reply'); thread('reply', 'room', { alpha: .7 }); thread('reply', 'log', { alpha: .7 }); thread('reply', 'file');
+    makeDust(THEMES.ink.dust, 3);
+    this.H0 = S(-80, 200, 260);
+    makeOrb(this.H0);
+    this.rv = [...byId.file.el.querySelectorAll('.rv')];
+    this.cam0 = { pos: V(0, -80, 1400 * RM), look: S(120, -20, -700) };
+  },
+  update(t) {
+    const F = this.FILE, f = byId.file;
+    const read = readDist(440, 300) * 1.04;
+    track(t, [
+      { t: 0, ...this.cam0 }, { t: 700, ...this.cam0 },
+      { t: 1700, pos: vadd(F, V(-470 * AX, -90, 1300 * RM)), look: F, e: settle },
+      { t: 2600, pos: vadd(F, V(-90 * AX, -20, read * 1.5)), look: F, e: inout },
+      { t: 3200, pos: vadd(F, V(0, 0, read)), look: F, e: inout },
+      { t: 4900, pos: vadd(F, V(0, 0, read)), look: F },
+      { t: 6100, ...this.cam0, e: inout }
+    ]);
+    f.yaw = t < 4800 ? lerp(.75, 0, settle(seg(t, 1600, 450))) : lerp(0, .75, settle(seg(t, 5000, 600)));
+    const unf = t < 4800 ? settle(seg(t, 2050, 550)) : 1 - settle(seg(t, 4800, 500));
+    f.el.style.setProperty('--fold', (-178 * (1 - unf)).toFixed(2) + 'deg');
+    f.el.style.setProperty('--shade', (Math.sin((1 - unf) * Math.PI) * .7).toFixed(3));
+    this.rv.forEach((el, i) => { el.style.opacity = (seg(t, 3000 + i * 220, 320) * (1 - seg(t, 4650, 200))).toFixed(3); });
+    const spot = vadd(F, V(-234, -166, 46));
+    let o;
+    if (t < 4950) { const p = seg(t, 700, 900); o = vlerp(this.H0, spot, spring(p)); o.y -= bump(p) * 170; }
+    else { const p = seg(t, 5000, 900); o = vlerp(spot, this.H0, spring(p)); o.y -= bump(p) * 120; }
+    setPos(orb, o);
+    orb.ring = t < 700 ? voice(t) : .1 + .05 * Math.sin(t / 500);
+    orb.think = 0;
+  }
+};
+
+/* ---------- Motion 2 · Fork bloom ---------- */
+SCENES['motion-2'] = {
+  kind: 'motion', theme: 'ink', kick: 'Motion 2 · the path forks in 3D', title: 'Fork bloom',
+  dek: 'Your words land as a page. The Compass reads them behind the scenes, then three next steps unfold out of that page into the room, nearest first. The orb goes to the nearest. You say yes, the other two sink away, and the chosen page turns toward you and becomes the chapter.',
+  D: 7400, still: 3300,
+  phases: [[0, 'Your words land', '700 ms'], [900, 'Compass reads', '600 ms'], [1500, 'Three pages unfold', '480 ms, 70 ms apart'], [2150, 'Orb goes to the nearest', '520 ms spring'], [2700, 'Waits for you'], [3900, '“Yes.”'], [4300, 'Page turns to you', '620 ms'], [5000, 'Chapter opens']],
+  build() {
+    this.SAID = S(-40, -230, -280);
+    addNode('said', T.said(), { w: 290, h: 196, ...this.SAID });
+    this.F = [[S(170, 50, 60), -.18], [S(-560, -60, -760), .5], [S(600, -300, -1000), -.55]];
+    FORKS.forEach((f, i) => addNode('f' + (i + 1), T.fork(f[0], f[1], f[2], f[3], i === 0), { w: 240, h: 300, ...this.SAID, a: 0 }));
+    [['Lisbon trip', -1300, 300, -2600], ['Website', 1300, -500, -2900], ['Inbox', -500, -800, -3300], ['Music', 700, 650, -3100], ['Short film', 0, 200, -2200]]
+      .forEach((f, i) => addNode('m' + i, T.mini('Room', f[0]), { w: 190, h: 120, ...S(f[1], f[2], f[3]), yaw: (i % 2 ? -.3 : .3) }));
+    thread('m4', 'm0', { alpha: .35 }); thread('m4', 'm1', { alpha: .35 }); thread('m4', 'm2', { alpha: .35 }); thread('m4', 'm3', { alpha: .35 });
+    this.fth = [0, 1, 2].map(i => { thread('said', 'f' + (i + 1), { dash: true, prog: 0 }); return threads[threads.length - 1]; });
+    this.O = S(0, 200, 400);
+    addNode('hint', T.say('Say yes, two, or tell me more.'), { w: 520, h: 40, ...S(0, 330, 300), bill: true, fog: false, tap: false, a: 0 });
+    addNode('yes', T.say('“Yes.”', true), { w: 200, h: 60, ...S(-260, 120, 330), bill: true, fog: false, tap: false, a: 0 });
+    makeDust(THEMES.ink.dust, 5);
+    makeOrb(this.O);
+    this.ws = [...byId.said.el.querySelectorAll('.w')];
+    this.selEl = byId.f1.el.querySelector('.pg');
+    this.cam0 = { pos: V(0, -70, 1180 * RM), look: S(0, -90, -300) };
+    this.cam1 = { pos: V(40 * AX, -50, 1080 * RM), look: S(20, -60, -300) };
+  },
+  update(t) {
+    track(t, [{ t: 0, ...this.cam0 }, { t: 1400, ...this.cam0 }, { t: 3900, ...this.cam1, e: inout }]);
+    camBasis();
+    const fade = 1 - seg(t, 6700, 600);
+    const s = byId.said, p0 = settle(seg(t, 0, 700));
+    const sink = settle(seg(t, 4300, 320));
+    setPos(s, V(this.SAID.x, this.SAID.y, this.SAID.z - 500 * (1 - p0) - 380 * sink));
+    s.a = p0 * (1 - sink * .85) * fade;
+    this.ws.forEach((w, i) => { w.style.opacity = seg(t, 200 + i * 130, 200).toFixed(3); });
+    const turn = settle(seg(t, 4300, 620));
+    const fwd = camForward();
+    const read = readDist(240, 300) * .98;
+    const front = V(cam.pos.x + fwd.x * read, cam.pos.y + fwd.y * read, cam.pos.z + fwd.z * read);
+    for (let i = 0; i < 3; i++) {
+      const n = byId['f' + (i + 1)], [Fp, Fy] = this.F[i];
+      const p = settle(seg(t, 1500 + i * 70, 480));
+      let pos = vlerp(this.SAID, Fp, p);
+      n.s = lerp(.3, 1, p); n.yaw = lerp(0, Fy, p); n.tilt = lerp(-.95, 0, p); n.a = p;
+      if (i === 0) {
+        pos = vlerp(pos, front, turn);
+        n.yaw = lerp(Fy, -cam.b, turn) - .22 * bump(turn);   // ends square to the camera, with a page-turn swing
+        n.tilt = lerp(n.tilt, -cam.a, turn);
+      } else {
+        pos = V(pos.x, pos.y, pos.z - 420 * sink); n.a *= (1 - sink);
+      }
+      n.a *= fade;
+      setPos(n, pos);
+      this.fth[i].prog = p;
+      this.fth[i].alpha = (i === 0 ? 1 - turn * .9 : 1 - sink) * fade;
+    }
+    const sel = t > 2620 && t < 7300;
+    if (sel !== this.sel) { this.selEl.classList.toggle('sel', sel); this.sel = sel; }
+    const spot = () => orbSpot(byId.f1);
+    let o;
+    if (t < 4300) { const p = seg(t, 2150, 520); o = vlerp(this.O, spot(), spring(p)); o.y -= bump(p) * 110; }
+    else { const p = seg(t, 4350, 700); o = vlerp(spot(), this.O, settle(p)); }
+    setPos(orb, o);
+    orb.ring = t < 900 ? voice(t) : (t > 2700 && t < 3900) ? voice(t) * .75 : .1;
+    orb.think = bump(seg(t, 900, 800));
+    orb.rot = t * .12;
+    byId.hint.a = seg(t, 2750, 300) * (1 - seg(t, 3850, 250));
+    const y = byId.yes; y.a = seg(t, 3900, 220) * (1 - seg(t, 4260, 220)); y.s = lerp(.85, 1, settle(seg(t, 3900, 400)));
+  }
+};
+
+/* ---------- Motion 3 · Everything is a page ---------- */
+SCENES['motion-3'] = {
+  kind: 'motion', theme: 'ink', kick: 'Motion 3 · logs, replies and files are pages too', title: 'Everything is a page',
+  dek: 'A machine log prints, an answer streams in, a file drops into the room with a little flutter. Each one is a sheet of paper. They fly into their room, which counts them in, and the camera pulls back to show your whole world: every room, page and thread at once.',
+  D: 9000, still: 6200,
+  phases: [[0, 'Log prints', 'a line every 350 ms'], [300, 'Answer streams'], [1700, 'File drops in', '700 ms, flutter'], [2400, 'Filed into the room', '560 ms spring, 160 ms apart'], [3300, 'Pull back', '2.3 s'], [5600, 'Your whole world'], [7200, 'Back to you', '1.4 s']],
+  build() {
+    this.Lp = S(-370, -60, -120); this.Ap = S(340, -90, -230); this.Fp = S(-10, 170, 90); this.Rp = S(0, -60, -1150);
+    addNode('log', `<div class="pg slip"><p class="k"><span>Machine log</span><span>AI</span></p>${[['21:06', 'Shot 4 · queued'], ['21:06', 'H3 Max · loading'], ['21:07', 'Rendering · 120 frames'], ['21:08', 'Done · 5 s · 1080p']].map(l => `<p class="ln"><b>${l[0]}</b>${l[1]}</p>`).join('')}<p class="ft">AI machine · on</p></div>`, { w: 210, h: 290, ...this.Lp, yaw: .28, a: 0 });
+    addNode('ans', `<div class="pg reply"><p class="k"><span>Orbit · answer</span><span>21:08</span></p><p class="t">The storm, done.</p><p class="d dc">${words('I made the sea darker and the waves taller, and moved the light so it catches the spray. Shot 4 now matches the lighthouse in shot 3.')}</p></div>`, { w: 290, h: 340, ...this.Ap, yaw: -.22, a: 0 });
+    addNode('file', T.file('shot-4-storm.mp4', 'Now', true), { w: 200, h: 250, ...this.Fp, a: 0 });
+    addNode('room', T.room('Short film', '12 pages', 'Room · 4 shots'), { w: 300, h: 210, ...this.Rp });
+    this.lines = [...byId.log.el.querySelectorAll('.ln')];
+    this.ws = [...byId.ans.el.querySelectorAll('.w')];
+    this.cnt = byId.room.el.querySelector('.cnt'); this.last = 12;
+    // the wider world
+    const r = rng(42), kinds = ['Room', 'Page', 'Log', 'File', 'You said', 'Reply'];
+    const names = ['Lisbon trip', 'Website', 'Inbox', 'Music', 'Recipes', 'Taxes', 'Garden', 'Birthday', 'Reading list', 'Portfolio', 'Studio', 'Bike repair', 'Kitchen plan', 'Photos 2026', 'Invoices', 'Spanish', 'Running', 'Ideas', 'Podcast', 'Moodboard', 'Tickets', 'Car', 'Work notes', 'Family', 'Health', 'Weekend', 'Letters', 'Sketches', 'Cover art', 'Lyrics', 'Budget', 'Movies', 'Books', 'Market', 'Home', 'Deck', 'Logo', 'Travel', 'Wishlist', 'Archive'];
+    const pts = [];
+    names.forEach((nm, i) => {
+      let p; do { p = V((r() * 2 - 1) * 2900, (r() * 2 - 1) * 1500, -1500 - r() * 4200); } while (pts.some(q => vdist(p, q) < 520));
+      p.x *= AX; pts.push(p);
+      addNode('w' + i, T.mini(kinds[i % kinds.length], nm), { w: 180, h: 118, ...p, yaw: (r() - .5) * .9 });
+      let best = -1, bd = 1e9; for (let j = 0; j < i; j++) { const d = vdist(p, pts[j]); if (d < bd) { bd = d; best = j; } }
+      if (best >= 0) thread('w' + best, 'w' + i, { alpha: .4 });
+    });
+    let nearest = 0, nd = 1e9; pts.forEach((p, i) => { const d = vdist(p, this.Rp); if (d < nd) { nd = d; nearest = i; } });
+    thread('room', 'w' + nearest, { alpha: .5 });
+    makeDust(THEMES.ink.dust + 60, 9);
+    this.O = S(-30, 260, 340);
+    makeOrb(this.O);
+    this.cam0 = { pos: V(0, -60, 1050 * RM), look: S(0, -40, -300) };
+    this.camW = { pos: V(500 * AX, -2100, 5300 * RM), look: V(0, 0, -2600) };
+    this.camW2 = { pos: V(-800 * AX, -1900, 5000 * RM), look: V(0, -100, -2600) };
+  },
+  update(t) {
+    track(t, [{ t: 0, ...this.cam0 }, { t: 3300, ...this.cam0 }, { t: 5600, ...this.camW, e: inout }, { t: 7200, ...this.camW2, e: inout }, { t: 8700, ...this.cam0, e: inout }]);
+    const L = byId.log, A = byId.ans, Fi = byId.file, R = byId.room;
+    L.a = settle(seg(t, 0, 500)); A.a = settle(seg(t, 150, 500));
+    this.lines.forEach((el, i) => { el.style.opacity = seg(t, 250 + i * 350, 180).toFixed(3); });
+    const nw = Math.floor(seg(t, 400, 1300) * this.ws.length + .001);
+    this.ws.forEach((w, i) => { w.style.opacity = i < nw ? '1' : '0'; });
+    const dp = seg(t, 1700, 700), damp = Math.pow(1 - dp, 2);
+    let fpos = V(this.Fp.x, lerp(-1150, this.Fp.y, settle(dp)), this.Fp.z);
+    Fi.tilt = .55 * Math.sin(dp * 14) * damp; Fi.yaw = .05 + .35 * Math.sin(dp * 9) * damp; Fi.a = dp > 0 ? 1 : 0;
+    const items = [[L, this.Lp, .28], [A, this.Ap, -.22], [Fi, fpos, Fi.yaw]];
+    let arrived = 0, pulse = 0;
+    items.forEach(([n, from, y0], i) => {
+      const st = 2400 + i * 160, q = spring(seg(t, st, 560));
+      setPos(n, vlerp(from, this.Rp, q));
+      n.s = lerp(1, .16, clamp(q, 0, 1)); n.yaw = lerp(y0, 0, clamp(q, 0, 1));
+      if (i === 2) n.tilt = lerp(Fi.tilt, 0, clamp(q, 0, 1));
+      n.a *= 1 - seg(t, st + 330, 230);
+      if (t > st + 420) arrived++;
+      pulse += bump(seg(t, st + 380, 260));
+    });
+    R.s = 1 + .05 * Math.min(1, pulse);
+    const c = 12 + arrived;
+    if (c !== this.last) { this.cnt.textContent = c + ' pages'; this.last = c; }
+    const rs = vadd(this.Rp, V(-156, -111, 40));
+    let o;
+    if (t < 8000) { const p = seg(t, 2250, 600); o = vlerp(this.O, rs, spring(p)); o.y -= bump(p) * 120; }
+    else { const p = seg(t, 8000, 900); o = vlerp(rs, this.O, settle(p)); }
+    setPos(orb, o);
+    orb.ring = t < 1700 ? .25 + voice(t) * .4 : .1;
+    orb.think = 0;
+  }
+};
+
+function voice(t) { return clamp(.35 + .45 * Math.abs(Math.sin(t / 95) * Math.sin(t / 233 + 1.3)) + .2 * Math.sin(t / 51), 0, 1); }
+function track(t, ks) {
+  let r = ks[ks.length - 1];
+  if (t <= ks[0].t) r = ks[0];
+  else for (let i = 1; i < ks.length; i++) {
+    const b = ks[i];
+    if (t <= b.t) { const a = ks[i - 1], p = (t - a.t) / Math.max(1, b.t - a.t), e = (b.e || inout)(p); r = { pos: vlerp(a.pos, b.pos, e), look: vlerp(a.look, b.look, e) }; break; }
+  }
+  cam.pos = r.pos; cam.look = r.look;
+}
+
+/* =========================================================
+   LOOK CONTROLLER (drag, pinch, tap to approach)
+   ========================================================= */
+const LK = { cur: null, tgt: null, home: null, approached: null, dragging: false, vth: 0, vph: 0 };
+function setLookHome(h) {
+  LK.home = { fx: h.focus.x, fy: h.focus.y, fz: h.focus.z, r: h.r, th: h.th, ph: h.ph };
+  LK.cur = { ...LK.home }; LK.tgt = { ...LK.home }; LK.approached = null; LK.vth = 0; LK.vph = 0;
+}
+function approach(n, now) {
+  const g = LK.tgt;
+  g.fx = n.x; g.fy = n.y; g.fz = n.z;
+  if (Math.abs(n.tilt) > 1) { g.ph = 1.25; g.r = readDist(n.w, n.h) * 1.05; }
+  else { g.th = n.yaw; g.ph = .03; g.r = readDist(n.w, n.h); }
+  LK.approached = n.id;
+  let sp = orbSpot(n); if (floorOn && Math.abs(n.tilt) < 1) sp.y -= 30;
+  orbTo(sp, now);
+  $('#back').hidden = false; layout();
+}
+function overview(now) {
+  Object.assign(LK.tgt, LK.home); LK.approached = null;
+  const n = byId.f1; let sp = orbSpot(n); if (floorOn) sp.y -= 40;
+  orbTo(sp, now);
+  $('#back').hidden = true; layout();
+}
+function updateLook(dt, now) {
+  const c = LK.cur, g = LK.tgt;
+  if (!LK.dragging && (Math.abs(LK.vth) > 1e-5 || Math.abs(LK.vph) > 1e-5)) { g.th += LK.vth; g.ph += LK.vph; LK.vth *= .9; LK.vph *= .9; limits(); }
+  const k = 1 - Math.exp(-dt * (LK.dragging ? 18 : 2.8));
+  for (const key of ['fx', 'fy', 'fz', 'r', 'th', 'ph']) c[key] = lerp(c[key], g[key], k);
+  const sw = reduced ? 0 : (LK.approached ? .012 : .05);
+  const th = c.th + sw * Math.sin(now / 5200), ph = c.ph + sw * .45 * Math.sin(now / 7100 + 1);
+  cam.pos = V(c.fx + c.r * Math.sin(th) * Math.cos(ph), c.fy - c.r * Math.sin(ph), c.fz + c.r * Math.cos(th) * Math.cos(ph));
+  cam.look = V(c.fx, c.fy, c.fz);
+  if (OT) {
+    const p = clamp((now - OT.t0) / OT.dur, 0, 1);
+    const o = vlerp(OT.from, OT.to, reduced ? 1 : spring(p)); o.y -= reduced ? 0 : bump(p) * OT.arc;
+    setPos(orb, o); if (p >= 1) OT = null;
+  } else if (!reduced) {
+    orb.y += Math.sin(now / 900) * .18;
+  }
+  orb.ring = .1 + (reduced ? 0 : .06 * Math.sin(now / 700));
+}
+function limits() {
+  const h = LK.home, g = LK.tgt;
+  g.th = clamp(g.th, h.th - 1.15, h.th + 1.15);
+  g.ph = clamp(g.ph, -.3, 1.35);
+  g.r = clamp(g.r, 260, h.r * 1.9);
+}
+
+/* pointer input */
+const ptrs = new Map(); let downAt = null, pinch0 = 0, r0 = 0;
+stage.addEventListener('pointerdown', e => {
+  stage.setPointerCapture(e.pointerId);
+  ptrs.set(e.pointerId, { x: e.clientX, y: e.clientY });
+  if (ptrs.size === 1) downAt = { x: e.clientX, y: e.clientY, t: performance.now(), moved: 0 };
+  if (ptrs.size === 2 && scene.kind === 'look') { const [a, b] = [...ptrs.values()]; pinch0 = Math.hypot(a.x - b.x, a.y - b.y); r0 = LK.tgt.r; }
+  if (scene.kind === 'look') { LK.dragging = true; stage.classList.add('dragging'); LK.vth = 0; LK.vph = 0; }
+});
+stage.addEventListener('pointermove', e => {
+  if (!ptrs.has(e.pointerId)) return;
+  const prev = ptrs.get(e.pointerId), dx = e.clientX - prev.x, dy = e.clientY - prev.y;
+  ptrs.set(e.pointerId, { x: e.clientX, y: e.clientY });
+  if (downAt) downAt.moved += Math.abs(dx) + Math.abs(dy);
+  if (scene.kind !== 'look') return;
+  if (ptrs.size === 2) { const [a, b] = [...ptrs.values()]; const d = Math.hypot(a.x - b.x, a.y - b.y); if (pinch0 > 0) { LK.tgt.r = r0 * pinch0 / d; limits(); } return; }
+  LK.tgt.th -= dx * .0042; LK.tgt.ph += dy * .0032; LK.vth = -dx * .0042; LK.vph = dy * .0032; limits();
+});
+function endPtr(e) {
+  if (!ptrs.has(e.pointerId)) return;
+  ptrs.delete(e.pointerId);
+  if (ptrs.size === 0) {
+    LK.dragging = false; stage.classList.remove('dragging');
+    if (downAt && downAt.moved < 9 && performance.now() - downAt.t < 450 && scene.kind === 'look') {
+      const el = document.elementFromPoint(e.clientX, e.clientY);
+      const nEl = el && el.closest ? el.closest('.node') : null;
+      const n = nEl ? byId[nEl.dataset.id] : null;
+      if (n && n.tap && n.id !== LK.approached) approach(n, performance.now());
+      else if (LK.approached) overview(performance.now());
+      LK.vth = 0; LK.vph = 0;
+    }
+    downAt = null; pinch0 = 0;
+  }
+}
+stage.addEventListener('pointerup', endPtr);
+stage.addEventListener('pointercancel', endPtr);
+stage.addEventListener('wheel', e => { if (scene.kind !== 'look') return; e.preventDefault(); LK.tgt.r *= Math.exp(e.deltaY * .0012); limits(); }, { passive: false });
+stage.addEventListener('keydown', e => {
+  if (scene.kind !== 'look') return;
+  const g = LK.tgt, m = { ArrowLeft: () => g.th += .12, ArrowRight: () => g.th -= .12, ArrowUp: () => g.ph -= .08, ArrowDown: () => g.ph += .08, '+': () => g.r *= .88, '=': () => g.r *= .88, '-': () => g.r *= 1.14, Escape: () => overview(performance.now()) };
+  if (m[e.key]) { m[e.key](); limits(); e.preventDefault(); }
+});
+
+/* =========================================================
+   RENDER
+   ========================================================= */
+function renderNodes() {
+  const near = cam.fd * .85, far = near + Math.max(2600, cam.fd * 2.2), fogMax = theme.fog;
+  const rot = ` rotateX(${cam.a}rad) rotateY(${cam.b}rad)`;
+  for (const n of nodes) {
+    const v = toCam(n), d = -v[2];
+    const nearFade = n.bill ? clamp((d - 70) / 90, 0, 1) : clamp((d - 70) / 110, 0, 1);   // pages fade as they pass the camera
+    const sc = P / Math.max(d, 1), half = Math.max(n.w, n.h) * n.s * sc * .6;
+    const off = Math.abs(v[0] * sc) - half > W * .75 || Math.abs(v[1] * sc) - half > H * .75;   // skip pages well outside the frame
+    if (off || nearFade <= .004 || n.a <= .004) { if (n.vis) { n.el.style.visibility = 'hidden'; n.vis = false; } n.d = d; continue; }
+    if (!n.vis) { n.el.style.visibility = ''; n.vis = true; }
+    const f = n.fog ? clamp((d - near) / (far - near), 0, 1) : 0;
+    const r = n.bill ? '' : `${rot} rotateY(${n.yaw}rad) rotateX(${n.tilt}rad)`;
+    n.el.style.transform = `translate3d(${v[0].toFixed(1)}px,${v[1].toFixed(1)}px,${(P + v[2]).toFixed(1)}px)${r} scale(${n.s.toFixed(4)})`;
+    const op = n.a * nearFade * (f > .82 ? 1 - (f - .82) / .18 * .85 : 1);
+    n.el.style.opacity = op.toFixed(3);
+    n.el.style.setProperty('--fog', (f * fogMax).toFixed(3));
+    n.el.style.zIndex = String(Math.max(1, Math.round(300000 - d * 10)));
+    n.d = d; n.f = f;
+  }
+  if (orb) { orb.el.style.setProperty('--ring', orb.ring.toFixed(3)); orb.el.style.setProperty('--think', orb.think.toFixed(3)); orb.el.style.setProperty('--rot', (orb.rot || 0).toFixed(1) + 'deg'); }
+}
+function anchor(id, base) { const n = byId[id]; if (!n) return null; return base ? V(n.x, FLOOR, n.z) : V(n.x, n.y, n.z); }
+function drawCanvas(now) {
+  ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+  ctx.clearRect(0, 0, W, H);
+  const near = cam.fd * .85, far = near + Math.max(2600, cam.fd * 2.2);
+  const fogAt = d => clamp((d - near) / (far - near), 0, 1);
+  // floor (Look B)
+  if (floorOn) {
+    const fx = Math.round(cam.look.x / 140) * 140, fz = Math.round(cam.look.z / 140) * 140;
+    ctx.fillStyle = 'rgba(29,26,22,1)';
+    for (let i = -16; i <= 16; i++) for (let j = -26; j <= 8; j++) {
+      const v = toCam(V(fx + i * 140, FLOOR, fz + j * 140)); const d = -v[2]; if (d < 60) continue;
+      const q = proj(v); if (q.x < -10 || q.x > W + 10 || q.y < -10 || q.y > H + 10) continue;
+      const a = .32 * (1 - fogAt(d)) * clamp(q.s * 3, 0, 1); if (a < .01) continue;
+      const r = clamp(q.s * 3.2, .6, 2.6); ctx.globalAlpha = a; ctx.fillRect(q.x - r / 2, q.y - r / 2, r, r * .6);
+    }
+    ctx.globalAlpha = 1;
+    // shadows
+    const sh = theme.shadow;
+    for (const n of nodes) {
+      if (!n.shadow || !n.vis || n.a <= .01) continue;
+      const v = toCam(V(n.x, FLOOR, n.z)); const d = -v[2]; if (d < 60) continue;
+      const q = proj(v), rx = n.w * .62 * q.s, ry = rx * (.1 + .9 * Math.max(.05, Math.sin(-cam.a)));
+      ctx.save(); ctx.translate(q.x, q.y); ctx.scale(1, ry / rx);
+      const g = ctx.createRadialGradient(0, 0, 0, 0, 0, rx);
+      const al = .3 * n.a * (1 - fogAt(d));
+      g.addColorStop(0, `rgba(${sh},${al})`); g.addColorStop(.6, `rgba(${sh},${al * .35})`); g.addColorStop(1, `rgba(${sh},0)`);
+      ctx.fillStyle = g; ctx.fillRect(-rx, -rx, rx * 2, rx * 2); ctx.restore();
+    }
+    // orb light pool
+    if (orb) {
+      const v = toCam(V(orb.x, FLOOR, orb.z)); const d = -v[2];
+      if (d > 60) {
+        const q = proj(v), h = Math.max(20, FLOOR - orb.y), rx = (180 + h * .6) * q.s, ry = rx * (.12 + .88 * Math.max(.05, Math.sin(-cam.a)));
+        ctx.save(); ctx.translate(q.x, q.y); ctx.scale(1, ry / rx);
+        const g = ctx.createRadialGradient(0, 0, 0, 0, 0, rx);
+        const al = clamp(.5 - h / 900, .12, .45);
+        g.addColorStop(0, `rgba(108,124,255,${al})`); g.addColorStop(1, 'rgba(108,124,255,0)');
+        ctx.fillStyle = g; ctx.fillRect(-rx, -rx, rx * 2, rx * 2); ctx.restore();
+      }
+    }
+  }
+  // threads
+  ctx.lineCap = 'butt';
+  for (const th of threads) {
+    if (th.prog <= .001 || th.alpha <= .01) continue;
+    const na = byId[th.a], nb = byId[th.b]; if (!na || !nb || na.a < .02 && nb.a < .02) continue;
+    const A = anchor(th.a, th.base), B0 = anchor(th.b, th.base), B = vlerp(A, B0, th.prog);
+    const len = vdist(A, B), N = 22;
+    ctx.beginPath(); let on = false, mid = null;
+    for (let i = 0; i <= N; i++) {
+      const p = i / N, Q = vlerp(A, B, p); Q.y += bump(p) * len * th.sag;
+      const v = toCam(Q); if (-v[2] < 60) { on = false; continue; }
+      const q = proj(v); if (i === N >> 1) mid = q;
+      if (on) ctx.lineTo(q.x, q.y); else { ctx.moveTo(q.x, q.y); on = true; }
+    }
+    const md = mid ? mid.d : 2000;
+    const al = theme.ta * th.alpha * (1 - fogAt(md) * .85) * Math.min(1, Math.max(na.a, .3)) * Math.min(1, Math.max(nb.a, th.prog < 1 ? 1 : .3));
+    ctx.strokeStyle = `rgba(${theme.thread},${al.toFixed(3)})`;
+    ctx.lineWidth = clamp((mid ? mid.s : .5) * 1.6, .6, 1.5);
+    ctx.setLineDash(th.dash ? [3, 5] : []);
+    ctx.stroke();
+    // square knots at both ends
+    if (th.prog >= 1) for (const E of [A, B]) {
+      const v = toCam(E); if (-v[2] < 60) continue; const q = proj(v);
+      ctx.fillStyle = `rgba(${theme.thread},${(al * 1.6).toFixed(3)})`; ctx.fillRect(q.x - 1.5, q.y - 1.5, 3, 3);
+    }
+  }
+  ctx.setLineDash([]);
+  // dust
+  if (dust.length) {
+    const tt = now / 1000;
+    for (const m of dust) {
+      const p = V(m.p.x + Math.sin(tt * .07 * m.sp + m.ph) * 40, m.p.y + Math.cos(tt * .05 * m.sp + m.ph) * 30, m.p.z);
+      const v = toCam(p), d = -v[2]; if (d < 80) continue;
+      const q = proj(v); if (q.x < 0 || q.x > W || q.y < 0 || q.y > H) continue;
+      const tw = reduced ? .7 : .55 + .45 * Math.sin(tt * m.sp + m.ph);
+      const a = .5 * tw * (1 - clamp((d - 300) / 7000, 0, 1)); if (a < .02) continue;
+      const r = clamp(q.s * 2.2, .5, 2.4);
+      ctx.fillStyle = `rgba(${theme.dustRGB},${a.toFixed(3)})`; ctx.fillRect(q.x - r / 2, q.y - r / 2, r, r);
+    }
+  }
+  // orb trail
+  if (orb) {
+    trail.push(V(orb.x, orb.y, orb.z)); if (trail.length > 16) trail.shift();
+    for (let i = 0; i < trail.length - 1; i++) {
+      const a = trail[i], b = trail[trail.length - 1]; if (vdist(a, b) < 8) continue;
+      const v = toCam(a); if (-v[2] < 60) continue; const q = proj(v);
+      const al = (i / trail.length) * .28, r = 24 * q.s * (i / trail.length);
+      ctx.fillStyle = `rgba(108,124,255,${al.toFixed(3)})`; ctx.beginPath(); ctx.arc(q.x, q.y, r, 0, 6.283); ctx.fill();
+    }
+  }
+}
+
+/* =========================================================
+   LOOP, SCENE SWITCHING, CAPTION
+   ========================================================= */
+let scene = null, sceneId = null, last = performance.now(), mt = 0, playing = true;
+function frame(now) {
+  const dt = Math.min(.05, (now - last) / 1000); last = now;
+  if (scene) {
+    if (scene.kind === 'look') updateLook(dt, now);
+    else {
+      if (playing) { mt += dt * 1000; if (mt > scene.D) mt = 0; }
+      scene.update(mt);
+      updatePhases();
+    }
+    camBasis(); renderNodes(); drawCanvas(now);
+  }
+  requestAnimationFrame(frame);
+}
+function updatePhases() {
+  const ph = scene.phases; let cur = 0; for (let i = 0; i < ph.length; i++) if (mt >= ph[i][0]) cur = i;
+  if (cur !== scene._cur) { [...$('#phases').children].forEach((li, i) => li.classList.toggle('on', i === cur)); scene._cur = cur; }
+  $('#bar').style.width = (mt / scene.D * 100).toFixed(2) + '%';
+}
+function show(id, push = true) {
+  if (!SCENES[id]) id = 'look-a';
+  sceneId = id; scene = SCENES[id]; scene._cur = -1;
+  theme = THEMES[scene.theme];
+  stage.className = theme.cls + (scene.kind === 'motion' ? ' motion' : '');
+  document.querySelectorAll('.tab').forEach(b => b.setAttribute('aria-selected', String(b.dataset.s === id)));
+  $('#capKick').textContent = scene.kick; $('#capTitle').textContent = scene.title; $('#capDek').textContent = scene.dek;
+  const isM = scene.kind === 'motion';
+  $('#phases').innerHTML = isM ? scene.phases.map(p => `<li>${p[1]}${p[2] ? ` <em>${p[2]}</em>` : ''}</li>`).join('') : '';
+  $('#phases').hidden = !isM;
+  $('#replay').hidden = !isM; $('#pause').hidden = !isM; $('#progWrap').hidden = !isM; $('#back').hidden = true;
+  $('#hint').textContent = isM ? 'Shown in Look A. It follows the look you pick.' : 'Drag to look around. Pinch or scroll to move closer. Tap any page and the orb goes to it.';
+  if (push) { try { history.replaceState(null, '', '#' + id); } catch (e) {} }
+  layout();
+  build();
+}
+function build() {
+  clearScene(); OT = null;
+  const home = scene.build();
+  if (scene.kind === 'look') setLookHome(home);
+  else { mt = reduced ? scene.still : 0; playing = !reduced; $('#pause').textContent = playing ? 'Pause' : 'Play'; }
+}
+function layout() {
+  W = stage.clientWidth; H = stage.clientHeight;
+  DPR = Math.min(2, window.devicePixelRatio || 1);
+  cv.width = Math.round(W * DPR); cv.height = Math.round(H * DPR); cv.style.width = W + 'px'; cv.style.height = H + 'px';
+  const top = mast.offsetHeight, bot = cap.offsetHeight;
+  VIS = Math.max(240, H - top - bot);
+  CX = W / 2; CY = top + VIS / 2;
+  P = Math.min(W, VIS * 1.05) * 1.15;
+  world.style.perspective = P.toFixed(1) + 'px';
+  world.style.perspectiveOrigin = `50% ${CY.toFixed(1)}px`;
+  world.style.setProperty('--cy', CY.toFixed(1) + 'px');
+  const portrait = W / VIS < .85;
+  AX = portrait ? .5 : 1; AY = portrait ? 1.1 : 1;
+  RM = (portrait ? 1.02 : .73) * P / VIS;   // camera distances scale with the lens so pages read at the same size on any screen
+}
+window.__os = { show: id => show(id), seek: t => { mt = t; playing = false; }, tap: id => approach(byId[id], performance.now()) };
+
+document.querySelectorAll('.tab').forEach(b => b.addEventListener('click', () => show(b.dataset.s)));
+$('#replay').addEventListener('click', () => { mt = 0; playing = true; $('#pause').textContent = 'Pause'; });
+$('#pause').addEventListener('click', () => { playing = !playing; $('#pause').textContent = playing ? 'Pause' : 'Play'; });
+$('#back').addEventListener('click', () => overview(performance.now()));
+$('#notes').addEventListener('click', () => {
+  const body = $('#capBody'), open = body.style.display !== 'none';
+  body.style.display = open ? 'none' : 'flex';
+  $('#notes').textContent = open ? 'Show notes' : 'Hide notes';
+  $('#notes').setAttribute('aria-expanded', String(!open));
+  const keep = scene.kind === 'look' ? { ...LK } : null;
+  layout(); build();
+  if (keep && keep.cur) { LK.cur = keep.cur; LK.tgt = keep.tgt; }
+});
+let rz = 0;
+window.addEventListener('resize', () => { cancelAnimationFrame(rz); rz = requestAnimationFrame(() => { layout(); build(); }); });
+(mq.addEventListener ? mq.addEventListener.bind(mq, 'change') : mq.addListener.bind(mq))(e => { reduced = e.matches; });
+window.addEventListener('hashchange', () => { const h = location.hash.slice(1); if (SCENES[h] && h !== sceneId) show(h, false); });
+
+/* grain texture for the paper feel */
+(() => {
+  const n = document.createElement('canvas'); n.width = n.height = 180;
+  const x = n.getContext('2d'), img = x.createImageData(180, 180), r = rng(99);
+  for (let i = 0; i < img.data.length; i += 4) { const v = 110 + r() * 145; img.data[i] = img.data[i + 1] = img.data[i + 2] = v; img.data[i + 3] = 255; }
+  x.putImageData(img, 0, 0);
+  document.documentElement.style.setProperty('--noise', `url(${n.toDataURL()})`);
+})();
+
+show(SCENES[location.hash.slice(1)] ? location.hash.slice(1) : 'look-a', false);
+requestAnimationFrame(frame);
+})();
+</script>
