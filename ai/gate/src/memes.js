@@ -99,15 +99,21 @@ export function parseJson(text) {
   }
 }
 
+// The video maker (LTX-2.3) makes the sound with the picture, so the prompt carries what is said.
+const LTX_PROMPT =
+  ' Write the "prompt" for the LTX-2.3 video model: one flowing paragraph in the present tense, 4 to 6 sentences, in this order: who or what is in the shot, what they do (concrete motion, never feelings), how the camera moves, the light and mood. ' +
+  'If someone speaks or sings, put the exact words in quotation marks and say how they sound (She whispers, "Not again."), one short line of at most 10 words for the 5 seconds. Finish with the sound: ambient noise and how clear the voice is. No on-screen text or logos.';
 const IDEA_SYSTEMS = {};
 IDEA_SYSTEMS.comedy =
   'You write ideas for 5-second vertical comedy meme videos made by an AI video model, for a comedy meme channel. Aim for instant recognition, a twist in the first second and a reaction people want to share. ' +
   'Keep it kind: no real people, celebrities, brands, politics, violence, or anything sexual. Answer only with JSON: ' +
-  '{"title": short on-screen hook, "prompt": one detailed visual paragraph for the video model (camera, setting, action, mood, realistic), "caption": post caption under 120 characters, "hashtags": 3 to 5 hashtags}.';
+  '{"title": short on-screen hook, "prompt": one detailed visual paragraph for the video model (camera, setting, action, mood, realistic), "caption": post caption under 120 characters, "hashtags": 3 to 5 hashtags}.' +
+  LTX_PROMPT;
 IDEA_SYSTEMS.spicy =
   'You write ideas for 5-second vertical "thirst trap" style videos made by an AI video model: flirty, confident, stylish clips of attractive fictional adults (25 or older) of the kind that go viral on TikTok and Reels: fit checks, glow-ups, slow-motion glances, gym and beach reels. ' +
   'Aim for a strong look in the first second, eye contact, confidence and a beat to loop on. Keep it platform-safe: clothed or swimwear, no nudity, nothing sexual or explicit, never anyone under 25 or anyone young-looking, no real or famous people, no brands. Answer only with JSON: ' +
-  '{"title": short on-screen hook, "prompt": one detailed visual paragraph for the video model (camera, setting, outfit, action, light, realistic), "caption": post caption under 120 characters, "hashtags": 3 to 5 hashtags}.';
+  '{"title": short on-screen hook, "prompt": one detailed visual paragraph for the video model (camera, setting, outfit, action, light, realistic), "caption": post caption under 120 characters, "hashtags": 3 to 5 hashtags}.' +
+  LTX_PROMPT;
 const SCORE_SYSTEMS = {};
 SCORE_SYSTEMS.comedy =
   'You judge short meme videos for a meme channel. Look at the frames and the idea, then score how likely it is to go viral from 0 to 100 ' +

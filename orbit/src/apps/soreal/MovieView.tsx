@@ -74,7 +74,7 @@ export function MovieView({
       onItem(r.item);
       return r.movie;
     });
-  const shotsDraft = (shots: MovieShot[]) => shots.map((s) => ({ id: s.id, prompt: s.prompt, end: s.end, trimStart: s.trimStart ?? 0, trimEnd: s.trimEnd ?? 0 }));
+  const shotsDraft = (shots: MovieShot[]) => shots.map((s) => ({ id: s.id, prompt: s.prompt, says: s.says, end: s.end, trimStart: s.trimStart ?? 0, trimEnd: s.trimEnd ?? 0 }));
   /** Make one shot again (only that one: it sits between its own two storyboard pictures). */
   const redoShot = (id: string) =>
     act(`redo-${id}`, async () => {
@@ -265,6 +265,13 @@ export function MovieView({
                       {trimmed > 0 && <span className="ai-muted sr-small">trimmed {trimmed} s</span>}
                     </p>
                     <p className="sr-shot-text">{s.prompt}</p>
+                    {s.says?.trim() && (
+                      <p className="sr-shot-says" aria-label={`Said or sung in shot ${i + 1}`}>
+                        {s.says.split('\n').map((l) => (
+                          <span key={l}>{l}</span>
+                        ))}
+                      </p>
+                    )}
                     {s.error && <p className="ai-error">{s.error}</p>}
                     {editable && (
                       <div className="sr-shot-tools">
