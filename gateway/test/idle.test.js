@@ -52,3 +52,17 @@ test('desktop input: mouse, keys and touches count; pings and screen sizes do no
   assert.ok(!GUAC_INPUT.test('4.size,4.1280,3.720;'));
   assert.ok(!GUAC_INPUT.test('4.sync,8.12345678;'));
 });
+
+test('a running Claude Code process owned by this user counts as busy', async () => {
+  const { mkdtemp, mkdir, writeFile } = await import('node:fs/promises');
+  const os = await import('node:os');
+  const { cliAgentRunning } = await import('../src/idle.js');
+  const dir = await mkdtemp(os.tmpdir() + '/proc-');
+  await mkdir(dir + '/12'); await writeFile(dir + '/12/comm', 'bash\n');
+  await mkdir(dir + '/self'); 
+  assert.equal(await cliAgentRunning({ procDir: dir }), false);
+  await mkdir(dir + '/34'); await writeFile(dir + '/34/comm', 'claude\n');
+  assert.equal(await cliAgentRunning({ procDir: dir }), true);
+  assert.equal(await cliAgentRunning({ procDir: dir, uid: 999999 }), false, 'another user\'s process does not count');
+  assert.equal(await cliAgentRunning({ procDir: dir + '/missing' }), false);
+});
