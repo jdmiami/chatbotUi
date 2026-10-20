@@ -12,6 +12,7 @@ export type ArtId =
   | 'ai'
   | 'store'
   | 'soreal'
+  | 'lab'
   | 'settings'
   | 'playground'
   | 'vscode'
@@ -25,6 +26,7 @@ const TILES: Record<ArtId, [string, string, string?]> = {
   ai: ['#9b6bff', '#2563eb', '#06b6d4'],
   store: ['#f5c16c', '#d9663a', '#6d2a5c'],
   soreal: ['#ff6a6a', '#c2185b', '#4a148c'],
+  lab: ['#ffd36b', '#ff7a59', '#8a2be2'],
   settings: ['#9aa3b6', '#454c5f'],
   playground: ['#ffb547', '#f0517a'],
   vscode: ['#3aa0ff', '#0b4fa8'],
@@ -74,6 +76,15 @@ function Glyph({ id, uid }: { id: ArtId; uid: string }) {
           <path d="M28 38h44l-4 38a5 5 0 0 1-5 4H37a5 5 0 0 1-5-4z" fill={INK} opacity="0.95" />
           <path d="M40 40v-8a10 10 0 0 1 20 0v8" fill="none" stroke={INK} strokeWidth="5" strokeLinecap="round" />
           <path d="M50 50l3 7 7 3-7 3-3 7-3-7-7-3 7-3z" fill={`url(#${uid}-g)`} />
+        </g>
+      );
+    case 'lab':
+      return (
+        <g>
+          <path d="M42 22h16M45 22v18L30 70a5 5 0 0 0 4.5 7h31a5 5 0 0 0 4.5-7L55 40V22" fill="none" stroke={INK} strokeWidth="5" strokeLinejoin="round" />
+          <path d="M36 62h28l4 8a3 3 0 0 1-2.7 4H34.7a3 3 0 0 1-2.7-4z" fill="#fff6c9" />
+          <circle cx="46" cy="55" r="3" fill={INK} />
+          <circle cx="56" cy="50" r="2" fill={INK} />
         </g>
       );
     case 'soreal':

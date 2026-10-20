@@ -554,9 +554,31 @@ export function createGate(cfg, log = console) {
         };
         if (path === '/_orbit/studio/lab' && req.method === 'GET') return send(res, 200, await labState());
         if (path === '/_orbit/studio/lab' && req.method === 'POST') {
-          const { enabled } = JSON.parse((await readBody(req, 4096)) || '{}');
-          await cfg.lab.setEnabled(Boolean(enabled));
+          const { enabled, topics } = JSON.parse((await readBody(req, 16_384)) || '{}');
+          await cfg.lab.configure({ enabled: typeof enabled === 'boolean' ? enabled : undefined, topics: Array.isArray(topics) ? topics : undefined });
           return send(res, 200, await labState());
+        }
+        // The queue: POST /lab/cancel stops the video being made; POST /lab/queue { title, prompt } adds
+        // your idea (made next); POST /lab/queue/<id> edits one, /lab/queue/<id>/next moves it up front;
+        // DELETE /lab/queue/<id> removes it.
+        if (path === '/_orbit/studio/lab/cancel' && req.method === 'POST') {
+          await cfg.lab.cancelCurrent();
+          return send(res, 200, await labState());
+        }
+        if (path === '/_orbit/studio/lab/queue' && req.method === 'POST') {
+          const idea = JSON.parse((await readBody(req, 16_384)) || '{}');
+          if (!(await cfg.lab.addIdea(idea))) return send(res, 400, { error: 'Write what the video should show.' });
+          return send(res, 200, await labState());
+        }
+        const queueMatch = /^\/_orbit\/studio\/lab\/queue\/([A-Za-z0-9_-]+)(\/next)?$/.exec(path);
+        if (queueMatch) {
+          const [, qid, next] = queueMatch;
+          let ok = false;
+          if (req.method === 'DELETE' && !next) ok = await cfg.lab.removeIdea(qid);
+          else if (req.method === 'POST' && next) ok = await cfg.lab.makeNext(qid);
+          else if (req.method === 'POST') ok = await cfg.lab.editIdea(qid, JSON.parse((await readBody(req, 16_384)) || '{}'));
+          else return send(res, 405, { error: 'Not allowed' });
+          return send(res, ok ? 200 : 404, await labState());
         }
         const labMatch = /^\/_orbit\/studio\/lab\/([A-Za-z0-9_-]+)(\/keep)?$/.exec(path);
         if (labMatch && req.method === 'POST' && labMatch[2]) return send(res, (await cfg.lab.keep(labMatch[1])) ? 200 : 404, await labState());

@@ -34,14 +34,18 @@ const SLOTS = {
 const fill = (tpl, pick) => tpl.replace(/\{(\w+)\}/g, (_, k) => pick(k));
 
 /** A ready-to-make idea from the written formats (used when no chat model is installed, or as the seed). */
-export function draftIdea(rand = Math.random, recent = []) {
+export function draftIdea(rand = Math.random, recent = [], topics = []) {
   const formats = FORMATS.filter((f) => !recent.slice(-3).includes(f.id));
   const format = formats[Math.floor(rand() * formats.length)] || FORMATS[0];
-  const chosen = {};
+  // Your topics drive the joke: a topic stands in for who or what it is about.
+  const topic = topics.length ? topics[Math.floor(rand() * topics.length)] : null;
+  const chosen = topic ? { subject: topic, thing: topic, situation: topic } : {};
   const pick = (k) => (chosen[k] ??= SLOTS[k][Math.floor(rand() * SLOTS[k].length)]);
-  const prompt = fill(format.prompt, pick);
-  const title = fill(format.title, pick);
-  return { format: format.id, title, prompt, caption: title, hashtags: ['#meme', '#funny', '#viral', '#fyp'] };
+  // "a my dog" reads badly: drop the article in front of a topic that brings its own.
+  const tidy = (t) => t.replace(/\b(a|an) (my|our|your|the|his|her|their) /gi, '$2 ');
+  const prompt = tidy(fill(format.prompt, pick));
+  const title = tidy(fill(format.title, pick));
+  return { format: format.id, topic, title, prompt, caption: title, hashtags: ['#meme', '#funny', '#comedy', '#fyp'] };
 }
 
 /** First JSON object in a model's answer. */
@@ -56,7 +60,7 @@ export function parseJson(text) {
 }
 
 const IDEA_SYSTEM =
-  'You write ideas for 5-second vertical meme videos made by an AI video model, for a meme channel. Aim for instant recognition, a twist in the first second and a reaction people want to share. ' +
+  'You write ideas for 5-second vertical comedy meme videos made by an AI video model, for a comedy meme channel. Aim for instant recognition, a twist in the first second and a reaction people want to share. ' +
   'Keep it kind: no real people, celebrities, brands, politics, violence, or anything sexual. Answer only with JSON: ' +
   '{"title": short on-screen hook, "prompt": one detailed visual paragraph for the video model (camera, setting, action, mood, realistic), "caption": post caption under 120 characters, "hashtags": 3 to 5 hashtags}.';
 const SCORE_SYSTEM =
@@ -84,25 +88,29 @@ export function framesOf(file, seconds = 5, run = spawn) {
 
 /**
  * o: {
- *   studio        createStudio() result (createJob with background, job, labItems, itemPath, remove, promote, hasUserWork, yieldGpu, state)
+ *   studio        createStudio() result (createJob with background, job, labItems, itemPath, remove, promote, hasUserWork, yieldGpu, state, cancel)
  *   quietSeconds  () => seconds since someone last used the machine
+ *   minutesLeft   () => minutes until the machine turns itself off (the hour the lab fills)
  *   chat          async ({ system, user, images? }) => text, or null when no chat model is installed
  *   load / save   async () => saved state | async (state) => void
  *   readyScore    score from which a video is marked ready to post (default 75)
- *   quietMinutes  how long nobody must have used the machine before the lab starts (default 3)
- *   maxPerHour    at most this many lab videos an hour (default 6)
+ *   quietMinutes  how long nobody must have used the machine before the lab starts (default 0: as soon as it is ready)
+ *   maxPerHour    at most this many lab videos an hour (default 12)
  * }
  */
 export function createMemeLab(o) {
-  const { studio, quietSeconds, log = console, now = Date.now, rand = Math.random } = o;
+  const { studio, quietSeconds = () => Infinity, log = console, now = Date.now, rand = Math.random } = o;
   const readyScore = o.readyScore ?? 75;
-  const quietMinutes = o.quietMinutes ?? 3;
-  const maxPerHour = o.maxPerHour ?? 6;
-  let saved = { enabled: true, records: [] };
+  const quietMinutes = o.quietMinutes ?? 0;
+  const maxPerHour = o.maxPerHour ?? 12;
+  const minutesLeft = o.minutesLeft ?? (() => 60);
+  let saved = { enabled: true, topics: [], queue: [], records: [] };
   let loaded = false;
   let current = null; // { jobId, idea, startedAt }
   let ticking = false;
   let lastError = null;
+  let qseq = 0;
+  const qid = () => `q${now().toString(36)}${(++qseq).toString(36)}`;
 
   const persist = () => Promise.resolve(o.save?.(saved)).catch((err) => log.warn?.(`[lab] could not save: ${err.message}`));
 
@@ -111,25 +119,52 @@ export function createMemeLab(o) {
     loaded = true;
     try {
       const s = await o.load?.();
-      if (s && typeof s === 'object') saved = { enabled: s.enabled !== false, records: Array.isArray(s.records) ? s.records : [] };
+      if (s && typeof s === 'object') {
+        saved = {
+          enabled: s.enabled !== false,
+          topics: Array.isArray(s.topics) ? s.topics.map(String).slice(0, 20) : [],
+          queue: Array.isArray(s.queue) ? s.queue : [],
+          records: Array.isArray(s.records) ? s.records : [],
+        };
+      }
     } catch {
       /* first run */
     }
   }
 
-  async function newIdea() {
-    const seed = draftIdea(rand, saved.records.map((r) => r.format));
-    if (!o.chat) return seed;
+  /** Minutes one lab video takes, learned from the last ones (about 6 at first). */
+  function minutesPerVideo() {
+    const ms = saved.records.map((r) => r.madeMs).filter((x) => x > 0).slice(-6);
+    if (!ms.length) return 6;
+    return Math.max(2, Math.min(20, Math.round(ms.reduce((a, b) => a + b, 0) / ms.length / 60_000)));
+  }
+
+  /** Keep enough planned ideas to fill the time left before the machine turns off. */
+  function plan() {
+    const left = Math.max(0, Number(minutesLeft()) || 0) - (current ? minutesPerVideo() : 0);
+    const want = Math.max(2, Math.min(12, Math.ceil(left / minutesPerVideo())));
+    let added = false;
+    while (saved.queue.length < want) {
+      const recent = [...saved.records, ...saved.queue].map((r) => r.format);
+      saved.queue.push({ qid: qid(), ...draftIdea(rand, recent, saved.topics), planned: true });
+      added = true;
+    }
+    return added;
+  }
+
+  /** Make the next idea funnier with the chat model, unless you wrote or edited it yourself. */
+  async function sharpen(seed) {
+    if (!o.chat || seed.yours) return seed;
     try {
       const recentTitles = saved.records.slice(-8).map((r) => r.title).join(' | ');
       const text = await o.chat({
         system: IDEA_SYSTEM,
-        user: `Use this setup as a starting point and make it funnier and sharper: ${seed.title}. ${seed.prompt}\nDon't repeat these recent ones: ${recentTitles || 'none'}.`,
+        user: `${seed.topic ? `Topic: ${seed.topic}. ` : ''}Use this setup as a starting point and make it funnier and sharper: ${seed.title}. ${seed.prompt}\nDon't repeat these recent ones: ${recentTitles || 'none'}.`,
       });
       const j = parseJson(text);
       if (j?.prompt && j?.title) {
         return {
-          format: seed.format,
+          ...seed,
           title: String(j.title).slice(0, 120),
           prompt: String(j.prompt).slice(0, 1500),
           caption: String(j.caption || j.title).slice(0, 200),
@@ -137,7 +172,7 @@ export function createMemeLab(o) {
         };
       }
     } catch (err) {
-      log.warn?.(`[lab] idea model failed, using a written one: ${err.message}`);
+      log.warn?.(`[lab] idea model failed, using the written one: ${err.message}`);
     }
     return seed;
   }
@@ -153,55 +188,56 @@ export function createMemeLab(o) {
   }
 
   const madeLastHour = () => saved.records.filter((r) => now() - Date.parse(r.createdAt) < 3_600_000).length;
+  const finishJudging = async (r) => {
+    await studio.yieldGpu();
+    Object.assign(r, await judge(r).catch((err) => ({ score: null, why: `Could not judge it: ${err.message}` })));
+    r.status = r.score != null && r.score >= readyScore ? 'ready' : 'judged';
+    await persist();
+  };
 
   async function tick() {
     if (ticking) return;
     ticking = true;
     try {
       await ensureLoaded();
+      if (saved.enabled && plan()) await persist();
       // A lab video being made: wait for it, then judge it.
       if (current) {
         const j = studio.job(current.jobId);
         if (!j || j.status === 'queued' || j.status === 'running') return;
-        const idea = current.idea;
+        const { idea, startedAt } = current;
         current = null;
-        if (j.status !== 'done' || !j.item) {
-          // Stopped to make way for your job, or failed: nothing to keep.
-          return;
-        }
-        const record = { id: j.item.id, ...idea, seconds: j.item.seconds || 5, createdAt: new Date(now()).toISOString(), status: 'judging' };
+        if (j.status !== 'done' || !j.item) return; // stopped for your job or cancelled: nothing to keep
+        const { qid: _q, planned: _p, ...rest } = idea;
+        const record = { id: j.item.id, ...rest, seconds: j.item.seconds || 5, madeMs: now() - startedAt, createdAt: new Date(now()).toISOString(), status: 'judging' };
         saved.records.push(record);
         saved.records = saved.records.slice(-200);
         await persist();
         if (studio.hasUserWork()) {
           record.status = 'made';
-          return; // judge it later, after your job
+          return; // judged later, after your job
         }
-        await studio.yieldGpu();
-        Object.assign(record, await judge(record).catch((err) => ({ score: null, why: `Could not judge it: ${err.message}` })));
-        record.status = record.score != null && record.score >= readyScore ? 'ready' : 'judged';
-        await persist();
+        await finishJudging(record);
         return;
       }
-      // Judge anything made earlier that was waiting.
       const waiting = saved.records.find((r) => r.status === 'made');
       if (waiting && !studio.hasUserWork()) {
-        await studio.yieldGpu();
-        Object.assign(waiting, await judge(waiting).catch((err) => ({ score: null, why: `Could not judge it: ${err.message}` })));
-        waiting.status = waiting.score != null && waiting.score >= readyScore ? 'ready' : 'judged';
-        await persist();
+        await finishJudging(waiting);
         return;
       }
-      if (!saved.enabled) return;
-      if (studio.hasUserWork()) return;
+      if (!saved.enabled || studio.hasUserWork()) return;
       if (quietSeconds() < quietMinutes * 60) return;
       if (madeLastHour() >= maxPerHour) return;
       const st = await studio.state().catch(() => null);
       if (!st?.video?.ready) return;
-      const idea = await newIdea();
+      const next = saved.queue.shift();
+      if (!next) return;
+      const idea = await sharpen(next);
       const job = await studio.createJob({ kind: 'video', prompt: idea.prompt, size: 'portrait', seconds: 5, background: true });
       current = { jobId: job.id, idea, startedAt: now() };
       lastError = null;
+      plan();
+      await persist();
       log.info?.(`[lab] making "${idea.title}"`);
     } catch (err) {
       lastError = err.message;
@@ -211,9 +247,11 @@ export function createMemeLab(o) {
     }
   }
 
+  const find = (id) => saved.queue.findIndex((q) => q.qid === id);
+
   return {
     tick,
-    start(everyMs = 60_000) {
+    start(everyMs = 30_000) {
       const t = setInterval(() => void tick(), everyMs);
       t.unref?.();
     },
@@ -221,27 +259,87 @@ export function createMemeLab(o) {
       await ensureLoaded();
       const live = new Set((await studio.labItems().catch(() => [])).map((i) => i.id));
       const records = saved.records.filter((r) => live.has(r.id)).slice().reverse();
+      const job = current ? studio.job(current.jobId) : null;
       return {
         enabled: saved.enabled,
+        topics: saved.topics,
         quietMinutes,
         readyScore,
-        making: current ? { title: current.idea.title, job: studio.job(current.jobId) } : null,
+        minutesPerVideo: minutesPerVideo(),
+        minutesLeft: Math.max(0, Math.round(Number(minutesLeft()) || 0)),
+        making: current ? { title: current.idea.title, topic: current.idea.topic || null, prompt: current.idea.prompt, job } : null,
+        queue: saved.queue.map(({ qid: id, title, prompt, topic, yours }) => ({ id, title, prompt, topic: topic || null, yours: Boolean(yours) })),
         madeLastHour: madeLastHour(),
         lastError,
         records,
       };
     },
-    async setEnabled(on) {
+    /** { enabled?, topics? } */
+    async configure({ enabled, topics } = {}) {
       await ensureLoaded();
-      saved.enabled = Boolean(on);
-      if (!saved.enabled && current) {
-        await studio.cancel(current.jobId).catch(() => {});
-        current = null;
+      if (typeof enabled === 'boolean') {
+        saved.enabled = enabled;
+        if (!enabled && current) {
+          await studio.cancel(current.jobId).catch(() => {});
+          current = null;
+        }
+      }
+      if (Array.isArray(topics)) {
+        saved.topics = [...new Set(topics.map((t) => String(t).trim().slice(0, 60)).filter(Boolean))].slice(0, 20);
+        // Planned ideas follow the new topics; the ones you wrote stay.
+        saved.queue = saved.queue.filter((q) => q.yours);
+        if (saved.enabled) plan();
       }
       await persist();
+    },
+    async setEnabled(on) {
+      await this.configure({ enabled: Boolean(on) });
       return saved.enabled;
     },
-    /** Move a lab video into the gallery. */
+    /** Stop the video being made now (the next idea starts on the next tick). */
+    async cancelCurrent() {
+      if (!current) return false;
+      await studio.cancel(current.jobId).catch(() => {});
+      current = null;
+      return true;
+    },
+    /** Your own idea, made next. */
+    async addIdea({ title, prompt }) {
+      await ensureLoaded();
+      const p = String(prompt || title || '').trim().slice(0, 1500);
+      if (!p) return false;
+      saved.queue.unshift({ qid: qid(), format: 'yours', topic: null, title: String(title || p).trim().slice(0, 120), prompt: p, caption: String(title || p).slice(0, 200), hashtags: ['#comedy', '#meme', '#fyp'], yours: true });
+      await persist();
+      return true;
+    },
+    async editIdea(id, { title, prompt }) {
+      await ensureLoaded();
+      const i = find(id);
+      if (i < 0) return false;
+      const q = saved.queue[i];
+      if (title != null) q.title = String(title).trim().slice(0, 120) || q.title;
+      if (prompt != null) q.prompt = String(prompt).trim().slice(0, 1500) || q.prompt;
+      q.yours = true;
+      await persist();
+      return true;
+    },
+    async removeIdea(id) {
+      await ensureLoaded();
+      const i = find(id);
+      if (i < 0) return false;
+      saved.queue.splice(i, 1);
+      await persist();
+      return true;
+    },
+    async makeNext(id) {
+      await ensureLoaded();
+      const i = find(id);
+      if (i < 0) return false;
+      saved.queue.unshift(...saved.queue.splice(i, 1));
+      await persist();
+      return true;
+    },
+    /** Move a lab video into the main gallery. */
     async keep(id) {
       await ensureLoaded();
       const ok = await studio.promote(id);

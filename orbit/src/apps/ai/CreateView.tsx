@@ -6,7 +6,6 @@ import { ConfirmSheet, EmptyState, IconButton, Segmented, Sheet } from '../../ui
 import { AiError, type LocalAi, type StudioItem, type StudioJob, type StudioKind, type StudioMakerInfo, type StudioState } from '../../services/ai/LocalAi';
 import { MAKER_CATALOG, rememberMakers, rememberedMakers } from './makerCatalog';
 import { TextArea } from '../../ui/TextArea';
-import { MemeLab } from './MemeLab';
 
 type Mode = StudioKind | 'edit';
 const DEFAULT_PICK: Record<Mode, string> = { image: 'qwen', video: 'ltx', edit: 'edit' };
@@ -543,8 +542,6 @@ export function CreateView({
           ))}
         </ul>
       )}
-
-      <MemeLab ai={ai} machineOn={machineOn} isActive={isActive} onKept={loadItems} />
 
       {viewing && (
         <Sheet title={viewing.kind === 'image' ? 'Image' : 'Video'} origin={viewFrom.current} onClose={() => setViewing(null)}>

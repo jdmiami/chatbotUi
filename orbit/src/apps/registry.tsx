@@ -13,6 +13,7 @@ const loaders: Record<AppId, () => Promise<{ default: ComponentType<AppProps> }>
   ai: () => import('./ai/AiApp'),
   store: () => import('./store/StoreApp'),
   soreal: () => import('./soreal/SoRealApp'),
+  lab: () => import('./lab/LabApp'),
   settings: () => import('./settings/SettingsApp'),
   playground: () => import('./portal/PortalApp').then((m) => ({ default: m.PlaygroundApp })),
   vscode: () => import('./portal/PortalApp').then((m) => ({ default: m.VsCodeApp })),
@@ -90,6 +91,15 @@ export const APPS: Record<AppId, AppMeta> = {
     tile: 'linear-gradient(145deg, #ff5f6d, #c2185b 55%, #4a148c)',
     glyph: '#fff1e0',
     component: lazy(loaders.soreal),
+  },
+  lab: {
+    id: 'lab',
+    name: 'Lab',
+    description: 'Comedy videos made while your AI machine is on, scored for how viral they could go',
+    icon: 'sparkle',
+    tile: 'linear-gradient(145deg, #ffd36b, #ff7a59 55%, #8a2be2)',
+    glyph: '#ffffff',
+    component: lazy(loaders.lab),
   },
   playground: {
     id: 'playground',

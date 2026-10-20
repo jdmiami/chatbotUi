@@ -190,30 +190,42 @@ async function mockStudio(page: Page) {
 
 async function openCreate(page: Page) {
   await openAi(page);
-  await page.getByRole('group', { name: 'Chat or create' }).getByRole('button', { name: 'Create' }).click();
+  await page.getByRole('group', { name: 'Chat, create or lab' }).getByRole('button', { name: 'Create' }).click();
   await expect(page.locator('.ai-create')).toBeVisible();
 }
 
 test.describe('AI app: Create', () => {
-  test('meme lab: videos made while unused, best first, scores shown, keep one, turn it off', async ({ page }, testInfo) => {
+  test('lab: watch what it makes, cancel it, set topics, reorder and add ideas, keep a video', async ({ page }, testInfo) => {
     await mockAi(page, 'on');
     const studio = await mockStudio(page);
     const rec = (id: string, title: string, score: number | null, status: string) => ({
-      id, title, score, status, url: `/_orbit/studio/file/${id}?t=tok`, prompt: `${title} prompt`, caption: `${title} caption`, hashtags: ['#meme', '#fyp'], seconds: 5,
+      id, title, score, status, url: `/_orbit/studio/file/${id}?t=tok`, prompt: `${title} prompt`, caption: `${title} caption`, hashtags: ['#comedy', '#fyp'], seconds: 5,
       createdAt: '2026-10-20T10:00:00Z', why: score ? 'Hook lands in the first second.' : 'No chat model is installed to judge it.',
     });
+    const idea = (id: string, title: string, topic: string | null = null, yours = false) => ({ id, title, prompt: `${title} prompt`, topic, yours });
     const lab = {
-      enabled: true, quietMinutes: 3, readyScore: 75, madeLastHour: 2, lastError: null as string | null,
-      making: { title: 'Grandma discovers bubble tea', job: { id: 'lab9', kind: 'video', prompt: 'x', status: 'running', progress: 42, error: null, createdAt: '', item: null } } as unknown,
+      enabled: true, topics: ['office life'] as string[], quietMinutes: 0, readyScore: 75, minutesPerVideo: 6, minutesLeft: 48, madeLastHour: 2, lastError: null as string | null,
+      making: { title: 'Grandma discovers bubble tea', topic: null, prompt: 'x', job: { id: 'lab9', kind: 'video', prompt: 'x', status: 'running', progress: 42, etaSeconds: 180, error: null, createdAt: '', item: null } } as unknown,
+      queue: [idea('q1', 'The goose clocks in', 'office life'), idea('q2', 'Printer betrayal', 'office life'), idea('q3', 'Reply-all disaster', 'office life')],
       records: [rec('m1', 'The goose has a 9-to-5', 62, 'judged'), rec('m2', 'Nobody: … the capybara:', 91, 'ready')],
     };
     const calls: string[] = [];
     await page.route('**/fake-ai/_orbit/studio/lab**', async (route) => {
       const url = new URL(route.request().url());
       const method = route.request().method();
-      calls.push(`${method} ${url.pathname.replace(/.*\/_orbit\/studio/, '')}`);
-      if (method === 'POST' && url.pathname.endsWith('/lab')) lab.enabled = (route.request().postDataJSON() as { enabled: boolean }).enabled;
-      const keep = /\/lab\/(\w+)\/keep$/.exec(url.pathname);
+      const p = url.pathname.replace(/.*\/_orbit\/studio/, '');
+      calls.push(`${method} ${p}`);
+      const body = (route.request().postDataJSON() ?? {}) as Record<string, unknown>;
+      if (method === 'POST' && p === '/lab') {
+        if (typeof body.enabled === 'boolean') lab.enabled = body.enabled;
+        if (Array.isArray(body.topics)) lab.topics = body.topics as string[];
+      }
+      if (p === '/lab/cancel') lab.making = null;
+      if (p === '/lab/queue' && method === 'POST') lab.queue.unshift(idea('q9', String(body.prompt), null, true));
+      const q = /^\/lab\/queue\/(\w+)(\/next)?$/.exec(p);
+      if (q && method === 'DELETE') lab.queue = lab.queue.filter((x) => x.id !== q[1]);
+      if (q && q[2]) lab.queue.unshift(...lab.queue.splice(lab.queue.findIndex((x) => x.id === q[1]), 1));
+      const keep = /^\/lab\/(\w+)\/keep$/.exec(p);
       if (keep) {
         const r = lab.records.find((x) => x.id === keep[1])!;
         lab.records = lab.records.filter((x) => x.id !== keep[1]);
@@ -222,25 +234,47 @@ test.describe('AI app: Create', () => {
       return route.fulfill({ json: lab });
     });
     const errors = await openOrbit(page);
-    await openCreate(page);
-    const section = page.getByRole('region', { name: 'Meme lab' });
-    await section.scrollIntoViewIfNeeded();
-    await expect(section.getByRole('status')).toContainText('Making “Grandma discovers bubble tea” · 42%');
-    const list = section.getByRole('list', { name: 'Meme lab videos, best first' });
-    await expect(list.getByRole('listitem')).toHaveCount(2);
-    await expect(list.getByRole('listitem').first()).toContainText('Ready to post');
-    await expect(list.getByRole('listitem').first()).toContainText('91');
-    await expect(list.getByRole('listitem').nth(1)).toContainText('62');
-    await expectNoHorizontalOverflow(page);
-    await page.screenshot({ path: testInfo.outputPath('meme-lab.png'), fullPage: false });
+    await openAi(page);
+    await page.getByRole('group', { name: 'Chat, create or lab' }).getByRole('button', { name: 'Lab' }).click();
+    const section = page.getByRole('region', { name: 'Lab' });
 
-    await list.getByRole('listitem').first().getByRole('button', { name: 'Keep in gallery' }).click();
-    await expect(list.getByRole('listitem')).toHaveCount(1);
-    await expect(page.getByRole('list', { name: 'Your creations' }).getByRole('listitem')).toHaveCount(3);
+    const now = section.getByRole('status', { name: 'Making now' });
+    await expect(now).toContainText('Grandma discovers bubble tea');
+    await expect(now).toContainText('about 3 min left');
+    await expectNoHorizontalOverflow(page);
+    await page.screenshot({ path: testInfo.outputPath('lab.png') });
+    await now.getByRole('button', { name: 'Cancel' }).click();
+    await expect(section.getByText('Starting the next one as soon as the machine is free.')).toBeVisible();
+    expect(calls).toContain('POST /lab/cancel');
+
+    await section.getByRole('textbox', { name: 'New topic' }).fill('my cat Luna');
+    await section.getByRole('textbox', { name: 'New topic' }).press('Enter');
+    await expect(section.getByRole('list', { name: 'Topics' }).getByRole('listitem')).toHaveCount(2);
+    await section.getByRole('button', { name: 'Remove topic office life' }).click();
+    await expect(section.getByRole('list', { name: 'Topics' }).getByRole('listitem')).toHaveCount(1);
+    expect(lab.topics).toEqual(['my cat Luna']);
+
+    const upNext = section.getByRole('list', { name: 'Up next' });
+    await expect(upNext.getByRole('listitem')).toHaveCount(3);
+    await upNext.getByRole('button', { name: 'Make Reply-all disaster next' }).click();
+    await expect(upNext.getByRole('listitem').first()).toContainText('Reply-all disaster');
+    await upNext.getByRole('button', { name: 'Remove Printer betrayal' }).click();
+    await expect(upNext.getByRole('listitem')).toHaveCount(2);
+    await section.getByRole('textbox', { name: 'Your own idea' }).fill('A cat sees a cucumber and leaps');
+    await section.getByRole('textbox', { name: 'Your own idea' }).press('Enter');
+    await expect(upNext.getByRole('listitem').first()).toContainText('Your idea, made as written');
+
+    const gallery = section.getByRole('list', { name: 'Lab videos, best first' });
+    await expect(gallery.getByRole('listitem').first()).toContainText('Ready to post');
+    await expect(gallery.getByRole('listitem').first()).toContainText('91');
+    await gallery.getByRole('listitem').first().getByRole('button', { name: 'Keep in my gallery' }).click();
+    await expect(gallery.getByRole('listitem')).toHaveCount(1);
     expect(calls).toContain('POST /lab/m2/keep');
 
-    await section.getByRole('switch', { name: 'Make meme videos while the machine is unused' }).click();
+    await section.getByRole('switch', { name: 'Make comedy videos while the machine is on' }).click();
     await expect.poll(() => lab.enabled).toBe(false);
+    await expectNoHorizontalOverflow(page);
+    await expectTappable(page);
     expect(errors).toEqual([]);
   });
 
