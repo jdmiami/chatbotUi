@@ -1,7 +1,18 @@
 import { create } from 'zustand';
 import { persist, createJSONStorage } from 'zustand/middleware';
 
-export type AppId = 'terminal' | 'editor' | 'agent' | 'ai' | 'soreal' | 'settings';
+export type AppId =
+  | 'terminal'
+  | 'editor'
+  | 'agent'
+  | 'ai'
+  | 'soreal'
+  | 'settings'
+  // Full-screen apps that live on the site (Orbit shows their page and opens them).
+  | 'playground'
+  | 'vscode'
+  | 'desktop'
+  | 'windows';
 export type Overlay = null | 'switcher' | 'control-center' | 'index';
 export type ThemePref = 'system' | 'dark' | 'light';
 export type AccentId = 'indigo' | 'teal' | 'amber' | 'rose' | 'sky';
@@ -207,4 +218,4 @@ function migrate(s: Settings): Settings {
   return { ...m, skin: 'o5' };
 }
 
-export const APP_ORDER: AppId[] = ['terminal', 'editor', 'agent', 'ai', 'soreal', 'settings'];
+export const APP_ORDER: AppId[] = ['terminal', 'editor', 'agent', 'ai', 'soreal', 'playground', 'vscode', 'desktop', 'windows', 'settings'];

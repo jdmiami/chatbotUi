@@ -156,9 +156,6 @@ export function HomeScreen({ hidden }: { hidden: boolean }) {
                         Connect
                       </button>
                     )}
-                    <a className="btn small ghost" href="/?choose=1">
-                      Switch workspace
-                    </a>
                   </div>
                 </div>
               </div>

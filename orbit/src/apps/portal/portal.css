@@ -1,0 +1,35 @@
+/* The full-screen apps' pages in Orbit (Playground, VS Code, Linux desktop, Windows PC). */
+.portal {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  display: grid;
+  place-items: center;
+  padding: max(24px, env(safe-area-inset-top)) 20px max(40px, calc(env(safe-area-inset-bottom) + 28px));
+}
+.portal-page { width: 100%; max-width: 560px; display: flex; flex-direction: column; align-items: flex-start; gap: 14px; }
+.portal-art { filter: drop-shadow(0 18px 40px rgb(0 0 0 / 0.28)); margin-bottom: 8px; }
+.portal-kicker { margin: 0; font: 600 calc(10px * var(--text-scale, 1)) / 1 var(--font-ui); letter-spacing: 0.2em; text-transform: uppercase; color: var(--text-3); }
+.portal-title {
+  margin: 0;
+  font-family: var(--font-display, inherit);
+  font-weight: 330;
+  font-variation-settings: 'opsz' 144;
+  font-size: calc(clamp(44px, 11vw, 76px) * var(--text-scale, 1));
+  line-height: 0.95;
+  letter-spacing: -0.035em;
+}
+.portal-dek { margin: 0; font-family: var(--font-display, inherit); font-size: calc(20px * var(--text-scale, 1)); line-height: 1.4; color: var(--text-2); }
+.portal-facts { margin: 8px 0 0; width: 100%; border-top: 1px solid var(--o5-hair, var(--border)); }
+.portal-facts > div { display: grid; grid-template-columns: minmax(110px, 30%) 1fr; gap: 12px; padding: 12px 0; border-bottom: 1px solid var(--o5-hair, var(--border)); }
+.portal-facts dt { font: 600 10px/1.6 var(--font-ui); letter-spacing: 0.14em; text-transform: uppercase; color: var(--text-3); }
+.portal-facts dd { margin: 0; font-size: calc(15px * var(--text-scale, 1)); color: var(--text); display: flex; flex-wrap: wrap; gap: 4px 12px; align-items: baseline; }
+.portal-state { color: var(--text-2); display: inline-flex; align-items: center; gap: 6px; }
+.portal-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--text-3); }
+.portal-state[data-state='on'] .portal-dot { background: var(--success, #34d399); }
+.portal-state[data-state='starting'] .portal-dot, .portal-state[data-state='downloading'] .portal-dot { background: var(--warning, #fbbf24); }
+.portal-state[data-state='error'] .portal-dot { background: var(--danger); }
+.portal-actions { display: flex; align-items: center; gap: 18px; flex-wrap: wrap; margin-top: 10px; }
+.portal-open { min-height: 50px; padding: 0 22px; font-size: 16px; gap: 8px; }
+.portal-newtab { color: var(--text-2); font-size: 14px; text-underline-offset: 3px; }
+.portal-back { margin: 4px 0 0; font-size: 13px; color: var(--text-3); }

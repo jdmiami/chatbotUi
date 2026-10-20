@@ -5,6 +5,7 @@ import { getLocalAi, type AiMachineStatus } from '../../services/ai/LocalAi';
 import { useShell, type AppId } from '../../state/shell';
 import { useWorkspace } from '../../state/workspace';
 import { Icon } from '../../ui/Icon';
+import { AppArt, type ArtId } from '../../ui/AppArt';
 import { useScrollDepth } from './depth';
 
 const greeting = (h: number) => (h < 5 ? 'Good night.' : h < 12 ? 'Good morning.' : h < 18 ? 'Good afternoon.' : 'Good evening.');
@@ -18,10 +19,11 @@ const AI_STATE: Record<AiMachineStatus['state'], string> = {
 };
 
 /** One line of the path: a big quiet link. */
-function Go({ label, hint, onClick }: { label: string; hint?: string; onClick: () => void }) {
+function Go({ label, hint, art, onClick }: { label: string; hint?: string; art?: ArtId; onClick: () => void }) {
   return (
     <li>
-      <button type="button" className="o5-go" onClick={onClick}>
+      <button type="button" className="o5-go" data-art={art ? '' : undefined} onClick={onClick}>
+        {art && <AppArt id={art} size={44} className="o5-go-art" />}
         <span className="o5-go-label">{label}</span>
         {hint && <span className="o5-go-hint">{hint}</span>}
         <Icon name="forward" size={20} />
@@ -126,8 +128,9 @@ export function Path({ hidden }: { hidden: boolean }) {
       </Chapter>
 
       <Chapter n="02" id="o5-talk" title="Talk" dek="Your own open models, on your own GPU. Ask, think out loud, search the web, speak.">
-        <Go label="Open a conversation" hint={ai ? `AI machine ${AI_STATE[ai.state]}` : undefined} onClick={() => launch('ai')} />
-        <Go label="Antigravity" hint="The coding agent on your Linux machine" onClick={() => launch('agent')} />
+        <Go label="Open a conversation" art="ai" hint={ai ? `AI machine ${AI_STATE[ai.state]}` : undefined} onClick={() => launch('ai')} />
+        <Go label="Antigravity" art="agent" hint="The coding agent on your Linux machine" onClick={() => launch('agent')} />
+        <Go label="Playground" art="playground" hint="The full AI playground" onClick={() => launch('playground')} />
         <Go
           label="Model store"
           hint="Add or remove chat models"
@@ -139,7 +142,7 @@ export function Path({ hidden }: { hidden: boolean }) {
       </Chapter>
 
       <Chapter n="03" id="o5-make" title="Make" dek="Pictures, videos, and whole films shot by shot, each one picking up from the last frame.">
-        <Go label="soReal" hint="Movies, shot by shot" onClick={() => launch('soreal')} />
+        <Go label="soReal" art="soreal" hint="Movies, shot by shot" onClick={() => launch('soreal')} />
         <Go label="Images & video" hint="In the AI app, under Create" onClick={() => launch('ai')} />
         <Go
           label="Makers"
@@ -152,12 +155,18 @@ export function Path({ hidden }: { hidden: boolean }) {
       </Chapter>
 
       <Chapter n="04" id="o5-build" title="Build" dek="Code and a real shell on your Linux machine. Everything keeps running while you're away.">
-        <Go label="Code" hint="Your projects" onClick={() => launch('editor')} />
-        <Go label="Terminal" hint="A shell that stays open" onClick={() => launch('terminal')} />
+        <Go label="Code" art="editor" hint="Your projects" onClick={() => launch('editor')} />
+        <Go label="Terminal" art="terminal" hint="A shell that stays open" onClick={() => launch('terminal')} />
+        <Go label="VS Code" art="vscode" hint="The full editor, with an AI agent" onClick={() => launch('vscode')} />
       </Chapter>
 
-      <Chapter n="05" id="o5-tune" title="Tune" dek="Make it yours, or go back to the classic look at any time.">
-        <Go label="Settings" hint="Theme, motion, text size" onClick={() => launch('settings')} />
+      <Chapter n="05" id="o5-desktops" title="Desktops" dek="Whole computers, full screen: your Linux machine's desktop, and your own PC at home.">
+        <Go label="Linux desktop" art="desktop" hint="The whole Ubuntu desktop" onClick={() => launch('desktop')} />
+        <Go label="Windows PC" art="windows" hint="Your computer at home" onClick={() => launch('windows')} />
+      </Chapter>
+
+      <Chapter n="06" id="o5-tune" title="Tune" dek="Make it yours, or go back to the classic look at any time.">
+        <Go label="Settings" art="settings" hint="Theme, motion, text size" onClick={() => launch('settings')} />
         <Go label="Classic look" hint="Icons, dock and tiles" onClick={() => updateSettings({ skin: 'classic' })} />
       </Chapter>
 

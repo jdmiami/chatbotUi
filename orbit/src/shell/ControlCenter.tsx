@@ -135,9 +135,6 @@ export function ControlCenter() {
         <button type="button" className="btn ghost" onClick={() => launch('settings')}>
           <Icon name="gear" size={18} /> Settings
         </button>
-        <a className="btn ghost" href="/?choose=1">
-          Switch workspace
-        </a>
       </div>
     </>
   );

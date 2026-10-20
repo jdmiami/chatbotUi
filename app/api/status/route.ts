@@ -3,6 +3,7 @@ import { sameOrigin } from '@/lib/request';
 import { startAi, stopAi } from '@/lib/ai';
 import { setMachinePower } from '@/lib/runpod';
 import { aiMachineAction, fullStatus, islandCors, islandUser } from '@/lib/status';
+import { listMachines } from '@/lib/machines';
 
 export const dynamic = 'force-dynamic';
 // Finding a free GPU can take several tries (see lib/ai.ts).
@@ -31,7 +32,9 @@ export async function GET(request: Request) {
   if (!caller) return Response.json({ error: 'Unauthorized' }, { status: 401, headers: cors });
   const detail = new URL(request.url).searchParams.get('detail') === '1';
   const body = await fullStatus(caller.user, detail);
-  return Response.json({ ...body, canPower: caller.full }, { headers: { ...cors, 'cache-control': 'no-store' } });
+  // Which desktops are set up (Orbit shows the Windows PC app as "not set up" otherwise).
+  const desktops = caller.full ? listMachines().map((m) => m.id) : undefined;
+  return Response.json({ ...body, canPower: caller.full, desktops }, { headers: { ...cors, 'cache-control': 'no-store' } });
 }
 
 export async function POST(request: Request) {

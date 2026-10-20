@@ -198,6 +198,10 @@
   transition: color var(--dur-fast), padding var(--dur-o5) var(--ease-o5);
 }
 .o5-links li:first-child .o5-go { border-top: 1px solid var(--o5-hair); }
+/* A link to an app carries its icon at the left. */
+.o5-go[data-art] { grid-template-columns: auto minmax(0, 1fr) auto; grid-template-areas: 'art label arrow' 'art hint arrow'; }
+.o5-go-art { grid-area: art; width: 44px; height: 44px; filter: drop-shadow(0 6px 14px rgb(0 0 0 / 0.2)); transition: transform var(--dur-o5) var(--ease-o5); }
+.o5-go:hover .o5-go-art, .o5-go:focus-visible .o5-go-art { transform: scale(1.06) rotate(-3deg); }
 .o5-go-label {
   grid-area: label;
   font-family: var(--font-display);
@@ -211,8 +215,8 @@
   white-space: nowrap;
 }
 .o5-go .o5-go-hint { grid-area: hint; }
-.o5-go svg { grid-area: arrow; color: var(--text-3); transition: transform var(--dur-o5) var(--ease-o5), color var(--dur-fast); }
-.o5-go:hover svg, .o5-go:focus-visible svg { transform: translateX(6px); color: var(--accent); }
+.o5-go > svg:not(.app-art) { grid-area: arrow; color: var(--text-3); transition: transform var(--dur-o5) var(--ease-o5), color var(--dur-fast); }
+.o5-go:hover > svg:not(.app-art), .o5-go:focus-visible > svg:not(.app-art) { transform: translateX(6px); color: var(--accent); }
 .o5-go:active { padding-left: 8px; }
 .o5-colophon {
   padding: 12vh calc(var(--safe-right) + clamp(24px, 7vw, 96px)) calc(var(--safe-bottom) + 18vh) calc(var(--safe-left) + clamp(24px, 7vw, 96px));
@@ -311,8 +315,8 @@
   width: 100%;
   min-height: 60px;
   display: grid;
-  grid-template-columns: 3ch minmax(0, 1fr);
-  grid-template-areas: 'n title' 'n hint';
+  grid-template-columns: 3ch auto minmax(0, 1fr);
+  grid-template-areas: 'n art title' 'n art hint';
   column-gap: clamp(12px, 3vw, 28px);
   align-items: baseline;
   padding: 10px 0;
@@ -334,6 +338,9 @@
   transition: color var(--dur-fast), transform var(--dur-o5) var(--ease-o5);
 }
 .o5-index-go .o5-go-hint { grid-area: hint; }
+/* Each app's icon beside its title (Home has none: its row keeps the column empty). */
+.o5-index-art { grid-area: art; align-self: center; width: clamp(36px, 7vw, 56px); height: auto; filter: drop-shadow(0 6px 14px rgb(0 0 0 / 0.22)); transition: transform var(--dur-o5) var(--ease-o5); }
+.o5-index-go:hover .o5-index-art, .o5-index-go:focus-visible .o5-index-art { transform: scale(1.06) rotate(-3deg); }
 .o5-index-go:hover .o5-index-title, .o5-index-go:focus-visible .o5-index-title { transform: translateX(8px); }
 .o5-index-go[aria-current] .o5-index-title { font-style: italic; color: var(--accent); }
 .o5-index-open ul { list-style: none; margin: 8px 0 0; padding: 0; display: flex; flex-wrap: wrap; gap: 4px 28px; }

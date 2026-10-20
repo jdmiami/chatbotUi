@@ -137,7 +137,7 @@ test.describe('Orbit 0.5', () => {
     await openOrbit(page);
     await turnOn(page);
     await page.getByRole('button', { name: /^Index/ }).click();
-    await page.getByRole('dialog', { name: 'Index' }).getByRole('button', { name: /Code/ }).click();
+    await page.getByRole('dialog', { name: 'Index' }).getByRole('button', { name: /^\d+ Code / }).click();
     const editor = page.locator('.app-window[data-app="editor"] .cm-content');
     await editor.click();
     await page.keyboard.type('x');

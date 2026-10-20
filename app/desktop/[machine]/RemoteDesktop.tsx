@@ -101,7 +101,7 @@ export default function RemoteDesktop({
       // tunnel itself, and give up after a while instead of showing "Connecting…" forever.
       const unreachable = () =>
         machine.os === 'linux'
-          ? `Could not reach ${machine.name}. It may be off or still starting — turn it on from Orbit’s contents page, then reconnect.`
+          ? `Could not reach ${machine.name}. It may be off or still starting — turn it on in Orbit (Settings → Usage), then reconnect.`
           : `Could not reach ${machine.name}. Is it on, and is its gateway running?`;
       let connected = false;
       let failed = false; // the first reason wins (an error is followed by a "closed" state)
@@ -329,8 +329,8 @@ export default function RemoteDesktop({
             <div className="row">
               {phase !== 'connecting' && <button onClick={() => setAttempt((n) => n + 1)}>Reconnect</button>}
               {canSwitch && (
-                <a className="button secondary" href="/?choose=1">
-                  Contents
+                <a className="button secondary" href="/orbit">
+                  Back to Orbit
                 </a>
               )}
               <form action={logout}>
@@ -363,8 +363,8 @@ export default function RemoteDesktop({
               <button onClick={() => setClipboardOpen((o) => !o)}>Clipboard</button>
               <button onClick={() => clientRef.current?.disconnect()}>Disconnect</button>
               {canSwitch && (
-                <a className="button secondary" href="/?choose=1">
-                  Switch
+                <a className="button secondary" href="/orbit">
+                  Orbit
                 </a>
               )}
               <form action={logout}>

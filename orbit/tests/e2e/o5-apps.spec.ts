@@ -51,7 +51,7 @@ test.describe('Orbit 0.5: the other apps', () => {
   });
 
   test('code: one Save (in the tools), and the file tabs step aside while typing', async ({ page }) => {
-    const { errors, win } = await openO5(page, /Code/, 'editor');
+    const { errors, win } = await openO5(page, /^\d+ Code /, 'editor');
     await expect(win.locator('.app-header').getByRole('button', { name: 'Save file' })).toBeHidden();
     await expect(win.getByRole('button', { name: /^Save/ }).first()).toBeVisible();
     await page.locator('.shell').evaluate((el) => el.setAttribute('data-keyboard', 'true'));
@@ -86,7 +86,7 @@ test.describe('Orbit 0.5: the other apps', () => {
 
     // Reading down the page tucks the header away; the running head takes its place.
     const runhead = settings.locator('.o5-runhead');
-    await expect(runhead).toHaveText(/Orbit · 06 · Settings/i);
+    await expect(runhead).toHaveText(/Orbit · \d+ · Settings/i);
     await expect(runhead).toHaveCSS('opacity', '0');
     await settings.hover();
     for (let i = 0; i < 6; i++) {
@@ -95,6 +95,42 @@ test.describe('Orbit 0.5: the other apps', () => {
     }
     await expect(settings).toHaveAttribute('data-chrome', 'hidden');
     await expect(runhead).toHaveCSS('opacity', '1');
+    expect(errors).toEqual([]);
+  });
+
+  test('everything is an app: Playground, VS Code and the desktops open on their own page, each with its icon', async ({ page }) => {
+    await page.route('**/api/status', (route) =>
+      route.fulfill({ json: { machines: [{ id: 'ai', state: 'off', costPerHour: 0.44 }, { id: 'linux', state: 'on', costPerHour: 0.08 }], desktops: ['linux'] } }),
+    );
+    const { errors } = await openO5(page, /^\d+ Playground /, 'playground');
+    const index = async () => {
+      await page.getByRole('button', { name: /^Index/ }).click();
+      return page.getByRole('dialog', { name: 'Index' }).locator('.o5-index-list');
+    };
+    const pg = page.locator('.app-window[data-app="playground"]');
+    await expect(pg.getByRole('heading', { name: 'Playground' })).toBeVisible();
+    await expect(pg.locator('svg.app-art[data-app="playground"]')).toBeVisible();
+    await expect(pg).toContainText('AI machine');
+    await expect(pg).toContainText('Resting');
+    await expect(pg.getByRole('link', { name: 'In a new tab' })).toHaveAttribute('href', '/ai');
+
+    // The Index lists every app with its drawing.
+    const list = await index();
+    for (const id of ['ai', 'soreal', 'editor', 'terminal', 'agent', 'playground', 'vscode', 'desktop', 'windows', 'settings']) {
+      await expect(list.locator(`svg.app-art[data-app="${id}"]`)).toHaveCount(1);
+    }
+    await list.getByRole('button', { name: /^\d+ VS Code / }).click();
+    const vs = page.locator('.app-window[data-app="vscode"]');
+    await expect(vs.getByRole('heading', { name: 'VS Code' })).toBeVisible();
+    await expect(vs).toContainText('On · $0.08/h');
+    await expect(vs.getByRole('link', { name: 'In a new tab' })).toHaveAttribute('href', '/code');
+
+    // Windows isn't set up here: it says so, and won't try to open.
+    await (await index()).getByRole('button', { name: /^\d+ Windows PC / }).click();
+    const win = page.locator('.app-window[data-app="windows"]');
+    await expect(win).toContainText('Not set up yet');
+    await expect(win.getByRole('button', { name: /Open Windows PC/ })).toBeDisabled();
+    await expectNoHorizontalOverflow(page);
     expect(errors).toEqual([]);
   });
 });

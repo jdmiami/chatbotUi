@@ -248,9 +248,6 @@ function BootScreen({
             </button>
           </>
         )}
-        <a className="btn ghost block" href="/?choose=1">
-          Switch workspace
-        </a>
       </div>
     </div>
   );
