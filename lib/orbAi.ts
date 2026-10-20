@@ -81,7 +81,10 @@ export function cleanMessages(input: unknown): OrbMessage[] | string {
     const role = raw?.role;
     if (role !== 'system' && role !== 'user' && role !== 'assistant' && role !== 'tool') return 'bad message role';
     let content: OrbMessage['content'];
-    if (typeof raw.content === 'string') {
+    // An assistant turn that only calls tools has no text.
+    if ((raw.content === null || raw.content === undefined) && raw.tool_calls) {
+      content = '';
+    } else if (typeof raw.content === 'string') {
       content = redact(raw.content);
       chars += content.length;
     } else if (Array.isArray(raw.content)) {

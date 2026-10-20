@@ -88,6 +88,24 @@ export function getRunner(): RunnerAdapter & { reset(): void } {
   return runner;
 }
 
+let clawRunner: (RunnerAdapter & { reset(): void }) | null = null;
+/** OpenClaw on the Linux machine (null in demo mode). Same screen as Antigravity, with approvals. */
+export function getClawRunner(): (RunnerAdapter & { reset(): void }) | null {
+  if (!host) return null;
+  clawRunner ??= new HostRunner(host, 'claw');
+  return clawRunner;
+}
+
+/** Is OpenClaw installed and answering on the Linux machine? */
+export async function clawAvailable(): Promise<boolean> {
+  if (!host) return false;
+  try {
+    return (await host.json<{ installed: boolean }>('/claw/info')).installed;
+  } catch {
+    return false;
+  }
+}
+
 /** Each terminal tab gets its own backend instance. */
 export function createTerminalBackend(): TerminalBackend {
   return host ? new PtyBackend(host) : new SimulatedShell(getFileStore());

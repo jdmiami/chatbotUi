@@ -1164,3 +1164,51 @@
     opacity: 0.45;
   }
 }
+
+/* Which agent: Antigravity or OpenClaw (only when OpenClaw is installed on the Linux machine). */
+.ag-which-wrap { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.ag-which-wrap > :last-child { flex: 1; min-height: 0; }
+.ag-which {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: max(6px, env(safe-area-inset-top)) var(--space-3, 12px) 0;
+}
+.ag-which-btn {
+  min-height: 32px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: 999px;
+  background: none;
+  color: var(--text-3);
+  font: 600 11px/1 var(--font-ui);
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+.ag-which-btn[aria-selected='true'] { color: var(--text); background: var(--surface-2, rgb(127 127 127 / 0.12)); }
+.ag-which-note { margin-left: auto; font-size: 12px; color: var(--text-3); }
+
+/* OpenClaw asks before running a command. */
+.ag-approval {
+  margin: 4px 0;
+  padding: 14px 16px;
+  border-radius: 16px;
+  border: 1px solid var(--border-strong, var(--border));
+  background: var(--surface);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.ag-approval[data-status='pending'] { border-color: var(--warning, #e8b55c); box-shadow: 0 0 0 3px color-mix(in srgb, var(--warning, #e8b55c) 18%, transparent); }
+.ag-approval-kicker { margin: 0; font: 600 10px/1 var(--font-ui); letter-spacing: 0.16em; text-transform: uppercase; color: var(--text-3); }
+.ag-approval[data-status='pending'] .ag-approval-kicker { color: var(--warning, #e8b55c); }
+.ag-approval[data-status='denied'] .ag-approval-kicker { color: var(--danger); }
+.ag-approval-cmd { margin: 0; padding: 10px 12px; border-radius: 10px; background: var(--surface-2, rgb(0 0 0 / 0.2)); font: 13px/1.45 var(--font-mono); white-space: pre-wrap; overflow-wrap: anywhere; max-height: 40vh; overflow: auto; }
+.ag-approval-cwd { margin: 0; font-size: 12px; color: var(--text-3); overflow-wrap: anywhere; }
+.ag-approval-warn { margin: 0; font-size: 13px; color: var(--danger); }
+.ag-approval-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+.ag-approval-actions .btn { min-height: 44px; }
+:root[data-skin='o5'] .ag-approval { border-radius: 0; border: 0; border-left: 2px solid var(--o5-hair); background: none; padding: 8px 0 8px 16px; }
+:root[data-skin='o5'] .ag-approval[data-status='pending'] { border-left-color: var(--warning, #e8b55c); box-shadow: none; }
+:root[data-skin='o5'] .ag-approval-cmd { background: none; border-top: 1px solid var(--o5-hair); border-bottom: 1px solid var(--o5-hair); border-radius: 0; padding: 10px 0; }
