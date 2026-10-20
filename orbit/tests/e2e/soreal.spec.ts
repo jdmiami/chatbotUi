@@ -111,14 +111,16 @@ test.describe('soReal', () => {
 
     // 3. The story: the AI writes it on arrival (4 shots for 20 s), each line editable.
     await step(win, 'The story');
-    await expect(win.getByRole('textbox', { name: 'Shot 4' })).toBeVisible();
+    await expect(win.getByRole('textbox', { name: 'Shot 4', exact: true })).toBeVisible();
     expect(api.calls.some((c) => c.path.endsWith('/plan'))).toBe(true);
-    await win.getByRole('textbox', { name: 'Shot 2' }).fill('She spins as the lights flash');
+    await win.getByRole('textbox', { name: 'Shot 2', exact: true }).fill('She spins as the lights flash');
+    await win.getByRole('textbox', { name: 'Words said or sung in shot 2' }).fill('Mia, laughing: "Again!"');
     await expectTappable(page);
     await win.getByRole('button', { name: 'Next' }).click();
     const shots = (api.calls.filter((c) => c.method === 'PUT').pop()!.body!.shots as Shot[]).map((s) => s.prompt);
     expect(shots[1]).toBe('She spins as the lights flash');
     expect(shots).toHaveLength(4);
+    expect((api.calls.filter((c) => c.method === 'PUT').pop()!.body!.shots as Shot[])[1]).toMatchObject({ says: 'Mia, laughing: "Again!"' });
 
     // 4–6. Skipped: the AI designs the lead and style, the storyboard is automatic, the AI picks the sound.
     const puts = api.calls.filter((c) => c.method === 'PUT').length;
@@ -130,8 +132,8 @@ test.describe('soReal', () => {
     await expect(win.getByRole('switch', { name: 'Let me check the storyboard first' })).not.toBeChecked();
     await win.getByRole('button', { name: 'Skip', exact: true }).click();
     await step(win, 'Sound');
-    await expect(win.getByText('For this movie I’d use: Music.')).toBeVisible();
-    await expect(win.getByText('A voiceover isn’t possible yet')).toBeVisible();
+    await expect(win.getByText('For this movie I’d use: Voices and sound.')).toBeVisible();
+    await expect(win.getByText('Voices are made with each shot')).toBeVisible();
     await expectTappable(page);
     await win.getByRole('button', { name: 'Skip', exact: true }).click();
     expect(api.calls.filter((c) => c.method === 'PUT').length).toBe(puts);
@@ -139,7 +141,7 @@ test.describe('soReal', () => {
     // 7. Make: what it will be and how long it takes.
     await step(win, 'Make it');
     await expect(win.locator('.sr-summary')).toContainText('A woman in a yellow raincoat');
-    await expect(win.locator('.sr-summary')).toContainText('Music (the AI’s pick)');
+    await expect(win.locator('.sr-summary')).toContainText('Voices and sound (the AI’s pick)');
     await expect(win.getByText(/Takes about \d+ minutes on your AI machine/)).toBeVisible();
     await expectNoHorizontalOverflow(page);
     await win.getByRole('button', { name: 'Make my movie' }).click();

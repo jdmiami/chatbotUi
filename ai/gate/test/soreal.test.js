@@ -137,7 +137,7 @@ test('story: reads JSON, a fenced reply or a plain list, and always gives the nu
   assert.equal(json.title, 'Night Run');
   assert.equal(json.sound, 'music');
   assert.equal(json.shots.length, 3);
-  assert.deepEqual(json.shots[0], { action: 'She runs.', end: 'She stops at a door.' });
+  assert.deepEqual(json.shots[0], { action: 'She runs.', end: 'She stops at a door.', says: '' });
   const list = parseStory('1. A cat wakes up\n2. It stretches\n3. It jumps\n4. It lands', 2);
   assert.deepEqual(list.shots.map((s) => s.action), ['A cat wakes up', 'It stretches']);
   assert.equal(parseStory('nothing useful here', 2), null);
@@ -231,7 +231,7 @@ const STORY = JSON.stringify({
   sound: 'music',
   opening: 'A grassy hill under a blue sky',
   shots: [
-    { action: 'She runs up the hill with a red kite.', end: 'She stands at the top holding the kite.' },
+    { action: 'She runs up the hill with a red kite.', says: ['Mia, laughing: "Higher, higher!"'], end: 'She stands at the top holding the kite.' },
     { action: 'The kite lifts into the wind.', end: 'The kite high in the sky.' },
   ],
 });
@@ -253,7 +253,7 @@ test('one idea, a whole movie: story, lead, storyboard, shots between storyboard
   assert.equal(done.running, false);
   assert.equal(done.title, 'Kite Day');
   assert.equal(done.lead.mode, 'ai');
-  assert.equal(done.soundPicked, 'music');
+  assert.equal(done.soundPicked, 'shots');
   assert.equal(done.shots.length, 2);
   assert.equal(done.frames.length, 3);
   assert.equal(done.etaSeconds, 0);
@@ -269,7 +269,11 @@ test('one idea, a whole movie: story, lead, storyboard, shots between storyboard
   assert.deepEqual([s2.fromItem, s2.toItem], [done.frames[1].itemId, done.frames[2].itemId]);
   assert.equal(s1.size, 'portrait');
   assert.equal(s1.seconds, 5);
-  assert.match(s1.prompt, /music only/);
+  // The spoken line goes inside the prompt, in LTX's shape: one paragraph, quoted words, the audio at the end.
+  assert.match(s1.prompt, /She runs up the hill with a red kite\. Mia says laughing, "Higher, higher!"\./);
+  assert.match(s1.prompt, /The audio is clear spoken dialogue over natural room tone/);
+  assert.doesNotMatch(s1.prompt, /\n/);
+  assert.match(s2.prompt, /with no speech/, 'a shot with no words says so');
   assert.equal(studio.reqs.length, 6);
   assert.ok(done.render?.itemId);
   assert.equal(ffmpeg.length, 1);

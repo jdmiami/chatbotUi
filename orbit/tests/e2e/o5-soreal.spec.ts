@@ -73,7 +73,7 @@ test.describe('Orbit 0.5: soReal', () => {
     await expect(caption).toHaveText('Pick how long and which way up. Skip to keep it as it is.');
     await win.getByRole('button', { name: 'Next' }).click();
     await expect(caption).toHaveText('Here is the story, one line per shot. Change any line, or skip and keep mine.');
-    await expect(win.getByRole('textbox', { name: 'Shot 1' })).toBeVisible();
+    await expect(win.getByRole('textbox', { name: 'Shot 1', exact: true })).toBeVisible();
     await expectNoHorizontalOverflow(page);
     await win.getByRole('button', { name: 'Skip to the end' }).click();
     await expect(caption).toHaveText('All set. Here is how long it takes. Your phone can sleep meanwhile.');

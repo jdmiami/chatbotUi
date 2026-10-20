@@ -8,7 +8,7 @@ import type { Page } from '@playwright/test';
 const PNG = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==', 'base64');
 
 type Status = 'todo' | 'making' | 'done' | 'error';
-export type Shot = { id: string; prompt: string; itemId: string | null; status: Status; error: string | null; end?: string; trimStart?: number; trimEnd?: number; frames?: string[]; redo?: boolean };
+export type Shot = { id: string; prompt: string; itemId: string | null; status: Status; error: string | null; end?: string; says?: string; trimStart?: number; trimEnd?: number; frames?: string[]; redo?: boolean };
 type Frame = { id: string; prompt: string; itemId: string | null; status: Status; error: string | null };
 export type MockMovie = {
   id: string;
@@ -74,7 +74,7 @@ export async function mockMovies(page: Page) {
     m.shots = Array.from({ length: count }, (_, i) => ({ id: id('shot'), prompt: `Beat ${i + 1}: ${m.idea || 'a surprise'}`, end: `The end of beat ${i + 1}`, itemId: null, status: 'todo', error: null, trimStart: 0, trimEnd: 0 }));
     if (m.lead.mode === 'auto' || (m.lead.mode === 'ai' && !m.lead.description)) m.lead = { ...m.lead, mode: 'ai', description: 'A woman in a yellow raincoat' };
     if (!m.look) m.look = 'Bright, windy, 35 mm film';
-    m.soundPicked = m.template === 'music-video' ? 'music' : 'shots';
+    m.soundPicked = m.template === 'ad' ? 'music' : 'shots';
     m.story = 'ai';
     if (m.autoTitle) m.title = 'Kite Day';
     syncFrames(m);

@@ -179,6 +179,8 @@
 .sr-working { display: flex; align-items: center; gap: 12px; margin: 0; color: var(--text-2); font-family: var(--sr-display); font-size: calc(19px * var(--text-scale, 1)); }
 .sr-lines { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 12px; }
 .sr-line { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 12px; align-items: start; }
+.sr-line-body { display: grid; gap: 8px; min-width: 0; }
+.sr-says { font-style: italic; }
 .sr-line-n { font-family: var(--sr-display); font-style: italic; font-weight: 300; font-size: calc(28px * var(--text-scale, 1)); line-height: 1.2; color: var(--text-3); min-width: 1.6em; }
 .sr-rewrite { align-self: flex-start; }
 .sr-photo { display: flex; flex-wrap: wrap; gap: 14px; align-items: flex-start; }
@@ -237,6 +239,7 @@
 .sr-shot-top { margin: 0; display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 12px; }
 .sr-shot-label { font-family: var(--sr-display); font-size: calc(19px * var(--text-scale, 1)); }
 .sr-shot-text { margin: 0; color: var(--text-2); overflow-wrap: anywhere; }
+.sr-shot-says { margin: 4px 0 0; display: grid; gap: 2px; font-family: var(--sr-display); font-style: italic; color: var(--text-1); overflow-wrap: anywhere; }
 .sr-badge { font: 600 calc(10px * var(--text-scale, 1)) / 1.4 var(--font-ui, inherit); letter-spacing: 0.14em; text-transform: uppercase; color: var(--text-3); }
 .sr-badge-done { color: var(--success); }
 .sr-badge-making { color: var(--warning); }

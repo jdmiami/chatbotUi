@@ -13,7 +13,8 @@ import { spawn } from 'node:child_process';
 import crypto from 'node:crypto';
 import fsp from 'node:fs/promises';
 import path from 'node:path';
-import { SOUNDS, SOUND_HINT, TEMPLATES, checkMovieText, createWriter } from './story.js';
+import { SOUNDS, TEMPLATES, checkMovieText, createWriter } from './story.js';
+import { shotPromptFor } from './prompting.js';
 
 const newId = () => crypto.randomBytes(9).toString('base64url');
 const ID = /^[A-Za-z0-9_-]{6,40}$/;
@@ -439,6 +440,8 @@ export function createMovies(o) {
   const cleanAutoShot = (s = {}) => ({
     ...cleanShot(s),
     end: text(s.end, 1000),
+    // What is said or sung in the shot (one line each). Not sent when you only edit other things.
+    says: s.says === undefined ? undefined : String(s.says ?? '').slice(0, 900),
     trimStart: trimSeconds(s.trimStart),
     trimEnd: trimSeconds(s.trimEnd),
     frames: Array.isArray(s.frames) && s.frames.length === 2 && s.frames.every((f) => ID.test(String(f))) ? s.frames.map(String) : null,
@@ -485,7 +488,7 @@ export function createMovies(o) {
 
   /** Everything the movie is made from, through the content rules (stricter with a photo lead). */
   function checkMovie(m) {
-    checkMovieText([m.idea, m.title, m.look, m.opening, m.lead.description, ...m.shots.flatMap((s) => [s.prompt, s.end]), ...(m.frames || []).map((f) => f.prompt)], {
+    checkMovieText([m.idea, m.title, m.look, m.opening, m.lead.description, ...m.shots.flatMap((s) => [s.prompt, s.end, s.says]), ...(m.frames || []).map((f) => f.prompt)], {
       photo: m.lead.mode === 'photo',
     });
   }
@@ -559,8 +562,9 @@ export function createMovies(o) {
       const before = soundOf(m);
       m.sound = body.sound;
       const after = soundOf(m);
-      // Quiet only drops the sound when joining; music or natural sound is made with each shot.
-      if (before !== after && before !== 'quiet' && after !== 'quiet') resetShots(m);
+      // Going quiet only drops the sound when joining. Music or natural sound is made with each shot,
+      // and so are the spoken or sung lines, so shots made quiet have to be made again to speak.
+      if (before !== after && ((before !== 'quiet' && after !== 'quiet') || (before === 'quiet' && m.shots.some((x) => x.says)))) resetShots(m);
       else staleCut(m);
     }
     if (Array.isArray(body.shots)) applyShots(m, body.shots.slice(0, 12).map((s) => ({ ...cleanAutoShot(s), redo: Boolean(s.redo) })));
@@ -570,6 +574,10 @@ export function createMovies(o) {
     return write(m);
   }
 
+  // What is said or sung stays as it was when an edit doesn't send it.
+  const saysOf = (s, was) => (s.says === undefined ? was?.says || '' : s.says);
+  const sameWords = (was, s) => was.prompt === s.prompt && (was.says || '') === saysOf(s, was);
+
   function applyShots(m, next) {
     const old = new Map(m.shots.map((s) => [s.id, s]));
     if (!shotsMade(m) || m.continuity === 'chain') {
@@ -578,16 +586,16 @@ export function createMovies(o) {
         let changed = false;
         m.shots = next.map(({ redo, ...s }, i) => {
           const was = m.shots[i];
-          if (!changed && was && was.id === s.id && was.prompt === s.prompt && !redo) return { ...was, trimStart: s.trimStart, trimEnd: s.trimEnd };
+          if (!changed && was && was.id === s.id && sameWords(was, s) && !redo) return { ...was, trimStart: s.trimStart, trimEnd: s.trimEnd };
           changed = true;
-          return { ...s, frames: was?.frames ?? s.frames, itemId: null, status: 'todo', error: null };
+          return { ...s, says: saysOf(s, was), frames: was?.frames ?? s.frames, itemId: null, status: 'todo', error: null };
         });
         staleCut(m);
         return;
       }
       // Still the plan: the storyboard follows the words.
-      m.shots = next.map(({ redo, ...s }) => ({ ...s, itemId: null, status: 'todo', error: null }));
-      if (m.story !== 'you' && next.some((s) => old.get(s.id)?.prompt !== s.prompt)) m.story = 'you';
+      m.shots = next.map(({ redo, ...s }) => ({ ...s, says: saysOf(s, old.get(s.id)), itemId: null, status: 'todo', error: null }));
+      if (m.story !== 'you' && next.some((s) => !old.get(s.id) || !sameWords(old.get(s.id), s))) m.story = 'you';
       if (m.shots.length) syncFrames(m);
       else m.frames = [];
       return;
@@ -599,9 +607,9 @@ export function createMovies(o) {
       .filter((s) => old.has(s.id) || s.prompt.trim())
       .map(({ redo, ...s }) => {
         const was = old.get(s.id);
-        if (!was) return { ...s, itemId: null, status: 'todo', error: null };
-        const keep = !redo && was.prompt === s.prompt;
-        return { ...was, prompt: s.prompt, end: s.end || was.end, trimStart: s.trimStart, trimEnd: s.trimEnd, ...(keep ? {} : { itemId: null, status: 'todo', error: null }) };
+        if (!was) return { ...s, says: saysOf(s, null), itemId: null, status: 'todo', error: null };
+        const keep = !redo && sameWords(was, s);
+        return { ...was, prompt: s.prompt, says: saysOf(s, was), end: s.end || was.end, trimStart: s.trimStart, trimEnd: s.trimEnd, ...(keep ? {} : { itemId: null, status: 'todo', error: null }) };
       });
     if (m.shots.map((s) => `${s.id}:${s.trimStart}:${s.trimEnd}`).join() !== before || m.shots.some((s) => s.status !== 'done')) staleCut(m);
   }
@@ -641,17 +649,18 @@ export function createMovies(o) {
       lead: m.lead.mode === 'none' ? '' : m.lead.mode === 'photo' ? 'the person in the photo you were given (call them "the lead")' : m.lead.description,
       look: m.look,
       shape: m.size,
+      sound: m.sound === 'auto' ? null : m.sound,
     });
     const leadText = m.lead.mode === 'photo' ? '' : m.lead.description || s.lead;
     // What the writer wrote is checked too, before any of it is made.
-    checkMovieText([s.title, s.lead, s.look, s.opening, ...s.shots.flatMap((x) => [x.action, x.end])], { photo: m.lead.mode === 'photo' });
+    checkMovieText([s.title, s.lead, s.look, s.opening, ...s.shots.flatMap((x) => [x.action, x.end, x.says])], { photo: m.lead.mode === 'photo' });
     if ((m.autoTitle || !m.title || m.title === 'Untitled movie') && s.title) m.title = s.title;
     if (!m.look.trim()) m.look = s.look || TEMPLATES[m.template]?.look || '';
     if (m.lead.mode === 'auto') m.lead.mode = leadText ? 'ai' : 'none';
     if (m.lead.mode === 'ai' && !m.lead.description) m.lead.description = leadText;
     if (m.sound === 'auto') m.soundPicked = TEMPLATES[m.template]?.sound || s.sound || 'shots';
     m.opening = s.opening || '';
-    m.shots = s.shots.map((x) => cleanAutoShot({ prompt: x.action, end: x.end }));
+    m.shots = s.shots.map((x) => cleanAutoShot({ prompt: x.action, end: x.end, says: x.says || '' }));
     m.story = s.by;
     m.frames = [];
     syncFrames(m);
@@ -678,7 +687,7 @@ export function createMovies(o) {
     if (running.has(id)) throw err('Stop the movie first, then change it.', 409);
     if (elsewhere(m)) throw busyElsewhere(m);
     // A photo may show a real person: the whole movie keeps the photo rule.
-    checkMovieText([m.idea, m.title, m.look, m.opening, m.lead.description, ...m.shots.flatMap((s) => [s.prompt, s.end]), ...m.frames.map((f) => f.prompt)], { photo: true });
+    checkMovieText([m.idea, m.title, m.look, m.opening, m.lead.description, ...m.shots.flatMap((s) => [s.prompt, s.end, s.says]), ...m.frames.map((f) => f.prompt)], { photo: true });
     const job = await studio.createJob({ kind: 'image', maker: 'edit', image: photo, prompt: LEAD_FROM_PHOTO });
     m.lead = { ...m.lead, mode: 'photo', jobId: job.id, itemId: null, status: 'making', error: null };
     resetPictures(m, { lead: false });
@@ -757,9 +766,17 @@ export function createMovies(o) {
       m.error = message;
     });
 
+  /** The prompt for one shot, written the way its maker (LTX or H3) wants it, with the shot's spoken or sung lines inside. */
   function shotPrompt(m, shot) {
-    const lead = m.lead.mode === 'ai' && m.lead.description ? `The lead: ${m.lead.description}` : '';
-    return [m.look.trim(), lead, shot.prompt.trim(), SOUND_HINT[soundOf(m)]].filter(Boolean).join('\n\n');
+    return shotPromptFor(m.maker, {
+      look: m.look.trim(),
+      lead: m.lead.mode === 'ai' ? m.lead.description || '' : '',
+      action: shot.prompt.trim(),
+      says: shot.says || '',
+      sound: soundOf(m),
+      seconds: m.seconds,
+      keyframes: m.continuity === 'keyframes',
+    });
   }
 
   function framePrompt(m, frame, k) {

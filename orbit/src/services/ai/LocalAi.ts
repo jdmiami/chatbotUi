@@ -172,6 +172,8 @@ export interface MovieShot {
   error: string | null;
   /** New movies: what the picture looks like where the shot ends (its storyboard picture). */
   end?: string;
+  /** What is said or sung in the shot, one line each: `Mara, softly: "Stay."` The maker speaks it. */
+  says?: string;
   /** Seconds cut from the start and the end in the final cut. */
   trimStart?: number;
   trimEnd?: number;

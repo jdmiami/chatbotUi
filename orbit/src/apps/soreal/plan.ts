@@ -38,14 +38,14 @@ export const STYLES: { name: string; look: string }[] = [
   { name: 'Noir', look: 'Black and white film noir, hard shadows, rain and smoke' },
 ];
 
-/** Sound the machine can actually make today: LTX and H3 make sound with each shot. No voiceover (no text-to-speech here yet). */
+/** LTX and H3 make the sound with each shot, voices and songs included: what is said or sung is written into the shot's prompt. */
 export const SOUNDS: { value: MovieSound; label: string; hint: string }[] = [
   { value: 'auto', label: 'Let the AI choose', hint: 'Picked to fit this movie' },
-  { value: 'shots', label: 'Sound with each shot', hint: 'Voices, effects and ambience made with every shot' },
-  { value: 'music', label: 'Music', hint: 'Every shot asks for music only, no talking' },
+  { value: 'shots', label: 'Voices and sound', hint: 'People speak or sing the lines in the story, with effects and ambience' },
+  { value: 'music', label: 'Music only', hint: 'Every shot asks for music and no talking or singing' },
   { value: 'quiet', label: 'Quiet', hint: 'No sound at all' },
 ];
-export const soundName = (s: MovieSound | null | undefined) => SOUNDS.find((x) => x.value === s)?.label ?? 'Sound with each shot';
+export const soundName = (s: MovieSound | null | undefined) => SOUNDS.find((x) => x.value === s)?.label ?? 'Voices and sound';
 
 export type StepId = 'idea' | 'shape' | 'story' | 'cast' | 'storyboard' | 'sound' | 'make';
 
