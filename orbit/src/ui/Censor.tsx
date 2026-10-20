@@ -12,7 +12,8 @@ export function useCensor(): boolean {
   return useShell((s) => Boolean(s.settings.censor));
 }
 
-export function Censor({ children, className, as: Tag = 'span' }: { children: ReactNode; className?: string; as?: 'span' | 'div' }) {
+/** `text`: a lighter blur for words (prompts, captions, replies, story lines). */
+export function Censor({ children, className, as: Tag = 'span', text = false }: { children: ReactNode; className?: string; as?: 'span' | 'div'; text?: boolean }) {
   const on = useCensor();
   const [revealed, setRevealed] = useState(false);
   const timer = useRef<number | null>(null);
@@ -47,7 +48,7 @@ export function Censor({ children, className, as: Tag = 'span' }: { children: Re
   if (!on) return <Tag className={className}>{children}</Tag>;
   return (
     <Tag
-      className={['censor', className].filter(Boolean).join(' ')}
+      className={['censor', text && 'censor-text', className].filter(Boolean).join(' ')}
       data-censored=""
       data-revealed={revealed ? '' : undefined}
       onPointerDown={onPointerDown}

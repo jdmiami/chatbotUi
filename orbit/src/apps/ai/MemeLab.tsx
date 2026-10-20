@@ -124,7 +124,9 @@ export function MemeLab({ ai, machineOn, isActive, onKept }: { ai: LocalAi; mach
           <div className="meme-now" role="status" aria-label="Making now">
             <span className="meme-lab-dot" aria-hidden />
             <div className="meme-now-text">
-              <p className="meme-card-title">{lab.making.title}</p>
+              <Censor as="div" text>
+                <p className="meme-card-title">{lab.making.title}</p>
+              </Censor>
               {job && (
                 <>
                   <div className="ai-bar" aria-label={`${Math.round(job.progress)}%`}>
@@ -190,7 +192,7 @@ export function MemeLab({ ai, machineOn, isActive, onKept }: { ai: LocalAi; mach
                 <span className="meme-queue-n" aria-hidden>
                   {String(i + 1).padStart(2, '0')}
                 </span>
-                <div className="meme-queue-text">
+                <Censor as="div" text className="meme-queue-text">
                   {editing?.id === q.id ? (
                     <form
                       onSubmit={(e) => {
@@ -214,7 +216,7 @@ export function MemeLab({ ai, machineOn, isActive, onKept }: { ai: LocalAi; mach
                       <p className="ai-muted meme-queue-meta">{q.yours ? 'Your idea, made as written' : q.topic ? `About ${q.topic}` : 'The AI sharpens it just before making'}</p>
                     </>
                   )}
-                </div>
+                </Censor>
                 {editing?.id !== q.id && (
                   <div className="meme-queue-actions">
                     {i > 0 && <IconButton icon="arrowUp" label={`Make ${q.title} next`} onClick={() => void act(ai.makeLabIdeaNext(q.id))} />}
@@ -257,11 +259,13 @@ export function MemeLab({ ai, machineOn, isActive, onKept }: { ai: LocalAi; mach
                     {r.status === 'ready' ? 'Ready to post' : r.status === 'judged' ? 'Judged' : 'Waiting to be judged'}
                     {r.score != null && <span className="meme-score">{r.score}</span>}
                   </p>
-                  <p className="meme-card-title">{r.title}</p>
-                  {r.why && <p className="ai-muted meme-card-why">{r.why}</p>}
-                  <p className="meme-card-caption">
-                    {r.caption} <span className="ai-muted">{(r.hashtags ?? []).join(' ')}</span>
-                  </p>
+                  <Censor as="div" text>
+                    <p className="meme-card-title">{r.title}</p>
+                    {r.why && <p className="ai-muted meme-card-why">{r.why}</p>}
+                    <p className="meme-card-caption">
+                      {r.caption} <span className="ai-muted">{(r.hashtags ?? []).join(' ')}</span>
+                    </p>
+                  </Censor>
                   <div className="meme-card-actions">
                     <button type="button" className="btn" onClick={() => copy(r)}>
                       <Icon name="copy" size={16} /> {copied === r.id ? 'Copied' : 'Copy caption'}

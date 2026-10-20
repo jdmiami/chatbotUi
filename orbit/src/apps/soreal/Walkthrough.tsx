@@ -3,6 +3,7 @@ import { useShell } from "../../state/shell";
 import { Icon } from "../../ui/Icon";
 import { IconButton, Segmented, Toggle } from "../../ui/components";
 import { TextArea } from "../../ui/TextArea";
+import { Censor } from "../../ui/Censor";
 import {
   getLocalAi,
   type AiMachine,
@@ -390,7 +391,7 @@ export function Walkthrough({
                   <span className="sr-line-n" aria-hidden>
                     {String(i + 1).padStart(2, "0")}
                   </span>
-                  <div className="sr-line-body">
+                  <Censor as="div" text className="sr-line-body">
                     <TextArea
                       className="input"
                       rows={2}
@@ -424,7 +425,7 @@ export function Walkthrough({
                         )
                       }
                     />
-                  </div>
+                  </Censor>
                 </li>
               ))}
             </ol>

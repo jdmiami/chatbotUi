@@ -382,6 +382,8 @@ test.describe('AI app: Create', () => {
     const viewer = win.locator('.ai-viewer-media.censor');
     await expect(viewer).toBeVisible();
     expect(await viewer.locator('img').evaluate((el) => getComputedStyle(el).filter)).toContain('blur');
+    // Its words are blurred too.
+    expect(await win.locator('.ai-viewer-prompt').evaluate((el) => getComputedStyle(el).filter)).toContain('blur');
     // Off again: nothing is blurred.
     await page.keyboard.press('Escape');
     await censor.click();

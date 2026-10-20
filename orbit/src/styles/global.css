@@ -1133,6 +1133,9 @@ a.btn {
   font: 500 11px/1.4 var(--font-ui, system-ui); letter-spacing: 0.04em; text-transform: uppercase; color: #fff;
   background: rgba(0, 0, 0, 0.55); border-radius: 999px; pointer-events: none;
 }
+.censor.censor-text > * { filter: blur(7px); transform: none; }
+.censor.censor-text[data-revealed] > * { filter: none; }
+.censor.censor-text .censor-hint { font-size: 10px; padding: 2px 8px; margin-bottom: 4px; }
 .censor > video { pointer-events: none; }
 .censor[data-revealed] > video { pointer-events: auto; }
 @media (prefers-reduced-motion: reduce) { .censor > *, .censor[data-revealed] > * { transition: none; } }

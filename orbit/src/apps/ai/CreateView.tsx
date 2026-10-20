@@ -473,7 +473,7 @@ export function CreateView({
       <section className="ai-censor" aria-labelledby="ai-censor-title">
         <div className="ai-censor-text">
           <p className="o5-kicker" id="ai-censor-title">Censor</p>
-          <p className="ai-muted">{censor ? 'On: pictures and videos are blurred everywhere in Orbit. Press and hold one to see it.' : 'Off. Turn it on to blur every picture and video; press and hold one to see it.'}</p>
+          <p className="ai-muted">{censor ? 'On: pictures, videos and their words are blurred everywhere in Orbit. Press and hold one to see it.' : 'Off. Turn it on to blur every picture, video and its words; press and hold one to see it.'}</p>
         </div>
         <Toggle checked={censor} label="Censor: blur pictures and videos" onChange={(on) => updateSettings({ censor: on })} />
       </section>
@@ -566,7 +566,9 @@ export function CreateView({
                 <video src={viewing.url} controls playsInline autoPlay />
               )}
             </Censor>
-            <p className="ai-viewer-prompt">{viewing.prompt}</p>
+            <Censor as="div" text>
+              <p className="ai-viewer-prompt">{viewing.prompt}</p>
+            </Censor>
             <div className="ai-viewer-actions">
               <a className="btn" href={withParam(viewing.url, 'download=1')} download>
                 <Icon name="download" size={16} /> Save

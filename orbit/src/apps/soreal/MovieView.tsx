@@ -269,14 +269,16 @@ export function MovieView({
                       <span className={`sr-badge sr-badge-${s.status}`}>{STATUS[s.status]}</span>
                       {trimmed > 0 && <span className="ai-muted sr-small">trimmed {trimmed} s</span>}
                     </p>
-                    <p className="sr-shot-text">{s.prompt}</p>
-                    {s.says?.trim() && (
-                      <p className="sr-shot-says" aria-label={`Said or sung in shot ${i + 1}`}>
-                        {s.says.split('\n').map((l) => (
-                          <span key={l}>{l}</span>
-                        ))}
-                      </p>
-                    )}
+                    <Censor as="div" text>
+                      <p className="sr-shot-text">{s.prompt}</p>
+                      {s.says?.trim() && (
+                        <p className="sr-shot-says" aria-label={`Said or sung in shot ${i + 1}`}>
+                          {s.says.split('\n').map((l) => (
+                            <span key={l}>{l}</span>
+                          ))}
+                        </p>
+                      )}
+                    </Censor>
                     {s.error && <p className="ai-error">{s.error}</p>}
                     {editable && (
                       <div className="sr-shot-tools">
