@@ -152,6 +152,38 @@ export interface MovieShot {
   itemId: string | null;
   status: 'todo' | 'making' | 'done' | 'error';
   error: string | null;
+  /** New movies: what the picture looks like where the shot ends (its storyboard picture). */
+  end?: string;
+  /** Seconds cut from the start and the end in the final cut. */
+  trimStart?: number;
+  trimEnd?: number;
+  /** The storyboard pictures it starts and ends on (frame ids). */
+  frames?: [string, string] | null;
+  /** Ask for this shot to be made again. */
+  redo?: boolean;
+}
+
+/** soReal: one storyboard picture (where a shot starts or ends). */
+export interface MovieFrame {
+  id: string;
+  prompt: string;
+  itemId: string | null;
+  status: 'todo' | 'making' | 'done' | 'error';
+  error: string | null;
+  redo?: boolean;
+}
+
+export type MovieSound = 'auto' | 'shots' | 'music' | 'quiet';
+export type MoviePhase = 'draft' | 'story' | 'lead' | 'storyboard' | 'review' | 'shots' | 'final' | 'done' | 'stopped' | 'error';
+
+/** soReal: the lead character, designed by the AI or from a photo. */
+export interface MovieLead {
+  mode: 'auto' | 'ai' | 'photo' | 'none';
+  description: string;
+  itemId: string | null;
+  jobId?: string | null;
+  status: 'todo' | 'making' | 'done' | 'error';
+  error: string | null;
 }
 
 /** soReal: a movie plan, kept on the AI machine. */
@@ -166,17 +198,53 @@ export interface Movie {
   /** Gallery picture or video the first shot continues from. */
   start: string | null;
   shots: MovieShot[];
-  render: { itemId: string; at: string } | null;
+  /** `stale`: shots changed since (redo, reorder, trim): join them again. */
+  render: { itemId: string; at: string; stale?: boolean } | null;
   running: boolean;
   /** Which machine is making it (while running). */
   runningOn: AiMachine | null;
   createdAt: string;
   updatedAt: string;
+  // ---- new movies (one idea in, a whole movie out); absent on movies made shot by shot
+  flow?: 'auto';
+  /** Named from the idea (then by the AI's story) until you name it. */
+  autoTitle?: boolean;
+  idea?: string;
+  template?: string | null;
+  /** Whole movie, seconds (30 at most). */
+  length?: number;
+  opening?: string;
+  lead?: MovieLead;
+  sound?: MovieSound;
+  /** What the AI picked when sound is "auto". */
+  soundPicked?: Exclude<MovieSound, 'auto'> | null;
+  reviewStoryboard?: boolean;
+  approved?: boolean;
+  /** keyframes: each shot made between two storyboard pictures; chain: from the last frame. */
+  continuity?: 'keyframes' | 'chain';
+  /** Who wrote the story: the AI, a plain story from the idea (no chat model), or you. */
+  story?: 'ai' | 'plain' | 'you' | null;
+  frames?: MovieFrame[];
+  phase?: MoviePhase;
+  error?: string | null;
+  /** Seconds left (or the whole time, before it starts), from the machine's own timings. */
+  etaSeconds?: number;
+  shotSeconds?: number;
 }
 
-export type MovieDraft = Partial<Pick<Movie, 'title' | 'look' | 'maker' | 'size' | 'seconds' | 'start'>> & {
+export type MovieDraft = Partial<
+  Pick<Movie, 'title' | 'look' | 'maker' | 'size' | 'seconds' | 'start' | 'idea' | 'template' | 'length' | 'opening' | 'sound' | 'reviewStoryboard'>
+> & {
   shots?: Partial<MovieShot>[];
+  frames?: Partial<MovieFrame>[];
+  lead?: Partial<Pick<MovieLead, 'mode' | 'description'>>;
 };
+
+export interface MovieEstimate {
+  seconds: number;
+  shots: number;
+  shotSeconds: number;
+}
 
 export type ContentPart = { type: 'text'; text: string } | { type: 'image_url'; image_url: { url: string } };
 
@@ -546,9 +614,27 @@ export class LocalAi {
     await this.studioCall(`/_orbit/studio/movies/${encodeURIComponent(id)}`, { method: 'DELETE' });
   }
 
-  /** Make the shots that aren't done yet, in order, on the main or the helper machine (keeps going there). */
-  runMovie(id: string, on: AiMachine = 'main'): Promise<Movie> {
-    return this.studioCall<Movie>(`/_orbit/studio/movies/${encodeURIComponent(id)}/run`, { method: 'POST', body: '{}' }, on);
+  /**
+   * Make what isn't done yet on the main or the helper machine (keeps going there while the phone
+   * sleeps). `approve`: the storyboard looks right, go on to the shots.
+   */
+  runMovie(id: string, on: AiMachine = 'main', opts: { approve?: boolean } = {}): Promise<Movie> {
+    return this.studioCall<Movie>(`/_orbit/studio/movies/${encodeURIComponent(id)}/run`, { method: 'POST', body: JSON.stringify(opts) }, on);
+  }
+
+  /** How long a movie like this takes on the AI machine, before it exists. */
+  estimateMovie(draft: MovieDraft): Promise<MovieEstimate> {
+    return this.studioCall<MovieEstimate>('/_orbit/studio/movies/estimate', { method: 'POST', body: JSON.stringify(draft) });
+  }
+
+  /** The AI writes (or rewrites) the story: shots, storyboard words, lead, look and sound. */
+  planMovie(id: string): Promise<Movie> {
+    return this.studioCall<Movie>(`/_orbit/studio/movies/${encodeURIComponent(id)}/plan`, { method: 'POST', body: '{}' });
+  }
+
+  /** A photo of the lead (data URL): the machine makes it the lead's reference picture. */
+  movieLeadPhoto(id: string, photo: string): Promise<Movie> {
+    return this.studioCall<Movie>(`/_orbit/studio/movies/${encodeURIComponent(id)}/lead`, { method: 'POST', body: JSON.stringify({ photo }) });
   }
 
   /** Stop it on the machine that is making it. */

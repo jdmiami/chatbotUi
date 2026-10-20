@@ -85,7 +85,7 @@ export const APPS: Record<AppId, AppMeta> = {
   soreal: {
     id: 'soreal',
     name: 'soReal',
-    description: 'Make movies shot by shot; each shot picks up from the last frame of the one before',
+    description: 'Say what your movie is about; the AI writes it, storyboards it and makes it',
     icon: 'film',
     tile: 'linear-gradient(145deg, #ff5f6d, #c2185b 55%, #4a148c)',
     glyph: '#fff1e0',

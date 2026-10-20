@@ -207,6 +207,17 @@ function Orb() {
     }
   }, []);
 
+  // Apps can have it say one line (soReal's walkthrough: what to do on this step). It also goes to
+  // whatever the app marks with data-orb-focus.
+  useEffect(() => {
+    const on = (e: Event) => {
+      const line = (e as CustomEvent<string>).detail;
+      if (typeof line === 'string' && line.trim()) say(line.trim());
+    };
+    window.addEventListener('orb:say', on);
+    return () => window.removeEventListener('orb:say', on);
+  }, [say]);
+
   // Drawn where it starts from the very first paint, not in the corner until the first frame runs.
   useLayoutEffect(() => {
     if (body.current) body.current.style.transform = `translate3d(${x.value - R}px, ${y.value - R}px, 0)`;

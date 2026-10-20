@@ -91,6 +91,12 @@ const LEAD_FROM_PHOTO =
   'Keep this exact person: the same face, hair, skin and build, wearing the same clothes. Show them from the knees up, facing the camera, standing against a plain light grey background, soft even light.';
 
 const text = (v, max) => String(v ?? '').slice(0, max);
+/** A first name for a movie, from its idea (the story's writer usually names it better). */
+export function ideaTitle(idea) {
+  const t = String(idea || '').trim().replace(/\s+/g, ' ');
+  if (!t) return 'Untitled movie';
+  return t.length > 48 ? `${t.slice(0, 47).replace(/\s+\S*$/, '')}…` : t;
+}
 const trimSeconds = (v) => Math.min(3, Math.max(0, Math.round((Number(v) || 0) * 2) / 2));
 
 /**
@@ -443,7 +449,9 @@ export function createMovies(o) {
     const m = {
       id: newId(),
       flow: 'auto',
-      title: String(body.title || '').slice(0, 120) || 'Untitled movie',
+      title: text(body.title, 120).trim() || ideaTitle(body.idea),
+      // Named for you until you name it.
+      autoTitle: !text(body.title, 120).trim(),
       idea: text(body.idea, 2000),
       template: TEMPLATES[body.template] ? body.template : null,
       length: clampLength(body.length),
@@ -514,8 +522,14 @@ export function createMovies(o) {
   };
 
   async function updateAuto(m, body) {
-    if (body.title != null) m.title = text(body.title, 120) || m.title;
-    if (body.idea != null) m.idea = text(body.idea, 2000);
+    if (body.title != null && text(body.title, 120).trim()) {
+      m.title = text(body.title, 120).trim();
+      m.autoTitle = false;
+    }
+    if (body.idea != null && text(body.idea, 2000) !== m.idea) {
+      m.idea = text(body.idea, 2000);
+      if (m.autoTitle) m.title = ideaTitle(m.idea);
+    }
     if (body.template !== undefined) m.template = TEMPLATES[body.template] ? body.template : null;
     if (body.length != null) m.length = clampLength(body.length);
     if (body.reviewStoryboard != null) m.reviewStoryboard = Boolean(body.reviewStoryboard);
@@ -631,7 +645,7 @@ export function createMovies(o) {
     const leadText = m.lead.mode === 'photo' ? '' : m.lead.description || s.lead;
     // What the writer wrote is checked too, before any of it is made.
     checkMovieText([s.title, s.lead, s.look, s.opening, ...s.shots.flatMap((x) => [x.action, x.end])], { photo: m.lead.mode === 'photo' });
-    if (!m.title || m.title === 'Untitled movie') m.title = s.title || m.title;
+    if ((m.autoTitle || !m.title || m.title === 'Untitled movie') && s.title) m.title = s.title;
     if (!m.look.trim()) m.look = s.look || TEMPLATES[m.template]?.look || '';
     if (m.lead.mode === 'auto') m.lead.mode = leadText ? 'ai' : 'none';
     if (m.lead.mode === 'ai' && !m.lead.description) m.lead.description = leadText;

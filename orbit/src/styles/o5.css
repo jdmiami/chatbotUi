@@ -441,7 +441,7 @@
 :root[data-skin='o5'] .icon-btn { border-radius: 50%; background: transparent; }
 
 /* Lists, cards, tiles, banners: no boxes. Hairlines only where rows need separating. */
-:root[data-skin='o5'] :is(.list, .widget, .glass, .banner, .ai-banner, .sr-shot, .sr-bar, .state, .cc-tile, .switcher-card) {
+:root[data-skin='o5'] :is(.list, .widget, .glass, .banner, .ai-banner, .state, .cc-tile, .switcher-card) {
   background: transparent;
   border-color: transparent;
   box-shadow: none;
@@ -450,15 +450,13 @@
 }
 :root[data-skin='o5'] .row { border-bottom-color: var(--o5-hair); }
 :root[data-skin='o5'] .ai-banner { padding-left: 0; padding-right: 0; border-bottom: 1px solid var(--o5-hair); border-radius: 0; }
-:root[data-skin='o5'] .sr-shot { border-radius: 0; border-bottom: 1px solid var(--o5-hair); padding-left: 0; padding-right: 0; }
-:root[data-skin='o5'] .sr-bar { border-top: 1px solid var(--o5-hair); border-radius: 0; background: color-mix(in srgb, var(--bg) 88%, transparent); -webkit-backdrop-filter: blur(16px); backdrop-filter: blur(16px); }
 :root[data-skin='o5'] .segmented { background: transparent; border: 1px solid var(--o5-hair); border-radius: 999px; }
 :root[data-skin='o5'] .segmented button { border-radius: 999px; min-width: var(--tap); min-height: var(--tap); }
 :root[data-skin='o5'] .segmented button[aria-pressed='true'] { background: var(--text); color: var(--bg); box-shadow: none; }
 :root[data-skin='o5'] .chip { background: transparent; border: 1px solid var(--o5-hair); }
 :root[data-skin='o5'] :is(input, textarea, .ta-plain, select):not([type='range']):not([type='checkbox']) { border-radius: var(--radius-md); }
 :root[data-skin='o5'] .state h3 { font-family: var(--font-display); font-weight: 380; font-size: calc(30px * var(--text-scale)); letter-spacing: -0.02em; }
-:root[data-skin='o5'] :is(.sr-shots-head h2, .settings-section h2, .list-title) { font-family: var(--font-display); font-weight: 400; letter-spacing: -0.01em; }
+:root[data-skin='o5'] :is(.settings-section h2, .list-title) { font-family: var(--font-display); font-weight: 400; letter-spacing: -0.01em; }
 
 /* Sheets: rise from the depth instead of sliding a card. */
 :root[data-skin='o5'] .sheet {
@@ -878,42 +876,7 @@
 .o5-choice:last-child { border-bottom: 0; }
 :root[data-skin='o5'] .ai-create .ai-create-form :is(textarea, .ta-plain):not([type]) { border-radius: 0; border-width: 0 0 1px; }
 
-/* ---------------------------------------------------------------- soReal: contents, then one movie as a walk-through */
-:root[data-skin='o5'] .sr-side, :root[data-skin='o5'] .sr-side-full { background: none; border: 0; }
-.sr-contents { max-width: 760px; margin: 0 auto; padding: 0 calc(var(--safe-right) + clamp(18px, 6vw, 64px)) calc(48px + var(--safe-bottom)) calc(var(--safe-left) + clamp(18px, 6vw, 64px)); }
-.sr-contents .o5-go:disabled { opacity: 0.45; cursor: default; }
-:root[data-skin='o5'] .sr-layout { padding-left: 0; padding-right: 0; }
-:root[data-skin='o5'] .sr-editor { gap: 0; max-width: 760px; padding-left: calc(var(--safe-left) + clamp(18px, 6vw, 64px)); padding-right: calc(var(--safe-right) + clamp(18px, 6vw, 64px)); padding-top: 0; }
-:root[data-skin='o5'] .sr-field > span { font-family: var(--font-ui); font-weight: 500; letter-spacing: 0.14em; text-transform: uppercase; font-size: calc(10px * var(--text-scale)); color: var(--text-3); }
-:root[data-skin='o5'] .sr-root .input {
-  border: 0;
-  border-bottom: 1px solid var(--o5-hair);
-  border-radius: 0;
-  background: transparent;
-  padding: 8px 0;
-  font-family: var(--font-display);
-  font-size: calc(22px * var(--text-scale));
-  line-height: 1.45;
-  box-shadow: none;
-}
-:root[data-skin='o5'] .sr-root .input:focus-visible { outline: none; border-bottom-color: var(--text); }
-:root[data-skin='o5'] .sr-root :is(input, textarea, .ta-plain).input:not([type]) { border-radius: 0; border-width: 0 0 1px; }
-:root[data-skin='o5'] .sr-options { grid-template-columns: 1fr; gap: 18px; }
-:root[data-skin='o5'] .sr-shots-head { justify-content: flex-start; }
-:root[data-skin='o5'] .sr-shot { grid-template-columns: minmax(0, 1fr) auto; }
-:root[data-skin='o5'] .sr-shot-media { grid-column: 1 / -1; aspect-ratio: 16 / 9; border-radius: 4px; }
-/* A shot not made yet is just its numeral, not an empty frame. */
-:root[data-skin='o5'] .sr-shot-media:not(:has(video)) { aspect-ratio: auto; background: none; place-items: start; overflow: visible; }
-:root[data-skin='o5'] .sr-shot-media:not(:has(video, .sr-spin)) { display: none; }
-:root[data-skin='o5'] .sr-root :is(textarea, .ta-plain).input { font-size: calc(19px * var(--text-scale)); min-height: 5.6em; }
-:root[data-skin='o5'] .sr-shot-num { font-family: var(--font-display); font-weight: 340; font-size: calc(44px * var(--text-scale)); }
-:root[data-skin='o5'] .sr-shot-label { font-family: var(--font-display); font-weight: 400; font-size: calc(19px * var(--text-scale)); }
-:root[data-skin='o5'] .sr-badge { background: none; padding: 0; letter-spacing: 0.14em; text-transform: uppercase; font-size: calc(10px * var(--text-scale)); }
-:root[data-skin='o5'] .sr-thumb { border-radius: 4px; background: var(--surface-3); }
-/* The last step is the end of the page, not a floating bar. */
-:root[data-skin='o5'] .sr-bar { position: static; border: 0; background: none; -webkit-backdrop-filter: none; backdrop-filter: none; box-shadow: none; padding: 0; }
-:root[data-skin='o5'] .sr-bar .btn.primary { flex: 1 1 100%; min-height: 56px; font-size: var(--fs-lg); }
-:root[data-skin='o5'] .sr-add { border-style: solid; border-width: 0 0 1px; border-radius: 0; justify-content: flex-start; }
+/* ---------------------------------------------------------------- soReal (its own look lives in apps/soreal/soreal.css) */
 :root[data-skin='o5'] .shell[data-keyboard='true'] .sr-helper { display: none; }
 
 /* ---------------------------------------------------------------- Settings: a contents page, then numbered chapters */

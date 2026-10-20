@@ -9,7 +9,7 @@ import { AppArt } from '../../ui/AppArt';
 export const ENTRIES: { id: AppId; title: string; line: string }[] = [
   { id: 'ai', title: 'Talk', line: 'Your own models' },
   { id: 'store', title: 'Store', line: 'Models, makers and styles' },
-  { id: 'soreal', title: 'soReal', line: 'Movies, shot by shot' },
+  { id: 'soreal', title: 'soReal', line: 'A movie from one idea' },
   { id: 'editor', title: 'Code', line: 'Your projects' },
   { id: 'terminal', title: 'Terminal', line: 'A shell that stays open' },
   { id: 'agent', title: 'Antigravity', line: 'The coding agent' },
