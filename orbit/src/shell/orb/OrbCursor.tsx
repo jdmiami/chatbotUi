@@ -76,6 +76,7 @@ const APP_NAME: Record<AppId, string> = {
   ai: 'AI',
   store: 'Store',
   soreal: 'soReal',
+  lab: 'Lab',
   settings: 'Settings',
   playground: 'Playground',
   vscode: 'VS Code',
