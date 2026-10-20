@@ -1,16 +1,16 @@
 import os from 'node:os';
 import path from 'node:path';
 import { createGateway, loadConfig } from './server.js';
-import { createInputWatch, runpodStopSelf } from './idle.js';
+import { cliAgentRunning, createInputWatch, runpodStopSelf } from './idle.js';
 
 const config = loadConfig();
 const log = console;
 
 // Turns the machine off after 20 minutes without touch, mouse or keyboard input while no Antigravity
-// turn runs (IDLE_MINUTES can only make that shorter; 0 is not allowed: this is the money fail-safe).
+// turn or Claude Code task runs (IDLE_MINUTES can only make that shorter; 0 is not allowed: this is the money fail-safe).
 const idle = createInputWatch({
   limitMinutes: Math.min(Number(process.env.IDLE_MINUTES) || 20, 20),
-  busy: () => Boolean(orbit?.agent.running.size),
+  busy: async () => Boolean(orbit?.agent.running.size) || (await cliAgentRunning()),
   stop: () => runpodStopSelf({ podId: process.env.RUNPOD_POD_ID, apiKey: process.env.RUNPOD_API_KEY }),
   log,
 });
