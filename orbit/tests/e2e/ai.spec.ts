@@ -112,40 +112,6 @@ test.describe('AI app', () => {
     await expectNoHorizontalOverflow(page);
     await expectTappable(page);
   });
-
-  test('model store: featured install, search a model and pick its size, delete', async ({ page }, testInfo) => {
-    const calls = await mockAi(page, 'on');
-    const errors = await openOrbit(page);
-    await openAi(page);
-    await page.getByRole('button', { name: 'Model store' }).click();
-    const store = page.getByRole('dialog', { name: 'Model store' });
-    await expect(store.getByText('15.0 GB free').first()).toBeVisible();
-    await expect(store.getByText('Installed', { exact: true })).toBeVisible();
-    await store.getByRole('button', { name: /^Install Defiant Fable 9B/ }).click();
-    await expect(store.getByRole('status', { name: 'Installing defiant-fable:9b' })).toBeVisible();
-    await expect(store.getByText('Installed', { exact: true })).toHaveCount(2, { timeout: 10_000 });
-    expect(calls.find((c) => c.path === 'POST /install')?.body).toEqual({ spec: 'defiant-fable:9b=hf.co/x/y:Q6_K' });
-    await expectNoHorizontalOverflow(page);
-    await page.screenshot({ path: testInfo.outputPath('ai-store.png') });
-
-    // One page, three chapters: the contents line jumps to "Find more".
-    await store.getByRole('navigation', { name: 'Contents' }).getByRole('button', { name: /Find more/ }).click();
-    await store.getByRole('searchbox', { name: 'Search models' }).fill('cool');
-    await store.getByRole('button', { name: 'Search', exact: true }).click();
-    await store.getByRole('button', { name: /^org\/Cool-Model-GGUF/ }).click();
-    await expect(store.getByText('Q8_0')).toBeVisible();
-    // 16 GB doesn't fit in 15 GB free.
-    await expect(store.getByRole('button', { name: 'Install Q8_0' })).toBeDisabled();
-    await store.getByRole('button', { name: 'Install Q4_K_M' }).click();
-    await expect.poll(() => calls.filter((c) => c.path === 'POST /install').pop()?.body).toEqual({ repo: 'org/Cool-Model-GGUF', quant: 'Q4_K_M' });
-
-    await store.getByRole('button', { name: 'Delete qwen3.6:35b' }).click();
-    await page.getByRole('dialog', { name: 'Delete qwen3.6:35b?' }).getByRole('button', { name: 'Delete' }).click();
-    await expect(store.getByRole('button', { name: 'Delete qwen3.6:35b' })).toHaveCount(0);
-    expect(calls.some((c) => c.path === 'DELETE /qwen3.6%3A35b')).toBe(true);
-    await expectTappable(page);
-    expect(errors).toEqual([]);
-  });
 });
 
 // ---- Create: image and video maker
@@ -527,14 +493,16 @@ test.describe('AI app: maker store', () => {
     await openOrbit(page);
     await openCreate(page);
     await page.getByRole('group', { name: 'What to make' }).getByRole('button', { name: 'Video' }).click();
+    // Makers live in the Store app now.
     await page.getByRole('button', { name: 'Makers' }).click();
-    const sheet = page.getByRole('dialog', { name: 'Makers' });
-    await expect(sheet.getByRole('region', { name: 'Video' })).toContainText('H3 Max');
-    await sheet.getByRole('button', { name: /^Install H3 Max, 52 GB$/ }).click();
+    const store = page.locator('.app-window[data-app="store"]');
+    const video = store.getByRole('region', { name: 'Video' });
+    await expect(video).toContainText('H3 Max');
+    await video.getByRole('button', { name: 'Get H3 Max' }).click();
     expect(studio.makerCalls).toEqual(['install h3-max']);
-    await expect(sheet.getByText('40%')).toBeVisible();
+    await expect(video.getByText('40%')).toBeVisible();
     await expectNoHorizontalOverflow(page);
-    await page.keyboard.press('Escape');
+    await dock(page).getByRole('button', { name: /^AI/ }).click();
     const picks = page.getByRole('radiogroup', { name: 'Maker' });
     await picks.getByRole('radio', { name: /H3 Max/ }).click();
     await expect(picks.getByRole('radio', { name: /H3 Max/ })).toHaveAttribute('aria-checked', 'true');

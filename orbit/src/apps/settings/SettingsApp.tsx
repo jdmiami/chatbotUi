@@ -763,19 +763,19 @@ function AppearanceSection() {
   );
 }
 
-/** Shortcuts into the AI app's two stores, so they're a tap away from Settings too. */
+/** Shortcuts into the Store's shelves, so they're a tap away from Settings too. */
 function AiModelsSection() {
   const launch = useShell((s) => s.launch);
   const sendIntent = useWorkspace((s) => s.sendIntent);
-  const open = (type: 'open-store' | 'open-makers') => {
-    sendIntent({ app: 'ai', type });
-    launch('ai');
+  const open = (shelf: 'chat' | 'makers') => {
+    sendIntent({ app: 'store', type: 'open', shelf });
+    launch('store');
   };
   return (
     <Section title="AI models" caption="They live on your AI machine. You can browse while it rests; adding waits until it's on.">
       <div className="list">
-        <ActionRow icon="download" title="Model store" sub="Add or remove chat models" onClick={() => open('open-store')} />
-        <ActionRow icon="sparkle" title="Makers" sub="Picture and video makers for Create" onClick={() => open('open-makers')} />
+        <ActionRow icon="download" title="Chat models" sub="In the Store: add, remove, see the details" onClick={() => open('chat')} />
+        <ActionRow icon="sparkle" title="Makers" sub="Picture and video makers, in the Store" onClick={() => open('makers')} />
       </div>
     </Section>
   );

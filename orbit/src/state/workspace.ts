@@ -14,8 +14,12 @@ export type Intent =
   | { seq: number; app: 'editor'; type: 'open-file'; path: string }
   | { seq: number; app: 'agent'; type: 'open-session'; sessionId: string }
   | { seq: number; app: 'agent'; type: 'compose'; text: string; /** project file it is about */ path?: string }
-  /** Open the AI app's model store, or the image and video makers (from the home, index, settings…). */
-  | { seq: number; app: 'ai'; type: 'open-store' | 'open-makers' }
+  /** Open the AI Store at a shelf (from the home, index, settings, the AI app…). */
+  | { seq: number; app: 'store'; type: 'open'; shelf?: 'chat' | 'makers' | 'library'; item?: string }
+  /** Open the AI app in Create (image and video). */
+  | { seq: number; app: 'ai'; type: 'open-create' }
+  /** Chat with this model in the AI app (from the store). */
+  | { seq: number; app: 'ai'; type: 'use-model'; model: string }
   /** Open one chat (the orb's "find"). */
   | { seq: number; app: 'ai'; type: 'open-chat'; chatId: string };
 

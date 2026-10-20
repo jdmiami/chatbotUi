@@ -131,25 +131,26 @@ export function Path({ hidden }: { hidden: boolean }) {
         <Go label="Open a conversation" art="ai" hint={ai ? `AI machine ${AI_STATE[ai.state]}` : undefined} onClick={() => launch('ai')} />
         <Go label="Antigravity" art="agent" hint="The coding agent on your Linux machine" onClick={() => launch('agent')} />
         <Go label="Playground" art="playground" hint="The full AI playground" onClick={() => launch('playground')} />
-        <Go
-          label="Model store"
-          hint="Add or remove chat models"
-          onClick={() => {
-            sendIntent({ app: 'ai', type: 'open-store' });
-            launch('ai');
-          }}
-        />
+        <Go label="Store" art="store" hint="Chat models, makers and styles, with every detail" onClick={() => launch('store')} />
       </Chapter>
 
       <Chapter n="03" id="o5-make" title="Make" dek="Pictures, videos, and whole films shot by shot, each one picking up from the last frame.">
         <Go label="soReal" art="soreal" hint="Movies, shot by shot" onClick={() => launch('soreal')} />
-        <Go label="Images & video" hint="In the AI app, under Create" onClick={() => launch('ai')} />
+        <Go
+          label="Images & video"
+          hint="In the AI app, under Create"
+          onClick={() => {
+            sendIntent({ app: 'ai', type: 'open-create' });
+            launch('ai');
+          }}
+        />
         <Go
           label="Makers"
-          hint="Add picture and video makers"
+          art="store"
+          hint="Picture and video makers, in the Store"
           onClick={() => {
-            sendIntent({ app: 'ai', type: 'open-makers' });
-            launch('ai');
+            sendIntent({ app: 'store', type: 'open', shelf: 'makers' });
+            launch('store');
           }}
         />
       </Chapter>

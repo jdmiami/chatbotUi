@@ -108,14 +108,14 @@ test.describe('Orbit 0.5: AI', () => {
     await expect(qwen).toHaveAttribute('aria-checked', 'true');
     await qwen.click();
     await expect(win.getByRole('textbox', { name: 'Describe it' })).toBeInViewport();
+    // Makers opens the Store at its picture and video shelves, with a way to turn the machine on.
     await picks.getByRole('button', { name: 'Makers' }).click();
-    const sheet = page.getByRole('dialog', { name: 'Makers' });
-    await expect(sheet.getByText('The machine is resting')).toBeVisible();
-    await expect(sheet.getByRole('region', { name: 'Video' })).toContainText('H3 Max');
-    await expect(sheet.getByRole('button', { name: /^Install/ })).toHaveCount(0);
+    const store = page.locator('.app-window[data-app="store"]');
+    await expect(store.getByText(/Your AI machine is resting/)).toBeVisible();
+    await expect(store.getByRole('region', { name: 'Video' })).toContainText('H3 Max');
     await expectNoHorizontalOverflow(page);
     await page.screenshot({ path: testInfo.outputPath('makers-off.png') });
-    await sheet.getByRole('button', { name: 'Turn on' }).click();
+    await store.getByRole('button', { name: 'Turn on' }).click();
     await expect.poll(() => powerCalls.length).toBe(1);
     expect(powerCalls[0]).toMatchObject({ action: 'start' });
     expect(errors).toEqual([]);
@@ -200,95 +200,34 @@ async function tapHome(page: Page, name: RegExp) {
   await link.locator('.o5-go-label').click();
 }
 
-async function closeSheet(page: Page, name: string) {
-  const sheet = page.getByRole('dialog', { name });
-  await sheet.getByRole('button', { name: 'Close' }).first().click();
-  await expect(sheet).toHaveCount(0);
-}
-
-test.describe('Orbit 0.5: the AI store from everywhere', () => {
-  test('home, index and settings all open the model store and the makers; the store reads like the home', async ({ page }, testInfo) => {
+test.describe('Orbit 0.5: the Store from everywhere', () => {
+  test('home, index, settings and the AI menu all open the Store app', async ({ page }) => {
     await mockAi(page, 'on');
-    const ready = { ready: true, downloaded: true, percent: 100 };
-    await page.route('**/fake-ai/_orbit/studio', (r) => r.fulfill({ json: { setup: 'running', running: true, image: ready, video: ready, downloading: null, downloadError: null, jobs: [] } }));
-    await page.route('**/fake-ai/_orbit/studio/items', (r) => r.fulfill({ json: { items: [] } }));
-    await page.route('**/fake-ai/_orbit/studio/makers', (r) =>
-      r.fulfill({
-        json: {
-          makers: [
-            { id: 'qwen', kind: 'image', name: 'Qwen Image', blurb: 'Clean, bright pictures.', installed: true, builtIn: true, wanted: true, size: 40e9, percent: 100 },
-            { id: 'krea', kind: 'image', name: 'Krea Real', blurb: 'Photographs.', installed: false, builtIn: false, wanted: false, size: 12e9, percent: 0 },
-            { id: 'ltx', kind: 'video', name: 'LTX', blurb: 'Videos with sound.', installed: true, builtIn: true, wanted: true, size: 30e9, percent: 100 },
-          ],
-        },
-      }),
-    );
-    const errors = await openO5Home(page);
+    const errors = await openO5Home(page, 'reduce');
+    const store = page.locator('.app-window[data-app="store"]');
 
     // From the home's "Talk" chapter.
-    await tapHome(page, /^Model store/);
-    const store = page.getByRole('dialog', { name: 'Model store' });
-    await expect(store).toBeVisible();
-    await expect(store).toHaveAttribute('data-page', '');
-    await expect(store.getByRole('heading', { name: 'Models' })).toBeVisible();
-    await expect(store.getByRole('heading', { name: 'Featured' })).toBeVisible();
-    await expect(store.getByRole('button', { name: /^Install Defiant Fable 9B/ })).toBeVisible();
-    // The world behind is blurred, like the home behind the index.
-    expect(await page.locator('.sheet-scrim[data-page]').evaluate((el) => getComputedStyle(el).backdropFilter || getComputedStyle(el).getPropertyValue('-webkit-backdrop-filter'))).toContain('blur');
-    // Chapters sink back as they leave the middle of the page.
-    await store.getByRole('navigation', { name: 'Contents' }).getByRole('button', { name: /On your machine/ }).click();
-    await expect.poll(() => store.locator('#store-featured').evaluate((el) => Number(getComputedStyle(el).getPropertyValue('--ap') || 0))).toBeGreaterThan(0.05);
-    await expect(store.getByRole('button', { name: 'Delete qwen3.6:35b' })).toBeVisible();
-    await expectNoHorizontalOverflow(page);
-    await page.screenshot({ path: testInfo.outputPath('store-page.png') });
-    await closeSheet(page, 'Model store');
+    await tapHome(page, /^Store/);
+    await expect(store.getByTestId('store')).toBeVisible();
+    await expect(store.getByRole('heading', { name: 'Everyday' })).toBeVisible();
 
-    // From the index: the two stores sit under "Talk".
+    // From the index.
     await page.getByRole('button', { name: /^Index/ }).click();
-    await page.getByRole('dialog', { name: 'Index' }).getByRole('button', { name: 'Makers', exact: true }).click();
-    const makers = page.getByRole('dialog', { name: 'Makers' });
-    await expect(makers).toBeVisible();
-    await expect(makers).toHaveAttribute('data-page', '');
-    await expect(makers.locator('.mag-title')).toHaveText('Makers');
-    await expect(makers.getByRole('heading', { name: 'Pictures' })).toBeVisible();
-    await expect(makers.getByRole('button', { name: /^Install Krea Real/ })).toBeVisible();
-    await page.screenshot({ path: testInfo.outputPath('makers-page.png') });
-    await closeSheet(page, 'Makers');
-    await page.getByRole('button', { name: /^Index/ }).click();
-    await page.getByRole('dialog', { name: 'Index' }).getByRole('button', { name: 'Model store', exact: true }).click();
-    await expect(page.getByRole('dialog', { name: 'Model store' })).toBeVisible();
-    await closeSheet(page, 'Model store');
+    await page.getByRole('dialog', { name: 'Index' }).locator('.o5-index-list').getByRole('button', { name: /Store/ }).click();
+    await expect(store.getByTestId('store')).toBeVisible();
 
-    // From Settings.
+    // From Settings: the makers shelf.
     await page.getByRole('button', { name: /^Index/ }).click();
     await page.getByRole('dialog', { name: 'Index' }).getByRole('button', { name: /Settings/ }).click();
-    const settings = page.locator('.app-window[data-app="settings"]');
-    await settings.getByRole('button', { name: /^Model store/ }).click();
-    await expect(page.getByRole('dialog', { name: 'Model store' })).toBeVisible();
-    await closeSheet(page, 'Model store');
+    await page.locator('.app-window[data-app="settings"]').getByRole('button', { name: /^Makers/ }).click();
+    await expect(store.getByRole('tab', { name: 'Pictures & video' })).toHaveAttribute('aria-selected', 'true');
 
     // And from the AI's own menu.
     await page.getByRole('button', { name: /^Index/ }).click();
     await page.getByRole('dialog', { name: 'Index' }).getByRole('button', { name: /Talk/ }).click();
     await page.locator('.app-window[data-app="ai"]').getByRole('button', { name: /^Your AI:/ }).click();
-    await page.getByRole('dialog', { name: 'Your AI' }).getByRole('button', { name: /^Model store/ }).click();
-    await expect(page.getByRole('dialog', { name: 'Model store' })).toBeVisible();
-    expect(errors).toEqual([]);
-  });
-
-  test('with the machine resting the store still opens: last shelf, a way to turn it on, adding waits', async ({ page }, testInfo) => {
-    await mockAi(page, 'off');
-    const errors = await openO5Home(page, 'reduce');
-    await tapHome(page, /^Model store/);
-    const store = page.getByRole('dialog', { name: 'Model store' });
-    await expect(store.getByText('The machine is resting')).toBeVisible();
-    await expect(store.getByRole('button', { name: 'Turn on' })).toBeVisible();
-    await expect(store.locator('.ai-maker-name', { hasText: 'Qwen 3.8 27B' }).first()).toBeVisible();
-    await expect(store.getByText('When the machine is on').first()).toBeVisible();
-    await expect(store.getByRole('button', { name: /^Install / })).toHaveCount(0);
-    await expect(store.getByRole('searchbox', { name: 'Search models' })).toBeDisabled();
-    await expectNoHorizontalOverflow(page);
-    await page.screenshot({ path: testInfo.outputPath('store-off.png') });
+    await page.getByRole('dialog', { name: 'Your AI' }).getByRole('button', { name: /^Store/ }).click();
+    await expect(store.getByRole('tab', { name: 'Chat' })).toHaveAttribute('aria-selected', 'true');
     expect(errors).toEqual([]);
   });
 });

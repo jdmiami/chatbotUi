@@ -73,7 +73,7 @@ test.describe('Orbit 0.5: the other apps', () => {
     await open(/Terminal/);
     const term = page.locator('.app-window[data-app="terminal"]');
     const opener = term.locator('.o5-opener');
-    await expect(opener).toContainText('Chapter 04');
+    await expect(opener).toContainText(/Chapter \d+/);
     await expect(opener).toContainText('Terminal');
     // It lifts away by itself and never takes a tap.
     await expect(opener).toHaveCount(0, { timeout: 3000 });

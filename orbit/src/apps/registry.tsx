@@ -11,6 +11,7 @@ const loaders: Record<AppId, () => Promise<{ default: ComponentType<AppProps> }>
   editor: () => import('./editor/EditorApp'),
   agent: () => import('./agent/AgentApp'),
   ai: () => import('./ai/AiApp'),
+  store: () => import('./store/StoreApp'),
   soreal: () => import('./soreal/SoRealApp'),
   settings: () => import('./settings/SettingsApp'),
   playground: () => import('./portal/PortalApp').then((m) => ({ default: m.PlaygroundApp })),
@@ -71,6 +72,15 @@ export const APPS: Record<AppId, AppMeta> = {
     tile: 'linear-gradient(145deg, #8b5cf6, #2563eb 60%, #06b6d4)',
     glyph: '#ffffff',
     component: lazy(loaders.ai),
+  },
+  store: {
+    id: 'store',
+    name: 'Store',
+    description: 'The AI Store: chat models, picture and video makers, with full details',
+    icon: 'download',
+    tile: 'linear-gradient(145deg, #f5c16c, #d9663a 55%, #6d2a5c)',
+    glyph: '#ffffff',
+    component: lazy(loaders.store),
   },
   soreal: {
     id: 'soreal',
