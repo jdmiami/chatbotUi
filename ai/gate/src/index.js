@@ -141,6 +141,11 @@ const lab =
     ? createMemeLab({
         studio,
         quietSeconds: () => idle.state().idleSeconds,
+        // The lab plans enough videos to fill the time until the machine turns itself off.
+        minutesLeft: () => {
+          const off = Date.parse(idle.state().offAt || '');
+          return Number.isFinite(off) ? Math.max(0, (off - Date.now()) / 60_000) : 60;
+        },
         chat: labChat,
         load: async () => (r2 ? r2.getJson(LAB_KEY) : JSON.parse(await fs.readFile(labFile, 'utf8'))),
         save: async (state) => (r2 ? r2.put(LAB_KEY, JSON.stringify(state), 'application/json') : fs.writeFile(labFile, JSON.stringify(state))),

@@ -15,6 +15,7 @@ import { MemorySheet } from './MemorySheet';
 import { VoiceMode } from './VoiceMode';
 import { canSpeak, createSpeaker, unlockSpeech } from './speech';
 import { cue } from '../../motion/feedback';
+import { MemeLab } from './MemeLab';
 import { CreateView } from './CreateView';
 import { ModelPicker, useModelList } from './models';
 import '../agent/agent.css';
@@ -105,9 +106,10 @@ export default function AiApp({ isActive, compact, placement }: AppProps) {
   const [pickerOpen, setPickerOpen] = useState(false);
   const [atBottom, setAtBottom] = useState(true);
   const [now, setNow] = useState(() => Date.now());
-  const [mode, setMode] = useState<'chat' | 'create'>(() => {
+  const [mode, setMode] = useState<'chat' | 'create' | 'lab'>(() => {
     try {
-      return sessionStorage.getItem('orbit:ai:mode') === 'create' ? 'create' : 'chat';
+      const m = sessionStorage.getItem('orbit:ai:mode');
+      return m === 'create' || m === 'lab' ? m : 'chat';
     } catch {
       return 'chat';
     }
@@ -183,6 +185,8 @@ export default function AiApp({ isActive, compact, placement }: AppProps) {
       const id = intent.chatId;
       chooseMode('chat');
       update((s) => (s.chats.some((c) => c.id === id) ? { ...s, activeId: id } : s));
+    } else if (intent.type === 'open-lab') {
+      chooseMode('lab');
     } else {
       chooseMode('create');
     }
@@ -232,7 +236,7 @@ export default function AiApp({ isActive, compact, placement }: AppProps) {
   const modelInfo = installed?.find((m) => m.name === model);
 
   const [speed, setSpeed] = useState<string | null>(null);
-  const chooseMode = (m: 'chat' | 'create') => {
+  const chooseMode = (m: 'chat' | 'create' | 'lab') => {
     setMode(m);
     try {
       sessionStorage.setItem('orbit:ai:mode', m);
@@ -664,7 +668,7 @@ export default function AiApp({ isActive, compact, placement }: AppProps) {
   
         <div className="ai-tabs">
           <Segmented
-            label="Chat or create"
+            label="Chat, create or lab"
             value={mode}
             onChange={(m) => {
               setMode(m);
@@ -677,6 +681,7 @@ export default function AiApp({ isActive, compact, placement }: AppProps) {
             options={[
               { value: 'chat', label: 'Chat' },
               { value: 'create', label: 'Create' },
+              { value: 'lab', label: 'Lab' },
             ]}
           />
         </div>
@@ -730,6 +735,12 @@ export default function AiApp({ isActive, compact, placement }: AppProps) {
             </>
           )}
           {statusError && <p className="ai-error">{statusError}</p>}
+        </div>
+      )}
+
+      {mode === 'lab' && (
+        <div className="ai-create lab-tab">
+          <MemeLab ai={ai} machineOn={ready} isActive={isActive} />
         </div>
       )}
 

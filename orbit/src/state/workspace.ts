@@ -18,6 +18,8 @@ export type Intent =
   | { seq: number; app: 'store'; type: 'open'; shelf?: 'chat' | 'makers' | 'library'; item?: string }
   /** Open the AI app in Create (image and video). */
   | { seq: number; app: 'ai'; type: 'open-create' }
+  /** Open the AI app at the Lab tab. */
+  | { seq: number; app: 'ai'; type: 'open-lab' }
   /** Chat with this model in the AI app (from the store). */
   | { seq: number; app: 'ai'; type: 'use-model'; model: string }
   /** Open one chat (the orb's "find"). */

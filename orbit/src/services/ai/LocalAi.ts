@@ -102,11 +102,26 @@ export interface MemeRecord {
   /** judging · made (waiting to be judged) · judged · ready (scored high enough to post) */
   status: 'judging' | 'made' | 'judged' | 'ready';
 }
+export interface LabIdea {
+  id: string;
+  title: string;
+  prompt: string;
+  topic: string | null;
+  /** Written or edited by you: made exactly as written. */
+  yours: boolean;
+}
 export interface MemeLabState {
   enabled: boolean;
+  /** Your comedy topics; the planned ideas are built around them. */
+  topics: string[];
   quietMinutes: number;
   readyScore: number;
-  making: { title: string; job: StudioJob | null } | null;
+  /** Minutes one lab video takes (learned), and minutes until the machine turns itself off. */
+  minutesPerVideo: number;
+  minutesLeft: number;
+  making: { title: string; topic: string | null; prompt: string; job: StudioJob | null } | null;
+  /** Planned ideas, in the order they will be made. */
+  queue: LabIdea[];
   madeLastHour: number;
   lastError: string | null;
   records: MemeRecord[];
@@ -577,6 +592,32 @@ export class LocalAi {
 
   async setMemeLab(enabled: boolean): Promise<MemeLabState> {
     return this.labAbsolute(await this.studioCall<MemeLabState>('/_orbit/studio/lab', { method: 'POST', body: JSON.stringify({ enabled }) }));
+  }
+
+  async setLabTopics(topics: string[]): Promise<MemeLabState> {
+    return this.labAbsolute(await this.studioCall<MemeLabState>('/_orbit/studio/lab', { method: 'POST', body: JSON.stringify({ topics }) }));
+  }
+
+  /** Stop the lab video being made now. */
+  async cancelLabVideo(): Promise<MemeLabState> {
+    return this.labAbsolute(await this.studioCall<MemeLabState>('/_orbit/studio/lab/cancel', { method: 'POST', body: '{}' }));
+  }
+
+  /** Your own idea; it is made next. */
+  async addLabIdea(idea: { title?: string; prompt: string }): Promise<MemeLabState> {
+    return this.labAbsolute(await this.studioCall<MemeLabState>('/_orbit/studio/lab/queue', { method: 'POST', body: JSON.stringify(idea) }));
+  }
+
+  async editLabIdea(id: string, idea: { title?: string; prompt?: string }): Promise<MemeLabState> {
+    return this.labAbsolute(await this.studioCall<MemeLabState>(`/_orbit/studio/lab/queue/${encodeURIComponent(id)}`, { method: 'POST', body: JSON.stringify(idea) }));
+  }
+
+  async makeLabIdeaNext(id: string): Promise<MemeLabState> {
+    return this.labAbsolute(await this.studioCall<MemeLabState>(`/_orbit/studio/lab/queue/${encodeURIComponent(id)}/next`, { method: 'POST', body: '{}' }));
+  }
+
+  async removeLabIdea(id: string): Promise<MemeLabState> {
+    return this.labAbsolute(await this.studioCall<MemeLabState>(`/_orbit/studio/lab/queue/${encodeURIComponent(id)}`, { method: 'DELETE' }));
   }
 
   /** Move a meme-lab video into the gallery. */
