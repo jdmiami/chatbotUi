@@ -60,12 +60,12 @@ export function imageWorkflow({ prompt, width = 1024, height = 1024, seed = rand
  * half-size pass, then a 2x latent upscale and a short refining pass. `image` is the name of an
  * uploaded ComfyUI input image to start from, or null for text-to-video.
  */
-export function videoWorkflow({ prompt, width = 1280, height = 720, seconds = 5, image = null, seed = randomSeed(), prefix = 'orbit/video', ckpt = LTX_CKPT, lora = true }) {
+export function videoWorkflow({ prompt, width = 1280, height = 720, seconds = 5, image = null, endImage = null, seed = randomSeed(), prefix = 'orbit/video', ckpt = LTX_CKPT, lora = true }) {
   // LTX makes 8k+1 frames (other counts are cut down to that, while the sound would keep the full
   // length and run past the pictures).
   const frames = 8 * Math.max(1, Math.round((seconds * VIDEO_FPS) / 8)) + 1;
   const fromImage = Boolean(image);
-  return {
+  const wf = {
     // Models
     1: { class_type: 'CheckpointLoaderSimple', inputs: { ckpt_name: ckpt } },
     2: { class_type: 'LTXAVTextEncoderLoader', inputs: { text_encoder: LTX_TE, ckpt_name: ckpt, device: 'default' } },
@@ -120,6 +120,51 @@ export function videoWorkflow({ prompt, width = 1280, height = 720, seconds = 5,
     52: { class_type: 'CreateVideo', inputs: { images: ['50', 0], audio: ['51', 0], fps: VIDEO_FPS } },
     53: { class_type: 'SaveVideo', inputs: { video: ['52', 0], filename_prefix: prefix, format: 'mp4', 'format.codec': 'h264' } },
   };
+  return endImage ? withKeyframes(wf, { image, endImage, width, height }) : wf;
+}
+
+/**
+ * First and last frame (soReal's storyboard): the clip starts on one picture and lands on another.
+ * Uses core ComfyUI's LTXVAddGuide at frame 0 and frame -1 (the end), as in ComfyUI's own
+ * "First-Last-Frame to Video (LTX-2.3)" template, in both passes; LTXVCropGuides takes the guide
+ * frames back out of the latent before upscaling and before decoding.
+ */
+function withKeyframes(wf, { image, endImage, width, height }) {
+  const out = { ...wf };
+  for (const k of ['31', '41', '43']) delete out[k];
+  const vae = ['1', 2];
+  // The end picture, prepared like the start one.
+  out[24] = { class_type: 'LoadImage', inputs: { image: endImage } };
+  out[25] = {
+    class_type: 'ResizeImageMaskNode',
+    inputs: { input: ['24', 0], resize_type: 'scale dimensions', 'resize_type.width': width, 'resize_type.height': height, 'resize_type.crop': 'center', scale_method: 'lanczos' },
+  };
+  out[26] = { class_type: 'ResizeImageMaskNode', inputs: { input: ['25', 0], resize_type: 'scale longer dimension', 'resize_type.longer_size': 1536, scale_method: 'area' } };
+  out[27] = { class_type: 'LTXVPreprocess', inputs: { image: ['26', 0], img_compression: 18 } };
+  const guides = (first, last, cond, latent, strength) => {
+    let c = cond;
+    let l = latent;
+    if (image) {
+      out[first] = { class_type: 'LTXVAddGuide', inputs: { positive: [c, 0], negative: [c, 1], vae, latent: l, image: ['23', 0], frame_idx: 0, strength } };
+      c = first;
+      l = [first, 2];
+    }
+    out[last] = { class_type: 'LTXVAddGuide', inputs: { positive: [c, 0], negative: [c, 1], vae, latent: l, image: ['27', 0], frame_idx: -1, strength } };
+    return last;
+  };
+  // Pass 1 (half size).
+  const g1 = guides('60', '61', '12', ['30', 0], 0.7);
+  out[33] = { class_type: 'LTXVConcatAVLatent', inputs: { video_latent: [g1, 2], audio_latent: ['32', 0] } };
+  out[35] = { ...wf[35], inputs: { ...wf[35].inputs, positive: [g1, 0], negative: [g1, 1] } };
+  out[62] = { class_type: 'LTXVCropGuides', inputs: { positive: [g1, 0], negative: [g1, 1], latent: ['39', 0] } };
+  // Pass 2 (upscaled and refined), guided again at full size.
+  out[40] = { ...wf[40], inputs: { ...wf[40].inputs, samples: ['62', 2] } };
+  const g2 = guides('63', '64', '62', ['40', 0], 1);
+  out[42] = { class_type: 'LTXVConcatAVLatent', inputs: { video_latent: [g2, 2], audio_latent: ['39', 1] } };
+  out[44] = { ...wf[44], inputs: { ...wf[44].inputs, positive: [g2, 0], negative: [g2, 1] } };
+  out[65] = { class_type: 'LTXVCropGuides', inputs: { positive: [g2, 0], negative: [g2, 1], latent: ['48', 0] } };
+  out[50] = { ...wf[50], inputs: { ...wf[50].inputs, samples: ['65', 2] } };
+  return out;
 }
 
 // ---------------------------------------------------------------- the maker store
@@ -249,7 +294,7 @@ export function h3Length(seconds) {
 export const H3_FPS = 24;
 
 /** MiniMax H3 (H3 Max): text or picture to video with sound, from ComfyUI's H3 templates (turbo baked in: 8 steps). */
-export function h3Workflow({ prompt, width = 1280, height = 704, seconds = 5, image = null, seed = randomSeed(), steps = 8, prefix = 'orbit/video', unet = FILES.h3Unet.name, turbo = null }) {
+export function h3Workflow({ prompt, width = 1280, height = 704, seconds = 5, image = null, endImage = null, seed = randomSeed(), steps = 8, prefix = 'orbit/video', unet = FILES.h3Unet.name, turbo = null }) {
   // Models without the speed-up built in get the 8-step turbo LoRA.
   const model = turbo ? ['15', 0] : ['1', 0];
   return {
@@ -259,7 +304,7 @@ export function h3Workflow({ prompt, width = 1280, height = 704, seconds = 5, im
     4: { class_type: 'VAELoader', inputs: { vae_name: FILES.h3AudioVae.name } },
     5: {
       class_type: 'MiniMaxH3ImageToVideo',
-      inputs: { clip: ['2', 0], vae: ['3', 0], prompt, width, height, length: h3Length(seconds), ...(image ? { first_frame: ['21', 0] } : {}) },
+      inputs: { clip: ['2', 0], vae: ['3', 0], prompt, width, height, length: h3Length(seconds), ...(image ? { first_frame: ['21', 0] } : {}), ...(endImage ? { last_frame: ['23', 0] } : {}) },
     },
     6: { class_type: 'RandomNoise', inputs: { noise_seed: seed } },
     7: { class_type: 'BasicGuider', inputs: { model, conditioning: ['5', 0] } },
@@ -278,6 +323,16 @@ export function h3Workflow({ prompt, width = 1280, height = 704, seconds = 5, im
           21: {
             class_type: 'ResizeImageMaskNode',
             inputs: { input: ['20', 0], resize_type: 'scale dimensions', 'resize_type.width': width, 'resize_type.height': height, 'resize_type.crop': 'center', scale_method: 'lanczos' },
+          },
+        }
+      : {}),
+    // soReal: the picture the clip lands on (MiniMaxH3ImageToVideo's own last_frame input).
+    ...(endImage
+      ? {
+          22: { class_type: 'LoadImage', inputs: { image: endImage } },
+          23: {
+            class_type: 'ResizeImageMaskNode',
+            inputs: { input: ['22', 0], resize_type: 'scale dimensions', 'resize_type.width': width, 'resize_type.height': height, 'resize_type.crop': 'center', scale_method: 'lanczos' },
           },
         }
       : {}),
