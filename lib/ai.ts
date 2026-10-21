@@ -240,6 +240,17 @@ function placements(tier: AiTier, usualOnly = false) {
   return out;
 }
 
+/**
+ * The AI machine's own disk (GB) with R2: what it holds while on (chat models, makers, the maker's
+ * software). 400 by default: the built-ins and chat models take about 135 GB, and a video maker
+ * 25–55 GB each. AI_DISK_GB changes it (it applies to the next machine the site creates).
+ * Runpod bills it only while the machine runs (about $0.10 per GB a month).
+ */
+export function aiDiskGb() {
+  const n = Number(process.env.AI_DISK_GB);
+  return Number.isFinite(n) && n >= 100 && n <= 2000 ? Math.round(n) : 400;
+}
+
 async function createAiPod(tier: AiTier, role: 'main' | 'helper' = 'main', usualOnly = false): Promise<Pod> {
   const e = env();
   const origins = process.env.LINUX_ALLOWED_ORIGINS || [siteUrl(), 'https://chatbot-ui-62nj-*-jdmiamis-projects.vercel.app'].filter(Boolean).join(',');
@@ -261,7 +272,7 @@ async function createAiPod(tier: AiTier, role: 'main' | 'helper' = 'main', usual
           image: e.image,
           // With R2 the models are unpacked onto the pod's own disk at every start (it is only billed
           // while the machine is on and is wiped when it stops).
-          disk: r2 ? 250 : 40,
+          disk: r2 ? aiDiskGb() : 40,
           ports: ['8080/http'],
           ...(r2 ? {} : { mounts: { network: [{ volumeId: e.volumeId, path: '/workspace' }] } }),
           entrypoint: ['/bin/bash', '-c'],

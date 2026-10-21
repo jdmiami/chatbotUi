@@ -501,6 +501,17 @@ export function createStudio(o) {
     if (!hfToken && makerFiles(m).some((file) => file.gated) && !(await makerReady(m))) throw Object.assign(new Error(TOKEN_MESSAGE), { status: 400, needsToken: true });
     // Krea Realtime needs 40 GB+ of GPU memory (and 30 GB of files): refused on the Standard machine.
     if (m.turboOnly && (await o.gpuMemory?.().catch(() => 0)) < (o.turboBytes ?? 70e9)) throw Object.assign(new Error(o.turboMessage || 'This maker needs the Turbo machine (80 GB).'), { status: 409, turbo: true });
+    // Refused up front when its files can't fit (with 2 GB to spare), instead of stopping half way.
+    const missing = [];
+    for (const file of makerFiles(m)) if (!(await haveFile(file))) missing.push(file);
+    const need = missing.reduce((t, file) => t + (file.size || 0), 0);
+    const free = need ? await freeBytes() : null;
+    if (free != null && free < need + 2 * GB) {
+      throw Object.assign(
+        new Error(`Not enough disk space for ${m.name}: needs about ${Math.ceil((need + 2 * GB) / GB)} GB, ${Math.floor(free / GB)} GB free. Remove a maker or a chat model you don't use first.`),
+        { status: 507, disk: true },
+      );
+    }
     if (m.kind === 'style' && !(m.for && (makerById(m.for)?.builtIn || wanted.has(m.for)))) {
       wanted.add(m.for);
     }
