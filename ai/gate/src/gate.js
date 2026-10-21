@@ -611,6 +611,13 @@ export function createGate(cfg, log = console) {
         }
         return send(res, 200, r2test.state());
       }
+      // Your own NSFW say on one item: { nsfw: true | false | null }.
+      const markMatch = /^\/_orbit\/studio\/items\/([A-Za-z0-9_-]+)\/nsfw$/.exec(path);
+      if (markMatch && req.method === 'POST') {
+        const { nsfw } = JSON.parse((await readBody(req, 1024)) || '{}');
+        const it = await studio.markNsfw(markMatch[1], typeof nsfw === 'boolean' ? nsfw : null);
+        return it ? send(res, 200, { ok: true, nsfwUser: it.nsfwUser ?? null }) : send(res, 404, { error: 'That picture is gone.' });
+      }
       const itemMatch = /^\/_orbit\/studio\/items\/([A-Za-z0-9_-]+)$/.exec(path);
       if (itemMatch && req.method === 'DELETE') return send(res, (await studio.remove(itemMatch[1])) ? 200 : 404, { ok: true });
       return send(res, 404, { error: 'Not found' });

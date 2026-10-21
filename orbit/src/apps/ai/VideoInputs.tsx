@@ -68,7 +68,7 @@ export function VideoSource({
     <div className="ai-media-pick">
       {value ? (
         <div className="ai-media-chosen">
-          <Censor as="div" className="ai-media-thumb" nsfw={value.nsfw}>
+          <Censor as="div" className="ai-media-thumb" markId={value.item} nsfw={value.nsfw}>
             <video src={value.item ? `${value.src}#t=0.1` : value.src} muted playsInline preload="metadata" aria-label="Video to work on" />
           </Censor>
           <span className="ai-muted">{value.item ? 'From your gallery.' : 'Your video.'} The maker uses up to its first seconds.</span>

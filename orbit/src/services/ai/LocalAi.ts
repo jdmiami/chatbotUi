@@ -44,6 +44,8 @@ export interface StudioItem {
   movie?: string;
   /** The AI machine's NSFW check, from the picture itself (unset: not checked yet). */
   nsfw?: boolean;
+  /** Your own say: true blurs it, false never blurs it (unset: the check and the words decide). */
+  nsfwUser?: boolean;
   createdAt: string;
   /** Absolute link to the file (works in <img>/<video> tags for 12 hours). */
   url: string;
@@ -640,6 +642,11 @@ export class LocalAi {
   async studioItems(): Promise<StudioItem[]> {
     const r = await this.studioCall<{ items: StudioItem[] }>('/_orbit/studio/items');
     return r.items.map((i) => this.absolute(i));
+  }
+
+  /** Blur an item (true), never blur it (false), or let the NSFW check decide again (null). */
+  async markNsfw(id: string, nsfw: boolean | null): Promise<void> {
+    await this.studioCall(`/_orbit/studio/items/${encodeURIComponent(id)}/nsfw`, { method: 'POST', body: JSON.stringify({ nsfw }) });
   }
 
   async studioMakers(): Promise<StudioMakerInfo[]> {

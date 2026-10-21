@@ -1420,6 +1420,20 @@ export function createStudio(o) {
     }
   }
 
+  /**
+   * Your own say on an item, which beats the check: true blurs it (the check missed it), false never
+   * blurs it (the check or its words got it wrong), null hands it back to the check.
+   */
+  async function markNsfw(id, nsfw) {
+    const it = await readItem(id);
+    if (!it) return null;
+    if (typeof nsfw === 'boolean') it.nsfwUser = nsfw;
+    else delete it.nsfwUser;
+    await fsp.writeFile(path.join(metaDir, `${id}.json`), JSON.stringify(it));
+    await keep(it);
+    return it;
+  }
+
   /** Everything made before the check existed (or while it couldn't run): look at it now, one at a time. */
   async function rateAll() {
     if (!o.nsfw) return;
@@ -1535,6 +1549,7 @@ export function createStudio(o) {
     poll,
     /** Check every unchecked picture and video now (tests; also runs by itself after start). */
     rateAll,
+    markNsfw,
     sizes: SIZES,
     mirror,
   };

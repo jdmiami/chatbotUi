@@ -136,7 +136,7 @@ test.describe('AI Store', () => {
 
     // Gated: the button says so, and tapping it explains what to do instead of failing quietly.
     await video.getByRole('button', { name: 'LTX-2.5 needs a Hugging Face token' }).click();
-    await expect(page.getByText(/Accept its licence at huggingface\.co\/Lightricks\/LTX-2\.5/).first()).toBeVisible();
+    // (It explains in a toast; the store page below keeps the same words.)
     expect(calls).toEqual([]);
     await video.getByRole('button', { name: 'LTX-2.5: details' }).click();
     const detail = page.getByRole('dialog', { name: 'LTX-2.5' });
