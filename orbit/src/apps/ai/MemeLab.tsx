@@ -268,7 +268,7 @@ export function MemeLab({ ai, machineOn, isActive, onKept }: { ai: LocalAi; mach
           <ol className="meme-lab-list" aria-label="Lab videos, best first">
             {records.map((r) => (
               <li key={r.id} className="meme-card" data-ready={r.status === 'ready' || undefined}>
-                <Censor as="div" className="meme-card-media" nsfw={labNsfw(r)}>
+                <Censor as="div" className="meme-card-media" markId={r.id} nsfw={labNsfw(r)}>
                   <video src={r.url ? `${r.url}#t=0.1` : undefined} controls playsInline preload="metadata" muted aria-label={r.title} />
                   {r.movieId && <span className="meme-card-badge">{Math.round(r.seconds ?? 30)} s movie</span>}
                 </Censor>
@@ -277,7 +277,7 @@ export function MemeLab({ ai, machineOn, isActive, onKept }: { ai: LocalAi; mach
                     {r.status === 'ready' ? 'Ready to post' : r.status === 'judged' ? 'Judged' : 'Waiting to be judged'}
                     {r.score != null && <span className="meme-score">{r.score}</span>}
                   </p>
-                  <Censor as="div" text nsfw={labNsfw(r)}>
+                  <Censor as="div" text markId={r.id} nsfw={labNsfw(r)}>
                     <p className="meme-card-title">{r.title}</p>
                     {r.why && <p className="ai-muted meme-card-why">{r.why}</p>}
                     <p className="meme-card-caption">

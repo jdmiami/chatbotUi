@@ -164,3 +164,23 @@ test('studio: without a checker nothing changes', async () => {
   await ctx.studio.rateAll();
   assert.equal((await ctx.studio.items())[0].nsfw, undefined);
 });
+
+test('studio: your own say (held to blur, or the switch) is saved, survives the check, and can be handed back', async () => {
+  const nsfw = { async check() { await new Promise((r) => setTimeout(r, 20)); return { nsfw: false, score: 0.02 }; } };
+  const ctx = await newStudio(nsfw);
+  const { studio } = ctx;
+  const item = async (id) => (await studio.items()).find((i) => i.id === id);
+
+  const a = await make(ctx, { kind: 'image', prompt: 'a red fox', size: 'portrait' }, 'fox pixels');
+  // Marked while the check is still looking: the check's answer must not wipe it.
+  assert.equal((await studio.markNsfw(a.id, true)).nsfwUser, true);
+  await until(async () => (await item(a.id))?.nsfw === false);
+  assert.equal((await item(a.id)).nsfwUser, true);
+
+  await studio.markNsfw(a.id, false);
+  assert.equal((await item(a.id)).nsfwUser, false);
+  await studio.markNsfw(a.id, null);
+  assert.equal('nsfwUser' in (await item(a.id)), false);
+
+  assert.equal(await studio.markNsfw('nosuchitem1', true), null);
+});

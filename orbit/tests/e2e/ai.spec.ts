@@ -373,6 +373,58 @@ test.describe('AI app: Create', () => {
     await expect(win.locator('.ai-viewer-media.censor')).toBeVisible();
   });
 
+  test('NSFW blur: hold a clear picture to blur it; the viewer switch unblurs one; both are saved on the AI machine', async ({ page }) => {
+    await mockAi(page, 'on');
+    await mockStudio(page);
+    await page.route('**/fake-ai/_orbit/studio/items', (route) =>
+      route.fulfill({
+        json: {
+          items: [
+            { id: 'flag1', kind: 'image', prompt: 'a quiet portrait by the window', nsfw: true, width: 1328, height: 1328, createdAt: '2026-10-16T10:00:00Z', url: '/_orbit/studio/file/flag1?t=tok' },
+            { id: 'safe1', kind: 'image', prompt: 'a red fox in snow', nsfw: false, width: 1328, height: 1328, createdAt: '2026-10-16T09:00:00Z', url: '/_orbit/studio/file/safe1?t=tok' },
+          ],
+        },
+      }),
+    );
+    const marks: { id: string; nsfw: unknown }[] = [];
+    await page.route(/\/fake-ai\/_orbit\/studio\/items\/[^/]+\/nsfw$/, async (route) => {
+      const id = route.request().url().split('/').slice(-2)[0];
+      marks.push({ id, nsfw: route.request().postDataJSON().nsfw });
+      await route.fulfill({ json: { ok: true } });
+    });
+    await openOrbit(page);
+    await openCreate(page);
+    const win = page.locator('.app-window[data-app="ai"]');
+    await expect(win.locator('.ai-gallery .censor')).toHaveCount(1);
+
+    // The fox was missed: hold it for a moment and it blurs (and the hold doesn't open the viewer).
+    const fox = win.locator('.ai-gallery li', { has: page.getByRole('button', { name: 'Image: a red fox in snow' }) }).locator('> div');
+    await fox.scrollIntoViewIfNeeded();
+    const box = (await fox.boundingBox())!;
+    await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+    await page.mouse.down();
+    await expect(fox).toHaveAttribute('data-censored', '', { timeout: 3000 });
+    await page.mouse.up();
+    await expect(win.getByRole('dialog')).toHaveCount(0);
+    await expect(win.locator('.ai-gallery .censor')).toHaveCount(2);
+    await expect.poll(() => marks).toContainEqual({ id: 'safe1', nsfw: true });
+
+    // A short tap on a clear picture still just opens it; here, the flagged one, via the switch.
+    await win.getByRole('button', { name: 'Image: a quiet portrait by the window' }).click();
+    const sw = win.getByRole('switch', { name: 'Blur this one (NSFW)' });
+    await expect(sw).toBeChecked();
+    await expect(win.locator('.ai-viewer-media.censor')).toBeVisible();
+    await sw.click();
+    await expect(sw).not.toBeChecked();
+    await expect(win.locator('.ai-viewer-media.censor')).toHaveCount(0);
+    await expect(win.locator('.ai-viewer .censor-text')).toHaveCount(0);
+    await expect.poll(() => marks).toContainEqual({ id: 'flag1', nsfw: false });
+    await page.keyboard.press('Escape');
+    // Back in the gallery: the portrait is clear now, the fox stays blurred.
+    await expect(win.locator('.ai-gallery .censor')).toHaveCount(1);
+    await expect(win.locator('.ai-gallery .censor').getByRole('button', { name: 'Image: a red fox in snow' })).toBeVisible();
+  });
+
   test('NSFW blur: only NSFW pictures and videos blur; hold to see, a video plays while held and pauses on release', async ({ page }) => {
     await mockAi(page, 'on');
     await mockStudio(page);

@@ -1,37 +1,51 @@
 import { useCallback, useEffect, useRef, useState, type PointerEvent, type ReactNode } from 'react';
 import { useShell } from '../state/shell';
+import { nsfwFor, setMark, useNsfwFlags } from './nsfwFlags';
 
 /**
  * The NSFW blur. A picture or video marked `nsfw` (and the words that go with it) is blurred while
  * the setting is on, which it is unless you turn it off. Keep a finger on it to see it: a video
  * plays while you hold it, and the moment you let go it pauses and blurs again. Anything not marked
  * NSFW is shown as is.
+ *
+ * Give it the item's id (`markId`) and your own say comes in: a long hold on a picture that isn't
+ * blurred blurs it (the check missed it), and the viewer's switch unblurs one that shouldn't be.
  */
 const HOLD_MS = 160;
+/** How long to hold a clear picture to blur it. */
+export const MARK_MS = 650;
 
 /** On unless you turned it off in Create. */
 export function useCensor(): boolean {
   return useShell((s) => s.settings.censor !== false);
 }
 
-/** `nsfw`: blur this one. `text`: a lighter blur for words (prompts, captions, replies). */
+/**
+ * `nsfw`: blur this one (its words, the check). `markId`: the gallery item it shows, so your own say
+ * counts (and, on a picture, a long hold blurs it). `text`: a lighter blur for words (prompts, captions, replies).
+ */
 export function Censor({
   children,
   className,
   as: Tag = 'span',
   text = false,
   nsfw,
+  markId,
 }: {
   children: ReactNode;
   className?: string;
   as?: 'span' | 'div';
   text?: boolean;
   nsfw: boolean;
+  markId?: string | null;
 }) {
-  const on = useCensor() && nsfw;
+  useNsfwFlags();
+  const censor = useCensor();
+  const on = censor && (markId ? nsfwFor(markId, nsfw) : nsfw);
   const [revealed, setRevealed] = useState(false);
   const timer = useRef<number | null>(null);
   const held = useRef(false);
+  const start = useRef<{ x: number; y: number } | null>(null);
   const box = useRef<HTMLElement | null>(null);
 
   const videos = () => Array.from(box.current?.querySelectorAll('video') ?? []);
@@ -53,6 +67,25 @@ export function Censor({
   }, [on]);
   useEffect(() => clear, [clear]);
 
+  // A clear picture: hold it to blur it (only while the blur is on; a scroll or a short tap does nothing).
+  const markable = censor && !on && !text && Boolean(markId);
+  const onMarkDown = (e: PointerEvent) => {
+    if (e.button > 0) return;
+    held.current = false;
+    start.current = { x: e.clientX, y: e.clientY };
+    clear();
+    timer.current = window.setTimeout(() => {
+      timer.current = null;
+      held.current = true;
+      navigator.vibrate?.(15);
+      setMark(markId!, true);
+    }, MARK_MS);
+  };
+  const onMarkMove = (e: PointerEvent) => {
+    const s0 = start.current;
+    if (s0 && Math.hypot(e.clientX - s0.x, e.clientY - s0.y) > 10) clear();
+  };
+
   const onPointerDown = (e: PointerEvent) => {
     if (!on || e.button > 0) return;
     held.current = false;
@@ -66,12 +99,28 @@ export function Censor({
   };
   // A hold never counts as a tap (a tile opens the viewer on tap).
   const onClickCapture = (e: React.MouseEvent) => {
-    if (!on || !held.current) return;
+    if (!held.current) return;
     e.preventDefault();
     e.stopPropagation();
     held.current = false;
   };
 
+  if (markable)
+    return (
+      <Tag
+        ref={(el: HTMLElement | null) => void (box.current = el)}
+        className={['censor-markable', className].filter(Boolean).join(' ')}
+        onPointerDown={onMarkDown}
+        onPointerMove={onMarkMove}
+        onPointerUp={clear}
+        onPointerCancel={clear}
+        onPointerLeave={clear}
+        onClickCapture={onClickCapture}
+        onContextMenu={(e) => e.preventDefault()}
+      >
+        {children}
+      </Tag>
+    );
   if (!on) return <Tag className={className}>{children}</Tag>;
   return (
     <Tag
