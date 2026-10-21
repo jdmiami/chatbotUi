@@ -5,6 +5,7 @@ import { Icon } from '../../ui/Icon';
 import { ConfirmSheet, EmptyState, IconButton, Segmented, Sheet, Toggle } from '../../ui/components';
 import { Censor } from '../../ui/Censor';
 import { isNsfw } from '../../ui/nsfw';
+import { rememberItems } from '../../ui/nsfwFlags';
 import { AiError, type LocalAi, type StudioItem, type StudioJob, type StudioKind, type StudioMakerInfo, type StudioState } from '../../services/ai/LocalAi';
 import { MAKER_CATALOG, rememberMakers, rememberedMakers } from './makerCatalog';
 import { TextArea } from '../../ui/TextArea';
@@ -141,7 +142,10 @@ export function CreateView({
 
   const loadItems = useCallback(() => {
     ai.studioItems()
-      .then(setItems)
+      .then((list) => {
+        rememberItems(list);
+        setItems(list);
+      })
       .catch(() => {});
   }, [ai]);
 
@@ -535,7 +539,7 @@ export function CreateView({
         <ul className="ai-gallery" aria-label="Your creations">
           {items.map((it, n) => (
             <li key={it.id} style={{ '--i': Math.min(n, 14) } as React.CSSProperties}>
-              <Censor as="div" nsfw={isNsfw(it.prompt)}>
+              <Censor as="div" nsfw={it.nsfw === true || isNsfw(it.prompt)}>
               <button type="button" className="ai-tile" onClick={(e) => {
                 viewFrom.current = (e.currentTarget.querySelector('img, video') ?? e.currentTarget).getBoundingClientRect();
                 setViewing(it);
@@ -560,14 +564,14 @@ export function CreateView({
       {viewing && (
         <Sheet title={viewing.kind === 'image' ? 'Image' : 'Video'} origin={viewFrom.current} onClose={() => setViewing(null)}>
           <div className="ai-viewer">
-            <Censor as="div" className="ai-viewer-media" nsfw={isNsfw(viewing.prompt)}>
+            <Censor as="div" className="ai-viewer-media" nsfw={viewing.nsfw === true || isNsfw(viewing.prompt)}>
               {viewing.kind === 'image' ? (
                 <DevelopImg src={viewing.url} alt={viewing.prompt} />
               ) : (
                 <video src={viewing.url} controls playsInline autoPlay />
               )}
             </Censor>
-            <Censor as="div" text nsfw={isNsfw(viewing.prompt)}>
+            <Censor as="div" text nsfw={viewing.nsfw === true || isNsfw(viewing.prompt)}>
               <p className="ai-viewer-prompt">{viewing.prompt}</p>
             </Censor>
             <div className="ai-viewer-actions">

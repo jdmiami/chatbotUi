@@ -327,8 +327,12 @@ export function createMemeLab(o) {
     },
     async state() {
       await ensureLoaded();
-      const live = new Set((await studio.labItems().catch(() => [])).map((i) => i.id));
-      const records = saved.records.filter((r) => live.has(r.id)).slice().reverse();
+      const live = new Map((await studio.labItems().catch(() => [])).map((i) => [i.id, i]));
+      // The NSFW check's answer lives on the video itself (studio.js): pass it along for the blur.
+      const records = saved.records
+        .filter((r) => live.has(r.id))
+        .map((r) => (live.get(r.id).nsfw ? { ...r, nsfw: true } : r))
+        .reverse();
       const job = current ? studio.job(current.jobId) : null;
       return {
         enabled: saved.enabled,
