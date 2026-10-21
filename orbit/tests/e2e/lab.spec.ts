@@ -211,7 +211,7 @@ async function openLabIn(page: import('@playwright/test').Page, skin: 'classic' 
   const win = page.locator('.app-window[data-app="ai"]');
   await expect(win.or(icon).first()).toBeVisible();
   if (!(await win.isVisible())) await icon.click();
-  await page.getByRole('group', { name: 'Chat, create or lab' }).getByRole('button', { name: 'Lab' }).click();
+  await page.getByRole('group', { name: 'Chat or lab' }).getByRole('button', { name: 'Lab' }).click();
   return page.getByRole('region', { name: 'Lab' });
 }
 

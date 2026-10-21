@@ -178,8 +178,25 @@ export async function setShowNsfw(page: Page, on: boolean) {
   await sw.scrollIntoViewIfNeeded();
   if ((await sw.isChecked()) !== on) await sw.click();
   await expect(sw).toBeChecked({ checked: on });
-  const back: Record<string, [RegExp, RegExp]> = { ai: [/Talk/, /^AI\./], lab: [/Lab/, /^Lab\./], soreal: [/soReal/i, /^soReal\./i] };
+  const back: Record<string, [RegExp, RegExp]> = { make: [/^\d*\s*Make/, /^Make\./], ai: [/Talk/, /^AI\./], lab: [/Lab/, /^Lab\./], soreal: [/soReal/i, /^soReal\./i] };
   const [entry, dockName] = back[app ?? 'ai'] ?? back.ai;
   await go(entry, dockName);
   await expect(page.locator(`.app-window[data-app="${app}"]`)).toBeVisible();
+}
+
+/** Open the Make app (its own app now): from the Index in the magazine look, from home otherwise. */
+export async function openMakeApp(page: Page) {
+  const win = page.locator('.app-window[data-app="make"]');
+  if (await win.isVisible()) return win;
+  const index = page.getByRole('button', { name: /^Index/ });
+  if (await index.isVisible()) {
+    await index.click();
+    await page.getByRole('dialog', { name: 'Index' }).locator('.o5-index-list').getByRole('button', { name: /^\d*\s*Make/ }).click();
+  } else {
+    const icon = page.getByRole('button', { name: /^Make\./ }).first();
+    if (!(await icon.isVisible())) await page.getByRole('navigation', { name: 'Dock' }).getByRole('button', { name: 'Home screen' }).click();
+    await icon.click();
+  }
+  await expect(win.locator('.ai-create')).toBeVisible();
+  return win;
 }

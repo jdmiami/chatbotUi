@@ -10,6 +10,7 @@ export type ArtId =
   | 'editor'
   | 'agent'
   | 'ai'
+  | 'make'
   | 'store'
   | 'soreal'
   | 'lab'
@@ -24,6 +25,7 @@ const TILES: Record<ArtId, [string, string, string?]> = {
   editor: ['#5b6cff', '#1d2690'],
   agent: ['#19c3a6', '#0a4f6e'],
   ai: ['#9b6bff', '#2563eb', '#06b6d4'],
+  make: ['#ff9a62', '#e0457b', '#5b2a86'],
   store: ['#f5c16c', '#d9663a', '#6d2a5c'],
   soreal: ['#ff6a6a', '#c2185b', '#4a148c'],
   lab: ['#ffd36b', '#ff7a59', '#8a2be2'],
@@ -85,6 +87,15 @@ function Glyph({ id, uid }: { id: ArtId; uid: string }) {
           <path d="M36 62h28l4 8a3 3 0 0 1-2.7 4H34.7a3 3 0 0 1-2.7-4z" fill="#fff6c9" />
           <circle cx="46" cy="55" r="3" fill={INK} />
           <circle cx="56" cy="50" r="2" fill={INK} />
+        </g>
+      );
+    case 'make':
+      return (
+        <g>
+          <rect x="22" y="26" width="56" height="48" rx="8" fill="none" stroke={INK} strokeWidth="5" />
+          <circle cx="38" cy="42" r="6" fill="#fff4ea" />
+          <path d="M27 69l16-17 10 10 8-8 13 15" fill="none" stroke={INK} strokeWidth="5" strokeLinejoin="round" strokeLinecap="round" />
+          <path d="M70 16l2.5 6 6 2.5-6 2.5-2.5 6-2.5-6-6-2.5 6-2.5z" fill="#ffe2b8" />
         </g>
       );
     case 'soreal':

@@ -303,3 +303,17 @@ test('studio: "make it move" starts a video from a gallery picture without re-up
   assert.equal(await fs.readFile(path.join(dir, 'input', wf['20'].inputs.image), 'utf8'), 'PNG');
   await assert.rejects(studio.createJob({ kind: 'video', prompt: 'x', fromItem: 'gone99' }), (err) => err.status === 404);
 });
+
+test('studio: a picture made in the cloud is added to the gallery; only cloud maker links are fetched', async () => {
+  const { dir, studio } = await newStudio();
+  const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==', 'base64');
+  const item = await studio.importItem({ url: `data:image/png;base64,${png.toString('base64')}`, kind: 'image', prompt: 'a lighthouse at dawn', maker: 'cloud:cloudflare' });
+  assert.equal(item.kind, 'image');
+  assert.equal(item.maker, 'cloud:cloudflare');
+  assert.match(item.file, /^cloud[\\/][\w-]+\.png$/);
+  assert.deepEqual(await fs.readFile(path.join(dir, 'output', item.file)), png);
+  assert.ok((await studio.items()).some((i) => i.id === item.id && i.prompt === 'a lighthouse at dawn'));
+  await assert.rejects(studio.importItem({ url: 'https://example.com/x.png', kind: 'image', prompt: 'x' }), /Only files from the cloud makers/);
+  await assert.rejects(studio.importItem({ url: 'http://v3.fal.media/x.png', kind: 'image', prompt: 'x' }), /Only files from the cloud makers/);
+  await assert.rejects(studio.importItem({ url: 'file:///etc/passwd', kind: 'image', prompt: 'x' }), /Only files from the cloud makers/);
+});

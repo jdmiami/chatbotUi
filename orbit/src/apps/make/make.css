@@ -1,0 +1,49 @@
+/* Make as its own app: one page that scrolls (the cover, then the steps, then the gallery). */
+.make-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+  display: flex;
+  flex-direction: column;
+}
+/* The cover and the banner sit in the same 760px column as the steps below. */
+.make-scroll > .mag-cover,
+.make-scroll > .make-banner {
+  box-sizing: border-box;
+  width: 100%;
+  padding-inline: var(--space-3, 12px);
+}
+:root[data-skin='o5'] .make-scroll > :is(.mag-cover, .make-banner) {
+  padding-left: calc(var(--safe-left) + clamp(18px, 6vw, 64px));
+  padding-right: calc(var(--safe-right) + clamp(18px, 6vw, 64px));
+}
+.make-scroll > :is(.mag-cover, .make-banner) > * { width: 100%; max-width: 760px; margin-inline: auto; box-sizing: border-box; }
+.make-scroll > .make-banner { margin-top: var(--space-3, 12px); }
+/* The steps no longer scroll on their own: the page does. */
+.make-scroll > .ai-create { flex: none; overflow: visible; min-height: auto; }
+
+/* Make it in the cloud: the same column, a quiet section before the steps. */
+.make-scroll > :is(.cloud-make, .make-cloud-link) {
+  box-sizing: border-box;
+  width: 100%;
+  padding-inline: var(--space-3, 12px);
+}
+:root[data-skin='o5'] .make-scroll > :is(.cloud-make, .make-cloud-link) {
+  padding-left: calc(var(--safe-left) + clamp(18px, 6vw, 64px));
+  padding-right: calc(var(--safe-right) + clamp(18px, 6vw, 64px));
+}
+.make-scroll > :is(.cloud-make, .make-cloud-link) > * { max-width: 760px; margin-inline: auto; box-sizing: border-box; }
+.cloud-make { display: flex; flex-direction: column; gap: 12px; padding-top: clamp(20px, 5vh, 48px); padding-bottom: clamp(20px, 4vh, 36px); }
+.cloud-make > * { width: 100%; }
+.cloud-make .o5-kicker, .cloud-make .o5-step-title { margin-block: 0; }
+.cloud-make-form { display: flex; flex-direction: column; gap: 10px; }
+.cloud-make-form .btn { align-self: flex-start; min-height: 44px; }
+.cloud-make-jobs { list-style: none; margin: 0; padding: 0; }
+.cloud-make-jobs li { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; padding: 10px 0; border-bottom: 1px solid var(--o5-hair, var(--border)); font-size: var(--fs-sm); }
+.cloud-make-job-text { flex: 1 1 200px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cloud-make-made { margin-top: 8px !important; }
+.make-cloud-link { padding-top: 12px; }
+.make-cloud-link > * { display: block; }
+.make-cloud-link .btn { min-height: 44px; }

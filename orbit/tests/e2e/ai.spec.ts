@@ -1,6 +1,6 @@
 import { expect, test, type Page } from '@playwright/test';
 import { dock, expectNoHorizontalOverflow, openOrbit } from './helpers';
-import { INSTALLED, expectTappable, mockAi, openAi, recordChats, sendText, setShowNsfw } from './aiMocks';
+import { INSTALLED, expectTappable, mockAi, openAi, openMakeApp, recordChats, sendText, setShowNsfw } from './aiMocks';
 
 /**
  * AI app on iPhone / iPad viewports. The site's /api/ai endpoints and the AI machine's
@@ -257,9 +257,7 @@ async function mockStudio(page: Page) {
 }
 
 async function openCreate(page: Page) {
-  await openAi(page);
-  await page.getByRole('group', { name: 'Chat, create or lab' }).getByRole('button', { name: 'Create' }).click();
-  await expect(page.locator('.ai-create')).toBeVisible();
+  await openMakeApp(page);
 }
 
 test.describe('AI app: Create', () => {
@@ -303,7 +301,7 @@ test.describe('AI app: Create', () => {
     });
     const errors = await openOrbit(page);
     await openAi(page);
-    await page.getByRole('group', { name: 'Chat, create or lab' }).getByRole('button', { name: 'Lab' }).click();
+    await page.getByRole('group', { name: 'Chat or lab' }).getByRole('button', { name: 'Lab' }).click();
     const section = page.getByRole('region', { name: 'Lab' });
 
     const now = section.getByRole('status', { name: 'Making now' });
@@ -435,7 +433,7 @@ test.describe('AI app: Create', () => {
     await page.route('**/fake-ai/_orbit/studio/items', (route) => route.fulfill({ json: twoItems }));
     await openOrbit(page);
     await openCreate(page);
-    const win = page.locator('.app-window[data-app="ai"]');
+    const win = page.locator('.app-window[data-app="make"]');
     const fox = win.getByRole('button', { name: 'Image: a red fox in snow' });
     const portrait = win.getByRole('button', { name: 'Image: a quiet portrait by the window' });
     await expect(fox).toBeVisible();
@@ -473,11 +471,9 @@ test.describe('AI app: Create', () => {
     await setShowNsfw(page, true);
     await expect(portrait).toBeVisible();
     await page.reload();
-    // Orbit reopens the AI app where it was (Create): the switch is off again.
-    const icon = page.getByRole('button', { name: /^AI\./ });
-    await expect(win.or(icon).first()).toBeVisible();
-    if (!(await win.isVisible())) await icon.click();
-    if (!(await page.locator('.ai-create').isVisible())) await page.getByRole('group', { name: 'Chat, create or lab' }).getByRole('button', { name: 'Create' }).click();
+    // Orbit reopens Make: the switch is off again.
+    await expect(win.or(page.getByRole('button', { name: /^Make\./ })).first()).toBeVisible();
+    await openMakeApp(page);
     await expect(portrait).toHaveCount(0);
   });
 
@@ -493,7 +489,7 @@ test.describe('AI app: Create', () => {
     });
     await openOrbit(page);
     await openCreate(page);
-    const win = page.locator('.app-window[data-app="ai"]');
+    const win = page.locator('.app-window[data-app="make"]');
     const fox = win.getByRole('button', { name: 'Image: a red fox in snow' });
     const portrait = win.getByRole('button', { name: 'Image: a quiet portrait by the window' });
 
@@ -543,7 +539,7 @@ test.describe('AI app: Create', () => {
     });
     await openOrbit(page);
     await openCreate(page);
-    const win = page.locator('.app-window[data-app="ai"]');
+    const win = page.locator('.app-window[data-app="make"]');
     const fox = win.getByRole('button', { name: 'Image: a red fox in snow' });
     await expect(fox).toBeVisible();
     const img = () => fox.locator('img').getAttribute('src');
@@ -551,9 +547,11 @@ test.describe('AI app: Create', () => {
     const [img0, vid0] = [await img(), await vid()];
     await win.locator('.ai-gallery li').first().evaluate((el) => el.setAttribute('data-probe', 'kept'));
     const before = n;
-    // Go to Chat and back: the gallery is listed again.
-    await page.getByRole('group', { name: 'Chat, create or lab' }).getByRole('button', { name: 'Chat' }).click();
-    await page.getByRole('group', { name: 'Chat, create or lab' }).getByRole('button', { name: 'Create' }).click();
+    // Go to the AI app and back: the gallery is listed again.
+    await page.getByRole('navigation', { name: 'Dock' }).getByRole('button', { name: 'Home screen' }).click();
+    await page.getByRole('button', { name: /^AI\./ }).first().click();
+    await page.getByRole('navigation', { name: 'Dock' }).getByRole('button', { name: 'Home screen' }).click();
+    await page.getByRole('button', { name: /^Make\./ }).first().click();
     await expect.poll(() => n).toBeGreaterThan(before);
     await page.waitForTimeout(500);
     expect(await img()).toBe(img0);
@@ -567,7 +565,7 @@ test.describe('AI app: Create', () => {
     await mockStudio(page);
     await openOrbit(page);
     await openCreate(page);
-    const win = page.locator('.app-window[data-app="ai"]');
+    const win = page.locator('.app-window[data-app="make"]');
     await win.getByRole('textbox', { name: 'Describe it' }).fill('a topless woman on a beach');
     await win.getByRole('button', { name: 'Make image' }).click();
     const made = win.getByRole('button', { name: 'Image: a topless woman on a beach' });
@@ -619,8 +617,8 @@ test.describe('AI app with full motion', () => {
     expect(await page.locator('.app-window[data-app="ai"]').evaluate((el) => Math.round(el.getBoundingClientRect().left))).toBe(0);
     await page.screenshot({ path: testInfo.outputPath('ai-chat-full-motion.png') });
 
-    // Create: pictures start undeveloped and sharpen once loaded; tiles bounce in.
-    await page.getByRole('button', { name: 'Create' }).click();
+    // Make: pictures start undeveloped and sharpen once loaded; tiles bounce in.
+    await openMakeApp(page);
     const tile = page.locator('.ai-gallery li').first();
     await expect(tile).toBeVisible();
     expect(await tile.evaluate((el) => getComputedStyle(el).animationName)).toBe('mo-icon-pop');
@@ -802,6 +800,34 @@ test.describe('AI app: web search', () => {
 
 
 test.describe('AI app: maker store', () => {
+  test('makers stay put while Make and the Store refresh (no reloading, no reordering, no flicker)', async ({ page }) => {
+    await mockAi(page, 'on');
+    const studio = await mockStudio(page);
+    let calls = 0;
+    // Every refresh answers with fresh objects (as the real machine does), one maker still downloading.
+    await page.route('**/fake-ai/_orbit/studio/makers', (route) => {
+      calls++;
+      const list = studio.makers.map((m) => ({ ...m }));
+      const dl = list.find((m) => !m.installed);
+      if (dl) Object.assign(dl, { wanted: true, percent: Math.min(99, 10 + calls) });
+      return route.fulfill({ json: { makers: list } });
+    });
+    await openOrbit(page);
+    const win = await openMakeApp(page);
+    const picks = win.getByRole('radiogroup', { name: 'Maker' });
+    await expect(picks.getByRole('radio').first()).toBeVisible();
+    await page.waitForTimeout(600);
+    const names = async () => picks.getByRole('radio').allTextContents();
+    const before = await names();
+    await picks.getByRole('radio').evaluateAll((els) => els.forEach((el) => el.setAttribute('data-probe', 'kept')));
+    const seen = calls;
+    await expect.poll(() => calls, { timeout: 15_000 }).toBeGreaterThan(seen + 1);
+    await page.waitForTimeout(300);
+    // The same chips, in the same order: only the download percent moves.
+    expect((await names()).map((t) => t.replace(/\d+%/, '%'))).toEqual(before.map((t) => t.replace(/\d+%/, '%')));
+    await expect(picks.locator('[role="radio"]:not([data-probe="kept"])')).toHaveCount(0);
+  });
+
   test('install a new video maker, pick it, and the job uses it', async ({ page }) => {
     await mockAi(page, 'on');
     const studio = await mockStudio(page);
@@ -817,7 +843,7 @@ test.describe('AI app: maker store', () => {
     expect(studio.makerCalls).toEqual(['install h3-max']);
     await expect(video.getByText('40%')).toBeVisible();
     await expectNoHorizontalOverflow(page);
-    await dock(page).getByRole('button', { name: /^AI/ }).click();
+    await openMakeApp(page);
     const picks = page.getByRole('radiogroup', { name: 'Maker' });
     await picks.getByRole('radio', { name: /H3 Max/ }).click();
     await expect(picks.getByRole('radio', { name: /H3 Max/ })).toHaveAttribute('aria-checked', 'true');

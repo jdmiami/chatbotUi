@@ -569,6 +569,14 @@ export function createGate(cfg, log = console) {
       }
       // A video or sound to work on (the raw file as the body, its type as content-type): jobs then
       // name it by the id this returns ({ videoUpload } or { audioUpload }).
+      // Something made in the cloud while the machine was off: { url, kind, prompt, maker? }.
+      if (path === '/_orbit/studio/import' && req.method === 'POST' && studio.importItem) {
+        const body = JSON.parse((await readBody(req, 64 * 1024 * 1024)) || '{}');
+        activity();
+        const item = await studio.importItem(body);
+        cfg.storage?.forget();
+        return send(res, 200, { item: withUrl(item) });
+      }
       if (path === '/_orbit/studio/uploads' && req.method === 'POST' && studio.saveMedia) {
         return send(res, 200, await studio.saveMedia(req, req.headers['content-type'], req.headers['content-length']));
       }
