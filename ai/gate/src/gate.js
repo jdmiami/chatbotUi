@@ -545,7 +545,7 @@ export function createGate(cfg, log = console) {
       }
       if (movies && path.startsWith('/_orbit/studio/movies')) return await handleMovies(req, res, path, withUrl);
       // Meme lab: GET its videos and scores; POST { enabled, style, topics } turns it on or off, picks
-      // comedy or spicy, and sets your topics;
+      // comedy, spicy or yours (30-second movies in your style), and sets your topics;
       // POST /lab/<id>/keep moves a video into the gallery; DELETE /lab/<id> throws it away.
       if (path === '/_orbit/studio/lab' || path.startsWith('/_orbit/studio/lab/')) {
         if (!cfg.lab) return send(res, 404, { error: 'The meme lab runs on the main AI machine only.' });
@@ -581,6 +581,16 @@ export function createGate(cfg, log = console) {
           else return send(res, 405, { error: 'Not allowed' });
           return send(res, ok ? 200 : 404, await labState());
         }
+        // Your style (style.js): GET /lab/profile shows it; POST /lab/profile { summary?, remove?, restore? }
+        // edits it (your words steer it, removed chips stay out); POST /lab/profile/rebuild builds it again
+        // from your saved prompts (in the background: GET it again to see it done).
+        if (path === '/_orbit/studio/lab/profile' && req.method === 'GET') return send(res, 200, await cfg.lab.profile());
+        if (path === '/_orbit/studio/lab/profile' && req.method === 'POST') {
+          const { summary, remove, restore } = JSON.parse((await readBody(req, 16_384)) || '{}');
+          return send(res, 200, await cfg.lab.editProfile({ summary: typeof summary === 'string' ? summary : undefined, remove: Array.isArray(remove) ? remove : undefined, restore: Array.isArray(restore) ? restore : undefined }));
+        }
+        if (path === '/_orbit/studio/lab/profile/rebuild' && req.method === 'POST') return send(res, 200, await cfg.lab.rebuildProfile());
+        if (path.startsWith('/_orbit/studio/lab/profile')) return send(res, 405, { error: 'Not allowed' });
         const labMatch = /^\/_orbit\/studio\/lab\/([A-Za-z0-9_-]+)(\/keep)?$/.exec(path);
         if (labMatch && req.method === 'POST' && labMatch[2]) return send(res, (await cfg.lab.keep(labMatch[1])) ? 200 : 404, await labState());
         if (labMatch && req.method === 'DELETE' && !labMatch[2]) return send(res, (await cfg.lab.remove(labMatch[1])) ? 200 : 404, await labState());
@@ -609,7 +619,14 @@ export function createGate(cfg, log = console) {
   async function handleMovies(req, res, path, withUrl) {
     const body = async () => JSON.parse((await readBody(req, 256 * 1024)) || '{}');
     if (path === '/_orbit/studio/movies' && req.method === 'GET') return send(res, 200, { movies: await movies.list() });
-    if (path === '/_orbit/studio/movies' && req.method === 'POST') return send(res, 200, await movies.create(await body()));
+    if (path === '/_orbit/studio/movies' && req.method === 'POST') {
+      const b = await body();
+      // Only the Lab makes Lab (background) movies.
+      delete b.lab;
+      delete b.background;
+      delete b.nsfw;
+      return send(res, 200, await movies.create(b));
+    }
     // How long a movie like this takes, before it is made: { length, size, maker, lead }.
     if (path === '/_orbit/studio/movies/estimate' && req.method === 'POST') return send(res, 200, movies.estimate(await body()));
     const m = /^\/_orbit\/studio\/movies\/([A-Za-z0-9_-]+)(?:\/(run|stop|render|plan|lead))?$/.exec(path);
