@@ -216,6 +216,9 @@
 .ai-tabs .segmented { width: 100%; max-width: 360px; }
 .ai-tabs .segmented button { flex: 1; }
 .ai-layout[hidden] { display: none; }
+/* Make and Lab stay open (hidden) while you are on another tab. */
+.ai-create[hidden], .ai-make-tab[hidden] { display: none !important; }
+.ai-make-tab:not([hidden]) { display: contents; }
 
 .ai-create {
   flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain;

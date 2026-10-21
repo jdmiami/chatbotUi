@@ -118,6 +118,8 @@ export default function AiApp({ isActive, compact, placement }: AppProps) {
       return 'chat';
     }
   });
+  const visited = useRef({ create: false, lab: false }).current;
+  if (mode !== 'chat') visited[mode] = true;
   const [memory, setMemoryState] = useState<MemoryStore>(() => loadMemory());
   const setMemory = useCallback((fn: (m: MemoryStore) => MemoryStore) => {
     setMemoryState((prev) => {
@@ -757,19 +759,23 @@ export default function AiApp({ isActive, compact, placement }: AppProps) {
         </div>
       )}
 
-      {mode === 'lab' && (
-        <div className="ai-create lab-tab">
-          <MemeLab ai={ai} machineOn={steadyOn} isActive={isActive} />
+      {/* Make and Lab stay open once visited (hidden while on another tab): coming back keeps the
+          gallery, the pictures and where you were, instead of loading it all again. */}
+      {(mode === 'lab' || visited.lab) && (
+        <div className="ai-create lab-tab" hidden={mode !== 'lab'}>
+          <MemeLab ai={ai} machineOn={steadyOn} isActive={isActive && mode === 'lab'} />
         </div>
       )}
 
-      {mode === 'create' && (
-        <CreateView
-          ai={ai}
-          machineOn={steadyOn}
-          isActive={isActive}
-          onOpenMakers={() => openStore('makers')}
-        />
+      {(mode === 'create' || visited.create) && (
+        <div className="ai-make-tab" hidden={mode !== 'create'}>
+          <CreateView
+            ai={ai}
+            machineOn={steadyOn}
+            isActive={isActive && mode === 'create'}
+            onOpenMakers={() => openStore('makers')}
+          />
+        </div>
       )}
 
       <div className="ag-layout ai-layout" hidden={mode !== 'chat'}>

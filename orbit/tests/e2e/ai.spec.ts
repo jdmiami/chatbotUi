@@ -474,6 +474,43 @@ test.describe('AI app: Create', () => {
     await expect(fox).toHaveCount(0);
   });
 
+  test('Make gallery: reloading it (a new picture lands, coming back to Make) keeps the same files and tiles', async ({ page }) => {
+    await mockAi(page, 'on');
+    await mockStudio(page);
+    // A fresh signed link for every file on every listing, like the real machine.
+    let n = 0;
+    await page.route('**/fake-ai/_orbit/studio/items', (route) => {
+      n++;
+      return route.fulfill({
+        json: {
+          items: [
+            { id: 'img1', kind: 'image', prompt: 'a red fox in snow', width: 1328, height: 1328, createdAt: '2026-10-16T10:00:00Z', url: `/_orbit/studio/file/img1?t=tok${n}` },
+            { id: 'vid1', kind: 'video', prompt: 'waves at sunset', width: 1280, height: 720, seconds: 5, createdAt: '2026-10-16T09:00:00Z', url: `/_orbit/studio/file/vid1?t=tok${n}` },
+          ],
+        },
+      });
+    });
+    await openOrbit(page);
+    await openCreate(page);
+    const win = page.locator('.app-window[data-app="ai"]');
+    const fox = win.getByRole('button', { name: 'Image: a red fox in snow' });
+    await expect(fox).toBeVisible();
+    const img = () => fox.locator('img').getAttribute('src');
+    const vid = () => win.getByRole('button', { name: 'Video: waves at sunset' }).locator('video').getAttribute('src');
+    const [img0, vid0] = [await img(), await vid()];
+    await win.locator('.ai-gallery li').first().evaluate((el) => el.setAttribute('data-probe', 'kept'));
+    const before = n;
+    // Go to Chat and back: the gallery is listed again.
+    await page.getByRole('group', { name: 'Chat, create or lab' }).getByRole('button', { name: 'Chat' }).click();
+    await page.getByRole('group', { name: 'Chat, create or lab' }).getByRole('button', { name: 'Create' }).click();
+    await expect.poll(() => n).toBeGreaterThan(before);
+    await page.waitForTimeout(500);
+    expect(await img()).toBe(img0);
+    expect(await vid()).toBe(vid0);
+    // Same tile, not a rebuilt one.
+    await expect(win.locator('.ai-gallery li[data-probe="kept"]')).toHaveCount(1);
+  });
+
   test('NSFW: a new NSFW picture is hidden as soon as it lands; Show NSFW shows it blurred', async ({ page }) => {
     await mockAi(page, 'on');
     await mockStudio(page);

@@ -446,7 +446,8 @@ export function CreateView({
             <LiveDraw ai={ai} machineOn={machineOn} makers={known} onOpenMakers={onOpenMakers} onStarted={(job) => setJobs((prev) => [...prev, job])} />
           </Step>
         )}
-        {kind === 'live' && (
+        {/* The camera and the live stream stop while you're on another tab. */}
+        {kind === 'live' && isActive && (
           <Step on={o5} n="02" id="o5-make-live" title="Go live">
             <LiveVideo ai={ai} machineOn={machineOn} makers={known} onOpenMakers={onOpenMakers} onSaved={() => loadItems()} />
           </Step>
