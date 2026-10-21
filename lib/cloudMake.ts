@@ -10,8 +10,8 @@ import 'server-only';
  *    a few cents a clip). Queued: the browser asks again until it is done.
  *  - Runpod Serverless (RUNPOD_API_KEY, the same key the site turns machines on with): Runpod's
  *    public endpoints, paid per use from the Runpod balance. Pictures with FLUX.1 schnell (about
- *    $0.003), videos with Pruna P-Video (720p, about $0.02 a second). RUNPOD_IMAGE_ENDPOINT and
- *    RUNPOD_VIDEO_ENDPOINT pick others. Queued, like fal.
+ *    $0.003; RUNPOD_IMAGE_ENDPOINT=black-forest-labs-flux-1-dev for FLUX dev), videos with Pruna
+ *    P-Video (720p, about $0.02 a second), both with the provider's safety filter on. Queued, like fal.
  *
  * Cloud makers don't allow adult content, so NSFW prompts are turned away here with a plain
  * reason (they can still be made on your own AI machine).
@@ -28,8 +28,12 @@ const CF_IMAGE = '@cf/black-forest-labs/flux-1-schnell';
 const cloudflareOk = () => Boolean(process.env.CLOUDFLARE_ACCOUNT_ID && process.env.CLOUDFLARE_AI_TOKEN);
 const falOk = () => Boolean(process.env.FAL_KEY);
 const runpodOk = () => Boolean(process.env.RUNPOD_API_KEY) && process.env.RUNPOD_SERVERLESS !== 'off';
-const RP_IMAGE = () => process.env.RUNPOD_IMAGE_ENDPOINT || 'black-forest-labs-flux-1-schnell';
-const RP_VIDEO = () => process.env.RUNPOD_VIDEO_ENDPOINT || 'p-video';
+// Only endpoints that take the same request as the default (and answer with output.result); another
+// model needs its own adapter here first, so anything else falls back to the default.
+const RP_IMAGES = ['black-forest-labs-flux-1-schnell', 'black-forest-labs-flux-1-dev'];
+const RP_VIDEOS = ['p-video'];
+const RP_IMAGE = () => (RP_IMAGES.includes(process.env.RUNPOD_IMAGE_ENDPOINT ?? '') ? process.env.RUNPOD_IMAGE_ENDPOINT! : RP_IMAGES[0]);
+const RP_VIDEO = () => (RP_VIDEOS.includes(process.env.RUNPOD_VIDEO_ENDPOINT ?? '') ? process.env.RUNPOD_VIDEO_ENDPOINT! : RP_VIDEOS[0]);
 const RP_API = 'https://api.runpod.ai/v2/';
 /** Runpod's endpoint ids: letters, digits, dashes (never a URL someone else wrote). */
 const rpId = (s: string) => /^[A-Za-z0-9-]{3,80}$/.test(s);
@@ -168,8 +172,9 @@ export async function cloudMakeStart(req: { kind: CloudKind; prompt: string; siz
         const size = sizes[req.size] ?? sizes.square;
         const input =
           req.kind === 'video'
-            ? { prompt: req.prompt, duration: req.seconds ?? 5, resolution: '720p', aspect_ratio: req.size === 'portrait' ? '9:16' : req.size === 'square' ? '1:1' : '16:9' }
-            : { prompt: req.prompt, width: size.w, height: size.h, num_inference_steps: 4, seed: -1 };
+            ? // P-Video's safety filter is off unless asked for.
+              { prompt: req.prompt, duration: req.seconds ?? 5, resolution: '720p', aspect_ratio: req.size === 'portrait' ? '9:16' : req.size === 'square' ? '1:1' : '16:9', disable_safety_filter: false }
+            : { prompt: req.prompt, width: size.w, height: size.h, num_inference_steps: 4, seed: -1, enable_safety_checker: true };
         const body = await runpodFetch(`${endpoint}/run`, { method: 'POST', body: JSON.stringify({ input }) });
         const job = String(body.id ?? '');
         if (!/^[A-Za-z0-9-]{8,120}$/.test(job)) throw new CloudMakeError('Cloud maker: unexpected answer from Runpod');
