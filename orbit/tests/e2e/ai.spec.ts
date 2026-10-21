@@ -377,7 +377,7 @@ test.describe('AI app: Create', () => {
     ],
   };
 
-  test('NSFW: a picture the AI machine flagged is hidden (no blur) until "Show NSFW" is on', async ({ page }) => {
+  test('NSFW: a picture the AI machine flagged is hidden until "Show NSFW" is on, then blurred until held', async ({ page }) => {
     await mockAi(page, 'on');
     await mockStudio(page);
     await page.route('**/fake-ai/_orbit/studio/items', (route) => route.fulfill({ json: twoItems }));
@@ -392,11 +392,26 @@ test.describe('AI app: Create', () => {
     await expect(show).not.toBeChecked();
     await show.click();
     await expect(portrait).toBeVisible();
-    // Shown as it is: nothing blurred anywhere.
+    // The second layer: blurred, the fox isn't.
+    expect(await portrait.evaluate((el) => getComputedStyle(el).filter)).toContain('blur');
+    expect(await fox.evaluate((el) => getComputedStyle(el).filter)).toBe('none');
+    const tile = win.locator('.ai-gallery .censor');
+    await expect(tile).toHaveCount(1);
+    await expect(tile).toContainText('NSFW');
+    // Hold to see; let go and it blurs again; a hold doesn't open it.
+    await tile.scrollIntoViewIfNeeded();
+    const tb = (await tile.boundingBox())!;
+    await page.mouse.move(tb.x + tb.width / 2, tb.y + tb.height / 2);
+    await page.mouse.down();
+    await expect(tile).toHaveAttribute('data-revealed', '');
     expect(await portrait.evaluate((el) => getComputedStyle(el).filter)).toBe('none');
+    await page.mouse.up();
+    await expect(tile).not.toHaveAttribute('data-revealed', '');
+    await expect(win.getByRole('dialog')).toHaveCount(0);
+    // A tap opens it, blurred there too.
     await portrait.click();
     await expect(win.getByRole('switch', { name: 'NSFW', exact: true })).toBeChecked();
-    expect(await win.locator('.ai-viewer-media img').evaluate((el) => getComputedStyle(el).filter)).toBe('none');
+    await expect(win.locator('.ai-viewer-media.censor')).toBeVisible();
     await page.keyboard.press('Escape');
     // Off again: hidden again.
     await show.click();
@@ -448,7 +463,7 @@ test.describe('AI app: Create', () => {
     await expect(fox).toHaveCount(0);
   });
 
-  test('NSFW: a new NSFW picture is hidden as soon as it lands; Show NSFW shows it plainly', async ({ page }) => {
+  test('NSFW: a new NSFW picture is hidden as soon as it lands; Show NSFW shows it blurred', async ({ page }) => {
     await mockAi(page, 'on');
     await mockStudio(page);
     await openOrbit(page);
@@ -463,8 +478,7 @@ test.describe('AI app: Create', () => {
     await expect(made).toHaveCount(0);
     await win.getByRole('switch', { name: 'Show NSFW' }).click();
     await expect(made).toBeVisible({ timeout: 10_000 });
-    expect(await made.evaluate((el) => getComputedStyle(el).filter)).toBe('none');
-    await expect(win.locator('.censor')).toHaveCount(0);
+    expect(await made.evaluate((el) => getComputedStyle(el).filter)).toContain('blur');
   });
 });
 
