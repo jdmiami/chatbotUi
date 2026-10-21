@@ -1,14 +1,13 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
-import { useShell } from '../../state/shell';
 import { Icon } from '../../ui/Icon';
 import { Sheet, Toggle } from '../../ui/components';
-import { Censor } from '../../ui/Censor';
+import { Censor, shows, useNsfwView } from '../../ui/Censor';
 import { nsfwFor, setMark, useNsfwFlags } from '../../ui/nsfwFlags';
 
 /**
  * The gallery: a grid of picture and video tiles, and the viewer sheet a tile opens. Used by the
- * Make tab (your creations) and the Lab (its movies), so both look and behave the same: the NSFW
- * blur with hold to see, hold a clear one to blur it, and the viewer's "Blur this one" switch.
+ * Make tab (your creations) and the Lab (its movies), so both behave the same: NSFW ones stay hidden
+ * until "Show NSFW" is on, a long hold marks one NSFW, and the viewer's "NSFW" switch marks or unmarks one.
  */
 export interface GalleryMedia {
   id: string;
@@ -17,7 +16,7 @@ export interface GalleryMedia {
   url: string;
   /** What it shows (the prompt or the title): read out for the tile, and checked by the blur. */
   label: string;
-  /** Blur it unless you said otherwise: its words, the machine's check. */
+  /** NSFW unless you said otherwise: its words, the machine's check. */
   nsfw: boolean;
   seconds?: number;
 }
@@ -38,9 +37,13 @@ export function GalleryGrid<T extends GalleryMedia>({
   corner?: (item: T) => ReactNode;
 }) {
   useNsfwFlags();
+  const view = useNsfwView();
+  const shown = items.filter((it) => shows(nsfwFor(it.id, it.nsfw), view));
+  const hidden = items.length - shown.length;
+  if (items.length > 0 && shown.length === 0) return <p className="ai-muted">{hidden === 1 ? 'One NSFW result is hidden.' : `${hidden} NSFW results are hidden.`} Turn on "Show NSFW" to see them.</p>;
   return (
     <ul className="ai-gallery" aria-label={label}>
-      {items.map((it, n) => (
+      {shown.map((it, n) => (
         <li key={it.id} style={{ '--i': Math.min(n, 14) } as React.CSSProperties}>
           <Censor as="div" markId={it.id} nsfw={it.nsfw}>
             <button
@@ -69,8 +72,8 @@ export function GalleryGrid<T extends GalleryMedia>({
 }
 
 /**
- * The viewer: the picture or the video (with controls; a blurred one plays while you hold it), its
- * words, the "Blur this one" switch, then what `children` adds (details and actions).
+ * The viewer: the picture or the video (with controls), its words, the "NSFW" switch, then what
+ * `children` adds (details and actions).
  */
 export function GalleryViewer({
   media,
@@ -84,12 +87,12 @@ export function GalleryViewer({
   title: string;
   origin: DOMRect | null;
   onClose: () => void;
-  /** The words under it (the prompt, or a title and caption), blurred with it. */
+  /** The words under it (the prompt, or a title and caption). */
   words?: ReactNode;
   children?: ReactNode;
 }) {
   useNsfwFlags();
-  const censor = useShell((s) => s.settings.censor !== false);
+  const nsfw = nsfwFor(media.id, media.nsfw);
   return (
     <Sheet title={title} origin={origin} onClose={onClose}>
       <div className="ai-viewer">
@@ -105,12 +108,10 @@ export function GalleryViewer({
             {words}
           </Censor>
         )}
-        {censor && (
-          <div className="ai-viewer-blur">
-            <span className="ai-muted">Blur this one (NSFW)</span>
-            <Toggle checked={nsfwFor(media.id, media.nsfw)} label="Blur this one (NSFW)" onChange={(on) => setMark(media.id, on)} />
-          </div>
-        )}
+        <div className="ai-viewer-blur">
+          <span className="ai-muted">{nsfw ? 'NSFW: hidden unless "Show NSFW" is on' : 'NSFW'}</span>
+          <Toggle checked={nsfw} label="NSFW" onChange={(on) => setMark(media.id, on)} />
+        </div>
         {children}
       </div>
     </Sheet>

@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { connectMarks, rememberItems } from '../../ui/nsfwFlags';
+import { connectMarks, rememberItems, useNsfwFlags } from '../../ui/nsfwFlags';
+import { UncensoredSwitch, shows, useNsfwView } from '../../ui/Censor';
+import { movieNsfw } from './movieNsfw';
 import type { AppProps } from '../types';
 import { useShell } from '../../state/shell';
 import { useWorkspace } from '../../state/workspace';
@@ -228,6 +230,7 @@ export default function SoRealApp({ isActive, placement }: AppProps) {
           <StartPage
             ready={ready}
             movies={movies}
+            items={items}
             makeOn={makeOn}
             helperOn={helperOn}
             setMakeOn={setMakeOn}
@@ -284,6 +287,7 @@ export default function SoRealApp({ isActive, placement }: AppProps) {
 function StartPage({
   ready,
   movies,
+  items,
   makeOn,
   helperOn,
   setMakeOn,
@@ -292,6 +296,7 @@ function StartPage({
 }: {
   ready: boolean;
   movies: Movie[] | null;
+  items: StudioItem[];
   makeOn: AiMachine;
   helperOn: boolean;
   setMakeOn: (v: AiMachine) => void;
@@ -300,6 +305,11 @@ function StartPage({
 }) {
   const ai = useMemo(() => getLocalAi(), []);
   const toast = useShell((s) => s.toast);
+  // NSFW movies stay hidden until "Show NSFW" is on.
+  useNsfwFlags();
+  const nsfwView = useNsfwView();
+  const itemById = useMemo(() => new Map(items.map((it) => [it.id, it])), [items]);
+  const listed = movies?.filter((m) => shows(movieNsfw(m, itemById), nsfwView)) ?? null;
   const [idea, setIdea] = useState('');
   const [template, setTemplate] = useState<TemplateId | null>(null);
   const [length, setLength] = useState(20);
@@ -450,9 +460,13 @@ function StartPage({
         <h3 className="sr-section-title" id="sr-movies-t">
           Your movies
         </h3>
+        <UncensoredSwitch />
         {movies && movies.length === 0 && <p className="ai-muted">Nothing yet. Your first movie starts above.</p>}
+        {movies && movies.length > 0 && listed?.length === 0 && (
+          <p className="ai-muted">Your movies here are all NSFW, so they're hidden. Turn on "Show NSFW" to see them.</p>
+        )}
         <ul className="o5-links">
-          {movies?.map((m) => (
+          {listed?.map((m) => (
             <li key={m.id}>
               <button type="button" className="o5-go" onClick={() => onOpen(m)}>
                 <span className="o5-go-label">{m.title}</span>

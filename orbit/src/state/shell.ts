@@ -67,8 +67,10 @@ export interface Settings {
   cloudAi?: boolean;
   /** Ghost text and rewrites in text boxes (needs cloud AI). Unset = on. */
   writeHelp?: boolean;
-  /** The NSFW blur: NSFW pictures and videos stay blurred until you hold them. Unset = on. */
+  /** Retired (the old NSFW blur switch). Nothing reads it. */
   censor?: boolean;
+  /** NSFW pictures and videos: hidden everywhere (unset, 'hide'), or shown as they are ('show', "Show NSFW"). No blur. */
+  nsfwView?: 'hide' | 'show';
   /** Seen the first-run "what is simulated" sheet. */
   introSeen: boolean;
 }

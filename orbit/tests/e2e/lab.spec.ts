@@ -179,7 +179,7 @@ const labState = () => ({
   records: [
     // A spicy movie that shows nothing: clear, plays with its controls.
     labRecord('clear1', 'Rooftop glance', { style: 'spicy', score: 91, status: 'ready', why: 'Eye contact in the first second and a clean loop.' }),
-    // The machine's check saw NSFW in this one: blurred until held.
+    // The machine's check saw NSFW in this one: hidden until "Show NSFW" is on.
     labRecord('hot1', 'Pool night', { style: 'spicy', score: 70, why: 'Strong light, slow start.', nsfw: true }),
     labRecord('wait1', 'Gym crush energy', { style: 'spicy', status: 'made', why: '' }),
   ],
@@ -216,7 +216,7 @@ async function openLabIn(page: import('@playwright/test').Page, skin: 'classic' 
 }
 
 for (const skin of ['classic', 'o5'] as const) {
-  test(`Lab gallery (${skin}): the Make gallery's tiles, a viewer with the score and why, only NSFW blurred, plays`, async ({ page }, testInfo) => {
+  test(`Lab gallery (${skin}): the Make gallery's tiles, a viewer with the score and why, NSFW hidden until shown, plays`, async ({ page }, testInfo) => {
     await mockAi(page, 'on');
     let lab = labState();
     const calls: string[] = [];
@@ -243,35 +243,21 @@ for (const skin of ['classic', 'o5'] as const) {
     // The same tile grid as Make, best first, the score on each judged one.
     const gallery = section.getByRole('list', { name: 'Lab movies, best first' });
     await expect(gallery).toHaveClass(/ai-gallery/);
-    await expect(gallery.getByRole('listitem')).toHaveCount(3);
+    // The NSFW one is hidden (no blur): two show.
+    await expect(gallery.getByRole('listitem')).toHaveCount(2);
+    await expect(gallery.getByRole('button', { name: 'Video: Pool night' })).toHaveCount(0);
     await expect(gallery.getByRole('listitem').first()).toContainText('91');
     // As wide as the screen allows, never wider (no sideways scroll inside the Lab either).
     const gb = (await gallery.boundingBox())!;
     expect(gb.x).toBeGreaterThanOrEqual(0);
     expect(gb.x + gb.width).toBeLessThanOrEqual(page.viewportSize()!.width + 1);
     expect(await page.evaluate(() => [...document.querySelectorAll('.meme-lab, .ai-create, .lab-scroll')].some((e) => e.scrollWidth > e.clientWidth + 1))).toBe(false);
-    // Only the one the machine's check flagged is blurred: not the whole spicy style.
-    await expect(gallery.locator('.censor')).toHaveCount(1);
-    await expect(gallery.locator('.censor')).toContainText('NSFW');
+    await expect(gallery.locator('.censor')).toHaveCount(0);
     // Every video shows its first frame (not black): a tenth of a second in, metadata loaded.
     for (const v of await gallery.locator('video').all()) {
       expect(await v.getAttribute('src')).toMatch(/#t=0\.1$/);
       expect(await v.getAttribute('preload')).toBe('metadata');
     }
-
-    // The NSFW one plays while held, pauses on release; a hold doesn't open the viewer.
-    const hot = gallery.locator('.censor');
-    await hot.scrollIntoViewIfNeeded();
-    const box = (await hot.boundingBox())!;
-    await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
-    await page.mouse.down();
-    await expect(hot).toHaveAttribute('data-revealed', '');
-    await expect.poll(() => page.evaluate(() => (window as unknown as { plays: number }).plays)).toBeGreaterThan(0);
-    const pauses = await page.evaluate(() => (window as unknown as { pauses: number }).pauses);
-    await page.mouse.up();
-    await expect(hot).not.toHaveAttribute('data-revealed', '');
-    await expect.poll(() => page.evaluate(() => (window as unknown as { pauses: number }).pauses)).toBeGreaterThan(pauses);
-    await expect(page.getByRole('dialog', { name: 'Lab movie' })).toHaveCount(0);
 
     // Tap the best one: the viewer, with the judge's scouting report.
     await gallery.getByRole('button', { name: 'Video: Rooftop glance' }).click();
@@ -283,20 +269,20 @@ for (const skin of ['classic', 'o5'] as const) {
     await expect(report).toContainText('Why: Eye contact in the first second and a clean loop.');
     await expect(viewer).toContainText('Rooftop glance caption');
     await expect(viewer).toContainText('#fyp');
-    // Not NSFW: no blur, and it plays with its own controls.
+    // No blur, and it plays with its own controls.
     const video = viewer.locator('.ai-viewer-media video');
-    await expect(viewer.locator('.ai-viewer-media.censor')).toHaveCount(0);
     await expect(video).toHaveAttribute('controls', '');
     expect(await video.evaluate((el) => getComputedStyle(el).pointerEvents)).not.toBe('none');
     expect(await video.evaluate((el) => getComputedStyle(el).filter)).toBe('none');
-    // The Make viewer's switch: blur this one; it is saved on the AI machine.
-    const sw = viewer.getByRole('switch', { name: 'Blur this one (NSFW)' });
+    // The Make viewer's switch: mark it NSFW (saved on the AI machine), then unmark it.
+    const sw = viewer.getByRole('switch', { name: 'NSFW', exact: true });
     await expect(sw).not.toBeChecked();
     await sw.click();
-    await expect(viewer.locator('.ai-viewer-media.censor')).toBeVisible();
+    await expect(sw).toBeChecked();
     await expect.poll(() => marks).toEqual([{ nsfw: true }]);
     await sw.click();
-    await expect(viewer.locator('.ai-viewer-media.censor')).toHaveCount(0);
+    await expect(sw).not.toBeChecked();
+    expect(await video.evaluate((el) => getComputedStyle(el).filter)).toBe('none');
     await expect(viewer.getByRole('button', { name: 'Copy caption' })).toBeVisible();
     for (const b of await viewer.getByRole('button').all()) {
       const bb = await b.boundingBox();
@@ -309,27 +295,24 @@ for (const skin of ['classic', 'o5'] as const) {
     await viewer.getByRole('button', { name: 'Keep in my gallery' }).click();
     await expect(viewer).toHaveCount(0);
     expect(calls).toContain('POST /lab/clear1/keep');
-    await expect(gallery.getByRole('listitem')).toHaveCount(2);
+    await expect(gallery.getByRole('listitem')).toHaveCount(1);
 
     // Waiting to be judged: says so. Delete asks first.
     await gallery.getByRole('button', { name: 'Video: Gym crush energy' }).click();
     await expect(viewer.getByRole('region', { name: 'Scouting report' })).toContainText('Waiting to be judged');
     await viewer.getByRole('button', { name: 'Delete' }).click();
     await page.getByRole('dialog', { name: 'Delete this?' }).getByRole('button', { name: 'Delete' }).click();
-    await expect(gallery.getByRole('listitem')).toHaveCount(1);
     expect(calls).toContain('DELETE /lab/wait1');
+    // Only the hidden NSFW one is left.
+    await expect(section.getByText(/One NSFW result is hidden/)).toBeVisible();
 
-    // The NSFW one in the viewer: blurred, plays while held.
+    // Show NSFW: it shows as it is, no blur, and plays with its controls.
+    await section.getByRole('switch', { name: 'Show NSFW' }).click();
     await gallery.getByRole('button', { name: 'Video: Pool night' }).click();
-    const media = viewer.locator('.ai-viewer-media.censor');
-    await expect(media).toBeVisible();
-    const plays = await page.evaluate(() => (window as unknown as { plays: number }).plays);
-    const mb = (await media.boundingBox())!;
-    await page.mouse.move(mb.x + mb.width / 2, mb.y + Math.min(mb.height / 2, 120));
-    await page.mouse.down();
-    await expect(media).toHaveAttribute('data-revealed', '');
-    await expect.poll(() => page.evaluate(() => (window as unknown as { plays: number }).plays)).toBeGreaterThan(plays);
-    await page.mouse.up();
+    const hot = viewer.locator('.ai-viewer-media video');
+    await expect(hot).toHaveAttribute('controls', '');
+    expect(await hot.evaluate((el) => getComputedStyle(el).filter)).toBe('none');
+    await expect(viewer.getByRole('switch', { name: 'NSFW', exact: true })).toBeChecked();
     await expectNoHorizontalOverflow(page);
     expect(errors).toEqual([]);
   });
