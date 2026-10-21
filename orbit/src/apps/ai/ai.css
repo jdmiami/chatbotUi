@@ -259,6 +259,18 @@
   position: absolute; left: 6px; bottom: 6px; display: inline-flex; align-items: center; gap: 4px;
   padding: 2px 8px; border-radius: 999px; background: rgba(0, 0, 0, 0.6); color: #fff; font-size: var(--fs-xs);
 }
+/* The Lab's viral score on a tile's corner (double rule: ready to post). */
+.ai-tile-score {
+  position: absolute; right: 6px; top: 6px; min-width: 32px; padding: 2px 8px; text-align: center;
+  background: rgba(0, 0, 0, 0.6); color: #fff; font-family: var(--font-display, Georgia, serif); font-size: 16px; font-variant-numeric: tabular-nums;
+}
+.ai-tile-score[data-ready] { outline: 3px double #fff; outline-offset: -4px; }
+/* The Lab viewer's scouting report: status, score and why. */
+.lab-detail { display: grid; gap: 6px; }
+.lab-detail .meme-card-kicker { font-size: 11px; }
+.lab-detail-why { margin: 0; font-size: 14px; line-height: 1.4; overflow-wrap: anywhere; }
+.lab-detail-words { display: grid; gap: 4px; }
+.lab-detail-words .meme-card-caption { overflow-wrap: anywhere; }
 .ai-viewer { display: flex; flex-direction: column; gap: var(--space-3); }
 .ai-viewer img, .ai-viewer video {
   display: block; width: 100%; max-height: 62dvh; object-fit: contain; border-radius: var(--radius-md); background: #000;
@@ -436,6 +448,9 @@
 .lab-tab .meme-lab, .lab-scroll .meme-lab { margin-top: 8px; border-top: 0; padding-top: 0; }
 .meme-lab-block { display: grid; gap: 8px; padding-top: 14px; border-top: 1px solid var(--border); }
 .meme-lab-block .o5-kicker { margin: 0; }
+/* The shared gallery inside the Lab's grid: as wide as the column, never its 1100 px maximum. */
+.meme-lab, .meme-lab-block { grid-template-columns: minmax(0, 1fr); }
+.meme-lab-block > .ai-gallery { width: 100%; min-width: 0; margin: 0; }
 .meme-now { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 12px; align-items: center; padding: 12px; border: 1px solid var(--border); background: var(--surface); }
 .meme-now-text { min-width: 0; display: grid; gap: 6px; }
 .meme-now-text .meme-card-title { margin: 0; }

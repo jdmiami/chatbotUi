@@ -280,14 +280,18 @@ test.describe('AI app: Create', () => {
     await section.getByRole('textbox', { name: 'Your own idea' }).press('Enter');
     await expect(upNext.getByRole('listitem').first()).toContainText('Your idea, made as written');
 
-    const gallery = section.getByRole('list', { name: 'Lab videos, best first' });
-    await expect(gallery.getByRole('listitem').first()).toContainText('Ready to post');
+    // The Lab gallery is the Make gallery: tiles, best first; a tap opens the viewer with the score.
+    const gallery = section.getByRole('list', { name: 'Lab movies, best first' });
     await expect(gallery.getByRole('listitem').first()).toContainText('91');
-    await gallery.getByRole('listitem').first().getByRole('button', { name: 'Keep in my gallery' }).click();
+    await gallery.getByRole('button', { name: 'Video: Nobody: … the capybara:' }).click();
+    const viewer = page.getByRole('dialog', { name: 'Lab movie' });
+    await expect(viewer.getByRole('region', { name: 'Scouting report' })).toContainText('Ready to post');
+    await viewer.getByRole('button', { name: 'Keep in my gallery' }).click();
+    await expect(viewer).toHaveCount(0);
     await expect(gallery.getByRole('listitem')).toHaveCount(1);
     expect(calls).toContain('POST /lab/m2/keep');
 
-    await section.getByRole('switch', { name: 'Make comedy videos while the machine is on' }).click();
+    await section.getByRole('switch', { name: 'Make comedy movies while the machine is on' }).click();
     await expect.poll(() => lab.enabled).toBe(false);
     await expectNoHorizontalOverflow(page);
     await expectTappable(page);

@@ -219,7 +219,7 @@ test('your style: ideas are 30-second movies written from the profile, and the c
   assert.match(write.user, /lonely astronauts in neon rain/, 'with your summary');
   assert.match(write.user, /settings: neon city at night/, 'and your profile');
   const [made] = movies.all.values();
-  assert.deepEqual({ flow: made.flow, length: made.length, size: made.size, lab: made.lab }, { flow: 'auto', length: 30, size: 'portrait', lab: true });
+  assert.deepEqual({ flow: made.flow, length: made.length, size: made.size, lab: made.lab, continuity: made.continuity }, { flow: 'auto', length: 30, size: 'portrait', lab: true, continuity: 'chain' });
   assert.equal(made.title, 'Last light on Europa');
   assert.match(made.idea, /flooded neon street/);
   assert.equal(made.look, 'Neon rain, anamorphic, slow dolly');
@@ -268,9 +268,9 @@ test('your style: a finished movie lands in the Lab gallery, is judged on its fr
   const lab = createMemeLab({ studio, movies, profile: fakeProfile({ ...STYLE, spicy: true }), log: quiet, minutesLeft: () => 60, load: async () => ({ style: 'yours' }), chat: async ({ system }) => (/judge/.test(system) ? '{"score": 90, "why": "Very you."}' : 'no json') });
   await lab.tick();
   const [first] = movies.all.values();
-  assert.equal(first.nsfw, true, 'a style that leans spicy: the cut is blurred as NSFW');
-  assert.match(first.idea, /fictional adult over 25/, 'and the spicy rules ride along');
-  assert.equal((await lab.state()).making.nsfw, true);
+  assert.equal(first.nsfw, undefined, 'a style that leans spicy is never blurred for that alone: the check, the words or your say decide');
+  assert.match(first.idea, /fictional adult over 25/, 'but the spicy rules ride along');
+  assert.equal(first.continuity, 'chain', 'each shot from the last frame of the one before');
   studio.user = true;
   movies.finish(first.id);
   await lab.tick();
@@ -286,7 +286,11 @@ test('your style: a finished movie lands in the Lab gallery, is judged on its fr
   assert.equal(r.style, 'yours');
   assert.equal(r.score, 90);
   assert.equal(r.status, 'ready');
-  assert.equal(r.nsfw, true);
+  assert.equal(r.nsfw, undefined);
+  studio.items.get(r.id).nsfw = true;
+  studio.items.get(r.id).nsfwUser = false;
+  const flagged = (await lab.state()).records[0];
+  assert.deepEqual([flagged.nsfw, flagged.nsfwUser], [true, false], 'the check and your own say come from the video itself');
   assert.doesNotMatch(r.prompt, /fictional adult/, 'the safety note is not shown');
 
   assert.equal(await lab.keep(r.id), true);
@@ -510,6 +514,89 @@ test('routes: GET the profile, POST an edit, POST rebuild; the Lab picks "yours"
 
     await call('POST', '/_orbit/studio/movies', { flow: 'auto', idea: 'x', lab: true, background: true, nsfw: true });
     assert.deepEqual([created[0].lab, created[0].background, created[0].nsfw], [undefined, undefined, undefined]);
+  } finally {
+    gate.close();
+  }
+});
+
+test('your style end to end through the gate: build the profile, edit it, rebuild, switch the Lab, plan and make a chained 30-second movie, judge it, keep it', async () => {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'yours-e2e-'));
+  const studio = preemptingStudio();
+  studio.hasUserWork = () => false;
+  studio.labItems = async () => [...studio.items.values()].filter((i) => i.lab);
+  studio.state = async () => ({ video: { ready: true } });
+  studio.yieldGpu = async () => {};
+  studio.makers = async () => [];
+  const gallery = [...ITEMS];
+  const asked = [];
+  const chat = async (m) => {
+    asked.push(m);
+    if (/judge/.test(m.system)) return '{"score": 84, "why": "Lonely, neon and slow: very you.", "better_caption": "Home is a light in the rain"}';
+    if (/30-second vertical short films/.test(m.system)) return JSON.stringify({ title: 'Last light on Europa', idea: 'A lone astronaut wades through a flooded neon street and finds a lit window.', look: 'Neon rain, anamorphic', caption: 'x', hashtags: ['#scifi'] });
+    if (/personal style/.test(m.system)) return PROFILE_REPLY;
+    return STORY; // soReal's story writer
+  };
+  const movies = createMovies({ dir, studio, pollMs: 1, ffmpeg: async () => {}, chat, log: quiet });
+  let lab = null;
+  const profile = createStyleProfile({ sources: async () => ({ items: gallery, movies: await movies.list(), labIdeas: lab ? await lab.ownIdeas() : [] }), chat, log: quiet });
+  lab = createMemeLab({ studio, movies, profile, chat, log: quiet, minutesLeft: () => 60, load: async () => null });
+  const gate = createGate({ secret: SECRET, webui: 'http://127.0.0.1:9', ollama: 'http://127.0.0.1:9', allowedOrigins: 'https://site.example', siteUrl: 'https://site.example', status: async () => ({}), studio: { ...studio, items: async () => gallery }, movies, lab }, quiet);
+  const base = `http://127.0.0.1:${await listen(gate)}`;
+  const token = signJwt({ sub: 'jd', aud: 'orbit-ai', iss: 'rdp-web' }, SECRET, { expiresIn: 3600 });
+  const call = async (method, p, body) => {
+    const res = await fetch(`${base}${p}`, { method, headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' }, body: body && JSON.stringify(body) });
+    return { status: res.status, body: await res.json() };
+  };
+  try {
+    // Build it, then edit it: your words and the chips you removed steer it.
+    await call('POST', '/_orbit/studio/lab/profile/rebuild', {});
+    await until(async () => (await call('GET', '/_orbit/studio/lab/profile')).body.ready);
+    let r = await call('POST', '/_orbit/studio/lab/profile', { summary: 'Lonely astronauts, warmer light.', remove: ['handheld'] });
+    assert.equal(r.status, 200);
+    assert.equal(r.body.edited, true);
+    await call('POST', '/_orbit/studio/lab/profile/rebuild', {});
+    await until(async () => !(await call('GET', '/_orbit/studio/lab/profile')).body.building);
+    r = await call('GET', '/_orbit/studio/lab/profile');
+    assert.equal(r.body.summary, 'Lonely astronauts, warmer light.', 'your words stay after a rebuild');
+    assert.ok(!r.body.chips.some((c) => c.text === 'handheld'));
+
+    // Switch the Lab to your style: one movie planned for the hour.
+    r = await call('POST', '/_orbit/studio/lab', { style: 'yours' });
+    assert.equal(r.status, 200);
+    assert.equal(r.body.style, 'yours');
+    assert.ok(r.body.queue.length >= 1);
+    assert.equal(r.body.queue[0].kind, 'movie');
+    assert.match(r.body.queue[0].prompt, /astronaut|explorer/, 'written from your profile');
+    assert.equal((await call('POST', '/_orbit/studio/lab', { style: 'horror' })).status, 400, 'a style the machine does not know is refused');
+
+    // Make it: soReal writes the story and makes it chained, in the background.
+    await lab.tick();
+    r = await call('GET', '/_orbit/studio/lab');
+    assert.equal(r.body.making.title, 'Last light on Europa');
+    const write = asked.find((m) => /30-second vertical short films/.test(m.system));
+    assert.match(write.user, /Lonely astronauts, warmer light/, 'the idea writer got your words');
+    await until(async () => {
+      await lab.tick();
+      return (await call('GET', '/_orbit/studio/lab')).body.records.length === 1;
+    }, 8000);
+    r = await call('GET', '/_orbit/studio/lab');
+    const rec = r.body.records[0];
+    assert.equal(rec.style, 'yours');
+    assert.equal(rec.seconds, 30);
+    assert.equal(rec.score, 84);
+    assert.equal(rec.status, 'ready');
+    assert.equal(rec.why, 'Lonely, neon and slow: very you.');
+    assert.match(rec.url, /^\/_orbit\/studio\/file\//);
+    const shots = studio.reqs.filter((q) => q.kind === 'video');
+    assert.equal(shots.length, 6);
+    assert.ok(shots.slice(1).every((q) => q.fromLastFrameOf), 'each shot from the last frame of the one before');
+    assert.equal((await movies.list()).length, 0, 'hidden from soReal until kept');
+
+    // Keep it: into your gallery and soReal.
+    r = await call('POST', `/_orbit/studio/lab/${rec.id}/keep`, {});
+    assert.equal(r.status, 200);
+    assert.equal(r.body.records.length, 0);
+    assert.equal((await movies.list()).length, 1);
   } finally {
     gate.close();
   }

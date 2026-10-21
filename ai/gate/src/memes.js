@@ -1,12 +1,14 @@
-// The meme lab: while the AI machine is on but nobody is using it, it makes short meme videos made
-// to go viral, one after another, and has a second AI watch each one and score how viral it could go.
-// Three styles: comedy, spicy (flirty "thirst trap" clips: made-up adults, no nudity, made to
-// stay up on the big apps; see spicyProblem), and yours: 30-second movies in your own style, written
-// from a profile of your saved prompts (style.js) and made with soReal's auto movie flow (movies.js).
+// The meme lab: while the AI machine is on but nobody is using it, it makes 30-second vertical movies
+// made to go viral, one after another, and has a second AI watch each one and score how viral it
+// could go. Three styles: comedy, spicy (flirty "thirst trap" movies: made-up adults, no nudity, made
+// to stay up on the big apps; see spicyProblem), and yours: movies in your own style, written from a
+// profile of your saved prompts (style.js). Every style is made with soReal's auto movie flow
+// (movies.js) in its chained form: a story, one opening picture, then six 5-second shots, each
+// starting from the last frame of the shot before, joined into one final cut.
 //
-//   - Your jobs always come first. Lab videos wait at the back of the queue, and one being made
-//     stops the moment you ask for something (studio.js).
-//   - Lab videos never keep the machine on: the hour without use still turns it off (machine.js).
+//   - Your jobs always come first. Lab movies are background work: the step being made stops the
+//     moment you ask for something and carries on after (movies.js, studio.js).
+//   - Lab movies never keep the machine on: the hour without use still turns it off (machine.js).
 //   - Nothing is posted anywhere. The best ones are marked "ready to post" for you to look at.
 import { spawn } from 'node:child_process';
 import fsp from 'node:fs/promises';
@@ -17,8 +19,20 @@ import { checkMovieText } from './story.js';
 import { AUTO_OFF } from '../../../shared/autooff.js';
 
 export const STYLES = ['comedy', 'spicy', 'yours'];
-/** "Your style" makes movies this long (seconds), vertical, through soReal's auto flow. */
+/** Every Lab movie is this long (seconds), vertical, made through soReal's auto flow. */
 export const MOVIE_SECONDS = 30;
+/** How a Lab movie is made in soReal: each shot from the last frame of the one before. */
+const MOVIE_SHAPE = { flow: 'auto', length: MOVIE_SECONDS, size: 'portrait', maker: 'ltx', lead: { mode: 'auto' }, sound: 'auto', continuity: 'chain' };
+/** The look each written style starts from (the chat model may change it). */
+const LOOKS = {
+  comedy: 'Bright, colourful sitcom look, clear staging, expressive faces, handheld phone feel',
+  spicy: 'Soft flattering light, shallow depth of field, fashion-reel style, warm film grain',
+};
+/** What each written style's 30 seconds build to (soReal's story writer turns it into six shots). */
+const ARCS = {
+  comedy: 'Over 30 seconds: a setup, a mishap that keeps escalating and a funny payoff.',
+  spicy: 'Over 30 seconds: a confident first look, a reveal and a last glance to loop on.',
+};
 
 /** Meme setups that tend to travel: a relatable situation, a twist in the first second, a payoff. */
 export const FORMATS = [
@@ -60,8 +74,9 @@ const SPICY_SLOTS = {
 };
 export const ADULT_NOTE = ' The person is a fictional adult over 25, not a real or famous person. Flirty and confident but tasteful: clothed or in swimwear, no nudity, nothing explicit.';
 const fill = (tpl, pick) => tpl.replace(/\{(\w+)\}/g, (_, k) => pick(k));
+const plainOf = (t) => String(t || '').replace(ADULT_NOTE, '').trim();
 
-/** A ready-to-make idea from the written formats (used when no chat model is installed, or as the seed). */
+/** A ready-to-make setup from the written formats (used when no chat model is installed, or as the seed). */
 export function draftIdea(rand = Math.random, recent = [], topics = [], style = 'comedy') {
   const spicy = style === 'spicy';
   const all = spicy ? SPICY_FORMATS : FORMATS;
@@ -77,6 +92,16 @@ export function draftIdea(rand = Math.random, recent = [], topics = [], style = 
   const prompt = tidy(fill(format.prompt, pick)) + (spicy ? ADULT_NOTE : '');
   const title = tidy(fill(format.title, pick));
   return { format: format.id, style: spicy ? 'spicy' : 'comedy', topic, title, prompt, caption: title, hashtags: spicy ? ['#fitcheck', '#glowup', '#aesthetic', '#fyp'] : ['#meme', '#funny', '#comedy', '#fyp'] };
+}
+
+/**
+ * A 30-second movie idea in the comedy or spicy style, from the written formats: the setup becomes
+ * the movie's idea (soReal's story writer turns it into six shots), with the style's look. The
+ * adult note is added when it is made, never stored or shown.
+ */
+export function draftLabMovie(rand = Math.random, recent = [], topics = [], style = 'comedy') {
+  const idea = draftIdea(rand, recent, topics, style);
+  return { ...idea, kind: 'movie', length: MOVIE_SECONDS, prompt: `${plainOf(idea.prompt)} ${ARCS[idea.style]}`, look: LOOKS[idea.style] };
 }
 
 const cap = (t) => (t ? t[0].toUpperCase() + t.slice(1) : t);
@@ -105,7 +130,7 @@ export function draftMovieIdea(profile, rand = Math.random, recent = []) {
   return { format: 'movie', kind: 'movie', style: 'yours', length: MOVIE_SECONDS, topic: null, title, prompt, look, caption: title, hashtags: ['#shortfilm', '#aifilm', '#fyp'] };
 }
 
-/** Why an idea for a movie in your style can't be made, or null. Spicy rules apply when your style leans that way. */
+/** Why an idea for a Lab movie can't be made, or null. Spicy rules apply to spicy movies (and to your style when it leans that way). */
 export function yoursProblem(text, { spicy = false } = {}) {
   const t = String(text || '');
   if (blockedPrompt(t)) return BLOCKED_MESSAGE;
@@ -113,7 +138,7 @@ export function yoursProblem(text, { spicy = false } = {}) {
   return null;
 }
 
-// Spicy means the kind of clip that stays up on TikTok, Reels and Shorts: anything that would be
+// Spicy means the kind of movie that stays up on TikTok, Reels and Shorts: anything that would be
 // taken down (nudity, sex) or that could involve someone under age is never made.
 const EXPLICIT = /\b(nude|nudes|naked|nsfw|porn\w*|explicit|topless|bottomless|nipples?|genital\w*|penis|vagina|pussy|cock|dick|orgasm\w*|masturbat\w*|undress\w*|strip(ping|s|ped|per|tease)?|sex|sexual|intercourse|blowjob|handjob|cum|fetish|bdsm|hentai|lewd|onlyfans|see[-\s]?through)\b/;
 const REAL = /\b(celebrity|famous|lookalike|look-alike|deepfake|influencer named|my (ex|girlfriend|boyfriend|wife|husband|coworker|neighbou?r|friend|crush))\b/;
@@ -126,6 +151,12 @@ export function spicyProblem(text) {
   return null;
 }
 const badTag = (h) => Boolean(spicyProblem(String(h).replace(/#/g, ' ')));
+/** The safety words themselves ("no nudity, nothing explicit") are not a problem: left out of the check. */
+const unsaid = (t) =>
+  String(t || '')
+    .replace(ADULT_NOTE, ' ')
+    .replace(/\b(a\s+)?fictional adult over 25, not a real or famous person\b/gi, ' ')
+    .replace(/\b(no|not|never|nothing|without|avoid)\s+(any\s+|anything\s+)?(nudity|nude|naked|explicit|sexual|sex|topless|famous|real)\b/gi, ' ');
 
 /** First JSON object in a model's answer. */
 export function parseJson(text) {
@@ -138,45 +169,44 @@ export function parseJson(text) {
   }
 }
 
-// The video maker (LTX-2.3) makes the sound with the picture, so the prompt carries what is said.
-const LTX_PROMPT =
-  ' Write the "prompt" for the LTX-2.3 video model: one flowing paragraph in the present tense, 4 to 6 sentences, in this order: who or what is in the shot, what they do (concrete motion, never feelings), how the camera moves, the light and mood. ' +
-  'If someone speaks or sings, put the exact words in quotation marks and say how they sound (She whispers, "Not again."), one short line of at most 10 words for the 5 seconds. Finish with the sound: ambient noise and how clear the voice is. No on-screen text or logos.';
+// Every idea is a 30-second movie: soReal's story writer (story.js) turns it into six 5-second shots
+// and writes each shot's prompt for the video maker, so the idea only says what the movie is.
+const MOVIE_JSON =
+  '{"title": short on-screen hook, "idea": what the movie shows in 2 to 3 sentences (who, where, what happens from the first second to the last), "look": the visual style in one short line (light, colour, lens, camera), ' +
+  '"caption": post caption under 120 characters, "hashtags": 3 to 5 hashtags}.';
 const IDEA_SYSTEMS = {};
 IDEA_SYSTEMS.comedy =
-  'You write ideas for 5-second vertical comedy meme videos made by an AI video model, for a comedy meme channel. Aim for instant recognition, a twist in the first second and a reaction people want to share. ' +
+  'You write ideas for 30-second vertical comedy meme movies made by an AI movie maker (six 5-second shots, each picking up from the last frame of the one before), for a comedy meme channel. ' +
+  'Aim for instant recognition, a twist in the first second, a mishap that keeps escalating and a payoff people want to share. ' +
   'Keep it kind: no real people, celebrities, brands, politics, violence, or anything sexual. Answer only with JSON: ' +
-  '{"title": short on-screen hook, "prompt": one detailed visual paragraph for the video model (camera, setting, action, mood, realistic), "caption": post caption under 120 characters, "hashtags": 3 to 5 hashtags}.' +
-  LTX_PROMPT;
+  MOVIE_JSON;
 IDEA_SYSTEMS.spicy =
-  'You write ideas for 5-second vertical "thirst trap" style videos made by an AI video model: flirty, confident, stylish clips of attractive fictional adults (25 or older) of the kind that go viral on TikTok and Reels: fit checks, glow-ups, slow-motion glances, gym and beach reels. ' +
-  'Aim for a strong look in the first second, eye contact, confidence and a beat to loop on. Keep it platform-safe: clothed or swimwear, no nudity, nothing sexual or explicit, never anyone under 25 or anyone young-looking, no real or famous people, no brands. Answer only with JSON: ' +
-  '{"title": short on-screen hook, "prompt": one detailed visual paragraph for the video model (camera, setting, outfit, action, light, realistic), "caption": post caption under 120 characters, "hashtags": 3 to 5 hashtags}.' +
-  LTX_PROMPT;
+  'You write ideas for 30-second vertical "thirst trap" style movies made by an AI movie maker (six 5-second shots, each picking up from the last frame of the one before): flirty, confident, stylish movies of attractive fictional adults (25 or older) of the kind that go viral on TikTok and Reels: fit checks, glow-ups, slow-motion glances, gym and beach reels. ' +
+  'Aim for a strong look in the first second, eye contact, confidence and an ending to loop on. Keep it platform-safe: clothed or swimwear, no nudity, nothing sexual or explicit, never anyone under 25 or anyone young-looking, no real or famous people, no brands. Answer only with JSON: ' +
+  MOVIE_JSON;
 IDEA_SYSTEMS.yours =
-  'You write ideas for 30-second vertical short films made by an AI movie maker (six 5-second shots), in the personal style of one filmmaker. ' +
+  'You write ideas for 30-second vertical short films made by an AI movie maker (six 5-second shots, each picking up from the last frame of the one before), in the personal style of one filmmaker. ' +
   'You are given a profile of their style made from their own prompts: keep to their subjects, settings, look, mood, pacing and sound, and never use what they never ask for. ' +
   'Make it something they would have written themselves, but new: not a copy of a past prompt. One clear story: an opening image, a turn, a striking ending. ' +
   'No real or famous people, no brands, no on-screen text, never anyone under 18. Answer only with JSON: ' +
-  '{"title": short title, "idea": what the film is about in 2 to 3 sentences (who, where, what happens), "look": the visual style in one short line (light, colour, lens, camera), ' +
-  '"caption": post caption under 120 characters, "hashtags": 3 to 5 hashtags}.';
+  MOVIE_JSON;
 const SCORE_SYSTEMS = {};
 SCORE_SYSTEMS.yours =
   "You judge 30-second short films made in one filmmaker's personal style. Look at the frames, the idea and their style, then score from 0 to 100 how good and how shareable it is " +
   '(a strong first second, a story that reads without sound, how well it matches their style, visual quality and consistency between shots). Be strict: 80+ is rare. ' +
   'Answer only with JSON: {"score": number, "why": one sentence, "better_caption": optional improved caption}.';
 SCORE_SYSTEMS.comedy =
-  'You judge short meme videos for a meme channel. Look at the frames and the idea, then score how likely it is to go viral from 0 to 100 ' +
-  '(hook in the first second, how relatable, how shareable, whether the joke reads without sound, visual quality). Be strict: 80+ is rare. ' +
+  'You judge 30-second meme movies for a comedy meme channel. Look at the frames and the idea, then score how likely it is to go viral from 0 to 100 ' +
+  '(hook in the first second, how relatable, how shareable, whether the joke builds and lands without sound, visual quality and consistency between shots). Be strict: 80+ is rare. ' +
   'Answer only with JSON: {"score": number, "why": one sentence, "better_caption": optional improved caption}.';
 SCORE_SYSTEMS.spicy =
-  'You judge short flirty "thirst trap" style videos for a social channel. Look at the frames and the idea, then score how likely it is to go viral from 0 to 100 ' +
-  '(stopping power in the first second, confidence and charisma, styling and light, how well it loops, visual quality). Score 0 if it shows nudity, anything explicit, or anyone who looks under 25, since it would be taken down. Be strict: 80+ is rare. ' +
+  'You judge 30-second flirty "thirst trap" style movies for a social channel. Look at the frames and the idea, then score how likely it is to go viral from 0 to 100 ' +
+  '(stopping power in the first second, confidence and charisma, styling and light, how well it loops, visual quality and consistency between shots). Score 0 if it shows nudity, anything explicit, or anyone who looks under 25, since it would be taken down. Be strict: 80+ is rare. ' +
   'Answer only with JSON: {"score": number, "why": one sentence, "better_caption": optional improved caption}.';
 
-/** Three frames of a video (as base64 JPEGs) for the judge to look at. */
+/** Frames of a video (as base64 JPEGs) for the judge to look at: three of a short clip, five of a movie. */
 export function framesOf(file, seconds = 5, run = spawn) {
-  const at = [0.6, seconds * 0.5, Math.max(1, seconds - 0.6)];
+  const at = seconds > 10 ? [0.6, seconds * 0.25, seconds * 0.5, seconds * 0.75, seconds - 0.6] : [0.6, seconds * 0.5, Math.max(1, seconds - 0.6)];
   return Promise.all(
     at.map(async (t, i) => {
       const out = path.join(os.tmpdir(), `meme-${process.pid}-${Date.now()}-${i}.jpg`);
@@ -194,16 +224,16 @@ export function framesOf(file, seconds = 5, run = spawn) {
 
 /**
  * o: {
- *   studio        createStudio() result (createJob with background, job, labItems, itemPath, remove, promote, hasUserWork, yieldGpu, state, cancel)
+ *   studio        createStudio() result (labItems, itemPath, remove, promote, hasUserWork, yieldGpu, state)
+ *   movies        createMovies() result: every Lab movie is made with it (create, run, get, remove, adopt, estimate, ownerBusy)
  *   quietSeconds  () => seconds since someone last used the machine
  *   minutesLeft   () => minutes until the machine turns itself off: the auto-off timer's offAt
  *                 (shared/autooff.js), the time the lab fills
  *   chat          async ({ system, user, images? }) => text, or null when no chat model is installed
  *   load / save   async () => saved state | async (state) => void
- *   readyScore    score from which a video is marked ready to post (default 75)
+ *   readyScore    score from which a movie is marked ready to post (default 75)
  *   quietMinutes  how long nobody must have used the machine before the lab starts (default 0: as soon as it is ready)
- *   maxPerHour    at most this many lab videos an hour (default 12)
- *   movies        createMovies() result: "your style" makes 30-second movies with it (create, run, get, remove, adopt, estimate, ownerBusy)
+ *   maxPerHour    at most this many lab movies an hour (default 12)
  *   profile       createStyleProfile() result (style.js): your style, from your saved prompts
  * }
  */
@@ -219,16 +249,25 @@ export function createMemeLab(o) {
   // Your style, as last read (plan() is not async); null until it is built.
   let profile = null;
   const yoursSpicy = () => Boolean(profile?.spicy);
+  /** Whether the spicy rules (and the adult note) apply to an idea: spicy ones, and yours when your style leans spicy. */
+  const spicyRules = (idea) => idea.style === 'spicy' || (idea.style === 'yours' && (yoursSpicy() || Boolean(idea.spicyLean)));
   /** The owner is making something: a job of theirs, or one of their own movies between shots. */
   const ownerBusy = () => studio.hasUserWork() || Boolean(o.movies?.ownerBusy?.());
   let loaded = false;
-  let current = null; // { jobId, idea, startedAt }
+  let current = null; // { movieId, idea, startedAt, phase, ... }
   let ticking = false;
   let lastError = null;
   let qseq = 0;
   const qid = () => `q${now().toString(36)}${(++qseq).toString(36)}`;
 
   const persist = () => Promise.resolve(o.save?.(saved)).catch((err) => log.warn?.(`[lab] could not save: ${err.message}`));
+
+  /** An idea planned or written before every style made movies: a movie now, in its own style. */
+  const asMovie = (q) => {
+    if (q.kind === 'movie') return q;
+    const style = q.style === 'spicy' ? 'spicy' : 'comedy';
+    return { ...q, style, kind: 'movie', length: MOVIE_SECONDS, prompt: plainOf(q.prompt), look: q.look || LOOKS[style] };
+  };
 
   async function ensureLoaded() {
     if (loaded) return;
@@ -240,7 +279,7 @@ export function createMemeLab(o) {
           enabled: s.enabled !== false,
           style: STYLES.includes(s.style) ? s.style : 'spicy',
           topics: Array.isArray(s.topics) ? s.topics.map(String).slice(0, 20) : [],
-          queue: Array.isArray(s.queue) ? s.queue : [],
+          queue: Array.isArray(s.queue) ? s.queue.filter((q) => q && q.prompt).map(asMovie) : [],
           records: Array.isArray(s.records) ? s.records : [],
           // A Lab movie being made when the machine stopped: carried on after the restart.
           making: s.making?.movieId ? s.making : null,
@@ -253,32 +292,23 @@ export function createMemeLab(o) {
   }
 
   /**
-   * Minutes one lab video takes, learned from the last ones (about 6 at first). A 30-second movie in
-   * your style takes much longer (a story, a storyboard and six shots): learned from the last ones,
-   * or else what soReal says a movie like it takes here (movies.estimate, from the studio's timings).
+   * Minutes one Lab movie takes: learned from the last ones, or else what soReal says a chained
+   * 30-second movie takes here (movies.estimate, from the studio's own timings), with a little slack
+   * because background work waits behind yours. About 30 to 45 at first on the standard machine.
    */
-  function minutesPerVideo(style = saved.style) {
-    const movie = style === 'yours';
-    const ms = saved.records.filter((r) => (r.style === 'yours') === movie).map((r) => r.madeMs).filter((x) => x > 0).slice(-6);
-    if (movie) {
-      if (ms.length) return Math.max(10, Math.min(240, Math.round(ms.reduce((a, b) => a + b, 0) / ms.length / 60_000)));
-      const est = Number(o.movies?.estimate?.({ length: MOVIE_SECONDS, size: 'portrait', maker: 'ltx', lead: { mode: 'auto' } })?.seconds);
-      // Background work waits behind yours, so a little slack on top.
-      return Math.max(10, Math.min(240, Number.isFinite(est) && est > 0 ? Math.ceil((est * 1.2) / 60) : 45));
-    }
-    if (!ms.length) return 6;
-    return Math.max(2, Math.min(20, Math.round(ms.reduce((a, b) => a + b, 0) / ms.length / 60_000)));
+  function minutesPerVideo() {
+    const ms = saved.records.filter((r) => r.movieId).map((r) => r.madeMs).filter((x) => x > 0).slice(-6);
+    if (ms.length) return Math.max(10, Math.min(240, Math.round(ms.reduce((a, b) => a + b, 0) / ms.length / 60_000)));
+    const est = Number(o.movies?.estimate?.(MOVIE_SHAPE)?.seconds);
+    return Math.max(10, Math.min(240, Number.isFinite(est) && est > 0 ? Math.ceil((est * 1.2) / 60) : 40));
   }
 
-  /**
-   * Keep enough planned ideas to fill the time left before the machine turns off. Clips: 2 to 12.
-   * Movies in your style: as many as fit, 1 to 3 (often just 1: one takes most of the hour).
-   */
+  /** Keep enough planned movies to fill the time left before the machine turns off: as many as fit, 1 to 3. */
   function plan() {
     const per = minutesPerVideo();
     const busyFor = current ? (current.etaMinutes ?? per) : 0;
     const left = Math.max(0, Number(minutesLeft()) || 0) - busyFor;
-    const want = yours() ? Math.max(1, Math.min(3, Math.floor(left / per))) : Math.max(2, Math.min(12, Math.ceil(left / per)));
+    const want = Math.max(1, Math.min(3, Math.floor(left / per)));
     let added = false;
     while (saved.queue.length < want) {
       if (yours()) {
@@ -286,7 +316,7 @@ export function createMemeLab(o) {
         saved.queue.push({ qid: qid(), ...draftMovieIdea(profile, rand, recent), ...(yoursSpicy() ? { spicyLean: true } : {}), planned: true });
       } else {
         const recent = [...saved.records, ...saved.queue].map((r) => r.format);
-        saved.queue.push({ qid: qid(), ...draftIdea(rand, recent, saved.topics, saved.style), planned: true });
+        saved.queue.push({ qid: qid(), ...draftLabMovie(rand, recent, saved.topics, saved.style), planned: true });
       }
       added = true;
     }
@@ -302,76 +332,39 @@ export function createMemeLab(o) {
     await persist();
   }
 
-  /** A 30-second movie idea in your style, sharpened by the chat model with your profile (unless you wrote it). */
-  async function sharpenMovie(seed) {
+  /** A movie idea sharpened by the chat model for its style (unless you wrote it); your style's gets your profile. */
+  async function sharpen(seed) {
     if (!o.chat || seed.yours) return seed;
+    const style = IDEA_SYSTEMS[seed.style] ? seed.style : 'comedy';
     try {
-      const p = profile || {};
-      const brief = Object.entries(p)
-        .filter(([, v]) => Array.isArray(v) && v.length)
-        .map(([k, v]) => `${k}: ${v.join(', ')}`)
-        .join('\n');
-      const recentTitles = saved.records.filter((r) => r.style === 'yours').slice(-8).map((r) => r.title).join(' | ');
-      const text = await o.chat({
-        system: IDEA_SYSTEMS.yours,
-        user: `Their style${p.summary ? ` in their words: ${p.summary}` : ':'}\n${brief || 'Not known yet: make a strong cinematic short.'}\nA starting point you may change: ${seed.title}. ${seed.prompt} Look: ${seed.look}\nDon't repeat these recent ones: ${recentTitles || 'none'}.`,
-      });
-      const j = parseJson(text);
+      let user;
+      if (style === 'yours') {
+        const p = profile || {};
+        const brief = Object.entries(p)
+          .filter(([, v]) => Array.isArray(v) && v.length)
+          .map(([k, v]) => `${k}: ${v.join(', ')}`)
+          .join('\n');
+        const recentTitles = saved.records.filter((r) => r.style === 'yours').slice(-8).map((r) => r.title).join(' | ');
+        user = `Their style${p.summary ? ` in their words: ${p.summary}` : ':'}\n${brief || 'Not known yet: make a strong cinematic short.'}\nA starting point you may change: ${seed.title}. ${seed.prompt} Look: ${seed.look}\nDon't repeat these recent ones: ${recentTitles || 'none'}.`;
+      } else {
+        const recentTitles = saved.records.filter((r) => r.style === style).slice(-8).map((r) => r.title).join(' | ');
+        user = `${seed.topic ? `Topic: ${seed.topic}. ` : ''}Use this setup as a starting point and make it ${style === 'spicy' ? 'more striking and scroll-stopping' : 'funnier and sharper'}: ${seed.title}. ${seed.prompt} Look: ${seed.look}\nDon't repeat these recent ones: ${recentTitles || 'none'}.`;
+      }
+      const j = parseJson(await o.chat({ system: IDEA_SYSTEMS[style], user }));
       const idea = String(j?.idea || j?.prompt || '').trim();
       if (idea && j?.title) {
         const out = {
           ...seed,
           title: String(j.title).slice(0, 120),
-          prompt: idea.slice(0, 1500),
-          look: String(j.look || seed.look).slice(0, 300),
+          prompt: plainOf(idea).slice(0, 1500),
+          look: String(j.look || seed.look || '').slice(0, 300),
           caption: String(j.caption || j.title).slice(0, 200),
-          hashtags: (Array.isArray(j.hashtags) ? j.hashtags : seed.hashtags).map(String).slice(0, 5),
+          hashtags: (Array.isArray(j.hashtags) ? j.hashtags : seed.hashtags || []).map(String).slice(0, 5),
         };
-        // An idea past the line is thrown away; the one written from your profile is made instead.
-        const words = `${out.title} ${out.prompt} ${out.look} ${out.caption}`;
-        if (yoursProblem(words, { spicy: yoursSpicy() }) || (yoursSpicy() && out.hashtags.some(badTag))) return seed;
+        // An idea past the line is thrown away; the written one is made instead.
+        const rules = spicyRules(out);
+        if (yoursProblem(unsaid(`${out.title} ${out.prompt} ${out.look} ${out.caption}`), { spicy: rules }) || (rules && out.hashtags.some(badTag))) return seed;
         return out;
-      }
-    } catch (err) {
-      log.warn?.(`[lab] movie idea model failed, using the written one: ${err.message}`);
-    }
-    return seed;
-  }
-
-  /** Stop and throw away what is being made now (a clip's job, or a movie with its pictures and shots). */
-  async function dropCurrent() {
-    if (!current) return false;
-    const c = current;
-    current = null;
-    if (c.movieId) {
-      saved.making = null;
-      await o.movies?.remove(c.movieId).catch(() => {});
-    } else await studio.cancel(c.jobId).catch(() => {});
-    return true;
-  }
-
-  /** Make the next idea sharper with the chat model, unless you wrote or edited it yourself. */
-  async function sharpen(seed) {
-    if (!o.chat || seed.yours) return seed;
-    const style = seed.style === 'spicy' ? 'spicy' : 'comedy';
-    try {
-      const recentTitles = saved.records.slice(-8).map((r) => r.title).join(' | ');
-      const text = await o.chat({
-        system: IDEA_SYSTEMS[style],
-        user: `${seed.topic ? `Topic: ${seed.topic}. ` : ''}Use this setup as a starting point and make it ${style === 'spicy' ? 'more striking and scroll-stopping' : 'funnier and sharper'}: ${seed.title}. ${seed.prompt}\nDon't repeat these recent ones: ${recentTitles || 'none'}.`,
-      });
-      const j = parseJson(text);
-      if (j?.prompt && j?.title) {
-        const idea = {
-          ...seed,
-          title: String(j.title).slice(0, 120),
-          prompt: String(j.prompt).slice(0, 1500) + (style === 'spicy' ? ADULT_NOTE : ''),
-          caption: String(j.caption || j.title).slice(0, 200),
-          hashtags: (Array.isArray(j.hashtags) ? j.hashtags : seed.hashtags).map(String).slice(0, 5),
-        };
-        // A model that drifts past the line gets its idea thrown away; the written one is made instead.
-        if (style === 'spicy' && (spicyProblem(`${idea.title} ${idea.prompt.replace(ADULT_NOTE, '')} ${idea.caption}`) || idea.hashtags.some(badTag))) return seed;
-        return idea;
       }
     } catch (err) {
       log.warn?.(`[lab] idea model failed, using the written one: ${err.message}`);
@@ -379,14 +372,24 @@ export function createMemeLab(o) {
     return seed;
   }
 
+  /** Stop and throw away the movie being made now, with its pictures and shots. */
+  async function dropCurrent() {
+    if (!current) return false;
+    const c = current;
+    current = null;
+    saved.making = null;
+    if (c.movieId) await o.movies?.remove(c.movieId).catch(() => {});
+    return true;
+  }
+
   async function judge(record) {
     if (!o.chat) return { score: null, why: 'No chat model is installed to judge it.' };
     const file = await studio.itemPath(record.id).catch(() => null);
-    // A movie's frames come from its final cut: near the start, the middle and the end.
-    const images = file ? await framesOf(file, record.seconds || 5) : [];
+    // The frames come from the final cut: from the first second to the last.
+    const images = file ? await framesOf(file, record.seconds || MOVIE_SECONDS) : [];
     const style = SCORE_SYSTEMS[record.style] ? record.style : 'comedy';
     const theirs = style === 'yours' && profile?.summary ? ` Their style: ${profile.summary}` : '';
-    const what = `${style === 'yours' ? 'Movie' : 'Video prompt'}: ${String(record.prompt).replace(ADULT_NOTE, '')}${record.look ? ` Look: ${record.look}.` : ''}`;
+    const what = `Movie: ${plainOf(record.prompt)}${record.look ? ` Look: ${record.look}.` : ''}`;
     const text = await o.chat({ system: SCORE_SYSTEMS[style], user: `Idea: ${record.title}. Caption: ${record.caption}. ${what}${theirs}`, images });
     const j = parseJson(text) || {};
     const score = Number.isFinite(Number(j.score)) ? Math.max(0, Math.min(100, Math.round(Number(j.score)))) : null;
@@ -415,29 +418,10 @@ export function createMemeLab(o) {
         } else profile ??= await o.profile.current().catch(() => null);
       }
       if (saved.enabled && plan()) await persist();
-      // A movie in your style being made: soReal makes it in the background (it makes way for your
-      // jobs and carries on after them); when its final cut is ready, it is judged like a video.
+      // A movie being made: soReal makes it in the background (it makes way for your jobs and
+      // carries on after them); when its final cut is ready, it is judged.
       if (current?.movieId) {
         await checkMovie();
-        return;
-      }
-      // A lab video being made: wait for it, then judge it.
-      if (current) {
-        const j = studio.job(current.jobId);
-        if (!j || j.status === 'queued' || j.status === 'running') return;
-        const { idea, startedAt } = current;
-        current = null;
-        if (j.status !== 'done' || !j.item) return; // stopped for your job or cancelled: nothing to keep
-        const { qid: _q, planned: _p, ...rest } = idea;
-        const record = { id: j.item.id, ...rest, seconds: j.item.seconds || 5, madeMs: now() - startedAt, createdAt: new Date(now()).toISOString(), status: 'judging' };
-        saved.records.push(record);
-        saved.records = saved.records.slice(-200);
-        await persist();
-        if (studio.hasUserWork()) {
-          record.status = 'made';
-          return; // judged later, after your job
-        }
-        await finishJudging(record);
         return;
       }
       const waiting = saved.records.find((r) => r.status === 'made');
@@ -445,33 +429,14 @@ export function createMemeLab(o) {
         await finishJudging(waiting);
         return;
       }
-      if (!saved.enabled || ownerBusy()) return;
+      if (!saved.enabled || ownerBusy() || !o.movies) return;
       if (quietSeconds() < quietMinutes * 60) return;
       if (madeLastHour() >= maxPerHour) return;
       const st = await studio.state().catch(() => null);
       if (!st?.video?.ready) return;
-      if (yours() && !o.movies) return;
       const next = saved.queue.shift();
       if (!next) return;
-      if (next.kind === 'movie') {
-        await startMovie(next);
-        return;
-      }
-      const idea = await sharpen(next);
-      // Last check before making: a spicy idea must still pass, whoever wrote it.
-      const problem = idea.style === 'spicy' ? spicyProblem(`${idea.title} ${idea.prompt.replace(ADULT_NOTE, '')}`) : null;
-      if (problem) {
-        lastError = `Skipped "${idea.title}": ${problem}`;
-        plan();
-        await persist();
-        return;
-      }
-      const job = await studio.createJob({ kind: 'video', prompt: idea.prompt, size: 'portrait', seconds: 5, background: true });
-      current = { jobId: job.id, idea, startedAt: now() };
-      lastError = null;
-      plan();
-      await persist();
-      log.info?.(`[lab] making "${idea.title}"`);
+      await startMovie(asMovie(next));
     } catch (err) {
       lastError = err.message;
       log.warn?.(`[lab] ${err.message}`);
@@ -480,25 +445,27 @@ export function createMemeLab(o) {
     }
   }
 
-  /** Start a 30-second movie in your style with soReal's auto flow: story, storyboard, shots, final cut. */
+  /** Start a 30-second movie with soReal's auto flow: story, opening picture, shots chained from each last frame, final cut. */
   async function startMovie(next) {
-    const idea = await sharpenMovie(next);
-    const spicyLean = yoursSpicy() || Boolean(idea.spicyLean);
-    const plain = idea.prompt.replace(ADULT_NOTE, '');
-    // Last check before making, whoever wrote it: never minors, and spicy rules when your style leans spicy.
-    const problem = yoursProblem(`${idea.title} ${plain} ${idea.look || ''}`, { spicy: spicyLean });
+    const idea = await sharpen(next);
+    const rules = spicyRules(idea);
+    const plain = plainOf(idea.prompt);
+    // Last check before making, whoever wrote it: never minors, and the spicy rules for spicy movies.
+    const problem = yoursProblem(unsaid(`${idea.title} ${plain} ${idea.look || ''}`), { spicy: rules });
     if (problem) {
       lastError = `Skipped "${idea.title}": ${problem}`;
       plan();
       await persist();
       return;
     }
-    const text = spicyLean ? plain + ADULT_NOTE : plain;
+    const text = rules ? plain + ADULT_NOTE : plain;
     try {
       // soReal's own content rules too (its photo rule never comes up: a Lab movie never uses a photo).
       checkMovieText([idea.title, text, idea.look]);
-      const movie = await o.movies.create({ flow: 'auto', title: idea.title, idea: text, look: idea.look || '', length: MOVIE_SECONDS, size: 'portrait', maker: 'ltx', lead: { mode: 'auto' }, sound: 'auto', lab: true, nsfw: spicyLean });
-      current = { movieId: movie.id, idea: { ...idea, spicyLean: spicyLean || undefined }, startedAt: now(), phase: 'story' };
+      // Never marked NSFW up front: the blur follows what the machine's check sees in the pictures,
+      // the words and your own say (studio.js), not the style it was made in.
+      const movie = await o.movies.create({ ...MOVIE_SHAPE, template: idea.style === 'comedy' ? 'comedy' : null, title: idea.title, idea: text, look: idea.look || '', lab: true });
+      current = { movieId: movie.id, idea: { ...idea, prompt: plain, spicyLean: (idea.style === 'yours' && rules) || undefined }, startedAt: now(), phase: 'story' };
       saved.making = { ...current };
       await o.movies.run(movie.id);
     } catch (err) {
@@ -514,6 +481,15 @@ export function createMemeLab(o) {
     log.info?.(`[lab] making the movie "${idea.title}"`);
   }
 
+  /** The story soReal wrote must keep the style's rules too: never minors, and the spicy rules for spicy movies. */
+  function storyProblem(m, idea) {
+    const words = unsaid((m.shots || []).flatMap((s) => [s.prompt, s.says, s.end]).concat([m.lead?.description, m.look, m.opening]).filter(Boolean).join(' \n '));
+    if (!words.trim()) return null;
+    if (spicyRules(idea)) return spicyProblem(words);
+    if (blockedPrompt(words)) return BLOCKED_MESSAGE;
+    return null;
+  }
+
   /** The movie being made: note how far it is; when its final cut is ready, record and judge it. */
   async function checkMovie() {
     const m = o.movies ? await o.movies.get(current.movieId).catch(() => null) : null;
@@ -522,6 +498,18 @@ export function createMemeLab(o) {
       saved.making = null;
       await persist();
       return;
+    }
+    if (!current.storyChecked && (m.shots || []).some((s) => s.prompt)) {
+      const problem = storyProblem(m, current.idea);
+      if (problem) {
+        lastError = `Stopped "${current.idea.title}": ${problem}`;
+        await dropCurrent();
+        plan();
+        await persist();
+        return;
+      }
+      current.storyChecked = true;
+      saved.making = { ...current };
     }
     current.phase = m.phase;
     current.paused = Boolean(m.paused);
@@ -534,8 +522,8 @@ export function createMemeLab(o) {
       const { idea, startedAt, movieId } = current;
       current = null;
       saved.making = null;
-      const { qid: _q, planned: _p, ...rest } = idea;
-      const record = { id: m.render.itemId, movieId, ...rest, seconds: m.length || MOVIE_SECONDS, madeMs: now() - startedAt, createdAt: new Date(now()).toISOString(), status: 'judging', nsfw: Boolean(idea.spicyLean) || undefined };
+      const { qid: _q, planned: _p, storyChecked: _c, ...rest } = idea;
+      const record = { id: m.render.itemId, movieId, ...rest, prompt: plainOf(rest.prompt), seconds: m.length || MOVIE_SECONDS, madeMs: now() - startedAt, createdAt: new Date(now()).toISOString(), status: 'judging' };
       saved.records.push(record);
       saved.records = saved.records.slice(-200);
       await persist();
@@ -575,12 +563,16 @@ export function createMemeLab(o) {
     async state() {
       await ensureLoaded();
       const live = new Map((await studio.labItems().catch(() => [])).map((i) => [i.id, i]));
-      // The NSFW check's answer lives on the video itself (studio.js): pass it along for the blur.
+      // The NSFW check's answer and your own say live on the video itself (studio.js): passed along
+      // for the blur. Nothing is blurred for its style alone. The adult note is never shown.
       const records = saved.records
         .filter((r) => live.has(r.id))
-        .map((r) => (live.get(r.id).nsfw ? { ...r, nsfw: true } : r))
+        .map((r) => {
+          const it = live.get(r.id);
+          const { nsfw: _style, spicyLean: _lean, ...rest } = r;
+          return { ...rest, prompt: plainOf(r.prompt), ...(it.nsfw ? { nsfw: true } : {}), ...(typeof it.nsfwUser === 'boolean' ? { nsfwUser: it.nsfwUser } : {}) };
+        })
         .reverse();
-      const job = current?.jobId ? studio.job(current.jobId) : null;
       const movie = current?.movieId
         ? { id: current.movieId, phase: current.phase || 'story', paused: Boolean(current.paused), shots: current.shots || 0, shotsDone: current.shotsDone || 0, etaSeconds: current.etaSeconds ?? null, seconds: MOVIE_SECONDS }
         : null;
@@ -592,14 +584,16 @@ export function createMemeLab(o) {
         readyScore,
         minutesPerVideo: minutesPerVideo(),
         minutesLeft: Math.max(0, Math.round(Number(minutesLeft()) || 0)),
-        making: current ? { title: current.idea.title, topic: current.idea.topic || null, prompt: current.idea.prompt.replace(ADULT_NOTE, ''), job, movie, nsfw: Boolean(current.idea.spicyLean) || undefined } : null,
-        queue: saved.queue.map(({ qid: id, title, prompt, topic, yours, kind, length, look, spicyLean }) => ({
+        making: current ? { title: current.idea.title, topic: current.idea.topic || null, prompt: plainOf(current.idea.prompt), style: current.idea.style, job: null, movie } : null,
+        queue: saved.queue.map(({ qid: id, title, prompt, topic, yours: own, length, look }) => ({
           id,
           title,
-          prompt: String(prompt).replace(ADULT_NOTE, ''),
+          prompt: plainOf(prompt),
           topic: topic || null,
-          yours: Boolean(yours),
-          ...(kind === 'movie' ? { kind: 'movie', seconds: length || MOVIE_SECONDS, look: look || '', nsfw: Boolean(spicyLean) || undefined } : {}),
+          yours: Boolean(own),
+          kind: 'movie',
+          seconds: length || MOVIE_SECONDS,
+          look: look || '',
         })),
         madeLastHour: madeLastHour(),
         lastError,
@@ -609,6 +603,7 @@ export function createMemeLab(o) {
     /** { enabled?, style?, topics? } */
     async configure({ enabled, style, topics } = {}) {
       await ensureLoaded();
+      if (style !== undefined && !STYLES.includes(style)) throw Object.assign(new Error('The Lab has no such style.'), { status: 400 });
       if (Array.isArray(topics)) {
         const clean = topics.map((t) => String(t).trim().slice(0, 60)).filter(Boolean);
         const bad = clean.find((t) => mentionsMinor(t) || ((style ?? saved.style) === 'spicy' && spicyProblem(t)));
@@ -638,30 +633,30 @@ export function createMemeLab(o) {
       await this.configure({ enabled: Boolean(on) });
       return saved.enabled;
     },
-    /** Stop the video being made now (the next idea starts on the next tick). */
+    /** Stop the movie being made now (the next idea starts on the next tick). */
     async cancelCurrent() {
       const had = await dropCurrent();
       if (had) await persist();
       return had;
     },
-    /** Your own idea, made next. */
+    /** Your own idea for a 30-second movie, made next as written (the look comes from the style). */
     async addIdea({ title, prompt }) {
       await ensureLoaded();
-      const p = String(prompt || title || '').trim().slice(0, 1500);
+      const p = plainOf(String(prompt || title || '').trim().slice(0, 1500));
       if (!p) return false;
+      const t = String(title || p).trim().slice(0, 120);
       if (yours()) {
-        // Your own idea for a 30-second movie: the look comes from your style.
         const problem = yoursProblem(`${title || ''} ${p}`, { spicy: yoursSpicy() });
         if (problem) throw Object.assign(new Error(problem), { status: 422 });
         const seed = draftMovieIdea(profile, rand);
-        saved.queue.unshift({ qid: qid(), ...seed, title: String(title || p).trim().slice(0, 120), prompt: p, caption: String(title || p).slice(0, 200), ...(yoursSpicy() ? { spicyLean: true } : {}), yours: true });
+        saved.queue.unshift({ qid: qid(), ...seed, title: t, prompt: p, caption: String(title || p).slice(0, 200), ...(yoursSpicy() ? { spicyLean: true } : {}), yours: true });
         await persist();
         return true;
       }
-      const problem = spicy() ? spicyProblem(`${title || ''} ${p}`) : null;
+      const problem = yoursProblem(`${title || ''} ${p}`, { spicy: spicy() });
       if (problem) throw Object.assign(new Error(problem), { status: 422 });
       const tags = spicy() ? ['#fitcheck', '#aesthetic', '#fyp'] : ['#comedy', '#meme', '#fyp'];
-      saved.queue.unshift({ qid: qid(), format: 'yours', style: saved.style, topic: null, title: String(title || p).trim().slice(0, 120), prompt: spicy() ? p + ADULT_NOTE : p, caption: String(title || p).slice(0, 200), hashtags: tags, yours: true });
+      saved.queue.unshift({ qid: qid(), format: 'yours', kind: 'movie', length: MOVIE_SECONDS, style: saved.style, topic: null, title: t, prompt: p, look: LOOKS[saved.style], caption: String(title || p).slice(0, 200), hashtags: tags, yours: true });
       await persist();
       return true;
     },
@@ -670,11 +665,11 @@ export function createMemeLab(o) {
       const i = find(id);
       if (i < 0) return false;
       const q = saved.queue[i];
-      const problem = q.style === 'spicy' ? spicyProblem(`${title ?? ''} ${prompt ?? ''}`) : q.style === 'yours' ? yoursProblem(`${title ?? ''} ${prompt ?? ''}`, { spicy: Boolean(q.spicyLean) }) : null;
+      const problem = yoursProblem(`${title ?? ''} ${prompt ?? ''}`, { spicy: spicyRules(q) });
       if (problem) throw Object.assign(new Error(problem), { status: 422 });
-      if (prompt != null && q.style === 'spicy' && !String(prompt).includes(ADULT_NOTE.trim())) prompt = String(prompt).trim().slice(0, 1500 - ADULT_NOTE.length) + ADULT_NOTE;
       if (title != null) q.title = String(title).trim().slice(0, 120) || q.title;
-      if (prompt != null) q.prompt = String(prompt).trim().slice(0, 1500) || q.prompt;
+      // The adult note is added when it is made, never kept with your words.
+      if (prompt != null) q.prompt = plainOf(String(prompt).trim().slice(0, 1500)) || q.prompt;
       q.yours = true;
       await persist();
       return true;
@@ -695,12 +690,11 @@ export function createMemeLab(o) {
       await persist();
       return true;
     },
-    /** Move a lab video into the main gallery. */
+    /** Move a Lab movie into your gallery, and into soReal to open and change like your own. */
     async keep(id) {
       await ensureLoaded();
       const record = saved.records.find((r) => r.id === id);
       const ok = await studio.promote(id);
-      // A movie in your style moves into soReal too, to open and change like your own.
       if (ok && record?.movieId) await o.movies?.adopt(record.movieId).catch(() => false);
       if (ok) {
         saved.records = saved.records.filter((r) => r.id !== id);
@@ -720,7 +714,7 @@ export function createMemeLab(o) {
     /** What you wrote or kept in the Lab, for your style (style.js). */
     async ownIdeas() {
       await ensureLoaded();
-      return [...saved.queue, ...saved.records].filter((q) => q.yours).map((q) => ({ title: q.title, prompt: String(q.prompt || '').replace(ADULT_NOTE, ''), createdAt: q.createdAt || '' }));
+      return [...saved.queue, ...saved.records].filter((q) => q.yours).map((q) => ({ title: q.title, prompt: plainOf(q.prompt), createdAt: q.createdAt || '' }));
     },
     /** Your style: the profile, as the Lab panel shows it. */
     async profile() {

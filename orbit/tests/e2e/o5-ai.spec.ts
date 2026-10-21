@@ -96,6 +96,40 @@ test.describe('Orbit 0.5: AI', () => {
     expect(errors).toEqual([]);
   });
 
+  for (const machine of ['on, older code', 'off'] as const) {
+    test(`make: "Edit a video" lists every video editor (machine ${machine}), and Makers opens the Video editing shelf`, async ({ page }, testInfo) => {
+      await mockAi(page, machine === 'off' ? 'off' : 'on');
+      await page.route('**/fake-ai/_orbit/studio', (r) =>
+        r.fulfill({ json: { setup: 'running', running: true, image: { ready: true, downloaded: true, percent: 100 }, video: { ready: true, downloaded: true, percent: 100 }, downloading: null, downloadError: null, jobs: [] } }),
+      );
+      await page.route('**/fake-ai/_orbit/studio/items', (r) => r.fulfill({ json: { items: [] } }));
+      // The older machine's list: no video editors.
+      await page.route('**/fake-ai/_orbit/studio/makers', (r) =>
+        r.fulfill({ json: { makers: [{ id: 'qwen', kind: 'image', name: 'Qwen Image', installed: true, builtIn: true }, { id: 'ltx', kind: 'video', name: 'LTX', installed: true, builtIn: true }] } }),
+      );
+      const errors = await openO5Ai(page);
+      const win = page.locator('.app-window[data-app="ai"]');
+      await win.getByRole('button', { name: 'Make', exact: true }).click();
+      await win.getByRole('radio', { name: /Edit a video/ }).click();
+      const picks = win.getByRole('radiogroup', { name: 'Maker' });
+      for (const n of ['Wan VACE', 'Erase from video', 'Sharpen video']) await expect(picks.getByRole('radio', { name: new RegExp(`^${n}`) })).toBeVisible();
+      if (machine === 'off') await expect(picks.getByRole('radio', { name: /^Wan VACE/ })).toContainText('not added');
+      else {
+        await expect(picks.getByRole('radio', { name: /^Wan VACE/ })).toContainText('soon');
+        await expect(win.getByRole('status').filter({ hasText: 'arrives when your AI machine restarts' })).toBeVisible();
+      }
+      await expectNoHorizontalOverflow(page);
+      await expectTappable(page);
+      await page.screenshot({ path: testInfo.outputPath('make-vedit.png') });
+      await picks.getByRole('button', { name: 'Makers' }).click();
+      const store = page.locator('.app-window[data-app="store"]');
+      const editing = store.getByRole('region', { name: 'Video editing' });
+      for (const n of ['Wan VACE', 'Erase from video', 'Sharpen video']) await expect(editing).toContainText(n);
+      await expectNoHorizontalOverflow(page);
+      expect(errors).toEqual([]);
+    });
+  }
+
   test('make with the machine off: the built-in makers are still pickable, and Makers opens with a way to turn it on', async ({ page }, testInfo) => {
     const powerCalls: Record<string, unknown>[] = [];
     await mockAi(page, 'off', powerCalls);

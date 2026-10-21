@@ -165,6 +165,39 @@ test.describe('AI Store', () => {
     for (const n of ['LTX-2.5', 'Talking photo']) await expect(win.getByRole('button', { name: `${n}: details` }).first()).toBeVisible();
   });
 
+  test('an AI machine on older code: the video editors still show, and arrive when it restarts', async ({ page }, testInfo) => {
+    await mockAi(page, 'on');
+    // The older machine's list: no video editors, no LTX-2.5, no talking photo.
+    const calls = await mockMakers(page);
+    const { errors, win } = await openStore(page);
+    await win.getByRole('tab', { name: 'Pictures & video' }).click();
+    const editing = win.getByRole('region', { name: 'Video editing' });
+    for (const n of ['Wan VACE', 'Erase from video', 'Sharpen video']) {
+      await expect(editing.getByRole('button', { name: `${n}: Arrives when your AI machine restarts` })).toBeVisible();
+    }
+    await expect(editing).toContainText('Arrives when your AI machine restarts');
+    const video = win.getByRole('region', { name: 'Video', exact: true });
+    for (const n of ['LTX-2.5', 'Talking photo']) await expect(video.getByRole('button', { name: `${n}: Arrives when your AI machine restarts` })).toBeVisible();
+    // What the machine has stays as it says.
+    await expect(video.getByRole('button', { name: 'Get H3 Max' })).toBeVisible();
+    await expectNoHorizontalOverflow(page);
+    await page.screenshot({ path: testInfo.outputPath('store-older-machine.png') });
+
+    // Not installable yet: tapping explains, nothing is sent.
+    await editing.getByRole('button', { name: 'Wan VACE: Arrives when your AI machine restarts' }).click();
+    await expect(page.getByText('Arrives when your AI machine restarts. Turn it off and on again to get it.').first()).toBeVisible();
+    await editing.getByRole('button', { name: 'Wan VACE: details' }).click();
+    const vace = page.getByRole('dialog', { name: 'Wan VACE' });
+    await expect(vace.getByRole('note').first()).toContainText('Turn it off and on again');
+    await expect(vace.getByRole('region', { name: 'Specifications' }).getByText('Arrives when your AI machine restarts')).toBeVisible();
+    expect(calls).toEqual([]);
+    for (const b of await editing.getByRole('button').all()) {
+      const bb = (await b.boundingBox())!;
+      expect(bb.height, `${await b.getAttribute('aria-label')} is a 44 px target`).toBeGreaterThanOrEqual(44);
+    }
+    expect(errors).toEqual([]);
+  });
+
   test('opens from the home path, Settings and the AI app', async ({ page }) => {
     await mockAi(page, 'on');
     await mockMakers(page);

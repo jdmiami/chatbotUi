@@ -120,7 +120,7 @@ const idle = createAutoOff({
   tag: '[gate]',
 });
 
-// The meme lab (memes.js): makes meme videos while nobody is using the machine, and has a chat
+// The meme lab (memes.js): makes 30-second meme movies while nobody is using the machine, and has a chat
 // model on this machine score how viral each could go. Only on the main machine.
 const LAB_KEY = 'state/meme-lab.json';
 const labFile = path.join(env.PERSIST_DIR || '/workspace', '.orbit-meme-lab.json');
@@ -180,7 +180,8 @@ const lab =
   studio && !HELPER
     ? createMemeLab({
         studio,
-        // "Your style": 30-second movies through soReal's auto flow, from the profile above.
+        // Every Lab style makes 30-second movies through soReal's auto flow (chained from each last
+        // frame); "Your style" writes them from the profile above.
         movies,
         profile: yourStyle,
         quietSeconds: () => idle.state().idleSeconds,

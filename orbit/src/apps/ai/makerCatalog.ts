@@ -1,4 +1,5 @@
 import type { StudioMakerInfo } from '../../services/ai/LocalAi';
+import { CATALOG_MAKERS } from '../store/catalog';
 
 const KEY = 'orbit:studio:makers';
 
@@ -28,6 +29,29 @@ export const MAKER_CATALOG: StudioMakerInfo[] = ENTRIES.map(([id, kind, name, bl
   const builtIn = Boolean(extra?.builtIn);
   return { id, kind, name, blurb, for: null, twoImages: false, builtIn, wanted: builtIn, installed: builtIn, size: 0, percent: builtIn ? 100 : 0, ...extra };
 });
+
+/** Every maker Orbit knows: the built-in list and the catalog's extra makers (ai/gate/catalog.json). */
+const ALL: StudioMakerInfo[] = [
+  ...MAKER_CATALOG,
+  ...CATALOG_MAKERS.filter((m) => !MAKER_CATALOG.some((b) => b.id === m.id)).map((m) => ({ ...m, builtIn: false, wanted: false, installed: false, percent: 0 })),
+];
+
+/**
+ * The machine's list, plus every maker in the catalog it doesn't know yet (it runs older code):
+ * those show as `pending`, "Arrives when your AI machine restarts", and can't be added until then.
+ */
+export function withCatalog(list: StudioMakerInfo[]): StudioMakerInfo[] {
+  const have = new Set(list.map((m) => m.id));
+  return [...list, ...ALL.filter((m) => !have.has(m.id)).map((m) => ({ ...m, builtIn: false, wanted: false, installed: false, percent: 0, pending: true }))];
+}
+export const PENDING_TEXT = 'Arrives when your AI machine restarts';
+
+/** Makers to show while the machine is off: what it last reported, plus every newer one in the catalog. */
+export function offlineMakers(): StudioMakerInfo[] {
+  const base = rememberedMakers() ?? MAKER_CATALOG;
+  const have = new Set(base.map((m) => m.id));
+  return [...base, ...ALL.filter((m) => !have.has(m.id))];
+}
 
 /** The list the machine last reported, so its makers stay pickable while it is off. */
 export function rememberedMakers(): StudioMakerInfo[] | null {

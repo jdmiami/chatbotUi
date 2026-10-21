@@ -1,13 +1,13 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Step, nextStep } from '../../shell/o5/Step';
 import { useShell } from '../../state/shell';
 import { Icon } from '../../ui/Icon';
-import { ConfirmSheet, EmptyState, IconButton, Segmented, Sheet, Toggle } from '../../ui/components';
-import { Censor } from '../../ui/Censor';
+import { ConfirmSheet, EmptyState, IconButton, Segmented, Toggle } from '../../ui/components';
 import { isNsfw } from '../../ui/nsfw';
-import { connectMarks, nsfwFor, rememberItems, setMark, useNsfwFlags } from '../../ui/nsfwFlags';
+import { connectMarks, nsfwFor, rememberItems, useNsfwFlags } from '../../ui/nsfwFlags';
+import { GalleryGrid, GalleryViewer, type GalleryMedia } from './Gallery';
 import { AiError, type LocalAi, type StudioItem, type StudioJob, type StudioKind, type StudioMakerInfo, type StudioState, type VideoTask } from '../../services/ai/LocalAi';
-import { MAKER_CATALOG, rememberMakers, rememberedMakers } from './makerCatalog';
+import { PENDING_TEXT, offlineMakers, rememberMakers, withCatalog } from './makerCatalog';
 import { AudioSource, VideoSource, type AudioPick, type VideoPick } from './VideoInputs';
 import { TextArea } from '../../ui/TextArea';
 
@@ -126,9 +126,10 @@ export function CreateView({
   const [studioError, setStudioError] = useState<string | null>(null);
   const [makers, setMakersState] = useState<StudioMakerInfo[] | null>(null);
   const [, setMakersError] = useState<string | null>(null);
-  // Until the machine answers (or while it is off): the makers it last had, else what it offers.
-  const [offline] = useState(() => rememberedMakers() ?? MAKER_CATALOG);
-  const known = makers ?? offline;
+  // Until the machine answers (or while it is off): the makers it last had, plus every newer one
+  // in the catalog. Once it answers: its list, plus what it doesn't know yet (arrives on restart).
+  const [offline] = useState(offlineMakers);
+  const known = useMemo(() => (makers ? withCatalog(makers) : offline), [makers, offline]);
   const setMakers = useCallback((list: StudioMakerInfo[]) => {
     setMakersState(list);
     setMakersError(null);
@@ -211,7 +212,8 @@ export function CreateView({
 
   // Makers for this mode: the installed ones, plus the one picked (even while it downloads).
   const kindsFor = (m: Mode): StudioMakerInfo['kind'][] => (m === 'edit' ? ['edit', 'upscale'] : m === 'vedit' ? ['videoedit'] : [m]);
-  const choices = known.filter((m) => kindsFor(kind).includes(m.kind) && (m.installed || m.wanted));
+  // Video editing has no built-in maker: every one shows, so you can see what there is to add.
+  const choices = known.filter((m) => kindsFor(kind).includes(m.kind) && (m.installed || m.wanted || kind === 'vedit'));
   const chosen = known.find((m) => m.id === pick[kind]) ?? known.find((m) => m.id === DEFAULT_PICK[kind]) ?? null;
   const chosenId = chosen?.id ?? DEFAULT_PICK[kind];
   const styles = known.filter((m) => m.kind === 'style' && m.for === chosenId && m.installed);
@@ -362,6 +364,7 @@ export function CreateView({
     if (!machineOn) return 'Turn on your AI machine to make images and videos.';
     if (studioError) return studioError;
     if (!studio) return 'Checking the image and video maker…';
+    if (chosen?.pending) return `${chosen.name}: ${PENDING_TEXT.toLowerCase()}. Turn it off and on again to get it.`;
     if (chosen && !chosen.installed) return chosen.wanted ? `${chosen.name} is downloading: ${chosen.percent}%.` : `${chosen.name} is not installed. Open Makers to add it.`;
     if (!chosen && !builtInMaker?.downloaded) return `The maker is downloading (first start only): ${builtInMaker?.percent ?? 0}%.`;
     if (!studio.running) return studio.setup.startsWith('error') ? `The maker had a problem: ${studio.setup.slice(6).trim()}` : 'The image and video maker is starting…';
@@ -441,7 +444,7 @@ export function CreateView({
               next('o5-make-describe');
             }}>
               {m.name}
-              {!m.installed && <span className="ai-muted"> {m.percent}%</span>}
+              {!m.installed && <span className="ai-muted"> {m.pending ? 'soon' : m.wanted ? `${m.percent}%` : 'not added'}</span>}
             </button>
           ))}
           <button type="button" className="ai-maker-chip ai-maker-more" onClick={() => onOpenMakers?.()}>
@@ -731,54 +734,24 @@ export function CreateView({
           Pictures and videos you make are kept on your AI machine and show up here on all your devices.
         </EmptyState>
       ) : (
-        <ul className="ai-gallery" aria-label="Your creations">
-          {items.map((it, n) => (
-            <li key={it.id} style={{ '--i': Math.min(n, 14) } as React.CSSProperties}>
-              <Censor as="div" markId={it.id} nsfw={it.nsfw === true || isNsfw(it.prompt)}>
-              <button type="button" className="ai-tile" onClick={(e) => {
-                viewFrom.current = (e.currentTarget.querySelector('img, video') ?? e.currentTarget).getBoundingClientRect();
-                setViewing(it);
-              }} aria-label={`${it.kind === 'video' ? 'Video' : 'Image'}: ${it.prompt}`}>
-                {it.kind === 'image' ? (
-                  <DevelopImg src={it.url} alt="" loading="lazy" />
-                ) : (
-                  <>
-                    <video src={`${it.url}#t=0.1`} muted playsInline preload="metadata" />
-                    <span className="ai-tile-badge">
-                      <Icon name="play" size={14} /> {it.seconds ? `${it.seconds}s` : ''}
-                    </span>
-                  </>
-                )}
-              </button>
-              </Censor>
-            </li>
-          ))}
-        </ul>
+        <GalleryGrid
+          items={items.map(asMedia)}
+          label="Your creations"
+          onOpen={(m, from) => {
+            viewFrom.current = from;
+            setViewing(items.find((x) => x.id === m.id) ?? null);
+          }}
+        />
       )}
 
       {viewing && (
-        <Sheet title={viewing.kind === 'image' ? 'Image' : 'Video'} origin={viewFrom.current} onClose={() => setViewing(null)}>
-          <div className="ai-viewer">
-            <Censor as="div" className="ai-viewer-media" markId={viewing.id} nsfw={viewing.nsfw === true || isNsfw(viewing.prompt)}>
-              {viewing.kind === 'image' ? (
-                <DevelopImg src={viewing.url} alt={viewing.prompt} />
-              ) : (
-                <video src={viewing.url} controls playsInline autoPlay />
-              )}
-            </Censor>
-            <Censor as="div" text markId={viewing.id} nsfw={viewing.nsfw === true || isNsfw(viewing.prompt)}>
-              <p className="ai-viewer-prompt">{viewing.prompt}</p>
-            </Censor>
-            {censor && (
-              <div className="ai-viewer-blur">
-                <span className="ai-muted">Blur this one (NSFW)</span>
-                <Toggle
-                  checked={nsfwFor(viewing.id, viewing.nsfw === true || isNsfw(viewing.prompt))}
-                  label="Blur this one (NSFW)"
-                  onChange={(on) => setMark(viewing.id, on)}
-                />
-              </div>
-            )}
+        <GalleryViewer
+          media={asMedia(viewing)}
+          title={viewing.kind === 'image' ? 'Image' : 'Video'}
+          origin={viewFrom.current}
+          onClose={() => setViewing(null)}
+          words={<p className="ai-viewer-prompt">{viewing.prompt}</p>}
+        >
             <div className="ai-viewer-actions">
               <a className="btn" href={withParam(viewing.url, 'download=1')} download>
                 <Icon name="download" size={16} /> Save
@@ -833,8 +806,7 @@ export function CreateView({
                 <Icon name="trash" size={16} /> Delete
               </button>
             </div>
-          </div>
-        </Sheet>
+        </GalleryViewer>
       )}
       {confirmDelete && (
         <ConfirmSheet
@@ -858,15 +830,5 @@ export function CreateView({
   );
 }
 
-/**
- * A picture that "develops": it starts blurred and colourless and sharpens as it loads (see
- * motion.css). The final state is always a normal image, so nothing depends on the effect.
- */
-function DevelopImg(props: React.ImgHTMLAttributes<HTMLImageElement>) {
-  const ref = useRef<HTMLImageElement>(null);
-  const [loaded, setLoaded] = useState(false);
-  useEffect(() => {
-    if (ref.current?.complete && ref.current.naturalWidth > 0) setLoaded(true);
-  }, []);
-  return <img {...props} ref={ref} className="ai-dev" data-loaded={loaded} onLoad={() => setLoaded(true)} onError={() => setLoaded(true)} />;
-}
+/** A gallery item as the shared gallery shows it (Gallery.tsx). */
+const asMedia = (it: StudioItem): GalleryMedia => ({ id: it.id, kind: it.kind, url: it.url, label: it.prompt, nsfw: it.nsfw === true || isNsfw(it.prompt), seconds: it.seconds });

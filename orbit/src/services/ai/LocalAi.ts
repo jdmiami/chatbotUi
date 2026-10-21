@@ -105,6 +105,8 @@ export interface MemeRecord {
   id: string;
   /** The AI machine's NSFW check flagged the video. */
   nsfw?: boolean;
+  /** Your own say on it: true blurs it, false never blurs it. */
+  nsfwUser?: boolean;
   url?: string;
   title: string;
   prompt: string;
@@ -220,6 +222,8 @@ export interface StudioMakerInfo {
   installed: boolean;
   size: number;
   percent: number;
+  /** In Orbit's catalog but not on the AI machine's list: its code is older. Arrives when it restarts. */
+  pending?: boolean;
 }
 
 /** A video or sound sent to the AI machine for a maker to work on. */
