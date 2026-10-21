@@ -161,6 +161,8 @@ export function createMovies(o) {
       }
       out.etaSeconds = remainingSeconds(m, on ? running.get(m.id) : null);
       out.shotSeconds = m.seconds;
+      // A Lab movie waiting for your job to finish (it made way for it, and carries on after).
+      out.paused = Boolean(on && running.get(m.id)?.paused);
     }
     return out;
   };
@@ -182,7 +184,8 @@ export function createMovies(o) {
     const out = [];
     for (const n of names) if (n.endsWith('.json')) {
       const m = await read(n.slice(0, -5));
-      if (m) out.push(view(m));
+      // The Lab's movies stay in the Lab until you keep one.
+      if (m && !m.lab) out.push(view(m));
     }
     return out.sort((a, b) => String(b.updatedAt).localeCompare(String(a.updatedAt)));
   }
@@ -251,6 +254,8 @@ export function createMovies(o) {
       await stop(id);
       await state.done;
     }
+    // A Lab movie's pictures and shots were only ever in the Lab: they go with it.
+    if (m?.lab) for (const itemId of itemsOf((await read(id)) || m)) await studio.remove?.(itemId).catch(() => {});
     await fsp.rm(file(id), { force: true });
     if (mirror) await mirror.drop(file(id));
     return true;
@@ -278,36 +283,66 @@ export function createMovies(o) {
       if (m.phase === 'error' || m.phase === 'stopped' || m.phase === 'draft' || m.phase === 'review' || m.phase === 'done') m.phase = 'story';
       await write(m);
     } else if (!m.shots.some((s) => s.status !== 'done' && s.prompt.trim())) throw err('Write what happens in the next shot first.', 400);
-    const state = { stop: false, removed: false, jobId: null, step: null, done: null };
+    const state = { stop: false, removed: false, jobId: null, step: null, done: null, background: Boolean(m.background), paused: false };
     running.set(id, state);
     state.done = (m.flow === 'auto' ? autoLoop(id, state) : loop(id, state)).catch((e) => log.warn?.(`[movies] ${e.message}`));
     return view(await read(id));
   }
 
-  /** Start a studio job and wait for it, keeping the "being made here" mark fresh. */
-  async function waitJob(id, state, req, step) {
-    let job;
-    try {
-      job = await studio.createJob(req);
-    } catch (e) {
-      job = { status: 'error', error: e.message };
-    }
-    state.jobId = job.id || null;
-    state.step = step;
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+  /** You are making something: a job of yours, or one of your own movies between its shots. */
+  const ownerBusy = () => Boolean(studio.hasUserWork?.()) || [...running.values()].some((s) => !s.background && !s.finished && !s.waiting);
+
+  /** A Lab movie (background): while you have a job, it waits, then carries on where it was. */
+  async function yieldToOwner(id, state) {
+    if (!state.background || !ownerBusy()) return;
+    state.paused = true;
     let beat = now();
-    while (job.status === 'queued' || job.status === 'running') {
-      await new Promise((r) => setTimeout(r, pollMs));
-      job = studio.job(job.id) || { status: 'error', error: 'The job went missing.' };
-      if (now() - beat >= BEAT_MS && !state.removed) {
-        // Still making it: tell the other machine (write() stamps the time).
+    while (ownerBusy() && !state.stop && !state.removed) {
+      await sleep(pollMs);
+      if (now() - beat >= BEAT_MS) {
         beat = now();
         const cur = await read(id);
         if (cur) await write(cur);
       }
     }
-    state.jobId = null;
-    state.step = null;
-    return job;
+    state.paused = false;
+  }
+
+  /** Start a studio job and wait for it, keeping the "being made here" mark fresh. */
+  async function waitJob(id, state, req, step) {
+    for (;;) {
+      await yieldToOwner(id, state);
+      if (state.stop || state.removed) return { status: 'stopped', error: 'Stopped.' };
+      let job;
+      try {
+        job = await studio.createJob(state.background ? { ...req, background: true } : req);
+      } catch (e) {
+        job = { status: 'error', error: e.message };
+      }
+      state.jobId = job.id || null;
+      state.step = step;
+      let beat = now();
+      while (job.status === 'queued' || job.status === 'running') {
+        await sleep(pollMs);
+        job = studio.job(job.id) || { status: 'error', error: 'The job went missing.' };
+        if (now() - beat >= BEAT_MS && !state.removed) {
+          // Still making it: tell the other machine (write() stamps the time).
+          beat = now();
+          const cur = await read(id);
+          if (cur) await write(cur);
+        }
+      }
+      state.jobId = null;
+      state.step = null;
+      // A Lab movie's step that made way for your job: made again once yours is done.
+      if (state.background && job.status === 'stopped' && !state.stop && !state.removed && (state.yielded || 0) < 100) {
+        state.yielded = (state.yielded || 0) + 1;
+        continue;
+      }
+      return job;
+    }
   }
 
   async function loop(id, state) {
@@ -405,7 +440,7 @@ export function createMovies(o) {
       // A clip without sound: join the pictures only.
       await ffmpeg(stitchArgs(inputs, out, { audio: false, ...cuts }));
     }
-    const item = await studio.addItem({ kind: 'video', prompt: m.title, file: rel, seconds: Math.round(seconds * 10) / 10, width, height, movie: m.id, photo });
+    const item = await studio.addItem({ kind: 'video', prompt: m.title, file: rel, seconds: Math.round(seconds * 10) / 10, width, height, movie: m.id, photo, ...(m.lab ? { lab: true } : {}), ...(m.nsfw ? { nsfw: true } : {}) });
     // Shots may have changed while it was being joined: read it again before saying it is current.
     const latest = (await read(id)) || m;
     latest.render = { itemId: item.id, at: new Date(now()).toISOString() };
@@ -478,6 +513,9 @@ export function createMovies(o) {
       render: null,
       createdAt: new Date(now()).toISOString(),
     };
+    // Made by the Lab (memes.js, never from a request): kept out of soReal until you keep it, its
+    // studio jobs wait behind yours and make way for them, and its cut may be blurred as NSFW.
+    if (body.lab) Object.assign(m, { lab: true, background: true, nsfw: Boolean(body.nsfw) || undefined });
     if (m.shots.length) {
       m.story = 'you';
       syncFrames(m);
@@ -798,6 +836,9 @@ export function createMovies(o) {
         // 1. The story.
         if (!m.shots.some((s) => s.prompt.trim())) {
           await setStatus(id, (x) => (x.phase = 'story'));
+          // The writer uses the graphics card too: a Lab movie lets your job go first.
+          await yieldToOwner(id, state);
+          if (state.stop || state.removed) return;
           try {
             m = await read(id);
             await story(m);
@@ -948,6 +989,20 @@ export function createMovies(o) {
     }
   }
 
+  /** Every gallery item a movie was made of: the lead, the storyboard, the shots and the cut. */
+  const itemsOf = (m) => [m.lead?.itemId, ...(m.frames || []).map((f) => f.itemId), ...(m.shots || []).map((s) => s.itemId), m.render?.itemId].filter(Boolean);
+
+  /** You kept a Lab movie: it moves into soReal (and its pictures and shots into your gallery), to open and change like your own. */
+  async function adopt(id) {
+    const m = await read(id);
+    if (!m?.lab) return false;
+    for (const itemId of itemsOf(m)) await studio.promote?.(itemId).catch(() => false);
+    delete m.lab;
+    delete m.background;
+    await write(m);
+    return true;
+  }
+
   /** True while the other machine is making a movie with this maker (its files must stay). */
   async function usedElsewhere(makerId) {
     return (await list()).some((m) => m.running && m.runningOn !== machine && m.maker === makerId);
@@ -956,5 +1011,5 @@ export function createMovies(o) {
   /** True while a movie is making shots (keeps the machine from turning off between shots). */
   const busy = () => running.size > 0;
 
-  return { list, create, get, update, remove, run, stop, render, plan, leadPhoto, estimate, busy, usedElsewhere };
+  return { list, create, get, update, remove, run, stop, render, plan, leadPhoto, estimate, busy, ownerBusy, usedElsewhere, adopt };
 }
