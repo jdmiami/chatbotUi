@@ -9,6 +9,7 @@ export type AppId =
   | 'store'
   | 'soreal'
   | 'lab'
+  | 'stats'
   | 'settings'
   // Full-screen apps that live on the site (Orbit shows their page and opens them).
   | 'playground'

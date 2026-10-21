@@ -13,6 +13,7 @@ export type ArtId =
   | 'store'
   | 'soreal'
   | 'lab'
+  | 'stats'
   | 'settings'
   | 'playground'
   | 'vscode'
@@ -27,6 +28,7 @@ const TILES: Record<ArtId, [string, string, string?]> = {
   store: ['#f5c16c', '#d9663a', '#6d2a5c'],
   soreal: ['#ff6a6a', '#c2185b', '#4a148c'],
   lab: ['#ffd36b', '#ff7a59', '#8a2be2'],
+  stats: ['#7ee0b5', '#1f8a70', '#12355b'],
   settings: ['#9aa3b6', '#454c5f'],
   playground: ['#ffb547', '#f0517a'],
   vscode: ['#3aa0ff', '#0b4fa8'],
@@ -98,6 +100,16 @@ function Glyph({ id, uid }: { id: ArtId; uid: string }) {
             <rect key={`b${i}`} x={27 + i * 13} y="72" width="7" height="5" rx="1.5" fill={INK} opacity="0.8" />
           ))}
           <path d="M45 41v18l15-9z" fill="#fff1e0" />
+        </g>
+      );
+    case 'stats':
+      return (
+        <g>
+          <path d="M22 76h56" stroke={INK} strokeWidth="5" strokeLinecap="round" />
+          <rect x="27" y="52" width="10" height="20" rx="2.5" fill={INK} opacity="0.75" />
+          <rect x="45" y="38" width="10" height="34" rx="2.5" fill={INK} />
+          <rect x="63" y="46" width="10" height="26" rx="2.5" fill={INK} opacity="0.85" />
+          <path d="M24 40l16-12 14 8 22-14" fill="none" stroke="#c9ffe6" strokeWidth="4" strokeLinecap="round" strokeLinejoin="round" />
         </g>
       );
     case 'settings':
