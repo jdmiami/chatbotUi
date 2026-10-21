@@ -1,9 +1,11 @@
 import { currentUser } from '@/lib/auth';
 import { sameOrigin } from '@/lib/request';
 import { machineStatus, setMachinePower } from '@/lib/runpod';
-import { linuxMachineExtend } from '@/lib/status';
+import { linuxMachineExtend, linuxSaveBeforeStop } from '@/lib/status';
 
 export const dynamic = 'force-dynamic';
+// Turning off waits for the machine to save its home to R2 first.
+export const maxDuration = 60;
 
 const noStore = { 'cache-control': 'no-store' };
 
@@ -36,6 +38,7 @@ export async function POST(request: Request) {
     return Response.json({ error: 'RUNPOD_API_KEY is not set in Vercel.' }, { status: 501 });
   }
   try {
+    if (action === 'stop') await linuxSaveBeforeStop(user);
     await setMachinePower(action);
   } catch (err) {
     return Response.json({ error: (err as Error).message }, { status: 502 });

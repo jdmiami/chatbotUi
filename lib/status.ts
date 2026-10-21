@@ -1,7 +1,7 @@
 import 'server-only';
 import { SignJWT, jwtVerify } from 'jose';
 import { aiBase, aiConsole, aiStatus, aiTiers, aiToken, findAiPod } from './ai';
-import { linuxIdle, linuxKeepAwake, podHttpBase, podId, runpod } from './runpod';
+import { linuxIdle, linuxKeepAwake, linuxSaveHome, podHttpBase, podId, runpod } from './runpod';
 import { autoOffInfo, autoOffMinutes, keepOnMinutes } from './autoOff';
 
 /**
@@ -279,6 +279,12 @@ export async function aiMachineAction(user: string, action: 'extend' | 'unload',
   const out = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(out.error || `The AI machine answered ${res.status}.`);
   return out;
+}
+
+/** Before the Linux machine is turned off: it saves its home to R2 (best effort, never throws). */
+export async function linuxSaveBeforeStop(user: string): Promise<void> {
+  if (!podId()) return;
+  await linuxSaveHome(await hostToken(user)).catch(() => false);
 }
 
 /** "Keep on" for the Linux machine: the same rule and limits as the AI machine's. */

@@ -238,6 +238,23 @@ export async function linuxKeepAwake(token: string, minutes: number): Promise<{ 
   return out;
 }
 
+/**
+ * Asks the Linux machine to save its home to R2 now (before it is turned off: it has no drive, so
+ * what isn't saved is gone). Best effort: an older machine (404) or one that doesn't answer is
+ * still turned off; it saved within the last 10 minutes on its own.
+ */
+export async function linuxSaveHome(token: string): Promise<boolean> {
+  const base = await podHttpBase();
+  if (!base) return false;
+  const res = await fetch(`${base}/save`, {
+    method: 'POST',
+    headers: { authorization: `Bearer ${token}` },
+    cache: 'no-store',
+    signal: AbortSignal.timeout(45_000),
+  }).catch(() => null);
+  return Boolean(res?.ok);
+}
+
 /** The Linux machine's own auto-off timer (its gateway's /idle: numbers only, no sign-in). */
 export async function linuxIdle(base: string): Promise<{ limitMinutes?: number; idleMinutes?: number; offAt?: string | null; heldUntil?: string | null } | null> {
   try {

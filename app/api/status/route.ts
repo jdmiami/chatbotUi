@@ -2,7 +2,7 @@ import { currentUser } from '@/lib/auth';
 import { sameOrigin } from '@/lib/request';
 import { startAi, stopAi } from '@/lib/ai';
 import { setMachinePower } from '@/lib/runpod';
-import { aiMachineAction, fullStatus, islandCors, islandUser, linuxMachineExtend } from '@/lib/status';
+import { aiMachineAction, fullStatus, islandCors, islandUser, linuxMachineExtend, linuxSaveBeforeStop } from '@/lib/status';
 import { listMachines } from '@/lib/machines';
 
 export const dynamic = 'force-dynamic';
@@ -56,6 +56,7 @@ export async function POST(request: Request) {
       await stopAi();
     } else if (b.machine === 'linux' && (b.action === 'start' || b.action === 'stop')) {
       if (!process.env.RUNPOD_API_KEY) throw new Error('RUNPOD_API_KEY is not set in Vercel.');
+      if (b.action === 'stop') await linuxSaveBeforeStop(caller.user);
       await setMachinePower(b.action);
     } else {
       return Response.json({ error: 'Unknown action' }, { status: 400, headers: cors });
