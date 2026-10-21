@@ -1,0 +1,31 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash",
+      "Edit",
+      "Write",
+      "WebFetch",
+      "WebSearch",
+      "mcp__github",
+      "mcp__Vercel",
+      "mcp__claude-code-remote",
+      "mcp__Run_pods__list-pods",
+      "mcp__Run_pods__get-pod",
+      "mcp__Run_pods__create-pod",
+      "mcp__Run_pods__update-pod",
+      "mcp__Run_pods__pod-action",
+      "mcp__Run_pods__stream-pod-logs",
+      "mcp__Run_pods__list-network-volumes",
+      "mcp__Run_pods__get-network-volume",
+      "mcp__Run_pods__list-gpu-types",
+      "mcp__Run_pods__get-capacity",
+      "mcp__Run_pods__list-data-centers",
+      "mcp__Run_pods__list-billing",
+      "mcp__Run_pods__describe-tool"
+    ],
+    "ask": [
+      "mcp__Run_pods__delete-pod",
+      "mcp__Run_pods__delete-network-volume"
+    ]
+  }
+}
