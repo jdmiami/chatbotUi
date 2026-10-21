@@ -70,7 +70,7 @@ async function setup({ hfToken = 'hf_test', install = ['vace', 'video-erase', 'v
     state.ffmpeg.push(args);
     await fs.writeFile(args.at(-1), 'out');
   };
-  const studio = createStudio({ dir, files: FILES, fetchImpl, WebSocketImpl: null, log: quiet, retryMs: 20, probe, ffmpeg, hfToken, nsfw });
+  const studio = createStudio({ dir, files: FILES, fetchImpl, WebSocketImpl: null, log: quiet, retryMs: 20, probe, ffmpeg, hfToken, nsfw, statfs: async () => ({ bavail: 1e6, bsize: 1024 ** 2 }) });
   for (const id of install) {
     for (const k of MAKERS.find((m) => m.id === id).files) await place(dir, REAL[k]);
   }

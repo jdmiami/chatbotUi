@@ -42,11 +42,12 @@ export function signS3({ method, host, path: p, query = {}, headers = {}, payloa
 export function createR2({ accountId, accessKeyId, secretAccessKey, bucket, fetchImpl = fetch }) {
   const host = `${accountId}.r2.cloudflarestorage.com`;
   const keyPath = (key) => `/${enc(bucket)}/${key.split('/').map(enc).join('/')}`;
-  async function call(method, key, { query = {}, headers = {}, body } = {}) {
+  // `timeoutMs`: a piece that hangs is given up on (and tried again) instead of stalling the whole transfer.
+  async function call(method, key, { query = {}, headers = {}, body, timeoutMs } = {}) {
     const p = keyPath(key);
     const qs = Object.keys(query).length ? `?${Object.entries(query).map(([k, v]) => (v === '' ? enc(k) : `${enc(k)}=${enc(String(v))}`)).join('&')}` : '';
     const signed = signS3({ method, host, path: p, query, headers, accessKeyId, secretAccessKey });
-    const res = await fetchImpl(`https://${host}${p}${qs}`, { method, headers: signed, body });
+    const res = await fetchImpl(`https://${host}${p}${qs}`, { method, headers: signed, body, ...(timeoutMs ? { signal: AbortSignal.timeout(timeoutMs) } : {}) });
     if (!res.ok && !(method === 'HEAD' && res.status === 404)) {
       const text = await res.text().catch(() => '');
       throw new Error(`R2 ${method} ${res.status}: ${(/<Message>([^<]*)/.exec(text)?.[1] || text).slice(0, 200)}`);
@@ -55,11 +56,12 @@ export function createR2({ accountId, accessKeyId, secretAccessKey, bucket, fetc
   }
   return {
     async head(key) {
-      const res = await call('HEAD', key);
+      const res = await call('HEAD', key, { timeoutMs: 30_000 });
       return res.status === 404 ? null : { size: Number(res.headers.get('content-length')) };
     },
     async getRange(key, start, end) {
-      const res = await call('GET', key, { headers: { range: `bytes=${start}-${end}` } });
+      // A 64 MB piece takes seconds; three minutes means the connection hung.
+      const res = await call('GET', key, { headers: { range: `bytes=${start}-${end}` }, timeoutMs: 180_000 });
       return Buffer.from(await res.arrayBuffer());
     },
     async remove(key) {
@@ -121,7 +123,7 @@ export function createR2({ accountId, accessKeyId, secretAccessKey, bucket, fetc
       return id;
     },
     async uploadPart(key, uploadId, partNumber, buf) {
-      const res = await call('PUT', key, { query: { partNumber, uploadId }, headers: { 'content-length': buf.length }, body: buf });
+      const res = await call('PUT', key, { query: { partNumber, uploadId }, headers: { 'content-length': buf.length }, body: buf, timeoutMs: 180_000 });
       return res.headers.get('etag');
     },
     async completeUpload(key, uploadId, parts) {
