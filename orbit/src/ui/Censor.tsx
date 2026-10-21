@@ -26,7 +26,7 @@ export function useNsfwView(): NsfwView {
 /** Whether something NSFW (or not) shows in this view. */
 export const shows = (nsfw: boolean, view: NsfwView) => view === 'show' || !nsfw;
 
-/** The one switch, wherever results are listed. */
+/** The one switch, in Settings. */
 export function UncensoredSwitch() {
   const view = useNsfwView();
   const updateSettings = useShell((s) => s.updateSettings);

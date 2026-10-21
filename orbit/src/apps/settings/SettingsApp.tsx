@@ -1,6 +1,7 @@
 import { useEffect, useId, useRef, useState, type ReactNode } from 'react';
 import type { AppProps } from '../types';
 import { AppHeader, ConfirmSheet, DemoChip, Segmented, Toggle } from '../../ui/components';
+import { UncensoredSwitch } from '../../ui/Censor';
 import { Icon, type IconName } from '../../ui/Icon';
 import { formatBytes } from '../../ui/format';
 import { connection, getFileStore, resetDemoData } from '../../services';
@@ -297,6 +298,7 @@ export default function SettingsApp({ isActive }: AppProps) {
           <OrbSection />
           <CloudAiSection />
           <AiModelsSection />
+          <NsfwSection />
           <TerminalSection />
           <SplitSection />
           <ShortcutsSection />
@@ -758,6 +760,22 @@ function AppearanceSection() {
             }}
           />
         </label>
+      </div>
+    </Section>
+  );
+}
+
+/** The one "Show NSFW" switch for all of Orbit (Make, the Lab, soReal, the chat). */
+function NsfwSection() {
+  return (
+    <Section
+      title="NSFW"
+      caption="NSFW pictures and videos are hidden everywhere in Orbit until you turn this on. Even then they stay blurred: keep your finger on one to see it (a video plays while you hold it). It turns off again every time you open Orbit. One that slipped through: hold it for a moment and it hides. One hidden by mistake: turn this on, open it and turn off its NSFW switch."
+    >
+      <div className="list">
+        <div className="row st-row">
+          <UncensoredSwitch />
+        </div>
       </div>
     </Section>
   );
