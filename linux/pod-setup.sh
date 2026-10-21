@@ -81,20 +81,26 @@ fi
 # The gateway and Orbit host are fetched on every start, so a restart picks up fixes (such as the
 # idle shut-off). A failed download keeps the copy from the last start.
 log "updating the gateway and Orbit host"
-rm -rf /opt/gateway.new && mkdir -p /opt/gateway.new/src/orbit /opt/gateway.new/bin /opt/gateway
+rm -rf /opt/gateway.new /opt/shared.new && mkdir -p /opt/gateway.new/src/orbit /opt/gateway.new/bin /opt/gateway /opt/shared.new /opt/shared
 fetched=1
 for f in package.json package-lock.json src/index.js src/server.js src/protocol.js src/origins.js \
   src/code.js src/ai-local.js src/sysstats.js src/idle.js src/orbit/auth.js src/orbit/files.js src/orbit/pty.js src/orbit/agent.js src/orbit/claw.js src/orbit/claw-client.js src/orbit/http.js src/orbit/seed.js \
   bin/workspace-secrets.mjs; do
   curl -fsSL "${REPO_RAW}/gateway/${f}" -o "/opt/gateway.new/${f}" || { fetched=0; log "could not fetch gateway/${f}"; break; }
 done
+# The auto-off timer every machine shares (the gateway imports ../../shared/autooff.js).
+for f in shared/package.json shared/autooff.js; do
+  [ "$fetched" = 1 ] || break
+  curl -fsSL "${REPO_RAW}/${f}" -o "/opt/shared.new/${f#shared/}" || { fetched=0; log "could not fetch ${f}"; break; }
+done
 if [ "$fetched" = 1 ]; then
   cp -r /opt/gateway.new/. /opt/gateway/
-elif [ ! -f /opt/gateway/src/index.js ]; then
+  cp -r /opt/shared.new/. /opt/shared/
+elif [ ! -f /opt/gateway/src/index.js ] || [ ! -f /opt/shared/autooff.js ]; then
   stop_self "no gateway code could be downloaded"
   exit 1
 fi
-rm -rf /opt/gateway.new
+rm -rf /opt/gateway.new /opt/shared.new
 if [ ! -d /opt/gateway/node_modules ] || ! cmp -s /opt/gateway/package-lock.json /opt/gateway/.installed-lock; then
   installed=0
   for attempt in 1 2 3; do
@@ -314,8 +320,9 @@ gateway_env=(
   "ORBIT_HOST=1" "ORBIT_PROJECTS_DIR=$user_home/projects" "AGY_PATH=$user_home/.local/bin/agy"
   "CODE_SERVER_URL=http://127.0.0.1:8443" "AI_LOCAL_PORT=8090" "SITE_URL=${SITE_URL:-}"
   "CLAW_URL=ws://127.0.0.1:18789" "CLAW_TOKEN_FILE=$claw_dir/token"
-  # Runpod's key for this pod only: the gateway turns the machine off after 20 minutes without input.
-  "RUNPOD_POD_ID=${RUNPOD_POD_ID:-}" "RUNPOD_API_KEY=${RUNPOD_API_KEY:-}" "IDLE_MINUTES=${IDLE_MINUTES:-20}"
+  # Runpod's key for this pod only: the gateway turns the machine off after IDLE_MINUTES without input
+  # (the site sends its AUTO_OFF_MINUTES; 60 and never more, see shared/autooff.js).
+  "RUNPOD_POD_ID=${RUNPOD_POD_ID:-}" "RUNPOD_API_KEY=${RUNPOD_API_KEY:-}" "IDLE_MINUTES=${IDLE_MINUTES:-60}"
 )
 unset DESKTOP_PASSWORD
 cd /opt/gateway

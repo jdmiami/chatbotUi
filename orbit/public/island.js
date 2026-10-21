@@ -13,6 +13,9 @@
 const POLL_CLOSED = 15_000;
 const POLL_OPEN = 4_000;
 const HISTORY = 40;
+// The one auto-off rule comes from the status endpoint (autoOff: the site's lib/autoOff.ts). These
+// are only used until it answers, and must match shared/autooff.js (ai/gate/test/autooff.test.js checks).
+const AUTO_OFF_FALLBACK = { minutes: 60, keepOnMinutes: 30 };
 
 const CSS = `
 /* Orbit 0.5: warm ink, editorial type, hairlines instead of boxes. Always dark, so it reads over any page. */
@@ -457,15 +460,28 @@ class OrbitIsland extends HTMLElement {
         kids.push(h('span', { class: 'bars', 'aria-hidden': 'true' }, [4, 7, 10, 14].map((hgt, i) => h('i', { class: i < lit ? 'lit' : '', style: `height:${hgt}px` }))));
       }
     }
-    if (linux) kids.push(h('span', { class: 'sep' }), h('span', { class: 'chip' }, h('span', { class: `dot ${linux.state}` }), h('small', { text: 'Linux' })));
+    if (linux) {
+      const lleft = linux.offAt ? new Date(linux.offAt).getTime() - Date.now() : null;
+      kids.push(
+        h('span', { class: 'sep' }),
+        h(
+          'span',
+          { class: 'chip' },
+          h('span', { class: `dot ${linux.state}` }),
+          h('small', { text: 'Linux' }),
+          linux.state === 'on' && lleft != null ? h('span', { 'data-off-at': linux.offAt, text: clock(lleft) }) : null,
+        ),
+      );
+    }
     this.pill.replaceChildren(...kids);
     const left = ai?.offAt ? clock(new Date(ai.offAt).getTime() - Date.now()) : null;
+    const linuxLeft = linux?.offAt ? clock(new Date(linux.offAt).getTime() - Date.now()) : null;
     this.pill.setAttribute(
       'aria-label',
       [
         d.money?.balance != null ? `Balance ${usd(d.money.balance)}` : null,
         ai ? `AI machine ${STATE[ai.state] || ai.state}${left && ai.state === 'on' ? `, turns off in ${left}` : ''}` : null,
-        linux ? `Linux machine ${STATE[linux.state] || linux.state}` : null,
+        linux ? `Linux machine ${STATE[linux.state] || linux.state}${linuxLeft && linux.state === 'on' ? `, turns off in ${linuxLeft}` : ''}` : null,
         'Open money and machines',
       ]
         .filter(Boolean)
@@ -513,7 +529,7 @@ class OrbitIsland extends HTMLElement {
     const circle = el.querySelector('circle.fg');
     const label = el.querySelector('span');
     const left = m.offAt ? new Date(m.offAt).getTime() - Date.now() : null;
-    const limit = (m.stats?.idle?.limitMinutes || 30) * 60_000;
+    const limit = (m.stats?.idle?.limitMinutes || m.autoOffMinutes || this.data?.autoOff?.minutes || AUTO_OFF_FALLBACK.minutes) * 60_000;
     const frac = left == null ? 0 : Math.max(0, Math.min(1, left / Math.max(limit, left)));
     if (circle) circle.setAttribute('stroke-dashoffset', String(150.8 * (1 - frac)));
     if (label) label.textContent = left == null ? '—' : left > 0 ? clock(left) : 'now';
@@ -603,7 +619,8 @@ class OrbitIsland extends HTMLElement {
     // Actions.
     const actions = [];
     const busy = this.busy != null;
-    if (m.id === 'ai' && on) actions.push(h('button', { class: 'btn go', type: 'button', disabled: busy, onclick: () => this.act('ai', 'extend', { minutes: 30 }), text: this.busy === 'ai:extend' ? 'Adding…' : '+30 min' }));
+    const step = this.data?.autoOff?.keepOnMinutes || AUTO_OFF_FALLBACK.keepOnMinutes;
+    if (m.autoOff && on) actions.push(h('button', { class: 'btn go', type: 'button', disabled: busy, 'aria-label': `Keep on ${step} more min`, onclick: () => this.act(m.id, 'extend', { minutes: step }), text: this.busy === `${m.id}:extend` ? 'Adding…' : `+${step} min` }));
     if (canPower) {
       if (on || m.state === 'starting') {
         const key = `${m.id}:stop`;

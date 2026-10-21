@@ -41,9 +41,11 @@ images & videos (playground, Orbit) ──> gate :8080 /_orbit/studio ──> Co
   - `/v1/*` forwards to Ollama for bearer tokens from the site (Orbit's AI app) or the Linux machine
     (the coding agent).
   - `/_orbit/status` reports readiness, model downloads and idle time.
-  - Stops the pod after `IDLE_MINUTES` (20, never more) with no job. Every download counts as a job,
-    including models added from the Model store, so the 20 minutes start once all downloads are done.
-  - Ten minutes before it stops, it sends a Web Push notification (`push.js`, no message body) to every
+  - Turns the pod off after `IDLE_MINUTES` with no job: the site sends its `AUTO_OFF_MINUTES` (60 by
+    default, never more; the same rule as the Linux machine, timer in `shared/autooff.js`). Every
+    download counts as a job, including models added from the Model store, so the countdown starts
+    once all downloads are done. **Keep on** (`/_orbit/keepawake`) adds 30 minutes, up to 2 hours ahead.
+  - Ten minutes before it turns off, it sends a Web Push notification (`push.js`, no message body) to every
     device that turned on Settings → Notifications in Orbit; a tap keeps it on 30 more minutes. The
     signing key comes from `GATEWAY_SECRET` (the site derives the same public key in `lib/push.ts`);
     the list of devices is kept in R2. iPhone and iPad need Orbit added to the Home Screen.

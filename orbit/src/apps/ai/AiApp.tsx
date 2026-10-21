@@ -25,6 +25,7 @@ import { TextArea } from '../../ui/TextArea';
 import { Censor } from '../../ui/Censor';
 import { isNsfw } from '../../ui/nsfw';
 import { refreshFlags, useNsfwFlags } from '../../ui/nsfwFlags';
+import { autoOffMinutesOf, autoOffSentence } from '../../services/autoOff';
 
 const STATE_TEXT: Record<AiMachineStatus['state'], string> = {
   unconfigured: 'Not set up',
@@ -662,7 +663,7 @@ export default function AiApp({ isActive, compact, placement }: AppProps) {
               <span className={`ai-dot ai-dot-${machine.state}`} aria-hidden />
               Your AI machine: {STATE_TEXT[machine.state]}
               {currentTier && tiers.length > 1 && machine.state !== 'off' ? ` · ${currentTier.label}` : ''}
-              {machine.state === 'on' && machine.idle && !compact ? ` · turns off after ${machine.idle.limitMinutes} min unused` : ''}
+              {machine.state === 'on' && !compact ? ` · off after ${autoOffMinutesOf(machine.idle?.limitMinutes, machine.autoOffMinutes)} min unused` : ''}
             </span>
           }
           leading={compact && mode === 'chat' ? <IconButton icon="sidebar" label="Chats" onClick={() => setListOpen(true)} /> : undefined}
@@ -705,8 +706,8 @@ export default function AiApp({ isActive, compact, placement }: AppProps) {
           {machine.state === 'off' && (
             <>
               <p>
-                Your AI machine is off. Turning it on takes 2–4 minutes and costs {cost} while on; it turns itself off after{' '}
-                {chosenTier?.idleMinutes ?? 30} minutes unused.
+                Your AI machine is off. Turning it on takes 2–4 minutes and costs {cost} while on.{' '}
+                {autoOffSentence(autoOffMinutesOf(machine.autoOffMinutes, chosenTier?.idleMinutes))}
               </p>
               {tiers.length > 1 && (
                 <Segmented
@@ -1182,7 +1183,7 @@ export default function AiApp({ isActive, compact, placement }: AppProps) {
             <p className="o5-orb-status">
               <span className={`ai-dot ai-dot-${machine.state}`} aria-hidden /> {STATE_TEXT[machine.state]}
               {machine.state === 'on' && machine.costPerHour ? ` · $${machine.costPerHour.toFixed(2)}/h` : ''}
-              {machine.state === 'on' && machine.idle ? ` · rests after ${machine.idle.limitMinutes} min unused` : ''}
+              {machine.state === 'on' ? ` · off after ${autoOffMinutesOf(machine.idle?.limitMinutes, machine.autoOffMinutes)} min unused` : ''}
             </p>
             <ul className="o5-orb-list">
               {(

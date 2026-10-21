@@ -4,6 +4,8 @@
  * Screen (Share → Add to Home Screen) and opened from there.
  */
 
+import { AUTO_OFF } from './autoOff';
+
 const SW = `${import.meta.env.BASE_URL}sw.js`;
 const SAVED = 'orbit.aiNotify.saved'; // the address the AI machine has (signing up again is only needed when it changes)
 
@@ -106,8 +108,8 @@ export function onNotifyMessage(handler: (type: 'turning-off' | 'keep') => void)
   return () => navigator.serviceWorker.removeEventListener('message', listen);
 }
 
-/** Keeps the AI machine on 30 more minutes. Returns the new turn-off time, if any. */
-export async function keepAiOn(minutes = 30): Promise<string | null> {
+/** Keeps the AI machine on longer ("Keep on": 30 more minutes). Returns the new turn-off time, if any. */
+export async function keepAiOn(minutes: number = AUTO_OFF.keepOnMinutes): Promise<string | null> {
   const res = await fetch('/api/status', {
     method: 'POST',
     credentials: 'same-origin',

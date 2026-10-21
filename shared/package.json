@@ -1,0 +1,6 @@
+{
+  "name": "orbit-shared",
+  "private": true,
+  "type": "module",
+  "description": "Plain ESM shared by the site, Orbit and both machines (no dependencies)"
+}

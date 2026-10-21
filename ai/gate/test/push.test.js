@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import crypto from 'node:crypto';
 import { createPush, vapidHeader, vapidKeys } from '../src/push.js';
-import { createIdleWatch } from '../src/machine.js';
+import { createAutoOff as createIdleWatch } from '../../../shared/autooff.js';
 
 const SECRET = 'x'.repeat(40);
 
@@ -66,14 +66,14 @@ test('idle watch warns once, 10 minutes before turning off, and again after new 
   await w.check();
   await new Promise((r) => setImmediate(r));
   assert.equal(warned.length, 1);
-  w.touch(); // used again: a new countdown, a new warning
+  w.activity(); // used again: a new countdown, a new warning
   t = 21 * 60_000;
   await w.check();
   await new Promise((r) => setImmediate(r));
   assert.deepEqual(warned, [20 * 60_000, 31 * 60_000]);
 });
 
-test('the 20 minutes start only once a download is done', async () => {
+test('the auto-off countdown starts only once a download is done', async () => {
   let t = 0;
   let downloading = true;
   let stops = 0;
@@ -92,4 +92,9 @@ test('the AI machine downloads every gate file (ai/setup.sh)', async () => {
   const fs = await import('node:fs');
   const setup = fs.readFileSync(new URL('../../setup.sh', import.meta.url), 'utf8');
   for (const f of fs.readdirSync(new URL('../src/', import.meta.url))) assert.ok(setup.includes(`src/${f}`), `ai/setup.sh is missing src/${f}`);
+  // The shared auto-off timer, laid out like the repository so ../../../shared resolves.
+  for (const f of fs.readdirSync(new URL('../../../shared/', import.meta.url)).filter((x) => /\.js$|^package\.json$/.test(x))) {
+    assert.ok(setup.includes(`shared/${f}`), `ai/setup.sh is missing shared/${f}`);
+  }
+  assert.match(setup, /GATE="\$APP\/ai\/gate"/);
 });

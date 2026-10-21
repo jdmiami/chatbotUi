@@ -3,11 +3,14 @@ import { expectNoHorizontalOverflow, launchFromHome, openOrbit } from './helpers
 
 /** Settings → Usage: what the old status pill showed (money, machines, timers), with /api/status mocked. */
 
-function status(over: Record<string, unknown> = {}) {
+function status(over: Record<string, unknown> = {}, minutes = 60) {
   const offAt = new Date(Date.now() + 24 * 60_000 + 10_000).toISOString();
+  const linuxOffAt = new Date(Date.now() + 41 * 60_000 + 10_000).toISOString();
   return {
     at: new Date().toISOString(),
     canPower: true,
+    // The one auto-off rule, from the site (lib/autoOff.ts).
+    autoOff: { minutes, warnMinutes: 10, keepOnMinutes: 30, maxHoldMinutes: 120 },
     money: { balance: 41.2, spendPerHour: 0.84, today: 2.75, spendLimit: 80 },
     machines: [
       {
@@ -17,7 +20,9 @@ function status(over: Record<string, unknown> = {}) {
         costPerHour: 0.59,
         uptimeSeconds: 3725,
         offAt,
+        heldUntil: null as string | null,
         autoOff: true,
+        autoOffMinutes: minutes,
         tier: 'standard',
         tiers: [
           { id: 'standard', label: 'Standard', gpuName: 'A40 48 GB', pricePerHour: 0.59 },
@@ -39,7 +44,7 @@ function status(over: Record<string, unknown> = {}) {
             { kind: 'model', name: 'qwen3.8:27b', label: 'Chat model: qwen3.8:27b', memory: 20e9 },
             { kind: 'studio', name: 'studio', label: 'Image & video maker', memory: 3e9 },
           ],
-          idle: { limitMinutes: 30, offAt },
+          idle: { limitMinutes: minutes, offAt },
         },
       },
       {
@@ -48,8 +53,11 @@ function status(over: Record<string, unknown> = {}) {
         state: 'on',
         costPerHour: 0.24,
         uptimeSeconds: 86000,
-        offAt: null,
-        autoOff: false,
+        // The Linux machine turns itself off by the same rule now.
+        offAt: linuxOffAt,
+        heldUntil: null as string | null,
+        autoOff: true,
+        autoOffMinutes: minutes,
         live: { cpu: 3, memory: 22, gpu: null, gpuMemory: null },
         stats: {
           cpu: { percent: 3.1, cores: 4 },
@@ -72,8 +80,9 @@ async function mockStatus(page: Page, calls: Record<string, unknown>[] = []) {
       const body = req.postDataJSON() as Record<string, unknown>;
       calls.push(body);
       if (body.action === 'extend') {
-        const m = current.machines[0] as { offAt: string };
+        const m = current.machines.find((x) => x.id === body.machine) as { offAt: string; heldUntil: string | null };
         m.offAt = new Date(new Date(m.offAt).getTime() + 30 * 60_000).toISOString();
+        m.heldUntil = m.offAt;
       }
       if (body.action === 'stop') (current.machines[1] as { state: string }).state = 'off';
     }
@@ -101,17 +110,37 @@ test.describe('Settings: usage', () => {
     await expect(ai).toContainText(/turns itself off in 2[45] min if unused/);
     await expect(ai.getByRole('meter', { name: 'AI machine GPU', exact: true })).toBeVisible();
     await ai.getByRole('button', { name: 'Keep on 30 more min' }).click();
-    await expect(ai).toContainText(/turns itself off in 5[45] min/);
+    await expect(ai).toContainText(/kept on: turns itself off in 5[45] min/);
+    // One rule, shown once, for both machines.
+    await expect(usage).toContainText('Each machine turns itself off after 60 minutes unused. “Keep on” adds 30 minutes.');
     const linux = usage.getByLabel('Linux machine', { exact: true });
+    await expect(linux).toContainText(/turns itself off in 4[12] min if unused/);
+    await linux.getByRole('button', { name: 'Keep on 30 more min' }).click();
+    await expect(linux).toContainText(/kept on: turns itself off in 7[12] min/);
     await linux.getByRole('button', { name: 'Turn off' }).click();
     // Asks first: it ends the terminals.
     await linux.getByRole('button', { name: 'Tap again: ends terminals' }).click();
     await expect(linux.getByRole('button', { name: 'Turn on' })).toBeVisible();
     expect(calls).toEqual([
       { machine: 'ai', action: 'extend', minutes: 30 },
+      { machine: 'linux', action: 'extend', minutes: 30 },
       { machine: 'linux', action: 'stop', minutes: 30 },
     ]);
     await expectNoHorizontalOverflow(page);
+    expect(errors).toEqual([]);
+  });
+
+  test('the number the site sets (AUTO_OFF_MINUTES) is the one every caption shows', async ({ page }) => {
+    const { set } = await mockStatus(page);
+    set(status({}, 30));
+    const errors = await openOrbit(page);
+    await launchFromHome(page, 'Settings');
+    const win = page.locator('.app-window[data-app="settings"]');
+    const usage = win.getByRole('region', { name: 'Usage' });
+    await expect(usage).toContainText('Each machine turns itself off after 30 minutes unused.');
+    const notify = win.getByRole('region', { name: 'Notifications' });
+    await expect(notify).toContainText('The AI machine turns itself off after 30 minutes unused.');
+    await expect(win).not.toContainText(/20 minutes/);
     expect(errors).toEqual([]);
   });
 

@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import AiSpeed, { type AiTier } from '../AiSpeed';
 import Masthead from '../Masthead';
+import { AUTO_OFF } from '@/shared/autooff.js';
 
 type State = 'unconfigured' | 'off' | 'starting' | 'downloading' | 'on' | 'error';
 interface Status {
@@ -12,6 +13,8 @@ interface Status {
   pulling?: { model: string; percent: number } | null;
   models?: string[];
   idle?: { limitMinutes: number; idleMinutes: number } | null;
+  /** The one auto-off rule's minutes (lib/autoOff.ts). */
+  autoOffMinutes?: number;
   url?: string;
   consoleUrl?: string;
   tier?: string | null;
@@ -184,7 +187,7 @@ export default function AiLauncher({ target, next }: { target: 'chat' | 'code'; 
                     : ''}
             </p>
             <p className="muted small">
-              {cost}. It turns itself off after {status?.idle?.limitMinutes ?? current?.idleMinutes ?? 60} minutes unused; your chats and models are kept.
+              {cost}. It turns itself off after {status?.idle?.limitMinutes ?? status?.autoOffMinutes ?? AUTO_OFF.defaultMinutes} minutes unused; your chats and models are kept.
             </p>
             <AiSpeed tiers={tiers} value={chosen} onChange={setSpeed} disabled={switching} />
             {current && chosen !== current.id && (

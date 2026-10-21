@@ -7,7 +7,8 @@
 #   images and videos     --> gate :8080 /_orbit/studio --> ComfyUI 127.0.0.1:8188 (ai/studio.sh)
 #
 # Only port 8080 (the gate) is exposed. The gate signs people in with tokens from the web app
-# (GATEWAY_SECRET, the same secret as the Linux machine) and stops the pod after IDLE_MINUTES unused.
+# (GATEWAY_SECRET, the same secret as the Linux machine) and turns the pod off after IDLE_MINUTES unused
+# (the site sends its AUTO_OFF_MINUTES; see shared/autooff.js).
 # Where things are kept (STORAGE):
 #   volume  a Runpod network volume mounted at /workspace: models, chats and settings survive stops.
 #   r2      no volume: the disk is wiped at every stop, so everything worth keeping lives in
@@ -15,7 +16,7 @@
 #   auto    (default) r2 when the R2 keys are set and /workspace isn't a mounted volume.
 #
 # Required env: GATEWAY_SECRET
-# Optional env: REPO_RAW, SITE_URL, ALLOWED_ORIGINS, IDLE_MINUTES (30), DEFAULT_MODELS, CHAT_MODEL,
+# Optional env: REPO_RAW, SITE_URL, ALLOWED_ORIGINS, IDLE_MINUTES (60, never more), DEFAULT_MODELS, CHAT_MODEL,
 #   AI_ROLE=helper: a second machine that only makes images and videos (no Open WebUI, no Ollama);
 #   its creations land in the same gallery. STORAGE, R2_ACCOUNT_ID, R2_ACCESS_KEY_ID,
 #   R2_SECRET_ACCESS_KEY (Runpod secrets).
@@ -53,11 +54,19 @@ if [ ! -x "$NODE_DIR/bin/node" ]; then
 fi
 
 log "fetching the gate"
-rm -rf /opt/gate && mkdir -p /opt/gate/src /opt/gate/openwebui
+# Laid out like the repository (ai/gate/... next to shared/...), so the gate's imports of
+# ../../../shared/ (the auto-off timer every machine shares) work here too. /opt/gate points at it.
+APP=/opt/orbit
+GATE="$APP/ai/gate"
+rm -rf /opt/gate "$APP" && mkdir -p "$GATE/src" "$GATE/openwebui" "$APP/shared"
 for f in package.json catalog.json src/index.js src/gate.js src/jwt.js src/machine.js src/store.js src/studio.js src/sysstats.js src/gpustats.js src/workflows.js src/openwebui.js src/search.js src/voice.js src/movies.js src/story.js src/prompting.js src/r2.js src/r2cli.js src/cloud.js src/push.js src/memes.js src/style.js src/nsfwcheck.js nsfw_worker.py src/media.js openwebui/studio_pipe.py; do
-  curl -fsSL "${REPO_RAW}/ai/gate/${f}" -o "/opt/gate/${f}"
+  curl -fsSL "${REPO_RAW}/ai/gate/${f}" -o "$GATE/${f}"
 done
-curl -fsSL "${REPO_RAW}/ai/studio.sh" -o /opt/gate/studio.sh
+for f in shared/package.json shared/autooff.js; do
+  curl -fsSL "${REPO_RAW}/${f}" -o "$APP/${f}"
+done
+curl -fsSL "${REPO_RAW}/ai/studio.sh" -o "$GATE/studio.sh"
+ln -sfn "$GATE" /opt/gate
 r2() { "$NODE_DIR/bin/node" /opt/gate/src/r2cli.js "$@"; }
 
 # ffmpeg joins soReal shots into one movie and grabs each shot's last frame.
@@ -112,10 +121,10 @@ log "starting the image and video maker"
 (env -u GATEWAY_SECRET -u RUNPOD_API_KEY -u HF_TOKEN AI_ROLE="${AI_ROLE:-main}" STUDIO_DIR="$STUDIO_DIR" PERSIST_DIR="$P" NODE="$NODE_DIR/bin/node" bash /opt/gate/studio.sh) 2>&1 | sed -u 's/^/[studio] /' &
 
 log "starting the gate on :8080"
-cd /opt/gate
+cd "$GATE"
 while true; do
   env PORT=8080 OLLAMA_URL=http://127.0.0.1:11434 WEBUI_URL=http://127.0.0.1:8081 \
-    SITE_URL="${SITE_URL:-}" ALLOWED_ORIGINS="${ALLOWED_ORIGINS:-}" IDLE_MINUTES="${IDLE_MINUTES:-30}" \
+    SITE_URL="${SITE_URL:-}" ALLOWED_ORIGINS="${ALLOWED_ORIGINS:-}" IDLE_MINUTES="${IDLE_MINUTES:-60}" \
     DEFAULT_MODELS="$DEFAULT_MODELS" AI_USER_EMAIL="${AI_USER_EMAIL:-owner@orbit.local}" \
     STUDIO_DIR="$STUDIO_DIR" STUDIO_KEY="$STUDIO_KEY" AI_ROLE="${AI_ROLE:-main}" PERSIST_DIR="$P" \
     STORAGE="$STORAGE" OLLAMA_MODELS="$P/ollama/models" WEBUI_DIR="$P/open-webui" \

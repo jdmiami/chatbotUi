@@ -42,6 +42,12 @@ RUNPOD_API_KEY=<a Runpod API key, so the site can turn the machine on and off>
 
 Check `https://<pod-id>-8080.proxy.runpod.net/healthz` says `ok`.
 
+The machine turns itself off after 60 minutes without touch, mouse or keyboard input while no
+Antigravity turn or Claude Code task runs: the same rule and timer as the AI machine
+(`shared/autooff.js`, which this setup downloads to `/opt/shared`). Set `AUTO_OFF_MINUTES` (10–60) in
+Vercel to change it for every machine; the site sends it as `IDLE_MINUTES` when it turns the machine
+on. **Keep on** in Orbit's Settings → Usage adds 30 minutes, up to 2 hours ahead.
+
 The `desktop` user has password-less `sudo` (it is a single-person machine and Orbit's terminal has no
 password prompt UI).
 

@@ -87,7 +87,7 @@ on (when the site has a Runpod API key) or to continue in demo mode.
 ### AI (own models)
 - Chat with open-weights models on the AI machine (a GPU pod with Open WebUI + Ollama, see `ai/README.md`),
   streamed through its OpenAI-compatible API with a 1-hour token from the site (`POST /api/ai/token`).
-- Turn-on banner with start/download progress (the machine turns itself off after 30 minutes unused), model
+- Turn-on banner with start/download progress (the machine turns itself off after 60 minutes unused, `AUTO_OFF_MINUTES` on the site), model
   picker, visible "thinking", copy/again, chats kept in this browser (newest 60).
 - Header links to the full playground (`/ai`: documents, web search, voice, images) and to VS Code with the
   coding agent (`/code`).

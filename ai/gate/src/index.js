@@ -3,7 +3,8 @@
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createGate } from './gate.js';
-import { createIdleWatch, createModelKeeper, ollamaJson, runpodStopSelf } from './machine.js';
+import { createModelKeeper, ollamaJson } from './machine.js';
+import { AUTO_OFF, clampAutoOffMinutes, createAutoOff, runpodStopSelf } from '../../../shared/autooff.js';
 import { installStudioFunction } from './openwebui.js';
 import { createModelStore } from './store.js';
 import { createPush } from './push.js';
@@ -99,15 +100,16 @@ const push = HELPER
       log: console,
     });
 
-// Turns itself off after an hour without a job (IDLE_MINUTES can only make that shorter). The meme
-// lab fills that hour with videos, but its videos never count as a job.
-const idle = createIdleWatch({
-  limitMinutes: Math.min(Number(env.IDLE_MINUTES) || 60, 60),
+// The one auto-off rule (shared/autooff.js): off after IDLE_MINUTES without a job. The site sends its
+// AUTO_OFF_MINUTES as IDLE_MINUTES; never more than an hour and never 0 (the money fail-safe). The
+// meme lab fills that time with videos, but its videos never count as a job.
+const idle = createAutoOff({
+  limitMinutes: clampAutoOffMinutes(env.IDLE_MINUTES),
   // Busy while a picture, video or movie shot is being made or a download is running (so the hour
   // starts once every download is done). A model merely sitting in GPU memory is not a job.
   busy: async () => Boolean(models.pulling() || store.busy() || studio?.busy() || r2test?.running() || ollamaSync?.busy() || webuiBackup?.busy()),
-  // 10 minutes before turning off: a notification, so the owner can keep it on.
-  warnMinutes: 10,
+  // A notification shortly before turning off, so the owner can keep it on.
+  warnMinutes: AUTO_OFF.warnMinutes,
   warn: push ? async () => void (await push.send()) : null,
   stop: async () => {
     // Last chats first: the disk is wiped when the machine stops.
@@ -115,6 +117,7 @@ const idle = createIdleWatch({
     await runpodStopSelf({ podId: env.RUNPOD_POD_ID, apiKey: env.RUNPOD_API_KEY });
   },
   log: console,
+  tag: '[gate]',
 });
 
 // The meme lab (memes.js): makes meme videos while nobody is using the machine, and has a chat
@@ -184,7 +187,7 @@ const lab =
         // The lab plans enough videos to fill the time until the machine turns itself off.
         minutesLeft: () => {
           const off = Date.parse(idle.state().offAt || '');
-          return Number.isFinite(off) ? Math.max(0, (off - Date.now()) / 60_000) : 60;
+          return Number.isFinite(off) ? Math.max(0, (off - Date.now()) / 60_000) : idle.state().limitMinutes;
         },
         chat: labChat,
         load: async () => (r2 ? r2.getJson(LAB_KEY) : JSON.parse(await fs.readFile(labFile, 'utf8'))),
@@ -260,14 +263,12 @@ const server = createGate({
   userName: env.AI_USER_NAME || 'Owner',
   trustedEmailHeader: 'X-Orbit-Email',
   trustedNameHeader: 'X-Orbit-Name',
-  activity: () => idle.touch(),
+  activity: () => idle.activity(),
   status,
   stats,
   keepAwake: (minutes) => idle.extend(minutes),
-  idleState: () => {
-    const s = idle.state();
-    return { role: HELPER ? 'helper' : 'main', limitMinutes: s.limitMinutes, idleMinutes: s.idleMinutes, offAt: s.offAt, heldUntil: s.heldUntil, uptimeMinutes: Math.round((Date.now() - startedAt) / 60000) };
-  },
+  // The same shape as the Linux machine's /idle, plus which AI machine this is.
+  idleState: () => ({ ...idle.state(), role: HELPER ? 'helper' : 'main', uptimeMinutes: Math.round((Date.now() - startedAt) / 60000) }),
   studio,
   movies,
   lab,

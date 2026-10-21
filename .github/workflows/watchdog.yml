@@ -1,5 +1,6 @@
-# The money fail-safe: every 10 minutes, ask the site to turn off any machine that has gone 20+
-# minutes without a job or input but didn't turn itself off. See lib/watchdog.ts.
+# The money fail-safe: every 10 minutes, ask the site to turn off any machine that has gone past the
+# auto-off time (AUTO_OFF_MINUTES, 60 by default, plus 5 minutes) without a job or input but didn't
+# turn itself off. See lib/watchdog.ts and lib/autoOff.ts.
 name: Machine watchdog
 on:
   schedule:

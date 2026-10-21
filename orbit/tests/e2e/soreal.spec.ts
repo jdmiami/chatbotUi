@@ -257,7 +257,7 @@ test.describe('soReal', () => {
         helperCalls.push(route.request().postDataJSON().action);
         helper = 'on';
       }
-      await route.fulfill({ json: { state: helper, costPerHour: helper === 'on' ? 0.59 : null, pricePerHour: 0.59, idle: { limitMinutes: 30, idleMinutes: 0 } } });
+      await route.fulfill({ json: { state: helper, costPerHour: helper === 'on' ? 0.59 : null, pricePerHour: 0.59, autoOffMinutes: 60, idle: { limitMinutes: 60, idleMinutes: 0 } } });
     });
     await page.route('**/api/ai/token', (route) =>
       route.fulfill({
@@ -278,6 +278,7 @@ test.describe('soReal', () => {
     await expect(bar).toContainText('Turn it on to make two movies at once ($0.59/h while on)');
     await bar.getByRole('button', { name: 'Turn on helper' }).click();
     await expect(bar).toContainText('Helper machine: on');
+    await expect(bar).toContainText('turns itself off after 60 minutes unused.');
     expect(helperCalls).toEqual(['start']);
 
     await win.getByRole('textbox', { name: 'What’s your movie about?' }).fill('Waves roll in');

@@ -5,11 +5,12 @@ export interface AiTier {
   label: string;
   gpuName: string;
   pricePerHour: number;
+  /** The one auto-off rule's minutes: the same for every speed (lib/autoOff.ts). */
   idleMinutes: number;
   speed: string;
 }
 
-/** Choose the AI machine's speed (which GPU it runs on). */
+/** Choose the AI machine's speed (which GPU it runs on). Every speed turns off by the same rule, shown once beside it. */
 export default function AiSpeed({
   tiers,
   value,
@@ -38,9 +39,7 @@ export default function AiSpeed({
           <span>
             ${t.pricePerHour.toFixed(2)}/hr · {t.speed}
           </span>
-          <span className="ai-speed-gpu">
-            {t.gpuName} · off after {t.idleMinutes} min unused
-          </span>
+          <span className="ai-speed-gpu">{t.gpuName}</span>
         </button>
       ))}
     </div>

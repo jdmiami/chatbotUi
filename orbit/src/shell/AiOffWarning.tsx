@@ -1,13 +1,14 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useShell } from '../state/shell';
 import { keepAiOn, onNotifyMessage, syncNotify } from '../services/notify';
+import { AUTO_OFF } from '../services/autoOff';
 
 /**
  * "Your AI machine turns off in 10 minutes": a banner with a Keep-on button while Orbit is open
  * (the AI machine also sends it as a notification, for when Orbit is closed). A tap on that
  * notification opens Orbit with ?keep=ai, which keeps the machine on right away.
  */
-const WARN_MS = 10 * 60_000;
+const WARN_MS = AUTO_OFF.warnMinutes * 60_000;
 
 interface AiCard {
   id: string;
@@ -40,7 +41,7 @@ export function AiOffWarning() {
   const keep = useCallback(async () => {
     setBusy(true);
     try {
-      const at = await keepAiOn(30);
+      const at = await keepAiOn(AUTO_OFF.keepOnMinutes);
       if (at) setOffAt(Date.parse(at));
       toast(at ? `AI machine stays on until ${new Date(at).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}` : 'AI machine kept on', 'success');
     } catch (err) {
@@ -85,7 +86,7 @@ export function AiOffWarning() {
       </p>
       <div className="ai-offwarn-actions">
         <button type="button" className="btn small primary" disabled={busy} onClick={() => void keep()}>
-          Keep on 30 more min
+          Keep on {AUTO_OFF.keepOnMinutes} more min
         </button>
         <button type="button" className="btn small ghost" onClick={() => setHidden(offAt)}>
           Let it rest
