@@ -167,6 +167,8 @@ const SIZES = {
 /** The longest videos and sounds the video makers take (seconds). */
 const MAX_SECONDS = { vace: VACE_MAX_FRAMES / VACE_FPS, extend: 10, ltx25: 10, seedvr2: 10, s2v: (4 * S2V_CHUNK) / S2V_FPS };
 const MIME = { '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.webp': 'image/webp', '.mp4': 'video/mp4', '.webm': 'video/webm' };
+/** A model download that sends nothing for this long is cut and resumed. */
+const STALL_DOWNLOAD_MS = 60_000;
 const newId = () => crypto.randomBytes(9).toString('base64url');
 
 function sniffImage(buf) {
@@ -281,6 +283,23 @@ export function createStudio(o) {
     return Boolean(st && (!file.size || st.size === file.size));
   }
 
+  const GB = 1024 ** 3;
+  /** Free space where the models go (null when it can't be read). */
+  async function freeBytes() {
+    const st = await (o.statfs || fsp.statfs)(path.join(dir, 'models')).catch(() => (o.statfs || fsp.statfs)(dir).catch(() => null));
+    return st ? Number(st.bavail) * Number(st.bsize) : null;
+  }
+  const diskFull = (file, free) =>
+    Object.assign(
+      new Error(`Not enough disk space for ${file.name}${free != null ? ` (${Math.round(free / GB)} GB free, needs about ${Math.ceil(((file.size || 0) + 2 * GB) / GB)} GB)` : ''}. Remove a maker or a chat model you don't use.`),
+      { permanent: true, disk: true },
+    );
+  /** Throws (and the file waits) when the disk can't take `bytes` more, with 2 GB to spare. */
+  async function roomFor(file, bytes) {
+    const free = await freeBytes();
+    if (free != null && bytes > 0 && free < bytes + 2 * GB) throw diskFull(file, free);
+  }
+
   async function fetchFile(file) {
     const dest = modelPath(file);
     const part = `${dest}.part`;
@@ -288,28 +307,57 @@ export function createStudio(o) {
     // Kept in R2 already: bring it down in parallel pieces (much faster than the model's home site).
     const kept = r2 ? await r2.head(modelKey(file)).catch(() => null) : null;
     if (kept && (!file.size || kept.size === file.size)) {
+      await roomFor(file, kept.size);
       download.current = { id: fid(file), name: file.name, completed: 0, total: kept.size };
       await downloadFile(r2, modelKey(file), part, { onBytes: (n) => (download.current.completed += n) });
       await fsp.rename(part, dest);
       return;
     }
     const have = (await fsp.stat(part).catch(() => null))?.size || 0;
+    await roomFor(file, (file.size || 0) - have);
     // Most files come from Hugging Face; a few only from their makers' own site (`url`, pix2pix-turbo's LoRA).
     const url = file.url || `https://huggingface.co/${file.repo}/resolve/main/${file.path.split('/').map(encodeURIComponent).join('/')}`;
     if (file.gated && !hfToken) throw Object.assign(new Error(TOKEN_MESSAGE), { permanent: true });
     const headers = { ...(have ? { range: `bytes=${have}-` } : {}), ...(file.gated ? { authorization: `Bearer ${hfToken}` } : {}) };
-    const res = await f(url, { headers, redirect: 'follow' });
+    // A connection that stops sending is cut after STALL_DOWNLOAD_MS and the file picks up where it was.
+    const ctrl = new AbortController();
+    let quiet = null;
+    const hush = () => {
+      clearTimeout(quiet);
+      quiet = setTimeout(() => ctrl.abort(), o.stallDownloadMs ?? STALL_DOWNLOAD_MS);
+      quiet.unref?.();
+    };
+    hush();
+    let res;
+    try {
+      res = await f(url, { headers, redirect: 'follow', signal: ctrl.signal });
+    } catch (err) {
+      clearTimeout(quiet);
+      throw ctrl.signal.aborted ? new Error(`download ${file.name}: the connection stalled`) : err;
+    }
     if (file.gated && (res.status === 401 || res.status === 403)) throw Object.assign(new Error(TOKEN_REFUSED), { permanent: true });
-    if (!res.ok || !res.body) throw new Error(`download ${file.name}: ${res.status}`);
+    if (!res.ok || !res.body) {
+      clearTimeout(quiet);
+      throw new Error(`download ${file.name}: ${res.status}`);
+    }
     const resumed = res.status === 206;
     download.current = { id: fid(file), name: file.name, completed: resumed ? have : 0, total: file.size || Number(res.headers.get('content-length')) || 0 };
     const counter = new TransformStream({
-      transform(chunk, ctrl) {
+      transform(chunk, c) {
+        hush();
         download.current.completed += chunk.byteLength;
-        ctrl.enqueue(chunk);
+        c.enqueue(chunk);
       },
     });
-    await pipeline(Readable.fromWeb(res.body.pipeThrough(counter)), fs.createWriteStream(part, { flags: resumed ? 'a' : 'w' }));
+    try {
+      await pipeline(Readable.fromWeb(res.body.pipeThrough(counter)), fs.createWriteStream(part, { flags: resumed ? 'a' : 'w' }));
+    } catch (err) {
+      if (ctrl.signal.aborted) throw new Error(`download ${file.name}: the connection stalled; picking up where it was`);
+      if (err.code === 'ENOSPC') throw diskFull(file);
+      throw err;
+    } finally {
+      clearTimeout(quiet);
+    }
     const size = (await fsp.stat(part)).size;
     if (file.size && size !== file.size) throw new Error(`download ${file.name}: got ${size} of ${file.size} bytes`);
     await fsp.rename(part, dest);
@@ -374,7 +422,8 @@ export function createStudio(o) {
     for (const file of list) {
       total += file.size || 0;
       if (download.done.has(fid(file))) done += file.size || 0;
-      else if (download.current?.id === fid(file)) done += download.current.completed;
+      // Downloaded and being copied to cloud storage: here already.
+      else if (download.current?.id === fid(file)) done += download.current.saving ? file.size || download.current.total : download.current.completed;
     }
     return { total, done };
   }
@@ -389,6 +438,8 @@ export function createStudio(o) {
       // Live video makers also need their own Python (live_env.sh), set up once their files are here.
       const env = m.env && o.liveEnvs ? o.liveEnvs.state(m.env) : null;
       const filesHere = installed;
+      const why = list.map((file) => blocked.get(fid(file))).find(Boolean) || null;
+      const mine = list.some((file) => download.current?.id === fid(file));
       if (env && !env.ready) installed = false;
       out.push({
         id: m.id,
@@ -404,7 +455,7 @@ export function createStudio(o) {
         // Gated on Hugging Face (LTX-2.5): needs a token on the machine before it can download.
         gated: list.some((file) => file.gated),
         needsToken: !installed && list.some((file) => file.gated) && !hfToken,
-        problem: list.map((file) => blocked.get(fid(file))).find(Boolean) || env?.error || null,
+        problem: why || env?.error || null,
         // Only on the Turbo machine (80 GB of GPU memory): Krea Realtime.
         turboOnly: Boolean(m.turboOnly) || undefined,
         // Its files are here and its Python is being set up: what it is doing.
@@ -414,6 +465,25 @@ export function createStudio(o) {
         installed,
         size: total,
         percent: installed ? 100 : filesHere ? 99 : total ? Math.min(99, Math.floor((done / total) * 100)) : 0,
+        // Not installed yet: what is happening to it right now (so a number that doesn't move says why).
+        status: installed
+          ? undefined
+          : why
+            ? /disk space/.test(why)
+              ? 'disk'
+              : 'blocked'
+            : !(m.builtIn || wanted.has(m.id))
+              ? undefined
+              : mine
+                ? download.current.saving
+                  ? 'saving'
+                  : 'downloading'
+                : filesHere
+                  ? 'setup'
+                  : download.running
+                    ? 'waiting'
+                    : 'paused',
+        waitingFor: !installed && !why && download.current && !mine ? download.current.name : undefined,
       });
     }
     return out;
@@ -449,6 +519,8 @@ export function createStudio(o) {
     // Both machines use the same model files: keep them while the helper is making a movie with it.
     if (await o.inUseElsewhere?.(id)) throw Object.assign(new Error('Your helper machine is making a movie with it. Try again when that is done.'), { status: 409 });
     wanted.delete(id);
+    // Space was freed: files that were waiting for it can try again.
+    for (const [k, why] of blocked) if (/disk space/.test(why)) blocked.delete(k);
     // Styles go with their maker.
     for (const s of MAKERS) if (s.for === id) wanted.delete(s.id);
     await saveWanted();

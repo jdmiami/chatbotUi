@@ -7,7 +7,7 @@ import { isNsfw } from '../../ui/nsfw';
 import { connectMarks, nsfwFor, rememberItems, useNsfwFlags } from '../../ui/nsfwFlags';
 import { GalleryGrid, GalleryViewer, type GalleryMedia } from './Gallery';
 import { AiError, type LocalAi, type StudioItem, type StudioJob, type StudioKind, type StudioMakerInfo, type StudioState, type VideoTask } from '../../services/ai/LocalAi';
-import { PENDING_TEXT, offlineMakers, rememberMakers, withCatalog } from './makerCatalog';
+import { PENDING_TEXT, offlineMakers, progressText, progressWhy, rememberMakers, withCatalog } from './makerCatalog';
 import { AudioSource, VideoSource, type AudioPick, type VideoPick } from './VideoInputs';
 import { TextArea } from '../../ui/TextArea';
 import { LiveDraw } from './LiveDraw';
@@ -365,7 +365,7 @@ export function CreateView({
     if (studioError) return studioError;
     if (!studio) return 'Checking the image and video maker…';
     if (chosen?.pending) return `${chosen.name}: ${PENDING_TEXT.toLowerCase()}. Turn it off and on again to get it.`;
-    if (chosen && !chosen.installed) return chosen.wanted ? `${chosen.name} is downloading: ${chosen.percent}%.` : `${chosen.name} is not installed. Open Makers to add it.`;
+    if (chosen && !chosen.installed) return chosen.wanted ? progressWhy(chosen, machineOn) : `${chosen.name} is not installed. Open Makers to add it.`;
     if (!chosen && !builtInMaker?.downloaded) return `The maker is downloading (first start only): ${builtInMaker?.percent ?? 0}%.`;
     if (!studio.running) return studio.setup.startsWith('error') ? `The maker had a problem: ${studio.setup.slice(6).trim()}` : 'The image and video maker is starting…';
     if (kind === 'edit') return needImages === 2 && editImages.length < 2 ? 'Add the person first, then the outfit.' : sharpen ? 'Makes the picture four times larger and crisper.' : 'Edits take under a minute.';
@@ -461,7 +461,7 @@ export function CreateView({
               next('o5-make-describe');
             }}>
               {m.name}
-              {!m.installed && <span className="ai-muted"> {m.pending ? 'soon' : m.wanted ? `${m.percent}%` : 'not added'}</span>}
+              {!m.installed && <span className="ai-muted"> {m.pending ? 'soon' : m.wanted ? progressText(m, machineOn) : 'not added'}</span>}
             </button>
           ))}
           <button type="button" className="ai-maker-chip ai-maker-more" onClick={() => onOpenMakers?.()}>

@@ -3,7 +3,7 @@ import { useShell } from '../../state/shell';
 import { Icon } from '../../ui/Icon';
 import type { LocalAi, StudioItem, StudioMakerInfo } from '../../services/ai/LocalAi';
 import { LiveDraw } from './LiveDraw';
-import { PENDING_TEXT } from './makerCatalog';
+import { PENDING_TEXT, progressText, progressWhy } from './makerCatalog';
 import './liveDraw.css';
 
 export type LiveSource = 'camera' | 'canvas' | 'text';
@@ -205,7 +205,7 @@ export function LiveVideo({
     if (m.installed) return null;
     if (m.setup) return `${name}: setting up its own Python (${m.setup}).`;
     if (m.problem) return `${name}: ${m.problem}`;
-    return m.wanted ? `${name} is downloading: ${m.percent}%.` : `Add ${name} in the Store to use it.`;
+    return m.wanted ? progressWhy(m, machineOn) : `Add ${name} in the Store to use it.`;
   };
   const note = !machineOn ? 'Turn on your AI machine to start live video.' : makerNote(info, maker === 'live-krea' ? 'Krea Realtime' : 'StreamDiffusionV2');
   const statusText =
@@ -234,7 +234,7 @@ export function LiveVideo({
         ).map(([id, name, m]) => (
           <button key={id} type="button" role="radio" aria-checked={maker === id} className="ai-maker-chip" disabled={running} onClick={() => setMaker(id)}>
             {name}
-            {m && !m.installed && <span className="ai-muted"> {m.pending ? 'soon' : m.wanted ? `${m.percent}%` : 'not added'}</span>}
+            {m && !m.installed && <span className="ai-muted"> {m.pending ? 'soon' : m.wanted ? progressText(m, machineOn) : 'not added'}</span>}
           </button>
         ))}
         <button type="button" className="ai-maker-chip ai-maker-more" onClick={() => onOpenMakers?.()}>

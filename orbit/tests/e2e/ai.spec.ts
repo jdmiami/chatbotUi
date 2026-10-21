@@ -802,6 +802,32 @@ test.describe('AI app: web search', () => {
 
 
 test.describe('AI app: maker store', () => {
+  test('a download that is not moving says why: in line, out of disk space, saving, or paused with the machine off', async ({ page }) => {
+    await mockAi(page, 'on');
+    const studio = await mockStudio(page);
+    Object.assign(studio.makers.find((m) => m.id === 'h3-max')!, { wanted: true, percent: 40, status: 'waiting', waitingFor: 'wan2.2_i2v_high_noise.safetensors' });
+    Object.assign(studio.makers.find((m) => m.id === 'krea-real')!, { wanted: true, percent: 12, status: 'disk', problem: 'Not enough disk space for krea.safetensors (3 GB free, needs about 21 GB). Remove a maker or a chat model you don\'t use.' });
+    Object.assign(studio.makers.find((m) => m.id === 'sharpen')!, { wanted: true, percent: 100, status: 'saving' });
+    await openOrbit(page);
+    await openCreate(page);
+    // Video: H3 Max is in line behind another file, and the note says which.
+    await page.getByRole('group', { name: 'What to make' }).getByRole('button', { name: 'Video', exact: true }).click();
+    const picks = page.getByRole('radiogroup', { name: 'Maker' });
+    await expect(picks.getByRole('radio', { name: /H3 Max/ })).toContainText('40% · in line');
+    await picks.getByRole('radio', { name: /H3 Max/ }).click();
+    await expect(page.getByText('H3 Max is 40% done, waiting for wan2.2_i2v_high_noise.safetensors to finish first')).toBeVisible();
+    // Image: Krea Real can't fit on the disk, and says so.
+    await page.getByRole('group', { name: 'What to make' }).getByRole('button', { name: 'Image', exact: true }).click();
+    await expect(picks.getByRole('radio', { name: /Krea Real/ })).toContainText('Disk full');
+    await picks.getByRole('radio', { name: /Krea Real/ }).click();
+    await expect(page.getByText(/Not enough disk space for krea\.safetensors \(3 GB free/)).toBeVisible();
+    // The Store says the same.
+    await page.getByRole('button', { name: 'Makers' }).click();
+    const store = page.locator('.app-window[data-app="store"]');
+    await expect(store.getByRole('status', { name: 'Adding Krea Real: Disk full' }).first()).toBeVisible();
+    await expect(store.getByText('100% · saving').first()).toBeVisible();
+  });
+
   test('install a new video maker, pick it, and the job uses it', async ({ page }) => {
     await mockAi(page, 'on');
     const studio = await mockStudio(page);
