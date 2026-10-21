@@ -53,7 +53,9 @@ export function MovieView({
   const frames = m.frames ?? [];
   const final = m.render && !m.render.stale ? itemById.get(m.render.itemId) : null;
   // One verdict for the whole movie: every shot and picture comes from the same story.
-  const nsfw = isNsfw(m.idea, m.title, m.look, m.lead?.description, ...m.shots.flatMap((s) => [s.prompt, s.says, s.end]), ...(m.frames ?? []).map((f) => f.prompt));
+  // The words, or the AI machine's check of any picture or shot in it.
+  const madeIds = [m.render?.itemId, m.lead?.itemId, ...m.shots.map((s) => s.itemId), ...(m.frames ?? []).map((f) => f.itemId)];
+  const nsfw = madeIds.some((id) => id && itemById.get(id)?.nsfw === true) || isNsfw(m.idea, m.title, m.look, m.lead?.description, ...m.shots.flatMap((s) => [s.prompt, s.says, s.end]), ...(m.frames ?? []).map((f) => f.prompt));
   const template = TEMPLATES.find((t) => t.id === m.template);
   const review = auto && m.phase === 'review' && !running;
   const left = !running && (m.phase === 'stopped' || m.phase === 'error' || (auto && m.phase !== 'done' && m.phase !== 'review' && m.phase !== 'draft') || (!auto && m.shots.some((s) => s.status !== 'done')));

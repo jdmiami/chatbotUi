@@ -350,6 +350,29 @@ test.describe('AI app: Create', () => {
     await expect(page.getByText('sexual content involving minors is never allowed')).toBeVisible();
   });
 
+  test('NSFW blur: a picture the AI machine flagged is blurred even when its words are innocent', async ({ page }) => {
+    await mockAi(page, 'on');
+    await mockStudio(page);
+    await page.route('**/fake-ai/_orbit/studio/items', (route) =>
+      route.fulfill({
+        json: {
+          items: [
+            { id: 'flag1', kind: 'image', prompt: 'a quiet portrait by the window', nsfw: true, width: 1328, height: 1328, createdAt: '2026-10-16T10:00:00Z', url: '/_orbit/studio/file/flag1?t=tok' },
+            { id: 'safe1', kind: 'image', prompt: 'a red fox in snow', nsfw: false, width: 1328, height: 1328, createdAt: '2026-10-16T09:00:00Z', url: '/_orbit/studio/file/safe1?t=tok' },
+          ],
+        },
+      }),
+    );
+    await openOrbit(page);
+    await openCreate(page);
+    const win = page.locator('.app-window[data-app="ai"]');
+    const tiles = win.locator('.ai-gallery .censor');
+    await expect(tiles).toHaveCount(1);
+    await expect(tiles.first().getByRole('button', { name: 'Image: a quiet portrait by the window' })).toBeVisible();
+    await win.getByRole('button', { name: 'Image: a quiet portrait by the window' }).click();
+    await expect(win.locator('.ai-viewer-media.censor')).toBeVisible();
+  });
+
   test('NSFW blur: only NSFW pictures and videos blur; hold to see, a video plays while held and pauses on release', async ({ page }) => {
     await mockAi(page, 'on');
     await mockStudio(page);

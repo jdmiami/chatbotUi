@@ -24,6 +24,7 @@ import { AiOrb } from './AiOrb';
 import { TextArea } from '../../ui/TextArea';
 import { Censor } from '../../ui/Censor';
 import { isNsfw } from '../../ui/nsfw';
+import { refreshFlags, useNsfwFlags } from '../../ui/nsfwFlags';
 
 const STATE_TEXT: Record<AiMachineStatus['state'], string> = {
   unconfigured: 'Not set up',
@@ -140,6 +141,12 @@ export default function AiApp({ isActive, compact, placement }: AppProps) {
   const input = useRef<HTMLTextAreaElement>(null);
 
   const chat = store.chats.find((c) => c.id === store.activeId) ?? null;
+  // Pictures made in this chat: the AI machine's NSFW check says which to blur.
+  const flagged = useNsfwFlags();
+  const hasPictures = Boolean(chat?.messages.some((m) => m.picture?.jobId));
+  useEffect(() => {
+    if (hasPictures && isActive && status?.state === 'on') void refreshFlags(ai);
+  }, [ai, hasPictures, isActive, status?.state, chat?.id]);
   const ready = status?.state === 'on';
 
   const update = useCallback((fn: (s: AiChatStore) => AiChatStore) => {
@@ -412,6 +419,8 @@ export default function AiApp({ isActive, compact, placement }: AppProps) {
       const url = job.item.url;
       cue('done');
       patchLast((m) => ({ ...m, streaming: false, picture: { url, prompt, jobId, progress: 100 } }));
+      // The machine looks at the new picture for NSFW within a few seconds: pick up its answer.
+      for (const ms of [5000, 15000, 40000]) window.setTimeout(() => void refreshFlags(ai), ms);
     } catch (err) {
       const stopped = ctrl.signal.aborted;
       if (!stopped) cue('error');
@@ -871,7 +880,7 @@ export default function AiApp({ isActive, compact, placement }: AppProps) {
                     ) : m.picture ? (
                       <figure className="ai-picture">
                         {m.picture.url ? (
-                          <Censor as="div" nsfw={isNsfw(m.picture.prompt)}>
+                          <Censor as="div" nsfw={isNsfw(m.picture.prompt) || flagged(m.picture.jobId)}>
                             <img src={m.picture.url} alt={m.picture.prompt} />
                           </Censor>
                         ) : (

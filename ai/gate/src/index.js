@@ -9,7 +9,8 @@ import { createModelStore } from './store.js';
 import { createPush } from './push.js';
 import fs from 'node:fs/promises';
 import { createStudio } from './studio.js';
-import { createMovies } from './movies.js';
+import { createMovies, runFfmpeg } from './movies.js';
+import { createNsfwCheck } from './nsfwcheck.js';
 import { createMemeLab } from './memes.js';
 import { createSysStats } from './sysstats.js';
 import { createGpuStats } from './gpustats.js';
@@ -48,7 +49,21 @@ const models = createModelKeeper({
 
 // Image and video maker (ComfyUI, started by ai/studio.sh). Off when STUDIO_DIR isn't set.
 const studio = env.STUDIO_DIR
-  ? createStudio({ dir: env.STUDIO_DIR, comfy: env.COMFY_URL || 'http://127.0.0.1:8188', ollama: OLLAMA, helper: HELPER, r2, inUseElsewhere: (id) => movies?.usedElsewhere(id) })
+  ? createStudio({
+      dir: env.STUDIO_DIR,
+      comfy: env.COMFY_URL || 'http://127.0.0.1:8188',
+      ollama: OLLAMA,
+      helper: HELPER,
+      r2,
+      inUseElsewhere: (id) => movies?.usedElsewhere(id),
+      // Looks at every picture and video for NSFW, on the CPU (nsfwcheck.js).
+      nsfw: createNsfwCheck({
+        python: path.join(env.STUDIO_DIR, 'venv', 'bin', 'python'),
+        script: fileURLToPath(new URL('../nsfw_worker.py', import.meta.url)),
+        env: { HF_HOME: path.join(env.STUDIO_DIR, 'hf') },
+        ffmpeg: (args) => runFfmpeg(args, { timeoutMs: 60_000 }),
+      }),
+    })
   : null;
 // soReal movies (chained video shots), kept with the studio's files.
 // A chat model on this machine writes each movie's story (labChat: below, the same as the meme lab's).

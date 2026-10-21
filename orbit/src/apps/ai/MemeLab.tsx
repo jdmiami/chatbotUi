@@ -287,7 +287,7 @@ export function MemeLab({ ai, machineOn, isActive, onKept }: { ai: LocalAi; mach
 }
 
 /** A Lab video is NSFW when its words say so, or when it was made in the spicy style. */
-const labNsfw = (r: MemeRecord & { style?: string }) => r.style === 'spicy' || isNsfw(r.title, r.prompt, r.caption);
+const labNsfw = (r: MemeRecord & { style?: string }) => r.nsfw === true || r.style === 'spicy' || isNsfw(r.title, r.prompt, r.caption);
 
 function LabHead({ children }: { children?: React.ReactNode }) {
   return (
