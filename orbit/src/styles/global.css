@@ -1137,4 +1137,7 @@ a.btn {
 .censor.censor-text[data-revealed] > * { filter: none; }
 .censor.censor-text .censor-hint { font-size: 10px; padding: 2px 8px; margin-bottom: 4px; }
 .censor > video { pointer-events: none; }
+/* A clear picture you can hold to blur: no iOS save-picture menu or text selection while holding. */
+.censor-markable { -webkit-touch-callout: none; user-select: none; -webkit-user-select: none; }
+.ai-viewer-blur { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 @media (prefers-reduced-motion: reduce) { .censor > *, .censor[data-revealed] > * { transition: none; } }
