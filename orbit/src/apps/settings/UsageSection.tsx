@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useShell } from '../../state/shell';
 import { cloudStatus, type CloudStatus } from '../../services/ai/CloudAi';
-import { Toggle } from '../../ui/components';
+import { Segmented, Toggle } from '../../ui/components';
 import { Section } from './parts';
 import { disableNotify, enableNotify, notifyState, type NotifyState } from '../../services/notify';
 import { AUTO_OFF, autoOffMinutesOf, autoOffSentence, untilText } from '../../services/autoOff';
@@ -245,6 +245,7 @@ export function OrbSection() {
 export function CloudAiSection() {
   const on = useShell((s) => s.settings.cloudAi !== false);
   const writeHelp = useShell((s) => s.settings.writeHelp !== false);
+  const prefer = useShell((s) => s.settings.cloudPrefer);
   const updateSettings = useShell((s) => s.updateSettings);
   const [status, setStatus] = useState<CloudStatus | null | undefined>(undefined);
   useEffect(() => {
@@ -253,12 +254,13 @@ export function CloudAiSection() {
     return () => {
       live = false;
     };
-  }, []);
+  }, [prefer]);
+  const providers = status?.providers ?? [];
   const state = status === undefined ? 'Checking…' : status?.configured ? 'Ready' : 'Not set up on the site yet';
   return (
     <Section
       title="Cloud AI"
-      caption="Quick jobs (the orb planning a step, help writing, reading what's on screen) use NVIDIA's free cloud models, so they work with your AI machine off. Pictures, videos and long chats stay on your AI machine."
+      caption="Quick jobs (the orb planning a step, help writing, reading what's on screen), and chats while your AI machine is off, use free cloud models: NVIDIA first, then a backup if it is busy or down. Pictures and videos stay on your AI machine."
     >
       <div className="list">
         <label className="row st-row st-click">
@@ -274,6 +276,20 @@ export function CloudAiSection() {
             <span className="st-sub">{on ? state : 'Off'}</span>
           </span>
         </div>
+        {on && providers.length > 1 && (
+          <div className="row st-row st-wrap">
+            <span className="st-main st-shrink">
+              <span className="st-label">Try first</span>
+              <span className="st-sub">The others are the backups, tried in turn when this one is busy or down.</span>
+            </span>
+            <Segmented
+              label="Cloud AI to try first"
+              value={providers.some((p) => p.id === prefer) ? prefer! : providers[0].id}
+              options={providers.map((p) => ({ value: p.id, label: p.name }))}
+              onChange={(id) => updateSettings({ cloudPrefer: id })}
+            />
+          </div>
+        )}
         {on && (
           <label className="row st-row st-click">
             <span className="st-main">
@@ -289,7 +305,7 @@ export function CloudAiSection() {
               <span className="st-label">What is sent</span>
               <span className="st-sub">
                 What you ask, the text on screen and, when it needs to look, a screenshot. Never passwords: password boxes are left out
-                and anything that looks like a key or token is blanked first. The NVIDIA key stays on the site, never in this browser.
+                and anything that looks like a key or token is blanked first. The cloud keys stay on the site, never in this browser.
               </span>
             </span>
           </div>

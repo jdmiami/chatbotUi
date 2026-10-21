@@ -2,15 +2,17 @@ import { AiError, readChatStream, type ChatMessage, type StreamHandlers } from '
 import { useShell } from '../../state/shell';
 
 /**
- * Cloud AI: NVIDIA's free models, reached through the site (/api/orb/ai) so the key never comes
- * near the browser. Quick jobs (the orb planning a step, rewriting a sentence, reading a screenshot)
- * go here; the AI machine stays for heavy work and is the fallback when this is off or busy.
+ * Cloud AI: NVIDIA's free models first, then backup serverless providers, reached through the site
+ * (/api/orb/ai) so no key ever comes near the browser. Quick jobs (the orb planning a step,
+ * rewriting a sentence, reading a screenshot) go here, and AI app chats while the AI machine is off.
  */
 
-export type CloudTask = 'fast' | 'agent' | 'vision' | 'write';
+export type CloudTask = 'fast' | 'agent' | 'vision' | 'write' | 'chat';
 
 export interface CloudStatus {
   configured: boolean;
+  /** The providers set up on the site, in the order they are tried. */
+  providers?: { id: string; name: string }[];
   models: Record<CloudTask, string[]>;
 }
 
@@ -34,7 +36,8 @@ export async function cloudStatus(fresh = false): Promise<CloudStatus | null> {
   if (!fresh && cached && Date.now() - cached.at < 60_000) return cached.status;
   let status: CloudStatus | null = null;
   try {
-    const res = await fetch(ENDPOINT, { cache: 'no-store', credentials: 'same-origin' });
+    const prefer = cloudPrefer();
+    const res = await fetch(prefer ? `${ENDPOINT}?prefer=${encodeURIComponent(prefer)}` : ENDPOINT, { cache: 'no-store', credentials: 'same-origin' });
     if (res.ok) status = (await res.json()) as CloudStatus;
   } catch {
     /* offline */
@@ -48,11 +51,17 @@ export async function cloudReady() {
   return cloudAiEnabled() && Boolean((await cloudStatus())?.configured);
 }
 
+/** The provider to try first (Settings); the others are the backups. Unset: the site's order. */
+export function cloudPrefer(): string | undefined {
+  return useShell.getState().settings.cloudPrefer || undefined;
+}
+
 async function post(body: Record<string, unknown>, signal?: AbortSignal) {
+  const prefer = cloudPrefer();
   const res = await fetch(ENDPOINT, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
-    body: JSON.stringify(body),
+    body: JSON.stringify(prefer ? { ...body, prefer } : body),
     cache: 'no-store',
     credentials: 'same-origin',
     signal,
