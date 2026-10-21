@@ -184,3 +184,33 @@ test('studio: your own say (held to blur, or the switch) is saved, survives the 
 
   assert.equal(await studio.markNsfw('nosuchitem1', true), null);
 });
+
+test('studio: the check and your own say, at the same moment, keep both answers', async () => {
+  // Your say lands while the check is writing its answer (the mark starts the moment the check answers).
+  let studio;
+  const marking = [];
+  const nsfw = {
+    async check(file) {
+      marking.push(studio.markNsfw(path.basename(file, '.png'), true));
+      return { nsfw: false, score: 0.03 };
+    },
+  };
+  const ctx = await newStudio(nsfw);
+  studio = ctx.studio;
+  const { dir } = ctx;
+  await fs.mkdir(path.join(dir, 'output', 'orbit'), { recursive: true });
+  const ids = [];
+  for (let i = 0; i < 12; i++) {
+    const id = `racepic${String(i).padStart(3, '0')}`;
+    ids.push(id);
+    await fs.writeFile(path.join(dir, 'output', 'orbit', `${id}.png`), 'pixels');
+    await fs.writeFile(path.join(dir, 'output', 'orbit', `${id}.json`), JSON.stringify({ id, kind: 'image', prompt: 'x', file: `orbit/${id}.png`, createdAt: '2026-01-01T00:00:00Z' }));
+  }
+  await studio.rateAll();
+  await Promise.all(marking);
+  for (const id of ids) {
+    const it = await studio.item(id);
+    assert.equal(it.nsfwUser, true, `${id} kept your say`);
+    assert.equal(it.nsfwScore, 0.03, `${id} kept the check`);
+  }
+});

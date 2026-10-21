@@ -1397,6 +1397,15 @@ export function createStudio(o) {
 
   // ---- the NSFW check: look at each picture or video once, and remember the answer in its note.
   const rating = new Set();
+  // One read-change-write at a time per note, so the check and your own say never undo each other.
+  const noteLocks = new Map();
+  function withNote(id, fn) {
+    const run = (noteLocks.get(id) || Promise.resolve()).then(fn, fn);
+    const tail = run.catch(() => {});
+    noteLocks.set(id, tail);
+    void tail.then(() => noteLocks.get(id) === tail && noteLocks.delete(id));
+    return run;
+  }
   /** Look at an item and save whether it is NSFW (nsfw: true | false). Quiet when the checker can't run. */
   async function rate(item) {
     if (!o.nsfw || rating.has(item.id)) return;
@@ -1406,13 +1415,15 @@ export function createStudio(o) {
       if (!p) return;
       const r = await o.nsfw.check(p, { kind: item.kind, seconds: item.seconds });
       if (!r) return;
-      // Read the note again: it may have changed meanwhile (kept from the Lab, for one).
-      const latest = (await readItem(item.id)) || item;
-      latest.nsfw = r.nsfw || Boolean(latest.nsfw);
-      latest.nsfwScore = r.score;
-      item.nsfw = latest.nsfw;
-      await fsp.writeFile(path.join(metaDir, `${item.id}.json`), JSON.stringify(latest));
-      await keep(latest);
+      // Read the note again: it may have changed meanwhile (kept from the Lab, or your own say).
+      await withNote(item.id, async () => {
+        const latest = (await readItem(item.id)) || item;
+        latest.nsfw = r.nsfw || Boolean(latest.nsfw);
+        latest.nsfwScore = r.score;
+        item.nsfw = latest.nsfw;
+        await fsp.writeFile(path.join(metaDir, `${item.id}.json`), JSON.stringify(latest));
+        await keep(latest);
+      });
     } catch (err) {
       log.warn?.(`[nsfw] ${item.id}: ${err.message}`);
     } finally {
@@ -1424,14 +1435,16 @@ export function createStudio(o) {
    * Your own say on an item, which beats the check: true blurs it (the check missed it), false never
    * blurs it (the check or its words got it wrong), null hands it back to the check.
    */
-  async function markNsfw(id, nsfw) {
-    const it = await readItem(id);
-    if (!it) return null;
-    if (typeof nsfw === 'boolean') it.nsfwUser = nsfw;
-    else delete it.nsfwUser;
-    await fsp.writeFile(path.join(metaDir, `${id}.json`), JSON.stringify(it));
-    await keep(it);
-    return it;
+  function markNsfw(id, nsfw) {
+    return withNote(id, async () => {
+      const it = await readItem(id);
+      if (!it) return null;
+      if (typeof nsfw === 'boolean') it.nsfwUser = nsfw;
+      else delete it.nsfwUser;
+      await fsp.writeFile(path.join(metaDir, `${id}.json`), JSON.stringify(it));
+      await keep(it);
+      return it;
+    });
   }
 
   /** Everything made before the check existed (or while it couldn't run): look at it now, one at a time. */
