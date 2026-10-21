@@ -39,6 +39,7 @@ export const APP_WORDS: [RegExp, AppId][] = [
   [/\b(code|editor|files?|project)\b/, 'editor'],
   [/\b(anti ?gravity|agent|coding agent)\b/, 'agent'],
   [/\b(so ?real|movies?|films?)\b/, 'soreal'],
+  [/\b(stats|statistics|storage|usage|cost|spending|ram|cpu|gpu)\b/, 'stats'],
   [/\b(settings?|preferences|options)\b/, 'settings'],
   [/\b(ai|chat|talk|assistant|images?|pictures?|videos?|make|create)\b/, 'ai'],
 ];
@@ -212,7 +213,7 @@ export function needsConfirm(step: Step, label?: string): string | null {
 export const PLANNER_PROMPT = `You operate Orbit, a web workspace, for its owner, one step at a time.
 Each turn you get the goal, what you've done, and what is on screen now as numbered items ("#3 button: Make").
 Reply with ONE JSON object and nothing else, one of:
-{"do":"open","app":"terminal|editor|agent|ai|soreal|settings"}
+{"do":"open","app":"terminal|editor|agent|ai|soreal|stats|settings"}
 {"do":"home"} {"do":"back"}
 {"do":"click","target":"#3"}            (use the item number)
 {"do":"type","target":"#5","text":"...","submit":true|false}

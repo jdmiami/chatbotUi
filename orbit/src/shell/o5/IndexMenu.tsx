@@ -18,6 +18,7 @@ export const ENTRIES: { id: AppId; title: string; line: string }[] = [
   { id: 'vscode', title: 'VS Code', line: 'The full editor' },
   { id: 'desktop', title: 'Linux desktop', line: 'The whole machine' },
   { id: 'windows', title: 'Windows PC', line: 'Your computer at home' },
+  { id: 'stats', title: 'Stats', line: 'Every number, money and storage' },
   { id: 'settings', title: 'Settings', line: 'Make it yours' },
 ];
 /** The folio for an app, as on the contents page: "04 · Terminal". */

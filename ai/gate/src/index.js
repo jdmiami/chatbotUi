@@ -19,6 +19,7 @@ import { createGpuStats } from './gpustats.js';
 import { createSearch } from './search.js';
 import { createVoice } from './voice.js';
 import { createR2, createR2Test, r2FromEnv } from './r2.js';
+import { createStorageReport } from './storage.js';
 import { createOllamaSync, createWebuiBackup } from './cloud.js';
 import { FILES, STUDIO_FILES } from './workflows.js';
 import { createLiveDraw, createLiveWorker } from './live.js';
@@ -296,6 +297,11 @@ const lab =
 
 const sys = createSysStats({ volume: env.PERSIST_DIR || '/workspace' });
 const gpu = createGpuStats({ ollama: OLLAMA, comfy: studio ? env.COMFY_URL || 'http://127.0.0.1:8188' : null });
+const storage = createStorageReport({
+  r2,
+  items: async () => (studio ? [...(await studio.items(10_000)), ...(await studio.labItems(10_000))] : []),
+  disks: () => sys.disks(),
+});
 async function stats() {
   const [system, graphics] = await Promise.all([sys.collect(), gpu()]);
   return { ...system, ...graphics, idle: idle.state(), uptimeMinutes: Math.round((Date.now() - startedAt) / 60000) };
@@ -364,6 +370,7 @@ const server = createGate({
   activity: () => idle.activity(),
   status,
   stats,
+  storage,
   keepAwake: (minutes) => idle.extend(minutes),
   // The same shape as the Linux machine's /idle, plus which AI machine this is.
   idleState: () => ({ ...idle.state(), role: HELPER ? 'helper' : 'main', uptimeMinutes: Math.round((Date.now() - startedAt) / 60000) }),
