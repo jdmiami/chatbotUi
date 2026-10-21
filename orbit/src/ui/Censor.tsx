@@ -32,7 +32,7 @@ export function UncensoredSwitch() {
   const updateSettings = useShell((s) => s.updateSettings);
   return (
     <div className="uncensored-switch">
-      <span className="ai-muted">{view === 'show' ? 'Show NSFW: on, blurred until held' : 'NSFW is hidden'}</span>
+      <span className="ai-muted">{view === 'show' ? 'Show NSFW: on, blurred until held (off again next time you open Orbit)' : 'NSFW is hidden'}</span>
       <Toggle checked={view === 'show'} label="Show NSFW" onChange={(on) => updateSettings({ nsfwView: on ? 'show' : 'hide' })} />
     </div>
   );

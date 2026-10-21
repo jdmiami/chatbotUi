@@ -417,6 +417,17 @@ test.describe('AI app: Create', () => {
     await show.click();
     await expect(portrait).toHaveCount(0);
     await expectTappable(page);
+    // Left on, it still doesn't outlive the visit: opening Orbit again starts hidden.
+    await show.click();
+    await expect(portrait).toBeVisible();
+    await page.reload();
+    // Orbit reopens the AI app where it was (Create): the switch is off again.
+    const icon = page.getByRole('button', { name: /^AI\./ });
+    await expect(win.or(icon).first()).toBeVisible();
+    if (!(await win.isVisible())) await icon.click();
+    if (!(await page.locator('.ai-create').isVisible())) await page.getByRole('group', { name: 'Chat, create or lab' }).getByRole('button', { name: 'Create' }).click();
+    await expect(win.getByRole('switch', { name: 'Show NSFW' })).not.toBeChecked();
+    await expect(portrait).toHaveCount(0);
   });
 
   test('NSFW: hold a picture to hide it; with "Show NSFW" on, the viewer switch unhides one; both saved on the AI machine', async ({ page }) => {

@@ -607,3 +607,20 @@ test('routes: an older machine without your style says so', async () => {
   const lab = createMemeLab({ studio, log: quiet, load: async () => null });
   await assert.rejects(lab.profile(), /not available/);
 });
+
+test('switching the Lab style answers at once, even while the movie being made takes minutes to stop', async () => {
+  const studio = fakeLabStudio();
+  const movies = fakeMovies(studio);
+  let release;
+  const stopping = new Promise((r) => (release = r));
+  movies.remove = async (id) => { await stopping; movies.all.delete(id); return true; };
+  const lab = createMemeLab({ studio, movies, profile: fakeProfile(), log: quiet, minutesLeft: () => 60, load: async () => ({ style: 'yours' }), chat: null });
+  await lab.tick();
+  assert.ok((await lab.state()).making, 'a movie is being made');
+  const switched = await Promise.race([lab.configure({ style: 'comedy' }).then(() => 'answered'), new Promise((r) => setTimeout(() => r('stuck'), 500))]);
+  assert.equal(switched, 'answered');
+  const st = await lab.state();
+  assert.equal(st.style, 'comedy');
+  assert.equal(st.making, null);
+  release();
+});
