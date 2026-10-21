@@ -74,6 +74,58 @@ test.describe('AI app', () => {
     expect(errors).toEqual([]);
   });
 
+  test('machine off: chats are answered in the cloud; Settings picks which cloud goes first', async ({ page }) => {
+    await mockAi(page, 'off');
+    const sent: { task: string; prefer?: string; last: string }[] = [];
+    const providers = [{ id: 'nvidia', name: 'NVIDIA' }, { id: 'groq', name: 'Groq' }];
+    await page.route(/\/api\/orb\/ai(\?.*)?$/, async (route) => {
+      const prefer = new URL(route.request().url()).searchParams.get('prefer');
+      if (route.request().method() === 'GET') {
+        const list = prefer ? [...providers].sort((a) => (a.id === prefer ? -1 : 0)) : providers;
+        return route.fulfill({ json: { configured: true, providers: list, models: {} } });
+      }
+      const body = route.request().postDataJSON() as { task: string; prefer?: string; messages: { content: string }[] };
+      sent.push({ task: body.task, prefer: body.prefer, last: String(body.messages[body.messages.length - 1].content) });
+      const sse = `data: ${JSON.stringify({ choices: [{ delta: { content: 'Hello from the cloud.' } }] })}\n\ndata: [DONE]\n\n`;
+      return route.fulfill({ headers: { 'content-type': 'text/event-stream', 'x-orb-model': 'test', 'x-orb-provider': 'nvidia' }, body: sse });
+    });
+    const errors = await openOrbit(page);
+    await openAi(page);
+    const win = page.locator('.app-window[data-app="ai"]');
+    const box = win.getByRole('textbox', { name: 'Message' });
+    await expect(box).toHaveAttribute('placeholder', 'Message your model…');
+    await box.fill('hi there');
+    await win.getByRole('button', { name: 'Send' }).click();
+    await expect(win.locator('.ai-msg-assistant').last()).toContainText('Hello from the cloud.');
+    expect(sent[0]).toEqual({ task: 'chat', prefer: undefined, last: 'hi there' });
+
+    // Settings: put the backup first; the next chat asks for it.
+    const index = page.getByRole('button', { name: /^Index/ });
+    if (await index.isVisible()) {
+      await index.click();
+      await page.getByRole('dialog', { name: 'Index' }).locator('.o5-index-list').getByRole('button', { name: /Settings/ }).click();
+    } else {
+      await page.getByRole('navigation', { name: 'Dock' }).getByRole('button', { name: 'Home screen' }).click();
+      await page.getByRole('button', { name: /^Settings\./ }).first().click();
+    }
+    const first = page.locator('.app-window[data-app="settings"]').getByRole('group', { name: 'Cloud AI to try first' });
+    await first.scrollIntoViewIfNeeded();
+    await first.getByRole('button', { name: 'Groq' }).click();
+    await expect(first.getByRole('button', { name: 'Groq' })).toHaveAttribute('aria-pressed', 'true');
+    if (await index.isVisible()) {
+      await index.click();
+      await page.getByRole('dialog', { name: 'Index' }).locator('.o5-index-list').getByRole('button', { name: /Talk/ }).click();
+    } else {
+      await page.getByRole('navigation', { name: 'Dock' }).getByRole('button', { name: 'Home screen' }).click();
+      await page.getByRole('button', { name: /^AI\./ }).first().click();
+    }
+    await box.fill('again');
+    await win.getByRole('button', { name: 'Send' }).click();
+    await expect.poll(() => sent.length).toBe(2);
+    expect(sent[1]).toMatchObject({ task: 'chat', prefer: 'groq' });
+    expect(errors).toEqual([]);
+  });
+
   test('chats list: sheet on narrow screens, sidebar on wide ones; survives reload', async ({ page }) => {
     await mockAi(page, 'on');
     await openOrbit(page);

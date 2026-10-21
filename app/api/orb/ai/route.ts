@@ -1,22 +1,24 @@
 import { currentUser } from '@/lib/auth';
 import { fromMachine, sameOrigin } from '@/lib/request';
-import { ORB_TASKS, callNvidia, cleanMessages, orbAiConfigured, orbModels, retryable, type OrbTask } from '@/lib/orbAi';
+import { ORB_TASKS, attempts, callProvider, cleanMessages, orbAiConfigured, orbAiInfo, retryable, type OrbTask } from '@/lib/orbAi';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
 
 const noStore = { 'cache-control': 'no-store' };
 
-/** Is cloud AI set up, and which models each kind of job uses. */
+/** Is cloud AI set up, which providers (in order; ?prefer= puts one first) and which models each job uses. */
 export async function GET(request: Request) {
   if (!(await fromMachine(request)) && !(await currentUser())) return Response.json({ error: 'Unauthorized' }, { status: 401 });
-  return Response.json({ configured: orbAiConfigured(), models: orbModels() }, { headers: noStore });
+  const prefer = new URL(request.url).searchParams.get('prefer') ?? undefined;
+  return Response.json(orbAiInfo(prefer), { headers: noStore });
 }
 
 /**
- * One cloud AI request: { task, messages, tools?, tool_choice?, max_tokens?, temperature?, stream?, model? }.
- * Tries the task's models in order until one answers; the reply (or stream) is passed through,
- * with the model that answered in the x-orb-model header. `model` (one from the lists) pins a
+ * One cloud AI request: { task, messages, tools?, tool_choice?, max_tokens?, temperature?, stream?, model?, prefer? }.
+ * Tries each provider's models for the task in order (`prefer` names the provider to try first),
+ * moving on to the next model, then the next provider, when one is missing, busy or failing. The
+ * reply (or stream) is passed through, with what answered in the x-orb-model and x-orb-provider headers. `model` (one from the lists) pins a
  * single model, for comparing them. The Linux machine may call this too, with its machine token.
  */
 export async function POST(request: Request) {
@@ -25,7 +27,7 @@ export async function POST(request: Request) {
     if (!(await currentUser())) return Response.json({ error: 'Unauthorized' }, { status: 401 });
     if (!sameOrigin(request)) return Response.json({ error: 'Forbidden' }, { status: 403 });
   }
-  if (!orbAiConfigured()) return Response.json({ error: 'Cloud AI is not set up yet (NVIDIA_API_KEY in Vercel).' }, { status: 501 });
+  if (!orbAiConfigured()) return Response.json({ error: 'Cloud AI is not set up yet (NVIDIA_API_KEY or a backup key in Vercel).' }, { status: 501 });
 
   const input = (await request.json().catch(() => null)) as Record<string, unknown> | null;
   if (!input) return Response.json({ error: 'Send JSON.' }, { status: 400 });
@@ -34,10 +36,11 @@ export async function POST(request: Request) {
   const messages = cleanMessages(input.messages);
   if (typeof messages === 'string') return Response.json({ error: messages }, { status: 400 });
 
-  const all = orbModels();
-  const known = Object.values(all).flat();
-  if (input.model !== undefined && !known.includes(String(input.model))) return Response.json({ error: 'unknown model' }, { status: 400 });
-  const candidates = input.model ? [String(input.model)] : all[task];
+  const prefer = typeof input.prefer === 'string' ? input.prefer : undefined;
+  const pinned = input.model === undefined ? undefined : String(input.model);
+  // A pinned model (comparing models) is looked up in every job's list.
+  const tries = pinned ? ORB_TASKS.flatMap((t) => attempts(t, prefer, pinned)).slice(0, 1) : attempts(task, prefer);
+  if (pinned && !tries.length) return Response.json({ error: 'unknown model' }, { status: 400 });
 
   const stream = input.stream === true;
   const body: Record<string, unknown> = {
@@ -57,7 +60,7 @@ export async function POST(request: Request) {
   // Leave a margin under the 60 s limit for the reply itself.
   const deadline = Date.now() + 50_000;
   let last = '';
-  for (const model of candidates) {
+  for (const attempt of tries) {
     if (Date.now() > deadline - 5_000 || request.signal.aborted) break;
     const ctrl = new AbortController();
     const stop = () => ctrl.abort();
@@ -65,12 +68,12 @@ export async function POST(request: Request) {
     const timer = setTimeout(stop, deadline - Date.now());
     let res: Response;
     try {
-      res = await callNvidia(model, body, ctrl.signal);
+      res = await callProvider(attempt, body, ctrl.signal);
       // A model that doesn't take the no-thinking switch: ask again without it.
-      if (res.status === 400 && body.chat_template_kwargs) {
+      if (res.status === 400 && body.chat_template_kwargs && attempt.provider.noThinking) {
         await res.body?.cancel();
         const { chat_template_kwargs: _drop, ...plain } = body;
-        res = await callNvidia(model, plain, ctrl.signal);
+        res = await callProvider(attempt, plain, ctrl.signal);
       }
     } catch (err) {
       clearTimeout(timer);
@@ -79,7 +82,7 @@ export async function POST(request: Request) {
       continue;
     }
     if (res.ok && res.body) {
-      const headers = { ...noStore, 'x-orb-model': model, 'content-type': res.headers.get('content-type') ?? 'application/json' };
+      const headers = { ...noStore, 'x-orb-model': attempt.model, 'x-orb-provider': attempt.provider.id, 'content-type': res.headers.get('content-type') ?? 'application/json' };
       if (!stream) {
         const text = await res.text().finally(() => clearTimeout(timer));
         request.signal.removeEventListener('abort', stop);
@@ -92,6 +95,8 @@ export async function POST(request: Request) {
     request.signal.removeEventListener('abort', stop);
     const detail = await res.text().catch(() => '');
     last = `answered ${res.status}`;
+    // A provider whose key is wrong or out of credit: the next provider may still answer.
+    if (res.status === 401 || res.status === 402 || res.status === 403) continue;
     if (!retryable(res.status)) {
       let message = detail;
       try {
@@ -99,7 +104,7 @@ export async function POST(request: Request) {
       } catch {
         /* plain text */
       }
-      return Response.json({ error: `Cloud AI: ${String(message).slice(0, 300) || res.statusText}` }, { status: res.status === 401 || res.status === 403 ? 502 : res.status });
+      return Response.json({ error: `Cloud AI: ${String(message).slice(0, 300) || res.statusText}` }, { status: res.status });
     }
   }
   return Response.json({ error: `Cloud AI is busy right now (${last || 'no model answered'}). Try again in a moment.` }, { status: 503 });

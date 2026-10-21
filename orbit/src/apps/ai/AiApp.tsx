@@ -26,6 +26,10 @@ import { Censor, useNsfwView } from '../../ui/Censor';
 import { isNsfw } from '../../ui/nsfw';
 import { refreshFlags, useNsfwFlags } from '../../ui/nsfwFlags';
 import { autoOffMinutesOf, autoOffSentence } from '../../services/autoOff';
+import { cloudChat, cloudReady } from '../../services/ai/CloudAi';
+
+/** What a chat answered in the cloud (no AI machine) is labelled with. */
+export const CLOUD_MODEL = 'Orbit AI';
 
 const STATE_TEXT: Record<AiMachineStatus['state'], string> = {
   unconfigured: 'Not set up',
@@ -158,6 +162,18 @@ export default function AiApp({ isActive, compact, placement }: AppProps) {
   if (ready) wasOn.current = true;
   else if (status && status.state !== 'error') wasOn.current = false;
   const steadyOn = ready || wasOn.current;
+  // With the AI machine off, chats go to the cloud (NVIDIA, then the backups) instead of waiting.
+  const [cloudOk, setCloudOk] = useState(false);
+  useEffect(() => {
+    if (!isActive) return;
+    let live = true;
+    void cloudReady().then((ok) => live && setCloudOk(ok));
+    return () => {
+      live = false;
+    };
+  }, [isActive]);
+  const viaCloud = !ready && cloudOk;
+  const canChat = ready || viaCloud;
 
   const update = useCallback((fn: (s: AiChatStore) => AiChatStore) => {
     setStore((prev) => {
@@ -348,25 +364,24 @@ export default function AiApp({ isActive, compact, placement }: AppProps) {
           toast(`Web search didn't work (${(err as Error).message}). Answering without it.`, 'info');
         }
       }
-      await ai.chat(
-        useModel,
-        history,
-        {
-          onText: (d) => {
+      const handlers = {
+          onText: (d: string) => {
             opts.onDelta?.(d);
             const first = !firstToken;
             firstToken ||= Date.now();
             patchLast((m) => ({ ...m, content: m.content + d, ...(first && thinkStart ? { thinkMs: Date.now() - thinkStart } : {}) }));
           },
-          onReasoning: (d) => {
+          onReasoning: (d: string) => {
             thinkStart ||= Date.now();
             firstToken ||= Date.now();
             patchLast((m) => ({ ...m, reasoning: (m.reasoning ?? '') + d }));
           },
-          onUsage: (u) => (usage = u),
-        },
-        ctrl.signal,
-      );
+          onUsage: (u: { promptTokens: number; completionTokens: number }) => (usage = u),
+      };
+      if (useModel === CLOUD_MODEL) {
+        const sees = history.some((m) => Array.isArray(m.content) && m.content.some((p) => p.type === 'image_url'));
+        await cloudChat({ task: sees ? 'vision' : 'chat', messages: history, maxTokens: 4096, signal: ctrl.signal }, handlers);
+      } else await ai.chat(useModel, history, handlers, ctrl.signal);
       const secs = firstToken ? (Date.now() - firstToken) / 1000 : 0;
       const u = usage as { completionTokens: number } | null;
       cue('done');
@@ -448,17 +463,21 @@ export default function AiApp({ isActive, compact, placement }: AppProps) {
     const pictureMode = spoken ? false : pictureNow;
     const editing = spoken ? null : editingNow;
     if ((!text && !attachments.length) || busy) return;
-    if (!ready) {
+    if (!canChat) {
       toast('Turn on your AI machine first.', 'info');
       return;
     }
-    if (!model && !pictureMode) {
+    if (pictureMode && !ready) {
+      toast('Pictures in chat need your AI machine on. Make works for pictures too.', 'info');
+      return;
+    }
+    if (!model && !pictureMode && !viaCloud) {
       toast('No model yet: the AI machine is still downloading them.', 'info');
       return;
     }
     const images = attachments.flatMap((a) => (a.kind === 'image' ? [a.dataUrl] : []));
     const files = attachments.flatMap((a) => (a.kind === 'file' ? [{ name: a.name, text: a.text }] : []));
-    if (images.length && !pictureMode && modelInfo && !modelInfo.vision) {
+    if (images.length && !pictureMode && !viaCloud && modelInfo && !modelInfo.vision) {
       const seeing = installed?.find((m) => m.vision)?.name;
       toast(`${model} can't see photos. ${seeing ? `Switch to ${seeing}` : 'Add a model that sees pictures from the model store'} to ask about them.`, 'info');
       return;
@@ -497,7 +516,7 @@ export default function AiApp({ isActive, compact, placement }: AppProps) {
     follow.current = true;
     setAtBottom(true);
     if (pictureMode) return makePicture(chatId, text);
-    await run(chatId, toHistory([...before, userMsg], instructions(target)), model, undefined, { web: webMode && text ? text : undefined, onDelta: spoken?.onDelta });
+    await run(chatId, toHistory([...before, userMsg], instructions(target)), viaCloud ? CLOUD_MODEL : model, undefined, { web: webMode && text ? text : undefined, onDelta: spoken?.onDelta });
   };
 
   const addFiles = async (list: FileList | File[] | null) => {
@@ -1086,7 +1105,7 @@ export default function AiApp({ isActive, compact, placement }: AppProps) {
                 }}
                 onKeyDown={onKey}
                 rows={1}
-                placeholder={!ready ? 'Turn on your AI machine to chat' : pictureMode ? 'Describe the picture to make…' : 'Message your model…'}
+                placeholder={!canChat ? 'Turn on your AI machine to chat' : pictureMode ? 'Describe the picture to make…' : 'Message your model…'}
                 aria-label="Message"
                 enterKeyHint="send"
               />
@@ -1123,7 +1142,7 @@ export default function AiApp({ isActive, compact, placement }: AppProps) {
                   aria-label={`Model: ${model || 'none'}. Change model`}
                 >
                   <span className={`ai-live${modelInfo?.loaded ? '' : ' ai-live-off'}`} aria-hidden />
-                  <span className="ai-model-chip-name">{model || (ready ? 'Choose a model' : 'Models appear when on')}</span>
+                  <span className="ai-model-chip-name">{viaCloud ? CLOUD_MODEL : model || (ready ? 'Choose a model' : 'Models appear when on')}</span>
                   <Icon name="down" size={14} />
                 </button>
                 {!busy && !draft.trim() && !attachments.length && !pictureMode ? (
@@ -1141,7 +1160,7 @@ export default function AiApp({ isActive, compact, placement }: AppProps) {
                 ) : busy ? (
                   <IconButton icon="stop" label="Stop" className="ai-send ai-send-stop" onClick={() => abort.current?.abort()} />
                 ) : (
-                  <IconButton icon="send" label={pictureMode ? 'Make picture' : 'Send'} className="ai-send" type="submit" disabled={(!draft.trim() && (!attachments.length || pictureMode)) || !ready} />
+                  <IconButton icon="send" label={pictureMode ? 'Make picture' : 'Send'} className="ai-send" type="submit" disabled={(!draft.trim() && (!attachments.length || pictureMode)) || !canChat} />
                 )}
               </div>
             </div>
