@@ -4,7 +4,7 @@ import { Icon, type IconName } from '../../ui/Icon';
 import type { LocalAi, StudioJob, StudioMakerInfo } from '../../services/ai/LocalAi';
 import { LiveDrawLink, type LiveDrawState } from '../../services/ai/liveDraw';
 import { COLORS, Sketch, TOOL_SIZE, drawAll, drawStroke, fillGap, pressureOf, sketchLines, smoothPoint, tiltOf, type Pt, type Stroke, type Tool } from './sketch';
-import { PENDING_TEXT } from './makerCatalog';
+import { PENDING_TEXT, progressWhy } from './makerCatalog';
 import './liveDraw.css';
 
 /** How often a drawing goes to the machine while you draw (only one is ever on its way). */
@@ -340,7 +340,7 @@ export function LiveDraw({
     if (!machineOn) return 'Draw away: turn on your AI machine to see it come alive.';
     if (!live) return 'Checking your AI machine…';
     if (live.pending) return `Live draw: ${PENDING_TEXT.toLowerCase()}.`;
-    if (!live.installed) return live.wanted ? `Live draw is downloading: ${live.percent}%.` : 'Add Live draw in the Store to see a picture while you draw.';
+    if (!live.installed) return live.wanted ? progressWhy(live, machineOn) : 'Add Live draw in the Store to see a picture while you draw.';
     if (problem) return problem;
     if (machine?.paused) return machine.paused;
     if (machine?.error && machine.worker !== 'ready') return machine.error;
@@ -348,7 +348,7 @@ export function LiveDraw({
     if (counts.empty) return 'Start drawing: the picture appears here.';
     return lastMs ? `Live · ${lastMs} ms a picture${via === 'post' ? ' (one by one: the live connection is not available)' : ''}` : 'Live';
   })();
-  const finishNote = !finisher ? null : finisher.pending ? `Sketch finish: ${PENDING_TEXT.toLowerCase()}.` : !finisher.installed ? (finisher.wanted ? `Sketch finish is downloading: ${finisher.percent}%.` : 'Add Sketch finish in the Store to finish drawings at full quality.') : !prompt.trim() ? 'Say what it is, then Finish.' : null;
+  const finishNote = !finisher ? null : finisher.pending ? `Sketch finish: ${PENDING_TEXT.toLowerCase()}.` : !finisher.installed ? (finisher.wanted ? progressWhy(finisher, machineOn) : 'Add Sketch finish in the Store to finish drawings at full quality.') : !prompt.trim() ? 'Say what it is, then Finish.' : null;
 
   return (
     <section className="ld" aria-label={padOnly ? 'Drawing' : 'Live draw'}>

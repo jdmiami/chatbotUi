@@ -230,6 +230,13 @@ export interface StudioMakerInfo {
   turboOnly?: boolean;
   /** Its files are here and its own Python is being set up: what it is doing. */
   setup?: string;
+  /**
+   * Not installed yet: what is happening to it. 'downloading' · 'saving' (downloaded, being copied to
+   * cloud storage) · 'waiting' (another file comes down first: waitingFor) · 'setup' · 'paused'
+   * (nothing is downloading) · 'disk' (no room: problem) · 'blocked' (can't download: problem).
+   */
+  status?: 'downloading' | 'saving' | 'waiting' | 'setup' | 'paused' | 'disk' | 'blocked';
+  waitingFor?: string;
 }
 
 /** A video or sound sent to the AI machine for a maker to work on. */

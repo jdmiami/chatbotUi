@@ -70,3 +70,46 @@ export function rememberMakers(list: StudioMakerInfo[]) {
     /* private mode */
   }
 }
+
+/**
+ * A download's progress in a few words, so a number that isn't moving says why: paused while the
+ * machine is off, in line behind another file, being saved to cloud storage, or out of disk space.
+ */
+export function progressText(m: StudioMakerInfo, machineOn = true): string {
+  const p = `${m.percent}%`;
+  if (!machineOn) return `${p} · paused`;
+  switch (m.status) {
+    case 'disk':
+      return 'Disk full';
+    case 'blocked':
+      return "Can't download";
+    case 'saving':
+      return `${p} · saving`;
+    case 'waiting':
+      return `${p} · in line`;
+    case 'setup':
+      return m.setup || 'Setting up';
+    case 'paused':
+      return `${p} · paused`;
+    default:
+      return p;
+  }
+}
+
+/** The same, as a sentence (under the maker, or where it is picked). */
+export function progressWhy(m: StudioMakerInfo, machineOn = true): string {
+  if (!machineOn) return `${m.name} is ${m.percent}% downloaded. It carries on when your AI machine is on.`;
+  switch (m.status) {
+    case 'disk':
+    case 'blocked':
+      return m.problem || `${m.name} can't download right now.`;
+    case 'saving':
+      return `${m.name} is downloaded and being saved to cloud storage, so the next start is quick.`;
+    case 'waiting':
+      return `${m.name} is ${m.percent}% done, waiting for ${m.waitingFor ?? 'another download'} to finish first (one at a time).`;
+    case 'setup':
+      return `${m.name}: ${(m.setup || 'setting up').toLowerCase()}.`;
+    default:
+      return `${m.name} is downloading: ${m.percent}%.`;
+  }
+}

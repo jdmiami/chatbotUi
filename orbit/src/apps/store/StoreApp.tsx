@@ -7,7 +7,7 @@ import { useShell } from '../../state/shell';
 import { useWorkspace } from '../../state/workspace';
 import { getLocalAi, type AiMachineStatus, type HubFile, type HubModel, type InstalledModel, type StudioMakerInfo } from '../../services/ai/LocalAi';
 import { useModelList } from '../ai/models';
-import { PENDING_TEXT, offlineMakers, rememberMakers, withCatalog } from '../ai/makerCatalog';
+import { PENDING_TEXT, offlineMakers, progressText, rememberMakers, withCatalog } from '../ai/makerCatalog';
 import {
   CATALOG,
   CHAT,
@@ -217,7 +217,7 @@ export default function StoreApp({ isActive }: AppProps) {
     const m = item.maker;
     if (m.pending) return { label: 'After restart', state: 'soon' };
     if (m.needsToken && !m.installed) return { label: 'Needs a token', state: 'token' };
-    if (m.wanted && !m.installed) return { label: `${m.percent}%`, state: 'progress', percent: m.percent };
+    if (m.wanted && !m.installed) return { label: progressText(m, machineOn), state: 'progress', percent: m.percent };
     if (m.installed) return { label: 'Open', state: 'have' };
     return { label: machineOn ? `Get${m.size ? ` · ${formatSize(m.size)}` : ''}` : 'Get', state: machineOn ? 'get' : 'wait' };
   }
