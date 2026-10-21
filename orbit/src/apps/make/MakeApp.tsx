@@ -8,6 +8,7 @@ import { useScrollDepth } from '../../shell/o5/depth';
 import { getLocalAi, type AiMachineStatus } from '../../services/ai/LocalAi';
 import { CreateView } from '../ai/CreateView';
 import { CloudMake } from './CloudMake';
+import { MakeDownloads } from './MakeDownloads';
 import '../agent/agent.css';
 import '../ai/ai.css';
 import './make.css';
@@ -72,6 +73,7 @@ export default function MakeApp({ isActive }: AppProps) {
     <div className="ag-root ai-root make-root">
       {!o5 && <AppHeader title="Make" subtitle={state ? `Your AI machine: ${state}` : 'Pictures and videos'} />}
       <div className="make-scroll" ref={scroller}>
+        <MakeDownloads ai={ai} status={status} machineOn={machineOn} isActive={isActive} />
         {o5 && (
           <MagCover
             kicker={<>Make{state ? ` · your AI machine is ${state}` : ''}</>}

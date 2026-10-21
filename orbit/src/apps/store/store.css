@@ -92,6 +92,7 @@
 .st-adult { padding: 1px 7px; border: 1px solid color-mix(in srgb, var(--danger) 55%, transparent); border-radius: 999px; color: var(--danger); font: 600 10px/1.5 var(--font-ui); letter-spacing: 0.06em; }
 
 .st-progress { flex: none; display: inline-flex; align-items: center; gap: 8px; min-width: 72px; font: 500 var(--fs-sm) / 1 var(--font-ui); color: var(--text-2); font-variant-numeric: tabular-nums; }
+.st-resume { flex: none; display: inline-flex; align-items: center; gap: 8px; }
 .st-ring { width: 22px; height: 22px; border-radius: 50%; background: conic-gradient(var(--text) var(--p), var(--o5-hair, var(--border)) 0); mask: radial-gradient(circle, transparent 7px, #000 8px); -webkit-mask: radial-gradient(circle, transparent 7px, #000 8px); }
 
 .st-hub .o5-go-label { font-size: calc(18px * var(--text-scale, 1)); word-break: break-word; }

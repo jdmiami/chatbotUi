@@ -502,9 +502,13 @@ export function createStudio(o) {
     // Krea Realtime needs 40 GB+ of GPU memory (and 30 GB of files): refused on the Standard machine.
     if (m.turboOnly && (await o.gpuMemory?.().catch(() => 0)) < (o.turboBytes ?? 70e9)) throw Object.assign(new Error(o.turboMessage || 'This maker needs the Turbo machine (80 GB).'), { status: 409, turbo: true });
     // Refused up front when its files can't fit (with 2 GB to spare), instead of stopping half way.
-    const missing = [];
-    for (const file of makerFiles(m)) if (!(await haveFile(file))) missing.push(file);
-    const need = missing.reduce((t, file) => t + (file.size || 0), 0);
+    // What is left to download: a file half-way down (.part) only needs the rest, as fetchFile counts it.
+    let need = 0;
+    for (const file of makerFiles(m)) {
+      if (await haveFile(file)) continue;
+      const part = await fsp.stat(`${modelPath(file)}.part`).catch(() => null);
+      need += Math.max(0, (file.size || 0) - (part?.size || 0));
+    }
     const free = need ? await freeBytes() : null;
     if (free != null && free < need + 2 * GB) {
       throw Object.assign(
@@ -517,6 +521,12 @@ export function createStudio(o) {
     }
     wanted.add(id);
     await saveWanted();
+    // Adding one already wanted resumes it: its files get another try (a file the download gave up
+    // on, or one that was counted as done and then went missing).
+    for (const file of makerFiles(m)) {
+      blocked.delete(fid(file));
+      download.done.delete(fid(file));
+    }
     void downloadAll();
     return makers();
   }

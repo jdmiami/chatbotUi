@@ -156,6 +156,31 @@ test.describe('AI Store', () => {
     expect(errors).toEqual([]);
   });
 
+  test('a stopped download resumes from its details, and the sheet follows along', async ({ page }) => {
+    await mockAi(page, 'on');
+    const calls: string[] = [];
+    let makers = [{ id: 's2v', kind: 'video', name: 'Talking photo', blurb: 'A photo and a voice.', for: null, twoImages: false, needs: ['photo', 'audio'], builtIn: false, wanted: true, installed: false, size: 25.2e9, percent: 40, status: 'paused' }];
+    await page.route('**/fake-ai/_orbit/studio/makers**', async (route) => {
+      const req = route.request();
+      if (req.method() === 'POST') {
+        calls.push(`install ${(req.postDataJSON() as { id: string }).id}`);
+        makers = makers.map((m) => ({ ...m, status: 'downloading', percent: 41 }));
+      }
+      await route.fulfill({ json: { makers } });
+    });
+    const { errors, win } = await openStore(page);
+    await win.getByRole('tab', { name: 'Pictures & video' }).click();
+    await win.getByRole('button', { name: 'Talking photo: details' }).first().click();
+    const sheet = page.getByRole('dialog', { name: 'Talking photo' });
+    await expect(sheet.getByRole('status', { name: 'Adding Talking photo: 40% · paused' })).toBeVisible();
+    await sheet.getByRole('button', { name: 'Resume Talking photo' }).click();
+    expect(calls).toEqual(['install s2v']);
+    // The open sheet shows the new state at once: no second Resume.
+    await expect(sheet.getByRole('status', { name: 'Adding Talking photo: 41%' })).toBeVisible();
+    await expect(sheet.getByRole('button', { name: 'Resume Talking photo' })).toHaveCount(0);
+    expect(errors).toEqual([]);
+  });
+
   test('video makers show while the machine rests (from the catalog)', async ({ page }) => {
     await mockAi(page, 'off');
     const { win } = await openStore(page);

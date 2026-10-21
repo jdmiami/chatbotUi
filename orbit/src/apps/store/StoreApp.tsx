@@ -7,7 +7,7 @@ import { useShell } from '../../state/shell';
 import { useWorkspace } from '../../state/workspace';
 import { getLocalAi, type AiMachineStatus, type HubFile, type HubModel, type InstalledModel, type StudioMakerInfo } from '../../services/ai/LocalAi';
 import { useModelList } from '../ai/models';
-import { PENDING_TEXT, offlineMakers, progressText, rememberMakers, withCatalog } from '../ai/makerCatalog';
+import { PENDING_TEXT, canResume, offlineMakers, progressText, rememberMakers, withCatalog } from '../ai/makerCatalog';
 import {
   CATALOG,
   CHAT,
@@ -173,8 +173,9 @@ export default function StoreApp({ isActive }: AppProps) {
         toast(`Adding ${name}. You can keep using Orbit meanwhile.`, 'info');
         await refresh();
       } else {
+        const again = canResume(item.maker, machineOn);
         setMakers(await ai.installStudioMaker(item.maker.id));
-        toast(`Adding ${item.maker.name}.`, 'info');
+        toast(again ? `Resuming ${item.maker.name}.` : `Adding ${item.maker.name}.`, 'info');
       }
     } catch (err) {
       toast((err as Error).message, 'error');
@@ -222,19 +223,43 @@ export default function StoreApp({ isActive }: AppProps) {
     return { label: machineOn ? `Get${m.size ? ` · ${formatSize(m.size)}` : ''}` : 'Get', state: machineOn ? 'get' : 'wait' };
   }
 
+  // The open sheet follows the refreshed list (a maker resumed or finished while it is open).
+  const shownMaker = open?.type === 'maker' ? allMakers.find((m) => m.id === open.maker.id) : undefined;
+  const shown: Item | null = open?.type === 'maker' && shownMaker ? { type: 'maker', maker: shownMaker } : open;
+
   // Plain render helpers, not components: a component declared inside StoreApp is a new type on
   // every render, so each refresh (every few seconds) would throw away and rebuild every row,
   // which on iPhone/iPad jumps the page back up and loses the tap in progress.
   function button(item: Item, big?: boolean) {
     const a = action(item);
     const key = keyOf(item);
-    if (a.state === 'progress')
-      return (
+    if (a.state === 'progress') {
+      const progress = (
         <span className="st-progress" role="status" aria-label={`Adding ${titleOf(item)}: ${a.label}`}>
           <span className="st-ring" style={{ '--p': `${Math.max(3, a.percent ?? 0)}%` } as React.CSSProperties} />
           {a.label}
         </span>
       );
+      // A download that stopped: start it again from where it was.
+      if (item.type !== 'maker' || !canResume(item.maker, machineOn)) return progress;
+      return (
+        <span className="st-resume">
+          {progress}
+          <button
+            type="button"
+            className="btn small primary"
+            disabled={busy === key}
+            onClick={(e) => {
+              e.stopPropagation();
+              void get(item);
+            }}
+            aria-label={`Resume ${titleOf(item)}`}
+          >
+            Resume
+          </button>
+        </span>
+      );
+    }
     return (
       <button
         type="button"
@@ -518,13 +543,13 @@ export default function StoreApp({ isActive }: AppProps) {
         <p className="mag-colophon">That is the whole store.</p>
       </div>
 
-      {open && (
+      {shown && (
         <Detail
-          item={open}
-          button={button(open, true)}
-          installedChat={open.type === 'chat' && haveChat(open.entry)}
+          item={shown}
+          button={button(shown, true)}
+          installedChat={shown.type === 'chat' && haveChat(shown.entry)}
           free={free}
-          onRemove={machineOn && (open.type === 'chat' ? haveChat(open.entry) : open.maker.installed && !open.maker.builtIn) ? () => setRemove(open) : undefined}
+          onRemove={machineOn && (shown.type === 'chat' ? haveChat(shown.entry) : shown.maker.installed && !shown.maker.builtIn) ? () => setRemove(shown) : undefined}
           onClose={() => setOpen(null)}
         />
       )}

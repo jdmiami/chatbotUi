@@ -88,3 +88,39 @@ test('Make in the cloud: a picture straight away, a video after a wait; both mov
   await expect(win2.getByRole('list', { name: 'Your creations' }).getByRole('listitem')).toHaveCount(2);
   expect(errors).toEqual([]);
 });
+
+test('Make: a bar at the top shows what is still loading, and a stopped download resumes', async ({ page }) => {
+  await mockAi(page, 'on');
+  let resumed = false;
+  const installs: unknown[] = [];
+  const makers = () => [
+    { id: 'qwen', kind: 'image', name: 'Qwen Image', installed: true, builtIn: true, wanted: true, percent: 100 },
+    { id: 'h3-max', kind: 'video', name: 'H3 Max', installed: false, wanted: true, percent: 40, size: 50e9, status: resumed ? 'downloading' : 'paused' },
+    { id: 'wan', kind: 'video', name: 'Wan Video', installed: false, wanted: true, percent: 10, size: 30e9, status: 'waiting', waitingFor: 'H3 Max' },
+  ];
+  await page.route('**/fake-ai/_orbit/studio', (r) => r.fulfill({ json: { setup: 'running', running: true, image: READY, video: READY, downloading: null, downloadError: null, jobs: [] } }));
+  await page.route('**/fake-ai/_orbit/studio/makers', (r) => r.fulfill({ json: { makers: makers() } }));
+  await page.route('**/fake-ai/_orbit/studio/makers/install', (r) => {
+    installs.push(r.request().postDataJSON());
+    resumed = true;
+    return r.fulfill({ json: { makers: makers() } });
+  });
+  await page.route('**/fake-ai/_orbit/studio/items', (r) => r.fulfill({ json: { items: [] } }));
+
+  const errors = await openOrbit(page);
+  const win = await openMakeApp(page);
+  const bar = win.getByRole('region', { name: 'Makers loading' });
+  await expect(bar).toBeVisible();
+  await expect(bar).toContainText('Loading 2 makers');
+  await expect(bar).toContainText('H3 Max');
+  await expect(bar).toContainText('40% · paused');
+  await expect(bar).toContainText('10% · in line');
+  // Only the stopped one can be resumed.
+  await expect(bar.getByRole('button', { name: 'Resume Wan Video' })).toHaveCount(0);
+  await bar.getByRole('button', { name: 'Resume H3 Max' }).click();
+  await expect.poll(() => installs).toEqual([{ id: 'h3-max' }]);
+  await expect(bar.getByRole('button', { name: 'Resume H3 Max' })).toHaveCount(0);
+  await expect(bar).toContainText(/H3 Max\s*40%/);
+  await expectNoHorizontalOverflow(page);
+  expect(errors).toEqual([]);
+});

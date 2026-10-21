@@ -96,6 +96,14 @@ export function progressText(m: StudioMakerInfo, machineOn = true): string {
   }
 }
 
+/**
+ * A download that stopped and can be started again by hand: nothing is fetching it (paused), it
+ * gave up (a full disk, a refused file). Only with the AI machine on: off, it carries on by itself.
+ */
+export function canResume(m: StudioMakerInfo, machineOn = true): boolean {
+  return machineOn && m.wanted && !m.installed && (m.status === 'paused' || m.status === 'disk' || m.status === 'blocked');
+}
+
 /** The same, as a sentence (under the maker, or where it is picked). */
 export function progressWhy(m: StudioMakerInfo, machineOn = true): string {
   if (!machineOn) return `${m.name} is ${m.percent}% downloaded. It carries on when your AI machine is on.`;
