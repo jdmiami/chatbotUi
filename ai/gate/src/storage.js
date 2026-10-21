@@ -13,6 +13,7 @@ const FOLDERS = [
   { prefix: 'ollama/', id: 'chat', label: 'Chat models' },
   { prefix: 'env/', id: 'software', label: 'Maker software' },
   { prefix: 'state/', id: 'state', label: 'Settings, chats and lists' },
+  { prefix: 'linux/', id: 'linux', label: 'Linux machine (your home folder)' },
 ];
 
 export function r2MonthlyCost(bytes) {

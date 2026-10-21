@@ -18,6 +18,7 @@ test('storage: R2 grouped by what it is for, each item its size (biggest first),
         { key: 'models/zimage/model.safetensors', size: 12 * GB },
         { key: 'ollama/blobs/sha256-1', size: 4 * GB },
         { key: 'state/makers.json', size: 300 },
+        { key: 'linux/home.tar', size: 2 * GB },
         { key: 'odd/thing', size: 10 },
       ];
     },
@@ -37,10 +38,11 @@ test('storage: R2 grouped by what it is for, each item its size (biggest first),
   assert.equal(byId.makers.bytes, 12 * GB);
   assert.equal(byId.chat.bytes, 4 * GB);
   assert.equal(byId.state.files, 1);
+  assert.equal(byId.linux.bytes, 2 * GB, 'the Linux machine\'s home has its own row');
   assert.equal(byId.other.bytes, 10);
-  assert.equal(r.cloud.files, 8);
-  // 16 GB and a bit: 6 GB over the free 10 GB at $0.015.
-  assert.ok(Math.abs(r.cloud.costPerMonth - 0.09) < 0.001);
+  assert.equal(r.cloud.files, 9);
+  // 18 GB and a bit: 8 GB over the free 10 GB at $0.015.
+  assert.ok(Math.abs(r.cloud.costPerMonth - 0.12) < 0.001);
   assert.deepEqual(r.items, [{ id: 'b', bytes: 9_000_700 }, { id: 'a', bytes: 2_000_500 }]);
 
   // Kept a few minutes; a delete (or ?fresh) lists again.
