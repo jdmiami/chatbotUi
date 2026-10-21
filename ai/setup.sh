@@ -54,7 +54,7 @@ fi
 
 log "fetching the gate"
 rm -rf /opt/gate && mkdir -p /opt/gate/src /opt/gate/openwebui
-for f in package.json catalog.json src/index.js src/gate.js src/jwt.js src/machine.js src/store.js src/studio.js src/sysstats.js src/gpustats.js src/workflows.js src/openwebui.js src/search.js src/voice.js src/movies.js src/story.js src/prompting.js src/r2.js src/r2cli.js src/cloud.js src/push.js src/memes.js openwebui/studio_pipe.py; do
+for f in package.json catalog.json src/index.js src/gate.js src/jwt.js src/machine.js src/store.js src/studio.js src/sysstats.js src/gpustats.js src/workflows.js src/openwebui.js src/search.js src/voice.js src/movies.js src/story.js src/prompting.js src/r2.js src/r2cli.js src/cloud.js src/push.js src/memes.js src/media.js openwebui/studio_pipe.py; do
   curl -fsSL "${REPO_RAW}/ai/gate/${f}" -o "/opt/gate/${f}"
 done
 curl -fsSL "${REPO_RAW}/ai/studio.sh" -o /opt/gate/studio.sh
@@ -84,7 +84,7 @@ fi
 log "starting Open WebUI and Ollama"
 (
   cd /app/backend
-  exec env -u GATEWAY_SECRET -u RUNPOD_API_KEY -u R2_ACCESS_KEY_ID -u R2_SECRET_ACCESS_KEY \
+  exec env -u GATEWAY_SECRET -u RUNPOD_API_KEY -u R2_ACCESS_KEY_ID -u R2_SECRET_ACCESS_KEY -u HF_TOKEN \
     PORT=8081 HOST=127.0.0.1 \
     DATA_DIR="$P/open-webui/data" \
     WEBUI_SECRET_KEY_FILE="$P/open-webui/.webui_secret_key" \
@@ -109,7 +109,7 @@ fi
 
 # Image and video maker (ComfyUI). Installs once onto the volume, then runs on 127.0.0.1:8188.
 log "starting the image and video maker"
-(env -u GATEWAY_SECRET -u RUNPOD_API_KEY AI_ROLE="${AI_ROLE:-main}" STUDIO_DIR="$STUDIO_DIR" PERSIST_DIR="$P" NODE="$NODE_DIR/bin/node" bash /opt/gate/studio.sh) 2>&1 | sed -u 's/^/[studio] /' &
+(env -u GATEWAY_SECRET -u RUNPOD_API_KEY -u HF_TOKEN AI_ROLE="${AI_ROLE:-main}" STUDIO_DIR="$STUDIO_DIR" PERSIST_DIR="$P" NODE="$NODE_DIR/bin/node" bash /opt/gate/studio.sh) 2>&1 | sed -u 's/^/[studio] /' &
 
 log "starting the gate on :8080"
 cd /opt/gate

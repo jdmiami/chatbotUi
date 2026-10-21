@@ -80,6 +80,11 @@ in North America first. `AI_WORLDWIDE=off` keeps it in North America.
 2. In Runpod add the secrets `r2_account_id`, `r2_access_key_id`, `r2_secret_access_key`.
 3. In Vercel set `RUNPOD_API_KEY` and `LINUX_GATEWAY_SECRET` (already used by the Linux machine).
    Optional settings are in `.env.example`.
+   - For **LTX-2.5** (its files are gated on Hugging Face): accept the licence at
+     [huggingface.co/Lightricks/LTX-2.5](https://huggingface.co/Lightricks/LTX-2.5), make a read token,
+     add it in Runpod as the secret `hf_token`, and set `AI_HF_TOKEN_SECRET=hf_token` in Vercel. The
+     machine gets it as `HF_TOKEN` (only the gate sees it; Open WebUI and ComfyUI don't). Without it the
+     Store shows LTX-2.5 as needing a token and won't start the download.
 4. Open **AI playground** on the start screen. The very first start downloads the models from their
    home sites and saves them in R2 (20–30 minutes); later starts bring them back from R2.
 

@@ -48,7 +48,16 @@ const models = createModelKeeper({
 
 // Image and video maker (ComfyUI, started by ai/studio.sh). Off when STUDIO_DIR isn't set.
 const studio = env.STUDIO_DIR
-  ? createStudio({ dir: env.STUDIO_DIR, comfy: env.COMFY_URL || 'http://127.0.0.1:8188', ollama: OLLAMA, helper: HELPER, r2, inUseElsewhere: (id) => movies?.usedElsewhere(id) })
+  ? createStudio({
+      dir: env.STUDIO_DIR,
+      comfy: env.COMFY_URL || 'http://127.0.0.1:8188',
+      ollama: OLLAMA,
+      helper: HELPER,
+      r2,
+      inUseElsewhere: (id) => movies?.usedElsewhere(id),
+      // Gated downloads (LTX-2.5). A Runpod secret that was never set arrives as "{{ RUNPOD_SECRET_… }}".
+      hfToken: /^\{\{/.test(env.HF_TOKEN || '') ? '' : env.HF_TOKEN || env.HUGGING_FACE_HUB_TOKEN || '',
+    })
   : null;
 // soReal movies (chained video shots), kept with the studio's files.
 // A chat model on this machine writes each movie's story (labChat: below, the same as the meme lab's).

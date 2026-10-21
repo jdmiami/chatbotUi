@@ -101,7 +101,7 @@ while true; do
   state starting
   log "starting ComfyUI"
   # Never sees the gate's secrets.
-  env -u GATEWAY_SECRET -u RUNPOD_API_KEY -u STUDIO_KEY -u R2_ACCESS_KEY_ID -u R2_SECRET_ACCESS_KEY \
+  env -u GATEWAY_SECRET -u RUNPOD_API_KEY -u STUDIO_KEY -u R2_ACCESS_KEY_ID -u R2_SECRET_ACCESS_KEY -u HF_TOKEN \
     "$S/venv/bin/python" main.py --listen 127.0.0.1 --port 8188 \
     --input-directory "$S/input" --output-directory "$S/output" \
     --user-directory "$ROLE_DIR/user" --temp-directory "$ROLE_DIR/temp" \
