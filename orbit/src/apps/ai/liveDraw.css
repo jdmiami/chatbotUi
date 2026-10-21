@@ -32,3 +32,9 @@
     .ld-panes { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
   }
 }
+
+/* Live video: the same panes, the camera on the left (or on top). */
+.lv-camera { position: relative; background: #000; }
+.lv-camera video { transform: scaleX(-1); }
+.lv-camera-hint { position: absolute; inset: auto 12px 12px; text-align: center; color: #fff; }
+.lv-note { margin: 0; }

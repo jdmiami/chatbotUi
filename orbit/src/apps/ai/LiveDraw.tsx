@@ -29,6 +29,8 @@ export function LiveDraw({
   makers,
   onOpenMakers,
   onStarted,
+  padOnly = false,
+  onCanvas,
 }: {
   ai: LocalAi;
   machineOn: boolean;
@@ -37,11 +39,15 @@ export function LiveDraw({
   onOpenMakers?: () => void;
   /** A Sketch finish job started (shown with the other jobs). */
   onStarted: (job: StudioJob) => void;
+  /** Just the drawing (Live video streams it): no preview, words or Finish here. */
+  padOnly?: boolean;
+  /** The drawing's canvas, for whoever streams it (Live video). */
+  onCanvas?: (canvas: HTMLCanvasElement | null) => void;
 }) {
   const toast = useShell((s) => s.toast);
   const live = makers.find((m) => m.id === 'live-draw') ?? null;
   const finisher = makers.find((m) => m.id === 'sketch-finish') ?? null;
-  const liveReady = machineOn && Boolean(live?.installed);
+  const liveReady = !padOnly && machineOn && Boolean(live?.installed);
 
   const [tool, setTool] = useState<Tool>('pen');
   const [color, setColor] = useState(COLORS[0].value);
@@ -104,6 +110,11 @@ export function LiveDraw({
       window.removeEventListener('resize', fit);
     };
   }, [redraw]);
+
+  useEffect(() => {
+    onCanvas?.(canvasRef.current);
+    return () => onCanvas?.(null);
+  }, [onCanvas]);
 
   // ---- the line to the machine
   useEffect(() => {
@@ -340,7 +351,7 @@ export function LiveDraw({
   const finishNote = !finisher ? null : finisher.pending ? `Sketch finish: ${PENDING_TEXT.toLowerCase()}.` : !finisher.installed ? (finisher.wanted ? `Sketch finish is downloading: ${finisher.percent}%.` : 'Add Sketch finish in the Store to finish drawings at full quality.') : !prompt.trim() ? 'Say what it is, then Finish.' : null;
 
   return (
-    <section className="ld" aria-label="Live draw">
+    <section className="ld" aria-label={padOnly ? 'Drawing' : 'Live draw'}>
       <div className="ld-tools" role="toolbar" aria-label="Drawing tools">
         <div className="ld-group" role="radiogroup" aria-label="Tool">
           {TOOLS.map((t) => (
@@ -401,6 +412,7 @@ export function LiveDraw({
             </p>
           )}
         </div>
+        {!padOnly && (
         <div className="ld-pane">
           <div className="ld-preview" data-live={Boolean(preview)}>
             {preview ? <img src={preview} alt="Live picture of your drawing" /> : <Icon name="sparkle" size={40} />}
@@ -414,8 +426,10 @@ export function LiveDraw({
             </button>
           )}
         </div>
+        )}
       </div>
 
+      {!padOnly && (
       <div className="ld-words">
         <input className="input" value={prompt} onChange={(e) => setPrompt(e.target.value)} aria-label="What is it?" placeholder="What is it? e.g. a cat on a windowsill, oil painting" maxLength={300} enterKeyHint="done" />
         <label className="ld-follow">
@@ -433,6 +447,7 @@ export function LiveDraw({
         </div>
         {finishNote && <p className="ai-muted">{finishNote}</p>}
       </div>
+      )}
     </section>
   );
 }

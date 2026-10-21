@@ -226,6 +226,10 @@ export interface StudioMakerInfo {
   percent: number;
   /** In Orbit's catalog but not on the AI machine's list: its code is older. Arrives when it restarts. */
   pending?: boolean;
+  /** Only runs on the Turbo machine (80 GB): Krea Realtime. */
+  turboOnly?: boolean;
+  /** Its files are here and its own Python is being set up: what it is doing. */
+  setup?: string;
 }
 
 /** A video or sound sent to the AI machine for a maker to work on. */

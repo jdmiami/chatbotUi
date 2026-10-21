@@ -337,7 +337,10 @@ export function createStudio(o) {
             break;
           }
         }
-        if (!next) break;
+        if (!next) {
+          await setUpEnvs();
+          break;
+        }
         try {
           await fetchFile(next);
           download.error = null;
@@ -383,6 +386,10 @@ export function createStudio(o) {
       let installed = true;
       for (const file of list) if (!(await haveFile(file))) installed = false;
       const { total, done } = bytesDone(list);
+      // Live video makers also need their own Python (live_env.sh), set up once their files are here.
+      const env = m.env && o.liveEnvs ? o.liveEnvs.state(m.env) : null;
+      const filesHere = installed;
+      if (env && !env.ready) installed = false;
       out.push({
         id: m.id,
         kind: m.kind,
@@ -397,12 +404,16 @@ export function createStudio(o) {
         // Gated on Hugging Face (LTX-2.5): needs a token on the machine before it can download.
         gated: list.some((file) => file.gated),
         needsToken: !installed && list.some((file) => file.gated) && !hfToken,
-        problem: list.map((file) => blocked.get(fid(file))).find(Boolean) || null,
+        problem: list.map((file) => blocked.get(fid(file))).find(Boolean) || env?.error || null,
+        // Only on the Turbo machine (80 GB of GPU memory): Krea Realtime.
+        turboOnly: Boolean(m.turboOnly) || undefined,
+        // Its files are here and its Python is being set up: what it is doing.
+        setup: filesHere && env?.installing ? env.step || 'Setting up' : undefined,
         builtIn: Boolean(m.builtIn),
         wanted: Boolean(m.builtIn || wanted.has(m.id)),
         installed,
         size: total,
-        percent: installed ? 100 : total ? Math.min(99, Math.floor((done / total) * 100)) : 0,
+        percent: installed ? 100 : filesHere ? 99 : total ? Math.min(99, Math.floor((done / total) * 100)) : 0,
       });
     }
     return out;
@@ -418,6 +429,8 @@ export function createStudio(o) {
     const m = makerById(id);
     if (!m) throw Object.assign(new Error('No such maker.'), { status: 404 });
     if (!hfToken && makerFiles(m).some((file) => file.gated) && !(await makerReady(m))) throw Object.assign(new Error(TOKEN_MESSAGE), { status: 400, needsToken: true });
+    // Krea Realtime needs 40 GB+ of GPU memory (and 30 GB of files): refused on the Standard machine.
+    if (m.turboOnly && (await o.gpuMemory?.().catch(() => 0)) < (o.turboBytes ?? 70e9)) throw Object.assign(new Error(o.turboMessage || 'This maker needs the Turbo machine (80 GB).'), { status: 409, turbo: true });
     if (m.kind === 'style' && !(m.for && (makerById(m.for)?.builtIn || wanted.has(m.for)))) {
       wanted.add(m.for);
     }
@@ -447,12 +460,20 @@ export function createStudio(o) {
       await fsp.rm(`${modelPath(file)}.part`, { force: true });
       if (r2) await r2.remove(modelKey(file)).catch(() => {});
     }
+    // Its own Python goes too (unless another kept maker uses it).
+    if (m.env && o.liveEnvs && !kept().some((x) => x.env === m.env)) await o.liveEnvs.remove(m.env).catch(() => {});
     return makers();
   }
 
   async function makerReady(m) {
     for (const file of makerFiles(m)) if (!(await haveFile(file))) return false;
     return true;
+  }
+
+  /** Live video makers whose files are here: set up their Python (once; live_env.sh). */
+  async function setUpEnvs() {
+    if (!o.liveEnvs || helper) return;
+    for (const m of kept()) if (m.env && !o.liveEnvs.ready(m.env) && (await makerReady(m))) o.liveEnvs.ensure(m.env);
   }
 
   function kindProgress(kind) {
@@ -1410,9 +1431,9 @@ export function createStudio(o) {
   }
 
   /** Put a finished file (already under output/) in the gallery, e.g. a stitched movie. */
-  async function addItem({ kind, prompt, file, seconds, width, height, movie, photo, nsfw, lab }) {
+  async function addItem({ kind, maker = 'soreal', prompt, file, seconds, width, height, movie, photo, nsfw, lab }) {
     // lab: a Lab movie's cut, kept out of the gallery until you keep it (like a Lab video).
-    const item = { id: newId(), kind, maker: 'soreal', prompt, width, height, seconds, movie, photo: photo || undefined, nsfw: nsfw || undefined, lab: lab || undefined, file, createdAt: new Date(now()).toISOString() };
+    const item = { id: newId(), kind, maker, prompt, width, height, seconds, movie, photo: photo || undefined, nsfw: nsfw || undefined, lab: lab || undefined, file, createdAt: new Date(now()).toISOString() };
     await fsp.mkdir(metaDir, { recursive: true });
     await fsp.writeFile(path.join(metaDir, `${item.id}.json`), JSON.stringify(item));
     await keep(item);
@@ -1545,7 +1566,7 @@ export function createStudio(o) {
     // A job counts for an hour at most: one that never finishes (the maker crashed under it) must not
     // keep the machine on all night.
     // Meme-lab videos never count: they only fill time and must not keep the machine on.
-    busy: () => download.running || active().some((j) => !j.background && now() - (j.startedAt || Date.parse(j.createdAt)) < STUCK_JOB_MS),
+    busy: () => download.running || Boolean(o.liveEnvs?.busy()) || active().some((j) => !j.background && now() - (j.startedAt || Date.parse(j.createdAt)) < STUCK_JOB_MS),
     hasUserWork,
     /** A chat needs the GPU: hand it back from ComfyUI now if nothing is being made. */
     async yieldGpu() {
@@ -1558,10 +1579,12 @@ export function createStudio(o) {
     /** A maker's files are all on this machine (live makers use them outside ComfyUI). */
     async makerInstalled(id) {
       const m = makerById(id);
-      return Boolean(m && (await makerReady(m)));
+      return Boolean(m && (await makerReady(m)) && (!m.env || !o.liveEnvs || o.liveEnvs.ready(m.env)));
     },
     /** Where a model file is on disk (live makers load them themselves). */
     modelPath,
+    /** The studio folder (live video saves its clips under output/). */
+    dir,
     /** Make room on the graphics card for a live maker: chat models out, ComfyUI's models freed if idle. */
     async makeRoom() {
       // A meme-lab video only fills quiet time: it stops for you, as it does for your own jobs.

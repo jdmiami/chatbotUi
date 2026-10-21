@@ -112,6 +112,8 @@ const bearer = (req) => {
  *   r2test                  R2 speed test (r2.js createR2Test), optional
  *   liveDraw                Live draw (live.js createLiveDraw), optional: /_orbit/live/draw, as a
  *                           WebSocket or (fallback) one POST per preview
+ *   liveVideo               Live video (livevideo.js createLiveVideo), optional: /_orbit/live/video
+ *                           (WebSocket only: frames both ways while it runs)
  */
 // Open WebUI requests that ask a model for something (chat, images, speech, title/tag tasks).
 const WEBUI_WORK = /\/(chat\/completions|api\/chat|api\/generate|images|audio|tasks)(\/|$)/;
@@ -133,6 +135,7 @@ export function createGate(cfg, log = console) {
   const r2test = cfg.r2test || null;
   const studioKey = cfg.studioKey ? Buffer.from(cfg.studioKey) : null;
   const liveDraw = cfg.liveDraw || null;
+  const liveVideo = cfg.liveVideo || null;
 
   const apiToken = (req) => {
     try {
@@ -761,11 +764,12 @@ export function createGate(cfg, log = console) {
   // Live draw's own WebSocket. A browser can't add an Authorization header to a WebSocket, so Orbit
   // sends its API token as the second sub-protocol (["orbit-live", token]); a signed-in browser on
   // this address can use its cookie instead. The origin must be one of Orbit's.
-  function liveSocket(req, socket, head) {
+  /** Accept one of the gate's own live WebSockets after the origin and sign-in checks (null when refused). */
+  function liveAccept(req, socket, head) {
     const origin = req.headers.origin;
     if (origin && !allowed(origin) && origin !== `https://${req.headers.host}`) {
       socket.end('HTTP/1.1 403 Forbidden\r\nConnection: close\r\n\r\n');
-      return;
+      return null;
     }
     const asked = askedProtocols(req);
     const tokenOk = asked.some((p) => {
@@ -777,9 +781,31 @@ export function createGate(cfg, log = console) {
     });
     if (!tokenOk && !session(req)) {
       socket.end('HTTP/1.1 401 Unauthorized\r\nConnection: close\r\n\r\n');
-      return;
+      return null;
     }
-    const ws = acceptWebSocket(req, socket, head, { protocol: asked.includes('orbit-live') ? 'orbit-live' : null, maxPayload: 8 * 1024 * 1024 });
+    return acceptWebSocket(req, socket, head, { protocol: asked.includes('orbit-live') ? 'orbit-live' : null, maxPayload: 8 * 1024 * 1024 });
+  }
+
+  // Live video: one stream per connection; frames both ways as JSON (base64 JPEGs).
+  function liveVideoSocket(req, socket, head) {
+    const ws = liveAccept(req, socket, head);
+    if (!ws) return;
+    const conn = liveVideo.open((msg) => ws.send(JSON.stringify(msg)));
+    ws.on('message', (data, binary) => {
+      if (binary) return;
+      let msg;
+      try {
+        msg = JSON.parse(data.toString('utf8'));
+      } catch {
+        return;
+      }
+      void conn.message(msg);
+    });
+    ws.on('close', () => conn.close());
+  }
+
+  function liveSocket(req, socket, head) {
+    const ws = liveAccept(req, socket, head);
     if (!ws) return;
     const reply = (msg) => ws.send(JSON.stringify(msg));
     ws.on('message', async (data, binary) => {
@@ -811,6 +837,7 @@ export function createGate(cfg, log = console) {
   server.on('upgrade', (req, socket, head) => {
     const upPath = new URL(req.url, 'http://gate.local').pathname;
     if (liveDraw && upPath === '/_orbit/live/draw') return liveSocket(req, socket, head);
+    if (liveVideo && upPath === '/_orbit/live/video') return liveVideoSocket(req, socket, head);
     const user = session(req);
     if (!user) {
       socket.end('HTTP/1.1 401 Unauthorized\r\nConnection: close\r\n\r\n');

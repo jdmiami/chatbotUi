@@ -44,6 +44,16 @@ images & videos (playground, Orbit) ──> gate :8080 /_orbit/studio ──> Co
     use for the auto-off timer; an open but unused page does not. **Sketch finish** renders the drawing
     at full quality as a normal ComfyUI job (Z-Image-Turbo + Alibaba PAI's Fun ControlNet Union 2.1,
     from ComfyUI's own Z-Image ControlNet blueprints).
+  - **Live video** (Make → Live video, `gate/src/livevideo.js`): the iPad camera, a drawing or just
+    words, streamed to the machine over `/_orbit/live/video` (WebSocket, same sign-in) and restyled
+    by a prompt you can change while it runs. **StreamDiffusionV2** (1.3B, Apache-2.0) runs as a
+    worker (`gate/live_video_worker.py`, its own demo pipeline); **Krea Realtime 14B** (weights
+    Apache-2.0, code CC BY-NC-SA 4.0: personal, non-commercial use only) runs as Krea's own server on
+    127.0.0.1, reached with msgpack (`msgpack.js`), and is refused unless the GPU has 70 GB+ (the
+    Turbo machine). Each gets its own Python (`live_env.sh`: pinned commit, uv, Python 3.11, kept in
+    R2), since both pin a different PyTorch than ComfyUI. "Save last 10 s" joins the frames the gate
+    sent back with ffmpeg into a gallery video (NSFW check as usual; from the camera it keeps the
+    photo rule, which also applies to the words while the camera streams).
   - One content rule, applied by the gate to every request: no sexual content involving minors.
   - Chat models are unloaded from the GPU before a job; ComfyUI frees the GPU 3 minutes after the last one.
 - **Gate** (`gate/`, Node, no dependencies): the only exposed port.

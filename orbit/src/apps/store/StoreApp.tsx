@@ -585,6 +585,10 @@ function Detail({
       ? 'On your machine'
       : m?.pending
         ? PENDING_TEXT
+        : m?.setup
+        ? `Setting up its own Python: ${m.setup}`
+        : m?.turboOnly
+        ? 'Turbo machine only (H100, 80 GB): turn the AI machine on as Turbo to add it'
         : m?.needsToken
         ? 'Needs a Hugging Face token on your AI machine'
         : 'Fits this machine';

@@ -1040,6 +1040,38 @@
     "a red fox in fresh snow, golden hour",
     "a cosy cabin interior, children's book illustration"
    ]
+  },
+  "live-sdv2": {
+   "publisher": "Tianrui Feng, Chenfeng Xu et al. (UT Austin, UC Berkeley, MIT, Stanford)",
+   "base": "StreamDiffusionV2 (causal Wan 2.1 T2V 1.3B, video to video)",
+   "repo": "jerryfeng/StreamDiffusionV2",
+   "code": "https://github.com/chenfengxu714/StreamDiffusionV2",
+   "license": "Apache 2.0 (code and weights; Wan 2.1 1.3B is Apache 2.0 too)",
+   "output": "Your camera or your drawing, restyled live by your words",
+   "resolution": "512 × 512",
+   "gpu": "About 18–24 GB of the 48 GB while it runs (an estimate, not measured yet)",
+   "speed": "Not measured on this machine. Its makers publish speeds for bigger multi-GPU setups, not for one A40 or H100, so expect a few frames a second, maybe fewer",
+   "about": "Point the iPad's camera at something (or draw) and describe a look: the video comes back restyled while you watch, and you can change the words while it runs. “Save last 10 s” keeps the end of it in your gallery. Sets up its own Python the first time (a few minutes).",
+   "tryIt": [
+    "a watercolour painting",
+    "a claymation character, stop motion"
+   ]
+  },
+  "live-krea": {
+   "publisher": "Krea",
+   "base": "Krea Realtime 14B (Wan 2.1 14B, Self-Forcing distilled)",
+   "repo": "krea/krea-realtime-video",
+   "code": "https://github.com/krea-ai/realtime-video",
+   "license": "Weights: Apache 2.0 (as listed on Hugging Face). Code: CC BY-NC-SA 4.0, so personal, non-commercial use only: don't use it for paid work or a business.",
+   "output": "A video from your words as it plays, or your camera or drawing restyled",
+   "resolution": "832 × 480 from words, 512 × 512 from the camera",
+   "gpu": "Needs 40 GB+: the Turbo machine (H100, 80 GB) only. It refuses to install on the Standard machine (48 GB)",
+   "speed": "Krea measured 11 frames a second on an NVIDIA B200. Not measured on the H100 here",
+   "about": "A 14-billion-parameter video model that makes video as it plays: type what should happen and change the words while it runs, or restyle your camera. About 30 GB of files plus its own Python. Turbo machine only, and for personal, non-commercial use only (its code's licence).",
+   "tryIt": [
+    "a paper boat drifting down a rainy street, cinematic",
+    "a fox running through autumn leaves"
+   ]
   }
  },
  "files": {
@@ -1424,6 +1456,76 @@
    "name": "sketch_to_image_stochastic_lora.pkl",
    "url": "https://www.cs.cmu.edu/~img2img-turbo/models/sketch_to_image_stochastic_lora.pkl",
    "size": 524833285
+  },
+  "wan13Dit": {
+   "dir": "live/wan_models/Wan2.1-T2V-1.3B",
+   "name": "diffusion_pytorch_model.safetensors",
+   "repo": "Wan-AI/Wan2.1-T2V-1.3B",
+   "path": "diffusion_pytorch_model.safetensors",
+   "size": 5676070424
+  },
+  "wan13Config": {
+   "dir": "live/wan_models/Wan2.1-T2V-1.3B",
+   "name": "config.json",
+   "repo": "Wan-AI/Wan2.1-T2V-1.3B",
+   "path": "config.json",
+   "size": 249
+  },
+  "wan13T5": {
+   "dir": "live/wan_models/Wan2.1-T2V-1.3B",
+   "name": "models_t5_umt5-xxl-enc-bf16.pth",
+   "repo": "Wan-AI/Wan2.1-T2V-1.3B",
+   "path": "models_t5_umt5-xxl-enc-bf16.pth",
+   "size": 11361920418
+  },
+  "wan13Vae": {
+   "dir": "live/wan_models/Wan2.1-T2V-1.3B",
+   "name": "Wan2.1_VAE.pth",
+   "repo": "Wan-AI/Wan2.1-T2V-1.3B",
+   "path": "Wan2.1_VAE.pth",
+   "size": 507609880
+  },
+  "wan13TokSpecial": {
+   "dir": "live/wan_models/Wan2.1-T2V-1.3B/google/umt5-xxl",
+   "name": "special_tokens_map.json",
+   "repo": "Wan-AI/Wan2.1-T2V-1.3B",
+   "path": "google/umt5-xxl/special_tokens_map.json",
+   "size": 6623
+  },
+  "wan13TokSpiece": {
+   "dir": "live/wan_models/Wan2.1-T2V-1.3B/google/umt5-xxl",
+   "name": "spiece.model",
+   "repo": "Wan-AI/Wan2.1-T2V-1.3B",
+   "path": "google/umt5-xxl/spiece.model",
+   "size": 4548313
+  },
+  "wan13Tokenizer": {
+   "dir": "live/wan_models/Wan2.1-T2V-1.3B/google/umt5-xxl",
+   "name": "tokenizer.json",
+   "repo": "Wan-AI/Wan2.1-T2V-1.3B",
+   "path": "google/umt5-xxl/tokenizer.json",
+   "size": 16837417
+  },
+  "wan13TokConfig": {
+   "dir": "live/wan_models/Wan2.1-T2V-1.3B/google/umt5-xxl",
+   "name": "tokenizer_config.json",
+   "repo": "Wan-AI/Wan2.1-T2V-1.3B",
+   "path": "google/umt5-xxl/tokenizer_config.json",
+   "size": 61728
+  },
+  "sdv2Ckpt": {
+   "dir": "live/sdv2/wan_causal_dmd_v2v",
+   "name": "model.pt",
+   "repo": "jerryfeng/StreamDiffusionV2",
+   "path": "wan_causal_dmd_v2v/model.pt",
+   "size": 5676282858
+  },
+  "kreaRealtime": {
+   "dir": "live/krea",
+   "name": "krea-realtime-video-14b.safetensors",
+   "repo": "krea/krea-realtime-video",
+   "path": "krea-realtime-video-14b.safetensors",
+   "size": 28577102160
   }
  },
  "makerDefs": [
@@ -1819,6 +1921,43 @@
     "zImageCnet"
    ],
    "workflow": "zimage-sketch"
+  },
+  {
+   "id": "live-sdv2",
+   "kind": "live",
+   "name": "Live video (StreamDiffusionV2)",
+   "blurb": "Your camera or drawing, restyled live by your words.",
+   "env": "sdv2",
+   "files": [
+    "wan13Dit",
+    "wan13Config",
+    "wan13T5",
+    "wan13Vae",
+    "wan13TokSpecial",
+    "wan13TokSpiece",
+    "wan13Tokenizer",
+    "wan13TokConfig",
+    "sdv2Ckpt"
+   ]
+  },
+  {
+   "id": "live-krea",
+   "kind": "live",
+   "name": "Krea Realtime 14B",
+   "blurb": "Video from your words as it plays. Turbo machine only; personal use only.",
+   "env": "krea",
+   "turboOnly": true,
+   "files": [
+    "wan13Dit",
+    "wan13Config",
+    "wan13T5",
+    "wan13Vae",
+    "wan13TokSpecial",
+    "wan13TokSpiece",
+    "wan13Tokenizer",
+    "wan13TokConfig",
+    "kreaRealtime"
+   ]
   }
  ]
 }
