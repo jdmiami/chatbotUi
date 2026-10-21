@@ -242,13 +242,13 @@ function placements(tier: AiTier, usualOnly = false) {
 
 /**
  * The AI machine's own disk (GB) with R2: what it holds while on (chat models, makers, the maker's
- * software). 400 by default: the built-ins and chat models take about 135 GB, and a video maker
+ * software). 700 by default: the built-ins and chat models take about 135 GB, and a video maker
  * 25–55 GB each. AI_DISK_GB changes it (it applies to the next machine the site creates).
  * Runpod bills it only while the machine runs (about $0.10 per GB a month).
  */
 export function aiDiskGb() {
   const n = Number(process.env.AI_DISK_GB);
-  return Number.isFinite(n) && n >= 100 && n <= 2000 ? Math.round(n) : 400;
+  return Number.isFinite(n) && n >= 100 && n <= 2000 ? Math.round(n) : 700;
 }
 
 async function createAiPod(tier: AiTier, role: 'main' | 'helper' = 'main', usualOnly = false): Promise<Pod> {
