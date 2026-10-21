@@ -223,6 +223,10 @@ export default function StoreApp({ isActive }: AppProps) {
     return { label: machineOn ? `Get${m.size ? ` · ${formatSize(m.size)}` : ''}` : 'Get', state: machineOn ? 'get' : 'wait' };
   }
 
+  // The open sheet follows the refreshed list (a maker resumed or finished while it is open).
+  const shownMaker = open?.type === 'maker' ? allMakers.find((m) => m.id === open.maker.id) : undefined;
+  const shown: Item | null = open?.type === 'maker' && shownMaker ? { type: 'maker', maker: shownMaker } : open;
+
   // Plain render helpers, not components: a component declared inside StoreApp is a new type on
   // every render, so each refresh (every few seconds) would throw away and rebuild every row,
   // which on iPhone/iPad jumps the page back up and loses the tap in progress.
@@ -539,13 +543,13 @@ export default function StoreApp({ isActive }: AppProps) {
         <p className="mag-colophon">That is the whole store.</p>
       </div>
 
-      {open && (
+      {shown && (
         <Detail
-          item={open}
-          button={button(open, true)}
-          installedChat={open.type === 'chat' && haveChat(open.entry)}
+          item={shown}
+          button={button(shown, true)}
+          installedChat={shown.type === 'chat' && haveChat(shown.entry)}
           free={free}
-          onRemove={machineOn && (open.type === 'chat' ? haveChat(open.entry) : open.maker.installed && !open.maker.builtIn) ? () => setRemove(open) : undefined}
+          onRemove={machineOn && (shown.type === 'chat' ? haveChat(shown.entry) : shown.maker.installed && !shown.maker.builtIn) ? () => setRemove(shown) : undefined}
           onClose={() => setOpen(null)}
         />
       )}

@@ -107,3 +107,27 @@ test('downloads: a stopped maker resumes when it is added again (Resume)', async
   await until(async () => (await studio.makers()).find((m) => m.id === 'qwen')?.installed);
   assert.equal(asked, 1);
 });
+
+
+test('downloads: resuming counts only what is left of a file half-way down', async () => {
+  const { FILES: ALL, MAKERS } = await import('../src/workflows.js');
+  const dir = await dirWithout('none');
+  const h3 = MAKERS.find((m) => m.id === 'h3-max');
+  const files = h3.files.map((k) => ALL[k]);
+  const total = files.reduce((t, f) => t + f.size, 0);
+  // The biggest file is 20 GB down already (a sparse .part, so the test machine's disk doesn't care).
+  const big = files[0];
+  const part = path.join(dir, 'models', big.dir, `${big.name}.part`);
+  await fs.mkdir(path.dirname(part), { recursive: true });
+  await fs.writeFile(part, '');
+  await fs.truncate(part, big.size - 1024 ** 3);
+  const left = total - (big.size - 1024 ** 3);
+  // Room for what is left plus the 2 GB reserve, but not for the whole maker again.
+  const freeGb = Math.ceil(left / 1024 ** 3) + 3;
+  assert.ok(freeGb * 1024 ** 3 < total + 2 * 1024 ** 3);
+  let checks = 0;
+  const studio = createStudio({ dir, files: FILES, fetchImpl: async (url) => services(new URL(url)), WebSocketImpl: null, log: quiet, statfs: async () => ({ bavail: checks++ ? 0 : freeGb, bsize: 1024 ** 3 }), nsfwDelayMs: 1e9 });
+  // Only the up-front check gets the room; the download that follows then stops (so the test ends).
+  const list = await studio.installMaker('h3-max');
+  assert.equal(list.find((m) => m.id === 'h3-max').wanted, true);
+});
