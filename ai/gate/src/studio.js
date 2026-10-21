@@ -1385,8 +1385,9 @@ export function createStudio(o) {
   }
 
   /** Put a finished file (already under output/) in the gallery, e.g. a stitched movie. */
-  async function addItem({ kind, prompt, file, seconds, width, height, movie, photo, nsfw }) {
-    const item = { id: newId(), kind, maker: 'soreal', prompt, width, height, seconds, movie, photo: photo || undefined, nsfw: nsfw || undefined, file, createdAt: new Date(now()).toISOString() };
+  async function addItem({ kind, prompt, file, seconds, width, height, movie, photo, nsfw, lab }) {
+    // lab: a Lab movie's cut, kept out of the gallery until you keep it (like a Lab video).
+    const item = { id: newId(), kind, maker: 'soreal', prompt, width, height, seconds, movie, photo: photo || undefined, nsfw: nsfw || undefined, lab: lab || undefined, file, createdAt: new Date(now()).toISOString() };
     await fsp.mkdir(metaDir, { recursive: true });
     await fsp.writeFile(path.join(metaDir, `${item.id}.json`), JSON.stringify(item));
     await keep(item);

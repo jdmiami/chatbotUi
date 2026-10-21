@@ -469,3 +469,24 @@
 .ai-media-buttons { display: flex; gap: 8px; flex-wrap: wrap; }
 .ai-media-pick .btn { min-height: var(--tap, 44px); }
 .ai-target { width: 100%; min-height: var(--tap, 44px); box-sizing: border-box; }
+
+/* Lab "Your style": the profile panel, the movie's stages, 30-second movies in the queue. */
+.your-style-summary { margin: 0; font-size: 15px; line-height: 1.45; overflow-wrap: anywhere; max-width: 62ch; }
+.your-style-meta { margin: 0; font-size: 12px; overflow-wrap: anywhere; }
+.your-style-edit { display: grid; gap: 6px; }
+.your-style .meme-topics li[data-kind='look'] { border-style: dashed; }
+.your-style .meme-topics li[data-kind='mood'] { font-style: italic; }
+.your-style .meme-topics li { max-width: 100%; }
+.your-style .meme-topics span { overflow-wrap: anywhere; min-width: 0; }
+.meme-stages { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 4px; font-size: 12px; }
+.meme-stages li { padding: 3px 8px; border: 1px solid var(--border); color: var(--text-3, var(--text-2)); }
+.meme-stages li[data-state='done'] { color: var(--text-2); text-decoration: line-through; text-decoration-color: color-mix(in srgb, currentColor 40%, transparent); }
+.meme-stages li[data-state='now'] { color: var(--text); border-color: var(--text-2, var(--text)); font-weight: 600; }
+.meme-queue-badge { display: inline-block; margin-right: 6px; padding: 0 6px; border: 1px solid var(--border); font-size: 11px; letter-spacing: .04em; text-transform: uppercase; color: var(--text-2); }
+.meme-card-media { position: relative; }
+.meme-card-badge { position: absolute; left: 4px; bottom: 4px; padding: 1px 5px; font-size: 10px; background: rgba(0, 0, 0, .65); color: #fff; pointer-events: none; }
+.meme-now > .btn { min-height: 44px; }
+@media (max-width: 420px) {
+  .meme-now { grid-template-columns: auto minmax(0, 1fr); }
+  .meme-now > .btn { grid-column: 1 / -1; justify-self: start; }
+}

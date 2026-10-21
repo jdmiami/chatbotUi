@@ -11,7 +11,8 @@ import fs from 'node:fs/promises';
 import { createStudio } from './studio.js';
 import { createMovies, runFfmpeg } from './movies.js';
 import { createNsfwCheck } from './nsfwcheck.js';
-import { createMemeLab } from './memes.js';
+import { ADULT_NOTE, createMemeLab } from './memes.js';
+import { createStyleProfile } from './style.js';
 import { createSysStats } from './sysstats.js';
 import { createGpuStats } from './gpustats.js';
 import { createSearch } from './search.js';
@@ -129,7 +130,7 @@ async function labChatModel() {
   const small = names.find((n) => !/embed/i.test(n));
   return small ? { name: small, vision: false } : null;
 }
-async function labChat({ system, user, images }) {
+async function labChat({ system, user, images, temperature = 0.9 }) {
   const m = await labChatModel();
   if (!m) throw new Error('No chat model is installed on the AI machine.');
   const ask = async (withImages) => {
@@ -139,7 +140,7 @@ async function labChat({ system, user, images }) {
       body: JSON.stringify({
         model: m.name,
         stream: false,
-        options: { temperature: 0.9 },
+        options: { temperature },
         messages: [
           { role: 'system', content: system },
           { role: 'user', content: user, ...(withImages && images?.length ? { images } : {}) },
@@ -153,10 +154,32 @@ async function labChat({ system, user, images }) {
   // A model that can't see answers from the idea alone.
   return m.vision ? ask(true).catch(() => ask(false)) : ask(false);
 }
+// "Your style" (style.js): a profile of the owner's own saved prompts, written by the same chat model
+// on this machine (nothing leaves it), that the Lab's "Your style" movies are made from.
+const STYLE_KEY = 'state/your-style.json';
+const styleFile = path.join(env.PERSIST_DIR || '/workspace', '.orbit-your-style.json');
+const yourStyle =
+  studio && movies && !HELPER
+    ? createStyleProfile({
+        sources: async () => ({
+          items: (await studio.items(1000)).map((it) => ({ ...it, prompt: String(it.prompt || '').replace(ADULT_NOTE, '') })),
+          movies: await movies.list(),
+          labIdeas: lab ? await lab.ownIdeas() : [],
+        }),
+        // Steadier than the idea writer: it sums up, it doesn't invent.
+        chat: ({ system, user }) => labChat({ system, user, temperature: 0.3 }),
+        load: async () => (r2 ? r2.getJson(STYLE_KEY) : JSON.parse(await fs.readFile(styleFile, 'utf8'))),
+        save: async (state) => (r2 ? r2.put(STYLE_KEY, JSON.stringify(state), 'application/json') : fs.writeFile(styleFile, JSON.stringify(state))),
+        log: console,
+      })
+    : null;
 const lab =
   studio && !HELPER
     ? createMemeLab({
         studio,
+        // "Your style": 30-second movies through soReal's auto flow, from the profile above.
+        movies,
+        profile: yourStyle,
         quietSeconds: () => idle.state().idleSeconds,
         // The lab plans enough videos to fill the time until the machine turns itself off.
         minutesLeft: () => {

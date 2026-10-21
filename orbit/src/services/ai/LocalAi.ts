@@ -105,6 +105,10 @@ export interface MemeRecord {
   why?: string;
   /** judging · made (waiting to be judged) · judged · ready (scored high enough to post) */
   status: 'judging' | 'made' | 'judged' | 'ready';
+  /** comedy · spicy · yours (a 30-second movie in your style). */
+  style?: LabStyle;
+  /** A movie in your style: its soReal movie (it moves into soReal when kept). */
+  movieId?: string;
 }
 export interface LabIdea {
   id: string;
@@ -113,8 +117,49 @@ export interface LabIdea {
   topic: string | null;
   /** Written or edited by you: made exactly as written. */
   yours: boolean;
+  /** "Your style": a 30-second movie (made with soReal's auto flow), with its look. */
+  kind?: 'movie';
+  seconds?: number;
+  look?: string;
+  /** Your style leans spicy: blurred like any NSFW item. */
+  nsfw?: boolean;
 }
-export type LabStyle = 'comedy' | 'spicy';
+/** comedy · spicy · yours: 30-second movies in your own style, from your saved prompts. */
+export type LabStyle = 'comedy' | 'spicy' | 'yours';
+/** Where a Lab movie is: the story, the lead, the storyboard, the shots, the final cut. */
+export interface LabMovieProgress {
+  id: string;
+  phase: 'draft' | 'story' | 'lead' | 'storyboard' | 'review' | 'shots' | 'final' | 'done' | 'stopped' | 'error';
+  /** Waiting for your job to finish (it made way, and carries on after). */
+  paused: boolean;
+  shots: number;
+  shotsDone: number;
+  etaSeconds: number | null;
+  seconds: number;
+}
+/** A chip on the "Your style" panel: something the profile picked up (remove it to leave it out). */
+export interface StyleChip {
+  kind: 'subject' | 'look' | 'mood';
+  text: string;
+}
+/** Your style: a profile of your own saved prompts, written on the AI machine (nothing leaves it). */
+export interface YourStyleProfile {
+  ready: boolean;
+  building: boolean;
+  /** In plain words; yours to edit (your edits steer it). */
+  summary: string;
+  edited: boolean;
+  /** How many of your prompts it was built from, and when. */
+  count: number;
+  builtAt: string | null;
+  /** ai: the chat model on the machine wrote it; words: a word count (no chat model). */
+  by: 'ai' | 'words' | null;
+  spicy: boolean;
+  profile: Record<string, string[]>;
+  chips: StyleChip[];
+  removed: string[];
+  lastError: string | null;
+}
 export interface MemeLabState {
   enabled: boolean;
   /** Comedy, or spicy: flirty thirst-trap clips of made-up adults, no nudity. Older machines don't say. */
@@ -126,7 +171,7 @@ export interface MemeLabState {
   /** Minutes one lab video takes (learned), and minutes until the machine turns itself off. */
   minutesPerVideo: number;
   minutesLeft: number;
-  making: { title: string; topic: string | null; prompt: string; job: StudioJob | null } | null;
+  making: { title: string; topic: string | null; prompt: string; job: StudioJob | null; movie?: LabMovieProgress | null; nsfw?: boolean } | null;
   /** Planned ideas, in the order they will be made. */
   queue: LabIdea[];
   madeLastHour: number;
@@ -670,6 +715,21 @@ export class LocalAi {
 
   async removeLabIdea(id: string): Promise<MemeLabState> {
     return this.labAbsolute(await this.studioCall<MemeLabState>(`/_orbit/studio/lab/queue/${encodeURIComponent(id)}`, { method: 'DELETE' }));
+  }
+
+  /** Your style (for the Lab's "Your style"): the profile of your own saved prompts. */
+  async labProfile(): Promise<YourStyleProfile> {
+    return this.studioCall<YourStyleProfile>('/_orbit/studio/lab/profile');
+  }
+
+  /** Change your style: your summary steers it; removed chips stay out. */
+  async editLabProfile(edit: { summary?: string; remove?: string[]; restore?: string[] }): Promise<YourStyleProfile> {
+    return this.studioCall<YourStyleProfile>('/_orbit/studio/lab/profile', { method: 'POST', body: JSON.stringify(edit) });
+  }
+
+  /** Build your style again from your saved prompts now (it says building until done). */
+  async rebuildLabProfile(): Promise<YourStyleProfile> {
+    return this.studioCall<YourStyleProfile>('/_orbit/studio/lab/profile/rebuild', { method: 'POST', body: '{}' });
   }
 
   /** Move a meme-lab video into the gallery. */
