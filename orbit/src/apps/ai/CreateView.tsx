@@ -695,7 +695,7 @@ export function CreateView({
       <section className="ai-censor" aria-labelledby="ai-censor-title">
         <div className="ai-censor-text">
           <p className="o5-kicker" id="ai-censor-title">NSFW</p>
-          <p className="ai-muted">NSFW pictures and videos are hidden everywhere in Orbit, with no blur, until you turn on "Show NSFW". One that slipped through: hold it for a moment and it hides. One hidden by mistake: turn on "Show NSFW", open it and turn off "NSFW".</p>
+          <p className="ai-muted">NSFW pictures and videos are hidden everywhere in Orbit until you turn on "Show NSFW". Even then they stay blurred: keep your finger on one to see it (a video plays while you hold it). One that slipped through: hold it for a moment and it hides. One hidden by mistake: turn on "Show NSFW", open it and turn off "NSFW".</p>
         </div>
         <UncensoredSwitch />
       </section>

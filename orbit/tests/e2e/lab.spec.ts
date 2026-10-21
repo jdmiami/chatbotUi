@@ -306,13 +306,22 @@ for (const skin of ['classic', 'o5'] as const) {
     // Only the hidden NSFW one is left.
     await expect(section.getByText(/One NSFW result is hidden/)).toBeVisible();
 
-    // Show NSFW: it shows as it is, no blur, and plays with its controls.
+    // Show NSFW: it shows, blurred; in the viewer it plays while held.
     await section.getByRole('switch', { name: 'Show NSFW' }).click();
+    await expect(gallery.locator('.censor')).toHaveCount(1);
     await gallery.getByRole('button', { name: 'Video: Pool night' }).click();
-    const hot = viewer.locator('.ai-viewer-media video');
-    await expect(hot).toHaveAttribute('controls', '');
-    expect(await hot.evaluate((el) => getComputedStyle(el).filter)).toBe('none');
     await expect(viewer.getByRole('switch', { name: 'NSFW', exact: true })).toBeChecked();
+    const media = viewer.locator('.ai-viewer-media.censor');
+    await expect(media).toBeVisible();
+    expect(await media.locator('video').evaluate((el) => getComputedStyle(el).filter)).toContain('blur');
+    const plays = await page.evaluate(() => (window as unknown as { plays: number }).plays);
+    const mb = (await media.boundingBox())!;
+    await page.mouse.move(mb.x + mb.width / 2, mb.y + Math.min(mb.height / 2, 120));
+    await page.mouse.down();
+    await expect(media).toHaveAttribute('data-revealed', '');
+    await expect.poll(() => page.evaluate(() => (window as unknown as { plays: number }).plays)).toBeGreaterThan(plays);
+    await page.mouse.up();
+    await expect(media).not.toHaveAttribute('data-revealed', '');
     await expectNoHorizontalOverflow(page);
     expect(errors).toEqual([]);
   });
