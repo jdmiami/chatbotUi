@@ -14,6 +14,7 @@ import { Walkthrough } from './Walkthrough';
 import { MovieView } from './MovieView';
 import '../ai/ai.css';
 import './soreal.css';
+import { autoOffMinutesOf, autoOffSentence } from '../../services/autoOff';
 
 type View = { kind: 'home' } | { kind: 'walk'; id: string } | { kind: 'movie'; id: string };
 
@@ -194,7 +195,7 @@ export default function SoRealApp({ isActive, placement }: AppProps) {
       <p>
         {helper.state === 'off' && `Helper machine: off. Turn it on to make two movies at once ($${helper.pricePerHour.toFixed(2)}/h while on).`}
         {helper.state === 'starting' && 'Helper machine: starting… usually 2–4 minutes.'}
-        {helper.state === 'on' && `Helper machine: on${helper.costPerHour ? ` · $${helper.costPerHour.toFixed(2)}/h` : ''} · turns itself off after ${helper.idle?.limitMinutes ?? 30} minutes unused.`}
+        {helper.state === 'on' && `Helper machine: on${helper.costPerHour ? ` · $${helper.costPerHour.toFixed(2)}/h` : ''} · ${autoOffSentence(autoOffMinutesOf(helper.idle?.limitMinutes, helper.autoOffMinutes)).toLowerCase()}`}
         {helper.state === 'error' && `Helper machine: ${helper.detail ?? 'has a problem.'}`}
       </p>
       {(helper.state === 'off' || helper.state === 'error') && (

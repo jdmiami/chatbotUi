@@ -2,7 +2,7 @@ import { currentUser } from '@/lib/auth';
 import { sameOrigin } from '@/lib/request';
 import { startAi, stopAi } from '@/lib/ai';
 import { setMachinePower } from '@/lib/runpod';
-import { aiMachineAction, fullStatus, islandCors, islandUser } from '@/lib/status';
+import { aiMachineAction, fullStatus, islandCors, islandUser, linuxMachineExtend } from '@/lib/status';
 import { listMachines } from '@/lib/machines';
 
 export const dynamic = 'force-dynamic';
@@ -13,7 +13,7 @@ export const maxDuration = 60;
  * Money, timers and machine stats for the status pill (Orbit, the chooser, and the pill the
  * machines add to the playground and VS Code). Signed-in browsers use their session; the
  * machines' pages use a short "island" token they were given, which can only read and do the
- * two harmless actions (keep the AI machine on longer, take a model out of GPU memory).
+ * harmless actions (keep a machine on longer, take a model out of the AI machine's GPU memory).
  */
 async function who(request: Request) {
   const user = await currentUser();
@@ -46,6 +46,8 @@ export async function POST(request: Request) {
   try {
     if (b.machine === 'ai' && (b.action === 'extend' || b.action === 'unload')) {
       await aiMachineAction(caller.user, b.action, b);
+    } else if (b.machine === 'linux' && b.action === 'extend') {
+      await linuxMachineExtend(caller.user, b.minutes);
     } else if (!caller.full) {
       return Response.json({ error: 'Open your workspace site to turn machines on or off.' }, { status: 403, headers: cors });
     } else if (b.machine === 'ai' && b.action === 'start') {

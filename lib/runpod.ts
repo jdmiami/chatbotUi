@@ -1,4 +1,5 @@
 import 'server-only';
+import { autoOffMinutes } from './autoOff';
 
 /**
  * Minimal Runpod REST v2 client for the one Linux machine (pod) this site controls.
@@ -196,6 +197,11 @@ async function startFallback(main: Pod): Promise<void> {
   const fb = await findFallback();
   if (fb && ON.includes(fb.status as PodStatus)) return;
   if (fb) {
+    // The stand-in follows the same auto-off rule and code as the usual machine.
+    const want = linuxEnv();
+    if (fb.env && Object.entries(want).some(([k, v]) => fb.env![k] !== v)) {
+      await runpod(`/pods/${encodeURIComponent(fb.id)}`, { method: 'PATCH', body: JSON.stringify({ env: { ...fb.env, ...want } }) }).catch(() => {});
+    }
     try {
       await action(fb.id, 'start');
       return;
@@ -205,6 +211,41 @@ async function startFallback(main: Pod): Promise<void> {
     }
   }
   await createFallback(main);
+}
+
+/** What the Linux machine (and its stand-in) must start with: the auto-off minutes and, on Vercel, this deployment's code. */
+function linuxEnv(): Record<string, string> {
+  const want: Record<string, string> = { IDLE_MINUTES: String(autoOffMinutes()) };
+  if (process.env.VERCEL_GIT_COMMIT_SHA) want.REPO_RAW = `https://raw.githubusercontent.com/jdmiami/chatbotUi/${process.env.VERCEL_GIT_COMMIT_SHA}`;
+  return want;
+}
+
+/** "Keep on" for the Linux machine in use: its gateway pushes its turn-off time back (signed with a host token). */
+export async function linuxKeepAwake(token: string, minutes: number): Promise<{ offAt?: string | null; heldUntil?: string | null }> {
+  const base = await podHttpBase();
+  if (!base) throw new Error('LINUX_POD_ID is not set');
+  const res = await fetch(`${base}/keepawake`, {
+    method: 'POST',
+    headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
+    body: JSON.stringify({ minutes }),
+    cache: 'no-store',
+    signal: AbortSignal.timeout(15_000),
+  }).catch(() => null);
+  if (!res) throw new Error('The Linux machine is not answering. Is it on?');
+  const out = (await res.json().catch(() => ({}))) as { error?: string; offAt?: string | null; heldUntil?: string | null };
+  if (res.status === 404) throw new Error('The Linux machine is on older code. Turn it off and on again to get "Keep on".');
+  if (!res.ok) throw new Error(out.error || `The Linux machine answered ${res.status}.`);
+  return out;
+}
+
+/** The Linux machine's own auto-off timer (its gateway's /idle: numbers only, no sign-in). */
+export async function linuxIdle(base: string): Promise<{ limitMinutes?: number; idleMinutes?: number; offAt?: string | null; heldUntil?: string | null } | null> {
+  try {
+    const res = await fetch(`${base}/idle`, { cache: 'no-store', signal: AbortSignal.timeout(5000) });
+    return res.ok ? await res.json() : null;
+  } catch {
+    return null;
+  }
 }
 
 export async function setMachinePower(want: 'start' | 'stop'): Promise<void> {
@@ -218,11 +259,12 @@ export async function setMachinePower(want: 'start' | 'stop'): Promise<void> {
     return;
   }
   let main = (await runpod(`/pods/${encodeURIComponent(id)}`).catch(() => null)) as Pod | null;
-  if (process.env.VERCEL_GIT_COMMIT_SHA && main?.env) {
-    // Start on this deployment's code, so fixes (like the idle shut-off) reach the machine.
-    const repoRaw = `https://raw.githubusercontent.com/jdmiami/chatbotUi/${process.env.VERCEL_GIT_COMMIT_SHA}`;
-    if (main.env.REPO_RAW !== repoRaw || main.env.IDLE_MINUTES !== '60') {
-      const env = { ...main.env, REPO_RAW: repoRaw, IDLE_MINUTES: '60' };
+  if (main?.env && !ON.includes(main.status as PodStatus)) {
+    // Start on this deployment's code (so fixes reach the machine) and the one auto-off rule
+    // (lib/autoOff.ts): the machine turns itself off after IDLE_MINUTES without input.
+    const want = linuxEnv();
+    if (Object.entries(want).some(([k, v]) => main!.env![k] !== v)) {
+      const env = { ...main.env, ...want };
       await runpod(`/pods/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify({ env }) }).catch(() => {});
       main = { ...main, env };
     }

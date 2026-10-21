@@ -1,7 +1,8 @@
 import 'server-only';
 import { SignJWT, jwtVerify } from 'jose';
 import { aiBase, aiConsole, aiStatus, aiTiers, aiToken, findAiPod } from './ai';
-import { podHttpBase, podId, runpod } from './runpod';
+import { linuxIdle, linuxKeepAwake, podHttpBase, podId, runpod } from './runpod';
+import { autoOffInfo, autoOffMinutes, keepOnMinutes } from './autoOff';
 
 /**
  * Everything the status pill and task manager show, in one call: Runpod money (balance, spend per
@@ -16,9 +17,13 @@ export interface MachineCard {
   detail?: string;
   costPerHour: number | null;
   uptimeSeconds: number | null;
-  /** AI machine: turns itself off at this time if unused. Linux machine: null (stays on). */
+  /** Turns itself off at this time if unused (the machine's own timer, shared/autooff.js). */
   offAt: string | null;
+  /** "Keep on" holds it on until this time, whatever the use. */
+  heldUntil?: string | null;
   autoOff: boolean;
+  /** The one auto-off rule's minutes (lib/autoOff.ts): the same for every machine. */
+  autoOffMinutes: number;
   tier?: string | null;
   tiers?: { id: string; label: string; gpuName: string; pricePerHour: number }[];
   gpuName?: string | null;
@@ -144,8 +149,11 @@ async function linuxCard(user: string, detail: boolean): Promise<MachineCard | n
   if (!id) return null;
   const pod = process.env.RUNPOD_API_KEY ? ((await runpod(`/pods/${encodeURIComponent(id)}`).catch(() => null)) as RunpodPod | null) : null;
   const running = pod ? pod.status === 'RUNNING' : true;
-  const base = podHttpBase();
-  const stats = detail && running && base ? await getJson(`${base}/orbit/api/stats`, await hostToken(user)) : null;
+  const base = running ? await podHttpBase() : null;
+  const [stats, idle] = await Promise.all([
+    detail && base ? getJson(`${base}/orbit/api/stats`, await hostToken(user)) : null,
+    base ? linuxIdle(base) : null,
+  ]);
   const state = !pod ? (stats ? 'on' : 'unknown') : pod.status === 'RUNNING' ? 'on' : pod.status === 'EXITED' ? 'off' : pod.status === 'STARTING' || pod.status === 'PROVISIONING' ? 'starting' : 'error';
   return {
     id: 'linux',
@@ -153,8 +161,10 @@ async function linuxCard(user: string, detail: boolean): Promise<MachineCard | n
     state,
     costPerHour: pod?.cost && pod.cost > 0 ? pod.cost : null,
     uptimeSeconds: running ? (pod?.runtime?.uptime ?? null) : null,
-    offAt: null,
-    autoOff: false,
+    offAt: state === 'on' ? (idle?.offAt ?? null) : null,
+    heldUntil: state === 'on' ? (idle?.heldUntil ?? null) : null,
+    autoOff: true,
+    autoOffMinutes: autoOffMinutes(),
     live: live(pod),
     stats,
     consoleUrl: `https://console.runpod.io/pods?id=${encodeURIComponent(id)}`,
@@ -166,7 +176,7 @@ async function aiCard(user: string, detail: boolean): Promise<MachineCard | null
   if (!s || s.state === 'unconfigured') return null;
   const pod = s.podId && process.env.RUNPOD_API_KEY ? ((await runpod(`/pods/${encodeURIComponent(s.podId)}`).catch(() => null)) as RunpodPod | null) : null;
   const on = s.state === 'on' || s.state === 'downloading';
-  const stats = detail && on && s.podId ? ((await getJson(`${aiBase(s.podId)}/_orbit/stats`, await aiToken(user, 'orbit-ai'))) as { idle?: { offAt?: string } } | null) : null;
+  const stats = detail && on && s.podId ? ((await getJson(`${aiBase(s.podId)}/_orbit/stats`, await aiToken(user, 'orbit-ai'))) as { idle?: { offAt?: string; heldUntil?: string | null } } | null) : null;
   const tier = aiTiers().find((t) => t.id === s.tier);
   return {
     id: 'ai',
@@ -175,8 +185,10 @@ async function aiCard(user: string, detail: boolean): Promise<MachineCard | null
     detail: s.detail,
     costPerHour: s.costPerHour,
     uptimeSeconds: on || s.state === 'starting' ? (pod?.runtime?.uptime ?? null) : null,
-    offAt: on ? (stats?.idle?.offAt ?? (s.idle ? new Date(Date.now() + (s.idle.limitMinutes - s.idle.idleMinutes) * 60_000).toISOString() : null)) : null,
+    offAt: on ? (stats?.idle?.offAt ?? s.idle?.offAt ?? (s.idle ? new Date(Date.now() + (s.idle.limitMinutes - s.idle.idleMinutes) * 60_000).toISOString() : null)) : null,
+    heldUntil: on ? (stats?.idle?.heldUntil ?? s.idle?.heldUntil ?? null) : null,
     autoOff: true,
+    autoOffMinutes: autoOffMinutes(),
     tier: s.tier ?? null,
     tiers: aiTiers().map((t) => ({ id: t.id, label: t.label, gpuName: t.gpuName, pricePerHour: t.pricePerHour })),
     gpuName: tier?.gpuName ?? null,
@@ -189,7 +201,7 @@ async function aiCard(user: string, detail: boolean): Promise<MachineCard | null
 /** `detail` = also ask each machine for its process list (the open task manager). */
 export async function fullStatus(user: string, detail: boolean) {
   const [m, ai, linux] = await Promise.all([money(), aiCard(user, detail), linuxCard(user, detail)]);
-  return { at: new Date().toISOString(), money: m, machines: [ai, linux].filter(Boolean) as MachineCard[] };
+  return { at: new Date().toISOString(), money: m, autoOff: autoOffInfo(), machines: [ai, linux].filter(Boolean) as MachineCard[] };
 }
 
 /** Actions that only reach the AI machine itself: keep it on longer, take a model out of GPU memory. */
@@ -198,7 +210,7 @@ export async function aiMachineAction(user: string, action: 'extend' | 'unload',
   if (!pod || pod.status !== 'RUNNING') throw new Error('The AI machine is not on.');
   const token = await aiToken(user, 'orbit-ai');
   const path = action === 'extend' ? '/_orbit/keepawake' : '/_orbit/models/unload';
-  const body = action === 'extend' ? { minutes: Math.min(240, Math.max(5, Number(arg.minutes) || 30)) } : { name: String(arg.model || '') };
+  const body = action === 'extend' ? { minutes: keepOnMinutes(arg.minutes) } : { name: String(arg.model || '') };
   const res = await fetch(`${aiBase(pod.id)}${path}`, {
     method: 'POST',
     headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
@@ -209,4 +221,10 @@ export async function aiMachineAction(user: string, action: 'extend' | 'unload',
   const out = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(out.error || `The AI machine answered ${res.status}.`);
   return out;
+}
+
+/** "Keep on" for the Linux machine: the same rule and limits as the AI machine's. */
+export async function linuxMachineExtend(user: string, minutes?: number) {
+  if (!podId()) throw new Error('The Linux machine is not set up.');
+  return linuxKeepAwake(await hostToken(user), keepOnMinutes(minutes));
 }

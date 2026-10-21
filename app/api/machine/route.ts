@@ -1,6 +1,7 @@
 import { currentUser } from '@/lib/auth';
 import { sameOrigin } from '@/lib/request';
 import { machineStatus, setMachinePower } from '@/lib/runpod';
+import { linuxMachineExtend } from '@/lib/status';
 
 export const dynamic = 'force-dynamic';
 
@@ -12,13 +13,24 @@ export async function GET() {
   return Response.json(await machineStatus(), { headers: noStore });
 }
 
-/** Turn the Linux machine on or off: { "action": "start" | "stop" }. */
+/**
+ * Turn the Linux machine on or off, or keep it on longer (the same "Keep on" as the AI machine):
+ * { "action": "start" | "stop" | "extend", "minutes"?: number }.
+ */
 export async function POST(request: Request) {
-  if (!(await currentUser())) return Response.json({ error: 'Unauthorized' }, { status: 401 });
+  const user = await currentUser();
+  if (!user) return Response.json({ error: 'Unauthorized' }, { status: 401 });
   if (!sameOrigin(request)) return Response.json({ error: 'Forbidden' }, { status: 403 });
-  const { action } = (await request.json().catch(() => ({}))) as { action?: string };
+  const { action, minutes } = (await request.json().catch(() => ({}))) as { action?: string; minutes?: number };
+  if (action === 'extend') {
+    try {
+      return Response.json({ ...(await machineStatus()), ...(await linuxMachineExtend(user, minutes)) }, { headers: noStore });
+    } catch (err) {
+      return Response.json({ error: (err as Error).message }, { status: 502 });
+    }
+  }
   if (action !== 'start' && action !== 'stop') {
-    return Response.json({ error: 'action must be "start" or "stop"' }, { status: 400 });
+    return Response.json({ error: 'action must be "start", "stop" or "extend"' }, { status: 400 });
   }
   if (!process.env.RUNPOD_API_KEY) {
     return Response.json({ error: 'RUNPOD_API_KEY is not set in Vercel.' }, { status: 501 });

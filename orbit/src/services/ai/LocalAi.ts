@@ -14,9 +14,19 @@ export interface AiMachineStatus {
   detail?: string;
   pulling?: { model: string; percent: number } | null;
   models?: string[];
-  idle?: { limitMinutes: number; idleMinutes: number } | null;
+  idle?: AiIdle | null;
+  /** The one auto-off rule's minutes (the same for every machine and speed). */
+  autoOffMinutes?: number;
   tier?: string | null;
   tiers?: AiTier[];
+}
+
+/** The machine's own auto-off timer. */
+export interface AiIdle {
+  limitMinutes: number;
+  idleMinutes: number;
+  offAt?: string | null;
+  heldUntil?: string | null;
 }
 
 export interface AiTier {
@@ -454,7 +464,8 @@ export interface HelperStatus {
   costPerHour: number | null;
   pricePerHour: number;
   detail?: string;
-  idle?: { limitMinutes: number; idleMinutes: number } | null;
+  idle?: AiIdle | null;
+  autoOffMinutes?: number;
 }
 
 async function siteJson<T>(path: string, init?: RequestInit): Promise<T> {

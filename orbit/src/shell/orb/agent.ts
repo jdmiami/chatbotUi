@@ -204,7 +204,7 @@ export function parseCommand(input: string): Step[] | null {
 
 /** Steps that need a yes first. */
 export function needsConfirm(step: Step, label?: string): string | null {
-  if (step.do === 'machine' && step.power === 'on') return `Turn on the ${step.which === 'ai' ? 'AI' : 'Linux'} machine? It bills by the hour while on (it turns itself off after 20 minutes without use).`;
+  if (step.do === 'machine' && step.power === 'on') return `Turn on the ${step.which === 'ai' ? 'AI' : 'Linux'} machine? It bills by the hour while on, and turns itself off when unused.`;
   if (step.do === 'click' && label && /\b(delete|remove|discard|reset|erase|clear all|turn off|stop|sign out|log out|terminate|end session)\b/i.test(label)) return `Tap “${label}”? That can't be undone.`;
   return null;
 }

@@ -11,7 +11,10 @@ services:
     # Not published: only the gateway talks to guacd.
 
   gateway:
-    build: .
+    # From the repository root, so the image gets shared/ too (see Dockerfile).
+    build:
+      context: ..
+      dockerfile: gateway/Dockerfile
     restart: unless-stopped
     env_file: .env
     environment:

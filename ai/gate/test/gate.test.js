@@ -6,7 +6,8 @@ import crypto from 'node:crypto';
 import { createGate, COOKIE, originMatcher } from '../src/gate.js';
 import { signJwt, verifyJwt } from '../src/jwt.js';
 import { createPush } from '../src/push.js';
-import { createIdleWatch, createModelKeeper, parseModelSpec, runpodStopSelf } from '../src/machine.js';
+import { createModelKeeper, parseModelSpec } from '../src/machine.js';
+import { createAutoOff as createIdleWatch, runpodStopSelf } from '../../../shared/autooff.js';
 
 const SECRET = 'x'.repeat(40);
 const SITE = 'https://site.example';
@@ -210,7 +211,7 @@ test('idle watch: stops after the limit, activity and busy() postpone it, failur
   t = 29 * 60_000;
   await w.check();
   assert.equal(stops, 0);
-  w.touch();
+  w.activity();
   t = 58 * 60_000;
   await w.check();
   assert.equal(stops, 0);

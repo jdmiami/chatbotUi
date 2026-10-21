@@ -4,6 +4,7 @@ import { cloudStatus, type CloudStatus } from '../../services/ai/CloudAi';
 import { Toggle } from '../../ui/components';
 import { Section } from './parts';
 import { disableNotify, enableNotify, notifyState, type NotifyState } from '../../services/notify';
+import { AUTO_OFF, autoOffMinutesOf, autoOffSentence, untilText } from '../../services/autoOff';
 
 /**
  * What the status pill used to show at the top of every screen, now here: money (balance, spending
@@ -19,7 +20,10 @@ interface Machine {
   costPerHour: number | null;
   uptimeSeconds: number | null;
   offAt: string | null;
+  heldUntil?: string | null;
   autoOff: boolean;
+  /** The one auto-off rule's minutes (the same for every machine). */
+  autoOffMinutes?: number;
   gpuName?: string | null;
   live: { cpu: number | null; memory: number | null; gpu: number | null; gpuMemory: number | null } | null;
 }
@@ -27,6 +31,8 @@ interface Status {
   money: { balance: number | null; spendPerHour: number | null; today: number | null; spendLimit: number | null } | null;
   machines: Machine[];
   canPower?: boolean;
+  /** The one auto-off rule (the site's lib/autoOff.ts). */
+  autoOff?: { minutes: number; warnMinutes: number; keepOnMinutes: number; maxHoldMinutes: number };
 }
 
 const usd = (n: number | null | undefined, digits = 2) => (typeof n === 'number' ? `$${n.toFixed(digits)}` : '—');
@@ -35,12 +41,6 @@ const STATE: Record<string, string> = { on: 'On', off: 'Off', starting: 'Startin
 function duration(seconds: number) {
   const m = Math.floor(seconds / 60);
   return m < 60 ? `${m} min` : `${Math.floor(m / 60)} h ${m % 60} min`;
-}
-
-function untilText(iso: string | null, now: number) {
-  if (!iso) return null;
-  const min = Math.round((Date.parse(iso) - now) / 60_000);
-  return min <= 0 ? 'turning itself off now' : `turns itself off in ${min} min if unused`;
 }
 
 export function UsageSection({ active }: { active: boolean }) {
@@ -76,6 +76,8 @@ export function UsageSection({ active }: { active: boolean }) {
     return () => clearInterval(t);
   }, [active, load]);
 
+  const minutes = autoOffMinutesOf(status?.autoOff?.minutes, status?.machines[0]?.autoOffMinutes);
+  const step = status?.autoOff?.keepOnMinutes ?? AUTO_OFF.keepOnMinutes;
   const act = async (machine: 'ai' | 'linux', action: 'start' | 'stop' | 'extend') => {
     setBusy(`${machine}:${action}`);
     try {
@@ -83,12 +85,12 @@ export function UsageSection({ active }: { active: boolean }) {
         method: 'POST',
         credentials: 'same-origin',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ machine, action, minutes: 30 }),
+        body: JSON.stringify({ machine, action, minutes: step }),
       });
       const body = (await res.json().catch(() => ({}))) as Status & { error?: string };
       if (!res.ok) throw new Error(body.error ?? `Request failed (${res.status})`);
       setStatus(body);
-      if (action === 'extend') toast('The AI machine stays on 30 more minutes.', 'success');
+      if (action === 'extend') toast(`The ${machine === 'ai' ? 'AI' : 'Linux'} machine stays on ${step} more minutes.`, 'success');
     } catch (err) {
       toast((err as Error).message, 'error');
     } finally {
@@ -97,7 +99,7 @@ export function UsageSection({ active }: { active: boolean }) {
   };
 
   return (
-    <Section title="Usage" caption="Each machine also turns itself off after 20 minutes without a job or your input, and the site checks every 10 minutes.">
+    <Section title="Usage" caption={`Each machine ${autoOffSentence(minutes).toLowerCase()} “Keep on” adds ${step} minutes.`}>
       <div className="list st-usage-list" aria-busy={!status && !unavailable}>
         {unavailable ? (
           <div className="row st-row">
@@ -130,7 +132,7 @@ export function UsageSection({ active }: { active: boolean }) {
               const on = m.state === 'on' || m.state === 'downloading';
               // Starting can already bill: show its price and time too.
               const billing = on || m.state === 'starting';
-              const until = m.autoOff && on ? untilText(m.offAt, now) : null;
+              const until = m.autoOff && on ? untilText(m.offAt, now, m.heldUntil) : null;
               return (
                 <div key={m.id} className="row st-row st-col st-machine" data-state={m.state} aria-label={m.name}>
                   <div className="st-line">
@@ -190,9 +192,9 @@ export function UsageSection({ active }: { active: boolean }) {
                           Turn on
                         </button>
                       )}
-                      {m.id === 'ai' && on && (
-                        <button type="button" className="btn small ghost" disabled={busy !== null} onClick={() => void act('ai', 'extend')}>
-                          Keep on 30 more min
+                      {m.autoOff && on && (
+                        <button type="button" className="btn small ghost" disabled={busy !== null} onClick={() => void act(m.id, 'extend')}>
+                          Keep on {step} more min
                         </button>
                       )}
                     </div>
@@ -302,12 +304,13 @@ const NOTIFY_NOTE: Record<NotifyState, string> = {
   'home-screen': 'On iPhone and iPad: tap Share, then Add to Home Screen, open Orbit from your Home Screen, and turn this on there.',
   blocked: 'Notifications are blocked for Orbit. Allow them in your device settings (Notifications → Orbit) or the browser’s site settings.',
   off: 'Off: you only see the warning while Orbit is open.',
-  on: 'On: this device gets a notification 10 minutes before the AI machine turns itself off. Tap it to keep the machine on.',
+  on: `On: this device gets a notification ${AUTO_OFF.warnMinutes} minutes before the AI machine turns itself off. Tap it to keep the machine on.`,
 };
 
 /** "Turning off in 10 minutes" notifications from the AI machine. */
 export function NotifySection() {
   const toast = useShell((s) => s.toast);
+  const minutes = useAutoOffMinutes();
   const [state, setState] = useState<NotifyState | null>(null);
   const [busy, setBusy] = useState(false);
   useEffect(() => {
@@ -339,7 +342,7 @@ export function NotifySection() {
   return (
     <Section
       title="Notifications"
-      caption="The AI machine turns itself off after 20 minutes with nothing to do (the 20 minutes start once every download has finished). Ten minutes before, it can tell you."
+      caption={`The AI machine ${autoOffSentence(minutes).toLowerCase()} The countdown starts once every download has finished. ${AUTO_OFF.warnMinutes} minutes before, it can tell you.`}
     >
       <div className="list">
         <label className={canToggle ? 'row st-row st-click' : 'row st-row'}>
@@ -352,4 +355,20 @@ export function NotifySection() {
       </div>
     </Section>
   );
+}
+
+/** The auto-off minutes from the site (the shared default until it answers). */
+function useAutoOffMinutes() {
+  const [minutes, setMinutes] = useState<number>(AUTO_OFF.defaultMinutes);
+  useEffect(() => {
+    let live = true;
+    void fetch('/api/status', { credentials: 'same-origin', cache: 'no-store' })
+      .then((r) => (r.ok && (r.headers.get('content-type') ?? '').includes('json') ? (r.json() as Promise<Status>) : null))
+      .then((s) => live && s && setMinutes(autoOffMinutesOf(s.autoOff?.minutes, s.machines?.[0]?.autoOffMinutes)))
+      .catch(() => {});
+    return () => {
+      live = false;
+    };
+  }, []);
+  return minutes;
 }

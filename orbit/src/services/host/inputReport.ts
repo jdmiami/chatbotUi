@@ -2,8 +2,8 @@ import type { HostClient } from './connection';
 
 /**
  * Tells the Linux machine that a person is here: touches, clicks, typing and scrolling in Orbit are
- * reported at most once a minute. The machine turns itself off after 20 minutes without any (see
- * gateway/src/idle.js), so a forgotten tab can't keep it running, but someone reading or typing
+ * reported at most once a minute. The machine turns itself off after the site's auto-off minutes
+ * without any (60 by default; the timer is shared/autooff.js), so a forgotten tab can't keep it running, but someone reading or typing
  * a long message can.
  */
 export function startInputReport(host: HostClient, everyMs = 60_000): () => void {

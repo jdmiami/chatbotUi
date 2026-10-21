@@ -16,6 +16,8 @@ import { jwtVerify } from 'jose';
 import { encodeInstruction, InstructionParser } from './protocol.js';
 import { handlePtySocket } from './orbit/pty.js';
 import { GUAC_INPUT } from './idle.js';
+import { bearer, verifyOrbitToken } from './orbit/auth.js';
+import { AUTO_OFF } from '../../shared/autooff.js';
 
 export function loadConfig(env = process.env) {
   const required = ['GATEWAY_SECRET', 'RDP_HOST'];
@@ -148,24 +150,53 @@ function connectToGuacd(config, display) {
  * @param code optional coding workspace proxy (./code.js): VS Code in the browser at /code/.
  */
 export function createGateway(config, log = console, orbit = null, code = null, idle = null) {
-  const onInput = idle ? () => idle.input() : () => {};
+  const onInput = idle ? () => idle.activity() : () => {};
   const server = http.createServer((req, res) => {
     if (req.url === '/healthz') {
       res.writeHead(200, { 'content-type': 'text/plain' });
       return res.end('ok');
     }
-    // Minutes since the last input: read by the site's watchdog, which turns off a machine whose own
-    // timer has failed. Only numbers, so no sign-in.
+    // The auto-off timer (the same shape as the AI machine's /_orbit/idle): read by the site's status
+    // and watchdog, which turns off a machine whose own timer has failed. Only numbers, so no sign-in.
     if (req.url === '/idle' && idle) {
       res.writeHead(200, { 'content-type': 'application/json', 'cache-control': 'no-store' });
       return res.end(JSON.stringify(idle.state()));
     }
+    // "Keep on": the site asks for more time, signed with the owner's host token (like /orbit/api).
+    if (req.url === '/keepawake' && idle) return keepAwake(req, res);
     const url = new URL(req.url, 'http://gateway.local');
     if (orbit && url.pathname.startsWith('/orbit/api')) return orbit.api(req, res, url);
     if (code && /^\/code(\/|$)/.test(url.pathname)) return code.handle(req, res, url);
     res.writeHead(404);
     res.end();
   });
+
+  async function keepAwake(req, res) {
+    const json = (status, body) => {
+      res.writeHead(status, { 'content-type': 'application/json', 'cache-control': 'no-store' });
+      res.end(JSON.stringify(body));
+    };
+    if (req.method !== 'POST') return json(405, { error: 'Use POST' });
+    try {
+      await verifyOrbitToken(bearer(req), config.secret);
+    } catch {
+      return json(401, { error: 'Unauthorized' });
+    }
+    let raw = '';
+    for await (const chunk of req) {
+      raw += chunk;
+      if (raw.length > 4096) return json(413, { error: 'Too large' });
+    }
+    let minutes = AUTO_OFF.keepOnMinutes;
+    try {
+      minutes = Number(JSON.parse(raw || '{}').minutes) || AUTO_OFF.keepOnMinutes;
+    } catch {
+      return json(400, { error: 'Bad JSON' });
+    }
+    idle.activity();
+    idle.extend(minutes);
+    return json(200, idle.state());
+  }
 
   const orbitWss = orbit ? new WebSocketServer({ noServer: true, maxPayload: 1024 * 1024 }) : null;
 

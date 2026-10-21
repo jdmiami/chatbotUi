@@ -11,6 +11,7 @@ import fs from 'node:fs';
 import http from 'node:http';
 import net from 'node:net';
 import { signJwt, verifyJwt } from './jwt.js';
+import { AUTO_OFF } from '../../../shared/autooff.js';
 
 export const COOKIE = '__Host-orbit_ai';
 const COOKIE_HOURS = 12;
@@ -318,7 +319,7 @@ export function createGate(cfg, log = console) {
         if (path === '/_orbit/keepawake' && req.method === 'POST' && cfg.keepAwake) {
           const { minutes } = JSON.parse((await readBody(req, 4096)) || '{}');
           activity();
-          return send(res, 200, { offAt: new Date(cfg.keepAwake(Number(minutes) || 30)).toISOString() });
+          return send(res, 200, { offAt: new Date(cfg.keepAwake(Number(minutes) || AUTO_OFF.keepOnMinutes)).toISOString() });
         }
         return send(res, 404, { error: 'Not found' });
       } catch (err) {

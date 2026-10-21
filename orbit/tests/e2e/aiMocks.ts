@@ -17,9 +17,10 @@ export function sse(text: string) {
   );
 }
 
+// Every speed turns off by the same rule (the site's AUTO_OFF_MINUTES, 60 by default).
 export const TIERS = [
-  { id: 'standard', label: 'Standard', gpuName: 'A40 48 GB', pricePerHour: 0.59, idleMinutes: 30, speed: 'normal speed' },
-  { id: 'turbo', label: 'Turbo', gpuName: 'H100 80 GB', pricePerHour: 2.89, idleMinutes: 10, speed: 'about 3–4× faster' },
+  { id: 'standard', label: 'Standard', gpuName: 'A40 48 GB', pricePerHour: 0.59, idleMinutes: 60, speed: 'normal speed' },
+  { id: 'turbo', label: 'Turbo', gpuName: 'H100 80 GB', pricePerHour: 2.89, idleMinutes: 60, speed: 'about 3–4× faster' },
 ];
 
 export const INSTALLED = [
@@ -98,7 +99,8 @@ export async function mockAi(page: Page, initial: 'off' | 'on', powerCalls: Reco
         state,
         costPerHour: state === 'on' ? TIERS.find((t) => t.id === tier)!.pricePerHour : null,
         models: state === 'on' ? MODELS : [],
-        idle: state === 'on' ? { limitMinutes: 30, idleMinutes: 0 } : null,
+        idle: state === 'on' ? { limitMinutes: 60, idleMinutes: 0 } : null,
+        autoOffMinutes: 60,
         tier,
         tiers: TIERS,
       },

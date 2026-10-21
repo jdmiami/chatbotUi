@@ -12,8 +12,8 @@ Tick **Remember my choice** to go straight to your favourite next time; **Switch
 each workspace) or `/?choose=1` brings the chooser back.
 
 The Linux machine only costs money while it is on. The chooser page shows whether it is on and has
-**Turn on** / **Turn off** buttons (Orbit offers **Turn on** too). Your files live on saved storage, so
-they are kept while the machine is off.
+**Turn on** / **Turn off** buttons (Orbit offers **Turn on** too). It turns itself off after 60 minutes
+unused (`AUTO_OFF_MINUTES`). Your files live on saved storage, so they are kept while the machine is off.
 
 ```
 Browser ──https──▶ Vercel app (login, workspace chooser, machine power, short-lived tokens)
@@ -57,6 +57,7 @@ see [linux/README.md](linux/README.md#antigravity) to allow some ahead of time.
 | `LINUX_GATEWAY_SECRET` | Shared secret with the machine (its `GATEWAY_SECRET`) |
 | `LINUX_GATEWAY_URL` | Optional; defaults to `wss://<LINUX_POD_ID>-8080.proxy.runpod.net` |
 | `RUNPOD_API_KEY` | Lets the site turn the machine on and off. Create it in the Runpod console → Settings → API Keys. It stays on the server and is never sent to the browser |
+| `AUTO_OFF_MINUTES` | Optional, 10–60 (default 60). Every machine (Linux and AI) turns itself off after this many minutes unused; **Keep on** in Settings → Usage adds 30 minutes. One number for all of them (`lib/autoOff.ts`) |
 
 ---
 

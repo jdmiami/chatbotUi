@@ -17,9 +17,11 @@ test.describe('AI app', () => {
     await expect(banner).toBeVisible();
     await expectNoHorizontalOverflow(page);
     await expectTappable(page);
+    // One auto-off rule for every speed: Turbo no longer has its own.
+    await expect(banner).toContainText('Turns itself off after 60 minutes unused.');
     await page.getByRole('group', { name: 'Speed' }).getByRole('button', { name: /Turbo/ }).click();
     await expect(banner).toContainText('$2.89/h');
-    await expect(banner).toContainText('10 minutes unused');
+    await expect(banner).toContainText('Turns itself off after 60 minutes unused.');
     await page.getByRole('button', { name: 'Turn on' }).click();
     await expect(page.getByText('Your AI machine: Ready · Turbo')).toBeVisible();
     expect(powerCalls[0]).toMatchObject({ action: 'start', tier: 'turbo' });

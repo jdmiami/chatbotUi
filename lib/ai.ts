@@ -2,6 +2,7 @@ import 'server-only';
 import { randomUUID } from 'node:crypto';
 import { SignJWT } from 'jose';
 import { runpod, type PodStatus } from './runpod';
+import { autoOffMinutes } from './autoOff';
 
 /**
  * The AI machine: a Runpod GPU pod running Open WebUI + Ollama behind a small gate (ai/setup.sh).
@@ -31,7 +32,9 @@ export interface AiStatus {
   /** Model download in progress (first start, or a newly added default model). */
   pulling?: { model: string; percent: number } | null;
   models?: string[];
-  idle?: { limitMinutes: number; idleMinutes: number } | null;
+  idle?: AiIdle | null;
+  /** The one auto-off rule's minutes (lib/autoOff.ts), for screens to show before the machine reports its own. */
+  autoOffMinutes?: number;
   /** Direct address of the AI machine (sign-in still goes through the site) and its Runpod page. */
   url?: string;
   consoleUrl?: string;
@@ -40,7 +43,15 @@ export interface AiStatus {
   tiers?: AiTier[];
 }
 
-/** A speed choice: which GPU the AI machine runs on, what it costs, when it turns itself off. */
+/** The machine's own auto-off timer (shared/autooff.js), as its gate reports it. */
+export interface AiIdle {
+  limitMinutes: number;
+  idleMinutes: number;
+  offAt?: string | null;
+  heldUntil?: string | null;
+}
+
+/** A speed choice: which GPU the AI machine runs on and what it costs. Every speed turns off by the same rule. */
 export interface AiTier {
   id: string;
   label: string;
@@ -55,6 +66,7 @@ export interface AiTier {
   maxFallbackPrice?: number;
   gpuName: string;
   pricePerHour: number;
+  /** Always the one auto-off rule's minutes (lib/autoOff.ts), whatever AI_TIERS says. */
   idleMinutes: number;
   /** Plain-words speed compared to Standard. */
   speed: string;
@@ -84,21 +96,27 @@ const env = () => ({
   // Standard: whichever of these is free (both 48 GB, same price).
   gpuTypes: list(process.env.AI_GPU_TYPES || 'NVIDIA A40,NVIDIA RTX A6000'),
   image: process.env.AI_IMAGE || 'ghcr.io/open-webui/open-webui:0.12.2-ollama',
-  // The machines never wait longer than an hour without a job (the gate enforces it too). The meme lab
-  // fills that hour on the main machine, without ever counting as a job.
-  idleMinutes: String(Math.min(Number(process.env.AI_IDLE_MINUTES) || 60, 60)),
   models: process.env.AI_MODELS || 'qwen3.8:27b,qwen3.6:35b,qwen3.8-obliterated:27b=hf.co/OBLITERATUS/Qwen3.8-27B-OBLITERATED:Q6_K|like=qwen3.8:27b|temperature=0|repeat_penalty=1.15',
   secret: process.env.LINUX_GATEWAY_SECRET || '',
 });
 
-/** Speeds to choose from. Override with AI_TIERS (JSON array of AiTier). */
+/**
+ * Speeds to choose from. Override with AI_TIERS (JSON array of AiTier). Every speed turns itself off
+ * by the same rule (autoOffMinutes()); a custom list can't change that.
+ */
 export function aiTiers(): AiTier[] {
+  const minutes = autoOffMinutes();
+  return tierList().map((t) => ({ ...t, idleMinutes: minutes }));
+}
+
+function tierList(): AiTier[] {
   try {
     const custom = JSON.parse(process.env.AI_TIERS || 'null');
     if (Array.isArray(custom) && custom.length) return custom as AiTier[];
   } catch {
     /* fall back to the defaults */
   }
+  const minutes = autoOffMinutes();
   return [
     {
       id: 'standard',
@@ -107,7 +125,7 @@ export function aiTiers(): AiTier[] {
       alsoGpus: env().gpuTypes.slice(1),
       gpuName: 'A40 / A6000 48 GB',
       pricePerHour: 0.59,
-      idleMinutes: Number(env().idleMinutes) || 60,
+      idleMinutes: minutes,
       speed: 'normal speed',
       // Same 48 GB of memory (everything fits), newer and a little faster, a little dearer.
       fallbacks: [
@@ -123,7 +141,7 @@ export function aiTiers(): AiTier[] {
       gpu: 'NVIDIA H100 PCIe',
       gpuName: 'H100 80 GB',
       pricePerHour: 2.89,
-      idleMinutes: 10,
+      idleMinutes: minutes,
       speed: 'about 3–4× faster',
       // Big, fast GPUs that never cost more than Turbo itself.
       fallbacks: [
@@ -253,7 +271,7 @@ async function createAiPod(tier: AiTier, role: 'main' | 'helper' = 'main', usual
             REPO_RAW: repoRaw(),
             SITE_URL: siteUrl(),
             ALLOWED_ORIGINS: origins,
-            IDLE_MINUTES: String(tier.idleMinutes),
+            IDLE_MINUTES: String(autoOffMinutes()),
             DEFAULT_MODELS: e.models,
             ...(r2
               ? {
@@ -349,7 +367,7 @@ export async function startAi(tierId?: string): Promise<void> {
   }
   // Run the same code version and default models as this deployment: update a stopped machine
   // before starting it.
-  const want: Record<string, string> = { DEFAULT_MODELS: env().models, IDLE_MINUTES: String(tier.idleMinutes), ...hfTokenEnv() };
+  const want: Record<string, string> = { DEFAULT_MODELS: env().models, IDLE_MINUTES: String(autoOffMinutes()), ...hfTokenEnv() };
   if (process.env.VERCEL_GIT_COMMIT_SHA) want.REPO_RAW = repoRaw();
   if (pod.env && Object.entries(want).some(([k, v]) => pod.env![k] !== v)) {
     await runpod(`/pods/${encodeURIComponent(pod.id)}`, {
@@ -386,7 +404,7 @@ export async function startHelper(): Promise<void> {
     return;
   }
   if (pod.status === 'RUNNING' || pod.status === 'STARTING' || pod.status === 'PROVISIONING') return;
-  const want: Record<string, string> = { AI_ROLE: 'helper', IDLE_MINUTES: String(tier.idleMinutes), ...hfTokenEnv() };
+  const want: Record<string, string> = { AI_ROLE: 'helper', IDLE_MINUTES: String(autoOffMinutes()), ...hfTokenEnv() };
   if (process.env.VERCEL_GIT_COMMIT_SHA) want.REPO_RAW = repoRaw();
   if (pod.env && Object.entries(want).some(([k, v]) => pod.env![k] !== v)) {
     await runpod(`/pods/${encodeURIComponent(pod.id)}`, { method: 'PATCH', body: JSON.stringify({ env: { ...pod.env, ...want } }) }).catch(() => {});
@@ -414,23 +432,26 @@ export interface HelperStatus {
   /** What it costs per hour while on (shown before turning it on). */
   pricePerHour: number;
   detail?: string;
-  idle?: { limitMinutes: number; idleMinutes: number } | null;
+  idle?: AiIdle | null;
+  /** The one auto-off rule's minutes (lib/autoOff.ts). */
+  autoOffMinutes: number;
 }
 
 export async function helperStatus(user: string): Promise<HelperStatus & { podId?: string }> {
   const pricePerHour = aiTiers()[0].pricePerHour;
-  if (!aiConfigured() || !process.env.RUNPOD_API_KEY) return { state: 'unconfigured', costPerHour: null, pricePerHour };
+  const rule = { pricePerHour, autoOffMinutes: autoOffMinutes() };
+  if (!aiConfigured() || !process.env.RUNPOD_API_KEY) return { state: 'unconfigured', costPerHour: null, ...rule };
   let pod: Pod | null;
   try {
     pod = await findHelperPod();
   } catch (err) {
-    return { state: 'error', costPerHour: null, pricePerHour, detail: (err as Error).message };
+    return { state: 'error', costPerHour: null, ...rule, detail: (err as Error).message };
   }
-  if (!pod || pod.status === 'EXITED') return { state: 'off', costPerHour: null, pricePerHour, podId: pod?.id };
+  if (!pod || pod.status === 'EXITED') return { state: 'off', costPerHour: null, ...rule, podId: pod?.id };
   const cost = typeof pod.cost === 'number' && pod.cost > 0 ? pod.cost : null;
   if (pod.status !== 'RUNNING') {
     const state = pod.status === 'PROVISIONING' || pod.status === 'STARTING' ? 'starting' : 'error';
-    return { state, costPerHour: cost, pricePerHour, podId: pod.id, detail: state === 'error' ? `Runpod reports status ${pod.status ?? 'unknown'}.` : undefined };
+    return { state, costPerHour: cost, ...rule, podId: pod.id, detail: state === 'error' ? `Runpod reports status ${pod.status ?? 'unknown'}.` : undefined };
   }
   try {
     const res = await fetch(`${aiBase(pod.id)}/_orbit/status`, {
@@ -442,12 +463,12 @@ export async function helperStatus(user: string): Promise<HelperStatus & { podId
     return {
       state: g?.ready ? 'on' : 'starting',
       costPerHour: cost,
-      pricePerHour,
+      ...rule,
       podId: pod.id,
-      idle: g?.idle ? { limitMinutes: g.idle.limitMinutes, idleMinutes: g.idle.idleMinutes } : null,
+      idle: idleOf(g?.idle),
     };
   } catch {
-    return { state: 'starting', costPerHour: cost, pricePerHour, podId: pod.id };
+    return { state: 'starting', costPerHour: cost, ...rule, podId: pod.id };
   }
 }
 
@@ -469,7 +490,12 @@ interface GateStatus {
   models: { name: string }[];
   pulling: { model: string; percent: number } | null;
   defaultModels: string[];
-  idle?: { limitMinutes: number; idleMinutes: number };
+  idle?: AiIdle;
+}
+
+/** The gate's timer, as the screens need it. */
+function idleOf(i: AiIdle | undefined | null): AiIdle | null {
+  return i ? { limitMinutes: i.limitMinutes, idleMinutes: i.idleMinutes, offAt: i.offAt ?? null, heldUntil: i.heldUntil ?? null } : null;
 }
 
 export async function aiStatus(user: string): Promise<AiStatus & { podId?: string }> {
@@ -482,7 +508,7 @@ export async function aiStatus(user: string): Promise<AiStatus & { podId?: strin
   } catch (err) {
     return { state: 'error', costPerHour: null, detail: (err as Error).message };
   }
-  const speeds = { tiers: aiTiers(), tier: tierOf(pod)?.id ?? null };
+  const speeds = { tiers: aiTiers(), tier: tierOf(pod)?.id ?? null, autoOffMinutes: autoOffMinutes() };
   if (!pod) return { state: 'off', costPerHour: null, ...speeds };
   const t = tierOf(pod);
   const backup = pod.status !== 'EXITED' && t && onBackup(pod, t) ? backupNote(pod, t) : undefined;
@@ -514,7 +540,7 @@ export async function aiStatus(user: string): Promise<AiStatus & { podId?: strin
       podId: pod.id,
       pulling: g.pulling,
       models: g.models.map((m) => m.name),
-      idle: g.idle ? { limitMinutes: g.idle.limitMinutes, idleMinutes: g.idle.idleMinutes } : null,
+      idle: idleOf(g.idle),
       detail: backup,
       ...speeds,
     };

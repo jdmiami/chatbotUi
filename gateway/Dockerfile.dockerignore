@@ -1,0 +1,6 @@
+# Only what the gateway image needs from the repository root.
+*
+!gateway/package.json
+!gateway/package-lock.json
+!gateway/src
+!shared

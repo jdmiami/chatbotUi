@@ -1,17 +1,17 @@
 import 'server-only';
 import { runpod, podId as linuxPodId } from '@/lib/runpod';
+import { autoOffMinutes, BLIND_LIMIT_MINUTES, GRACE_MINUTES } from '@/lib/autoOff';
 
 /**
  * The outside fail-safe. Every few minutes (a GitHub Actions schedule, plus Vercel's daily cron) this
- * looks at every machine that is on and turns off the ones that should have turned themselves off:
- *  - no job (AI) or no input (Linux) for an hour, with a 5-minute grace for the machine's own timer;
- *  - or the machine doesn't say how idle it is (broken or still on old code) and has been on for 90 minutes.
- * It only ever stops machines, never starts or changes them, so it needs no sign-in.
+ * looks at every machine that is on and turns off the ones that should have turned themselves off,
+ * by the same rule for every machine (lib/autoOff.ts):
+ *  - no job (AI) or no input (Linux) for autoOffMinutes(), plus a grace for the machine's own timer;
+ *  - or the machine doesn't say how idle it is (broken or still on old code) and has been on for
+ *    BLIND_LIMIT_MINUTES.
+ * "Keep on" (heldUntil) is honoured. It only ever stops machines, never starts or changes them, so it
+ * needs no sign-in.
  */
-
-const LIMIT_MINUTES = 60;
-const GRACE_MINUTES = 5;
-const BLIND_LIMIT_MINUTES = 90;
 
 interface Pod {
   id: string;
@@ -47,10 +47,11 @@ export function decide(
   heldUntil: string | null | undefined,
   onForMinutes: number | null,
   now = Date.now(),
+  limitMinutes = autoOffMinutes(),
 ): { stop: boolean; why: string } {
   if (idle !== null) {
-    if (heldUntil && Date.parse(heldUntil) > now) return { stop: false, why: `kept awake on request until ${heldUntil}` };
-    if (idle >= LIMIT_MINUTES + GRACE_MINUTES) return { stop: true, why: `${idle} minutes without a job or input` };
+    if (heldUntil && Date.parse(heldUntil) > now) return { stop: false, why: `kept on by request until ${heldUntil}` };
+    if (idle >= limitMinutes + GRACE_MINUTES) return { stop: true, why: `${idle} minutes without a job or input` };
     return { stop: false, why: `in use (${idle} min since the last job or input)` };
   }
   if (onForMinutes !== null && onForMinutes >= BLIND_LIMIT_MINUTES) {

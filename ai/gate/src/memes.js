@@ -14,6 +14,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { BLOCKED_MESSAGE, blockedPrompt, mentionsMinor } from './studio.js';
 import { checkMovieText } from './story.js';
+import { AUTO_OFF } from '../../../shared/autooff.js';
 
 export const STYLES = ['comedy', 'spicy', 'yours'];
 /** "Your style" makes movies this long (seconds), vertical, through soReal's auto flow. */
@@ -195,7 +196,8 @@ export function framesOf(file, seconds = 5, run = spawn) {
  * o: {
  *   studio        createStudio() result (createJob with background, job, labItems, itemPath, remove, promote, hasUserWork, yieldGpu, state, cancel)
  *   quietSeconds  () => seconds since someone last used the machine
- *   minutesLeft   () => minutes until the machine turns itself off (the hour the lab fills)
+ *   minutesLeft   () => minutes until the machine turns itself off: the auto-off timer's offAt
+ *                 (shared/autooff.js), the time the lab fills
  *   chat          async ({ system, user, images? }) => text, or null when no chat model is installed
  *   load / save   async () => saved state | async (state) => void
  *   readyScore    score from which a video is marked ready to post (default 75)
@@ -210,7 +212,7 @@ export function createMemeLab(o) {
   const readyScore = o.readyScore ?? 75;
   const quietMinutes = o.quietMinutes ?? 0;
   const maxPerHour = o.maxPerHour ?? 12;
-  const minutesLeft = o.minutesLeft ?? (() => 60);
+  const minutesLeft = o.minutesLeft ?? (() => AUTO_OFF.defaultMinutes);
   let saved = { enabled: true, style: 'spicy', topics: [], queue: [], records: [], making: null };
   const spicy = () => saved.style === 'spicy';
   const yours = () => saved.style === 'yours';

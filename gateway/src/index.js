@@ -1,18 +1,22 @@
 import os from 'node:os';
 import path from 'node:path';
 import { createGateway, loadConfig } from './server.js';
-import { cliAgentRunning, createInputWatch, runpodStopSelf } from './idle.js';
+import { cliAgentRunning } from './idle.js';
+import { clampAutoOffMinutes, createAutoOff, runpodStopSelf } from '../../shared/autooff.js';
 
 const config = loadConfig();
 const log = console;
 
-// Turns the machine off after an hour without touch, mouse or keyboard input while no Antigravity
-// turn or Claude Code task runs (IDLE_MINUTES can only make that shorter; 0 is not allowed: this is the money fail-safe).
-const idle = createInputWatch({
-  limitMinutes: Math.min(Number(process.env.IDLE_MINUTES) || 60, 60),
+// The one auto-off rule (shared/autooff.js), the same as the AI machine's: off after IDLE_MINUTES
+// without touch, mouse or keyboard input while no Antigravity turn or Claude Code task runs. The site
+// sends its AUTO_OFF_MINUTES as IDLE_MINUTES; never more than an hour and never 0 (the money fail-safe).
+// "Keep on" (POST /keepawake) holds it on longer, within the same limits.
+const idle = createAutoOff({
+  limitMinutes: clampAutoOffMinutes(process.env.IDLE_MINUTES),
   busy: async () => Boolean(orbit?.agent.running.size) || (await cliAgentRunning()),
   stop: () => runpodStopSelf({ podId: process.env.RUNPOD_POD_ID, apiKey: process.env.RUNPOD_API_KEY }),
   log,
+  tag: '[idle]',
 });
 
 // Orbit host (real terminal, files and Antigravity for the Orbit workspace) is opt-in.
@@ -55,7 +59,7 @@ if (/^(1|true|yes)$/i.test(process.env.ORBIT_HOST || '')) {
   }
   orbit = {
     agent,
-    api: createOrbitApi({ secret: config.secret, allowedOrigins: config.allowedOrigins, files, agent, claw, log, onInput: () => idle.input() }),
+    api: createOrbitApi({ secret: config.secret, allowedOrigins: config.allowedOrigins, files, agent, claw, log, onInput: () => idle.activity() }),
     pty: { cwd: projectsDir },
   };
   log.info(`[orbit] host enabled: projects at ${projectsDir}`);
@@ -68,7 +72,7 @@ const siteUrl = (process.env.SITE_URL || config.allowedOriginsRaw.find((o) => !o
 let code = null;
 if (process.env.CODE_SERVER_URL) {
   const { createCodeProxy } = await import('./code.js');
-  code = createCodeProxy({ secret: config.secret, upstream: process.env.CODE_SERVER_URL, siteUrl, log, onInput: () => idle.input() });
+  code = createCodeProxy({ secret: config.secret, upstream: process.env.CODE_SERVER_URL, siteUrl, log, onInput: () => idle.activity() });
   log.info(`[code] VS Code at /code/ -> ${process.env.CODE_SERVER_URL}`);
 }
 
