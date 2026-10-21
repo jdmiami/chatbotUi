@@ -8,6 +8,7 @@ import fsp from 'node:fs/promises';
 import path from 'node:path';
 import { Readable } from 'node:stream';
 import { lastFrameArgs, runFfmpeg } from './movies.js';
+import { UPLOAD_MAX, audioArgs, clipArgs, fitSize, ltxFrames, probeMedia, shapeOf, uploadType, vaceFrames } from './media.js';
 import { createMirror, downloadFile, uploadFile } from './r2.js';
 import { pipeline } from 'node:stream/promises';
 import {
@@ -19,8 +20,20 @@ import {
   h3Workflow,
   imageWorkflow,
   kreaWorkflow,
+  LTX25_FPS,
+  ltx25Frames,
+  ltx25Workflow,
   qwenWorkflow,
+  S2V_CHUNK,
+  S2V_FPS,
+  s2vChunks,
+  s2vWorkflow,
+  seedvr2Workflow,
   upscaleWorkflow,
+  VACE_EXTEND_KEEP,
+  VACE_FPS,
+  VACE_MAX_FRAMES,
+  vaceWorkflow,
   videoWorkflow,
 } from './workflows.js';
 
@@ -41,6 +54,13 @@ const BASE_MS = {
   sharpen: 15_000,
   ltx: 40_000,
   'h3-max': 90_000,
+  // Not measured yet (no GPU here when they were added): estimates from the models' sizes and step
+  // counts, per second of 720p video. The machine learns the real ones after the first runs.
+  'ltx-25': 45_000,
+  s2v: 60_000,
+  vace: 75_000,
+  'video-erase': 75_000,
+  'video-sharpen': 20_000,
 };
 /** Loading a maker's models from the volume, the first time (or after another maker ran). */
 const LOAD_MS = { image: 30_000, video: 90_000 };
@@ -94,12 +114,36 @@ export function mentionsMinor(text) {
 export const BLOCKED_MESSAGE = "This can't be made: sexual content involving minors is never allowed.";
 
 /** Photos you upload are often of real people: they can't be made sexual or undressed. */
-const UNDRESS = /\b(undress\w*|unclothe\w*|remove\s+(her|his|their|the)?\s*(clothes|clothing|shirt|top|dress|bra|pants|underwear)|(?:take|takes|taking|took)\s+off\s+(her|his|their)?\s*(clothes|clothing)|without\s+clothes|see[-\s]?through|x-?ray)\b/;
+const UNDRESS = /\b(undress\w*|unclothe\w*|remove\s+(her|his|their|the)?\s*(clothes|clothing|shirt|top|dress|bra|pants|underwear)|(?:take|takes|taking|took)\s+off\s+(her|his|their)?\s*(clothes|clothing)|without\s+clothes|no\s+clothes|wearing\s+nothing|bare\s+(skin|body|chest|breasts?)|see[-\s]?through|x-?ray)\b/;
 export function blockedForPhoto(text) {
   const t = String(text || '').toLowerCase().replace(/[_*~`]/g, ' ');
   return SEXUAL.test(t) || UNDRESS.test(t);
 }
+/**
+ * Erasing or replacing something in a real photo or video: naming clothes (or what is under them) as
+ * the thing to take away would undress the people in it.
+ */
+const CLOTHES = /\b(clothes|clothing|outfit|shirts?|t-?shirts?|tops?|blouses?|dress(es)?|skirts?|bras?|pants|trousers|jeans|shorts|underwear|panties|bikinis?|swimsuits?|lingerie|thongs?|tights|stockings|leggings|jackets?|coats?|hoodies?|sweaters?|towels?|robes?|covering|garments?)\b/;
+const WORN = /\b(she|he|they|her|him|them|the\s+(wo)?man|the\s+person)\s+(is\s+|are\s+|has\s+|have\s+)?(wearing|wears|wore|has\s+on|is\s+dressed\s+in)\b|\bwhat\s+(she|he|they)\b|\b(her|his|their)\s+(body|skin|chest|top\s+half|bottom\s+half)\b/;
+export function blockedTarget(target) {
+  const t = String(target || '').toLowerCase().replace(/[_*~`]/g, ' ').trim();
+  if (blockedForPhoto(t) || WORN.test(t)) return true;
+  // "the man in the red shirt" names the man (fine); "her shirt" names the shirt.
+  const head = t.replace(/\b(in|with|wearing|who|that|holding|carrying|next\s+to|behind|on)\b.*$/, '');
+  return CLOTHES.test(head);
+}
+/** Replacing clothes in a real photo or video is fine only with other clothes. */
+const GARMENT = /\b(clothes|clothing|outfit|shirt|t-?shirt|top|blouse|dress|gown|skirt|suit|uniform|costume|jacket|coat|hoodie|sweater|jumper|jeans|pants|trousers|shorts|armou?r|robe|kimono|sari|overalls|apron|scarf|cardigan|vest|tuxedo|jersey)s?\b/;
+export function blockedReplace(target, prompt) {
+  if (blockedForPhoto(target) || blockedForPhoto(prompt)) return true;
+  return blockedTarget(target) && !GARMENT.test(String(prompt || '').toLowerCase());
+}
 export const PHOTO_MESSAGE = "Photos you upload can't be made sexual or have clothes removed: they may show real people. Pictures made here from a description can.";
+
+/** LTX-2.5's files are gated on Hugging Face: the machine needs a token that accepted the licence. */
+export const TOKEN_MESSAGE =
+  'LTX-2.5 needs a Hugging Face token: accept its licence at huggingface.co/Lightricks/LTX-2.5, add the token in Runpod as the secret hf_token, set AI_HF_TOKEN_SECRET=hf_token in Vercel, then turn the AI machine off and on.';
+const TOKEN_REFUSED = 'Hugging Face refused the token: accept the licence at huggingface.co/Lightricks/LTX-2.5 with the account the token belongs to.';
 
 // ---------------------------------------------------------------- helpers
 
@@ -110,7 +154,12 @@ const SIZES = {
   // Krea 2 and H3 like their own sizes (H3: multiples of 32).
   krea: { square: [1024, 1024], portrait: [1024, 1536], landscape: [1536, 1024], wide: [1536, 864], tall: [864, 1536] },
   h3: { landscape: [1280, 704], portrait: [704, 1280], square: [960, 960] },
+  // LTX-2.5 (multiples of 64: half size, then 2x) and Wan 2.2 S2V (its template: 640 x 640).
+  ltx25: { landscape: [1280, 704], portrait: [704, 1280], square: [960, 960] },
+  s2v: { square: [640, 640], portrait: [480, 832], landscape: [832, 480] },
 };
+/** The longest videos and sounds the video makers take (seconds). */
+const MAX_SECONDS = { vace: VACE_MAX_FRAMES / VACE_FPS, extend: 10, ltx25: 10, seedvr2: 10, s2v: (4 * S2V_CHUNK) / S2V_FPS };
 const MIME = { '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.webp': 'image/webp', '.mp4': 'video/mp4', '.webm': 'video/webm' };
 const newId = () => crypto.randomBytes(9).toString('base64url');
 
@@ -157,7 +206,8 @@ export function outputFiles(outputs) {
  *   files      model files per kind (STUDIO_FILES)
  *   r2         Cloudflare R2 client (createR2) when the machine has no network volume: model files,
  *              the gallery and settings are kept there and come back down after a restart
- *   fetchImpl, WebSocketImpl, log, now     (tests)
+ *   hfToken    a Hugging Face token (HF_TOKEN), for gated model files (LTX-2.5); never logged or shown
+ *   fetchImpl, WebSocketImpl, log, now, ffmpeg, probe     (tests)
  */
 export function createStudio(o) {
   const dir = o.dir;
@@ -178,10 +228,15 @@ export function createStudio(o) {
   const mirror = r2 ? createMirror({ r2, root: path.join(dir, 'output'), prefix: 'gallery/', log }) : null;
   const modelKey = (file) => `models/${file.dir}/${file.name}`;
   const ffmpeg = o.ffmpeg || runFfmpeg;
+  const probe = o.probe || probeMedia;
+  const hfToken = String(o.hfToken || '').trim() || null;
 
   const jobs = new Map(); // id -> job
   const byPrompt = new Map(); // ComfyUI prompt_id -> job
   const download = { current: null, done: new Set(), error: null, running: false };
+  // Files that can't come down until something changes (a gated file without a token): skipped, so
+  // the other makers' files keep downloading.
+  const blocked = new Map(); // name -> why
   let lastJobEnd = 0;
   let comfyHoldsGpu = false;
   let lastMode = null; // what the last job made (video models are huge)
@@ -232,7 +287,10 @@ export function createStudio(o) {
     }
     const have = (await fsp.stat(part).catch(() => null))?.size || 0;
     const url = `https://huggingface.co/${file.repo}/resolve/main/${file.path.split('/').map(encodeURIComponent).join('/')}`;
-    const res = await f(url, { headers: have ? { range: `bytes=${have}-` } : {}, redirect: 'follow' });
+    if (file.gated && !hfToken) throw Object.assign(new Error(TOKEN_MESSAGE), { permanent: true });
+    const headers = { ...(have ? { range: `bytes=${have}-` } : {}), ...(file.gated ? { authorization: `Bearer ${hfToken}` } : {}) };
+    const res = await f(url, { headers, redirect: 'follow' });
+    if (file.gated && (res.status === 401 || res.status === 403)) throw Object.assign(new Error(TOKEN_REFUSED), { permanent: true });
     if (!res.ok || !res.body) throw new Error(`download ${file.name}: ${res.status}`);
     const resumed = res.status === 206;
     download.current = { name: file.name, completed: resumed ? have : 0, total: file.size || Number(res.headers.get('content-length')) || 0 };
@@ -263,7 +321,7 @@ export function createStudio(o) {
       for (;;) {
         let next = null;
         for (const file of neededFiles()) {
-          if (download.done.has(file.name)) continue;
+          if (download.done.has(file.name) || blocked.has(file.name)) continue;
           if (await haveFile(file)) download.done.add(file.name);
           else {
             next = file;
@@ -277,6 +335,11 @@ export function createStudio(o) {
           download.done.add(next.name);
         } catch (err) {
           download.error = err.message;
+          if (err.permanent) {
+            blocked.set(next.name, err.message);
+            log.warn?.(`[studio] ${next.name}: ${err.message}`);
+            continue;
+          }
           log.warn?.(`[studio] ${err.message}; retrying in 30s`);
           await new Promise((r) => setTimeout(r, o.retryMs ?? 30_000));
         }
@@ -318,6 +381,14 @@ export function createStudio(o) {
         blurb: m.blurb,
         for: m.for || null,
         twoImages: Boolean(m.twoImages),
+        // What it needs (and can also take): video, audio, photo, endPhoto, target (words); tasks it does.
+        needs: m.needs || [],
+        accepts: m.accepts || [],
+        tasks: m.tasks || [],
+        // Gated on Hugging Face (LTX-2.5): needs a token on the machine before it can download.
+        gated: list.some((file) => file.gated),
+        needsToken: !installed && list.some((file) => file.gated) && !hfToken,
+        problem: list.map((file) => blocked.get(file.name)).find(Boolean) || null,
         builtIn: Boolean(m.builtIn),
         wanted: Boolean(m.builtIn || wanted.has(m.id)),
         installed,
@@ -337,6 +408,7 @@ export function createStudio(o) {
     if (helper) throw Object.assign(new Error('Add makers from your main AI machine.'), { status: 409 });
     const m = makerById(id);
     if (!m) throw Object.assign(new Error('No such maker.'), { status: 404 });
+    if (!hfToken && makerFiles(m).some((file) => file.gated) && !(await makerReady(m))) throw Object.assign(new Error(TOKEN_MESSAGE), { status: 400, needsToken: true });
     if (m.kind === 'style' && !(m.for && (makerById(m.for)?.builtIn || wanted.has(m.for)))) {
       wanted.add(m.for);
     }
@@ -440,9 +512,26 @@ export function createStudio(o) {
   }
 
   // How far along a job is: each sampling pass covers part of the bar.
-  const STAGES = { image: { 7: [0, 95] }, video: { 38: [5, 70], 47: [70, 92], 50: [92, 99] }, h3: { 10: [5, 90], 11: [90, 99] }, upscale: { 3: [0, 95] } };
+  const STAGES = {
+    image: { 7: [0, 95] },
+    video: { 38: [5, 70], 47: [70, 92], 50: [92, 99] },
+    h3: { 10: [5, 90], 11: [90, 99] },
+    upscale: { 3: [0, 95] },
+    // LTX-2.5 first/last frame and video to video: one pass.
+    onePass: { 38: [5, 90], 50: [90, 99] },
+    vace: { 32: [2, 8], 21: [8, 92], 23: [92, 99] },
+    seedvr2: { 10: [5, 85], 12: [85, 99] },
+  };
+  /** Wan S2V: each chunk's sampler covers its share of the bar. */
+  function s2vStages(chunks) {
+    const out = {};
+    const ids = ['13', ...Array.from({ length: chunks - 1 }, (_, i) => String(21 + (i + 1) * 3))];
+    ids.forEach((id, i) => (out[id] = [Math.round(3 + (92 * i) / chunks), Math.round(3 + (92 * (i + 1)) / chunks)]));
+    out[92] = [95, 99];
+    return out;
+  }
   function onProgress(job, node, value, max) {
-    const stage = STAGES[job.stages || job.kind]?.[node];
+    const stage = (typeof job.stages === 'object' && job.stages ? job.stages : STAGES[job.stages || job.kind])?.[node];
     if (!stage || !max) return;
     const pct = Math.floor(stage[0] + ((stage[1] - stage[0]) * value) / max);
     job.progress = Math.max(job.progress, Math.min(99, pct));
@@ -596,31 +685,166 @@ export function createStudio(o) {
     return name;
   }
 
+  // ---- videos and sounds you bring (video makers)
+  const uploadsDir = path.join(dir, 'uploads');
+  const bad = (message, status = 400) => Object.assign(new Error(message), { status });
+
+  /** Uploads are kept a day (so a second try needs no new upload), then cleared. */
+  async function pruneUploads() {
+    for (const n of await fsp.readdir(uploadsDir).catch(() => [])) {
+      const p = path.join(uploadsDir, n);
+      const st = await fsp.stat(p).catch(() => null);
+      if (st && now() - st.mtimeMs > 24 * 3600_000) await fsp.rm(p, { force: true });
+    }
+  }
+
+  /**
+   * Keep a video or sound file sent as the request body (POST /_orbit/studio/uploads), streamed to
+   * disk with a size limit. Returns { id, kind, size }; jobs refer to it by id.
+   */
+  async function saveMedia(stream, contentType, length) {
+    const [kind, ext] = uploadType(contentType);
+    const max = UPLOAD_MAX[kind];
+    const tooBig = () => bad(`That ${kind === 'video' ? 'video' : 'sound file'} is too large (${Math.round(max / 1024 / 1024)} MB at most).`, 413);
+    if (Number(length) > max) throw tooBig();
+    await fsp.mkdir(uploadsDir, { recursive: true });
+    await pruneUploads();
+    const id = `u${newId()}`;
+    const dest = path.join(uploadsDir, id + ext);
+    let size = 0;
+    const limit = new TransformStream({
+      transform(chunk, ctrl) {
+        size += chunk.byteLength;
+        if (size > max) ctrl.error(tooBig());
+        else ctrl.enqueue(chunk);
+      },
+    });
+    try {
+      const web = typeof stream?.getReader === 'function' ? stream : Readable.toWeb(stream);
+      await pipeline(Readable.fromWeb(web.pipeThrough(limit)), fs.createWriteStream(dest));
+    } catch (err) {
+      await fsp.rm(dest, { force: true });
+      throw size > max ? tooBig() : err.status ? err : bad('The upload did not finish. Try again.');
+    }
+    if (!size) {
+      await fsp.rm(dest, { force: true });
+      throw bad('That file is empty.');
+    }
+    return { id, kind, size };
+  }
+
+  async function uploadPath(id) {
+    if (!/^u[A-Za-z0-9_-]{6,40}$/.test(String(id || ''))) return null;
+    const n = (await fsp.readdir(uploadsDir).catch(() => [])).find((x) => x.startsWith(`${id}.`));
+    return n ? path.join(uploadsDir, n) : null;
+  }
+
+  /**
+   * A clean copy of a video for a maker (in ComfyUI's input folder), from what ffprobe says it is:
+   *   vace     16 fps, up to 81 frames (4k + 1), fitted in 1280 × 720 (multiples of 16)
+   *   extend   16 fps, up to 10 s (the recipe adds 64 frames)
+   *   ltx25    24 fps, 8k + 1 frames up to 10 s, cropped to LTX-2.5's size for its shape
+   *   seedvr2  its own frame rate, up to 10 s, at most 1280 × 720 (the recipe doubles it)
+   */
+  async function prepClip(src, plan) {
+    const info = await probe(src);
+    if (!info?.video || !(info.width > 0 && info.height > 0)) throw bad('That file is not a video the machine can read. Try an MP4 or MOV.');
+    const dur = info.seconds || 0;
+    let width;
+    let height;
+    let fps = null;
+    let frames = null;
+    let seconds;
+    let fit = 'stretch';
+    if (plan === 'vace' || plan === 'extend') {
+      fps = VACE_FPS;
+      [width, height] = fitSize(info.width, info.height, { long: 1280, short: 720, multiple: 16 });
+      frames = plan === 'vace' ? vaceFrames(dur, VACE_MAX_FRAMES) : Math.min(Math.floor(dur * VACE_FPS), MAX_SECONDS.extend * VACE_FPS);
+      if (frames < (plan === 'vace' ? 5 : VACE_EXTEND_KEEP)) throw bad(`That video is too short (it needs at least ${plan === 'vace' ? 'half a second' : 'one second'}).`);
+      seconds = frames / VACE_FPS;
+    } else if (plan === 'ltx25') {
+      fps = LTX25_FPS;
+      fit = 'cover';
+      [width, height] = SIZES.ltx25[shapeOf(info.width, info.height)];
+      frames = ltxFrames(dur, ltx25Frames(MAX_SECONDS.ltx25));
+      if (frames < 9) throw bad('That video is too short (it needs at least half a second).');
+      seconds = frames / LTX25_FPS;
+    } else {
+      [width, height] = fitSize(info.width, info.height, { long: 1280, short: 720, multiple: 16, enlarge: false });
+      seconds = Math.min(dur || MAX_SECONDS.seedvr2, MAX_SECONDS.seedvr2);
+    }
+    const name = `orbit-${newId()}.mp4`;
+    await fsp.mkdir(path.join(dir, 'input'), { recursive: true });
+    await ffmpeg(clipArgs(src, path.join(dir, 'input', name), { width, height, fps, frames, seconds, hasAudio: info.audio, fit }), { timeoutMs: 5 * 60_000 });
+    return { name, width, height, frames, seconds, fps: fps || info.fps || 0, sourceSeconds: dur };
+  }
+
+  /** A voice or song as a WAV for Wan S2V, at most about 19 s (four chunks). */
+  async function prepAudio(src) {
+    const info = await probe(src);
+    if (!info?.audio) throw bad('That file has no sound the machine can read. Try an MP3, M4A or WAV.');
+    const seconds = Math.min(info.seconds || MAX_SECONDS.s2v, MAX_SECONDS.s2v);
+    if (seconds < 0.5) throw bad('That sound is too short (it needs at least half a second).');
+    const name = `orbit-${newId()}.wav`;
+    await fsp.mkdir(path.join(dir, 'input'), { recursive: true });
+    await ffmpeg(audioArgs(src, path.join(dir, 'input', name), { seconds }), { timeoutMs: 2 * 60_000 });
+    return { name, seconds };
+  }
+
   /**
    * Start a job. req: { kind: 'image'|'video', maker?, prompt, size?, seconds?, style?,
-   *   image? (data URL), images? (data URLs, for edits), fromItem? (gallery id) }.
+   *   image? (data URL), images? (data URLs, for edits), fromItem? (gallery id),
+   *   endImage? (data URL: the picture a video ends on), toItem? (gallery picture to end on),
+   *   videoItem? (gallery video to work on) or videoUpload? (upload id), audioUpload? (upload id),
+   *   task? (Wan VACE: replace | restyle | extend | motion), target? (words: what to replace or erase),
+   *   change? (LTX-2.5 video to video: 'little' | 'lot') }.
    * Throws errors with .status for bad requests.
    */
   async function createJob(req) {
     const maker = req.maker ? makerById(String(req.maker)) : makerById(req.kind === 'video' ? 'ltx' : 'qwen');
     if (!maker || maker.kind === 'style') throw Object.assign(new Error('No such maker.'), { status: 400 });
-    const mode = maker.kind; // image | video | edit | upscale
-    // Which recipe: krea (Krea 2 family), qwen (Qwen Image family), ltx or h3 (video).
+    const mode = maker.kind; // image | video | edit | upscale | videoedit
+    // Which recipe: krea (Krea 2 family), qwen (Qwen Image family), ltx, ltx25, h3 or s2v (video),
+    // vace or seedvr2 (video edits).
     const flow = maker.workflow || (maker.id === 'krea-real' ? 'krea' : maker.id === 'h3-max' ? 'h3' : mode === 'video' ? 'ltx' : 'qwen');
-    const kind = mode === 'video' ? 'video' : 'image';
+    const kind = mode === 'video' || mode === 'videoedit' ? 'video' : 'image';
+    // Wan VACE: what to do with the video (Erase from video always erases).
+    const task = flow === 'vace' ? maker.task || (maker.tasks?.includes(String(req.task)) ? String(req.task) : maker.tasks?.[0] || 'replace') : null;
+    const needs = new Set(maker.needs || []);
+    if (task === 'replace' || task === 'erase') needs.add('target');
+    if (task === 'motion') needs.add('photo');
     let prompt = String(req.prompt || '').trim().slice(0, 4000);
-    if (!prompt && mode !== 'upscale') throw Object.assign(new Error(mode === 'edit' ? 'Describe the change.' : 'Describe what to make.'), { status: 400 });
-    if (blockedPrompt(prompt)) throw Object.assign(new Error(BLOCKED_MESSAGE), { status: 422, blocked: true });
+    const target = String(req.target || '').trim().slice(0, 200);
+    // Sharpening and erasing need no description; a talking photo has a default one.
+    const promptOptional = mode === 'upscale' || flow === 'seedvr2' || task === 'erase' || flow === 's2v';
+    if (!prompt && !promptOptional) throw bad(mode === 'edit' || mode === 'videoedit' ? 'Describe the change.' : 'Describe what to make.');
+    if (needs.has('target') && !target) throw bad(task === 'erase' ? 'Say what to erase, e.g. “the man in the red shirt”.' : 'Say what to replace, e.g. “the red car”.');
+    if (blockedPrompt(prompt) || blockedPrompt(target) || blockedPrompt(`${prompt} ${target}`)) throw Object.assign(new Error(BLOCKED_MESSAGE), { status: 422, blocked: true });
     const uploads = [...(req.image ? [req.image] : []), ...(Array.isArray(req.images) ? req.images : [])].slice(0, 2);
+    const endUpload = req.endImage && kind === 'video' ? String(req.endImage) : null;
     // A gallery picture or video that came from someone's photo keeps the photo rule.
     const fromId = req.fromLastFrameOf || req.fromItem;
     const source = fromId ? await readItem(String(fromId)) : null;
     // soReal: a gallery picture a video should end on (first and last frame).
     const toSource = req.toItem && mode === 'video' ? await readItem(String(req.toItem)) : null;
-    const photo = uploads.length > 0 || Boolean(source?.photo) || Boolean(toSource?.photo);
+    // A video to work on: from the gallery, or one you uploaded.
+    const videoSource = req.videoItem ? await readItem(String(req.videoItem)) : null;
+    if (req.videoItem && videoSource?.kind !== 'video') throw bad('That video is no longer in your gallery.', 404);
+    const videoUpload = req.videoUpload ? String(req.videoUpload) : null;
+    const audioUpload = req.audioUpload ? String(req.audioUpload) : null;
+    const withVideo = Boolean(videoSource || videoUpload) && (mode === 'videoedit' || (maker.accepts || []).includes('video'));
+    // Any photo or video you bring may show real people (a recording of a voice doesn't change that).
+    const photo = uploads.length > 0 || Boolean(endUpload) || Boolean(source?.photo) || Boolean(toSource?.photo) || (withVideo && (Boolean(videoUpload) || Boolean(videoSource?.photo)));
     // Made from an NSFW picture or video: NSFW too, before anyone has looked.
-    const nsfwSource = Boolean(source?.nsfw) || Boolean(toSource?.nsfw);
-    if (photo && blockedForPhoto(prompt)) throw Object.assign(new Error(PHOTO_MESSAGE), { status: 422, blocked: true });
+    const nsfwSource = Boolean(source?.nsfw) || Boolean(toSource?.nsfw) || (withVideo && Boolean(videoSource?.nsfw));
+    if (photo) {
+      const refused =
+        blockedForPhoto(prompt) || (task === 'erase' ? blockedTarget(target) : task === 'replace' ? blockedReplace(target, prompt) : target ? blockedForPhoto(target) : false);
+      if (refused) throw Object.assign(new Error(PHOTO_MESSAGE), { status: 422, blocked: true });
+    }
+    if (needs.has('video') && !withVideo) throw bad('Add the video to work on.');
+    if (needs.has('audio') && !audioUpload) throw bad('Add a voice recording or a song.');
+    if (needs.has('photo') && !uploads.length && !req.fromItem) throw bad(task === 'motion' ? 'Add a photo of who should move.' : 'Add a photo of the person.');
     if (!(await makerReady(maker))) {
       const pct = (await makers()).find((m) => m.id === maker.id)?.percent ?? 0;
       const what = maker.builtIn ? `The ${maker.name} maker is still downloading (${pct}%)` : `${maker.name} is ${wanted.has(maker.id) ? `still downloading (${pct}%)` : 'not installed'}`;
@@ -639,6 +863,19 @@ export function createStudio(o) {
 
     const id = newId();
     const prefix = `orbit/${kind}-${id}`;
+    // The video and the sound to work on, prepared for the maker.
+    let clip = null;
+    if (withVideo) {
+      const src = videoSource ? await localFile(videoSource) : await uploadPath(videoUpload);
+      if (!src) throw bad(videoSource ? 'That video is no longer in your gallery.' : 'That upload has expired. Add the video again.', 404);
+      clip = await prepClip(src, flow === 'ltx25' ? 'ltx25' : flow === 'seedvr2' ? 'seedvr2' : task === 'extend' ? 'extend' : 'vace');
+    }
+    let sound = null;
+    if (needs.has('audio')) {
+      const src = await uploadPath(audioUpload);
+      if (!src) throw bad('That upload has expired. Add the sound again.', 404);
+      sound = await prepAudio(src);
+    }
     // Pictures to start from: uploads, or a picture from the gallery.
     const inputs = [];
     if (req.fromLastFrameOf) inputs.push(await lastFrameOf(String(req.fromLastFrameOf)));
@@ -657,17 +894,53 @@ export function createStudio(o) {
     if (mode === 'video') {
       seconds = Math.min(10, Math.max(2, Math.round(Number(req.seconds) || 5)));
       const image = inputs[0] || null;
-      const endImage = toSource ? await copyFromGallery(toSource.id) : null;
+      const endImage = toSource ? await copyFromGallery(toSource.id) : endUpload ? await saveUpload(endUpload) : null;
       if (flow === 'h3') {
         // H3 is trained on clips of about 5 to 15 s; shorter ones come out poorly.
         seconds = Math.max(5, seconds);
         [width, height] = SIZES.h3[req.size] || SIZES.h3.landscape;
         workflow = h3Workflow({ prompt, width, height, seconds, image, endImage, prefix, ...(maker.id !== 'h3-max' ? { unet: FILES[maker.files[0]].name } : {}), turbo: maker.turbo ? FILES[maker.turbo].name : null });
         stages = 'h3';
+      } else if (flow === 'ltx25') {
+        if (clip) {
+          // Video to video: the clip's own shape, length and sound.
+          ({ width, height } = clip);
+          seconds = Math.round(clip.seconds * 10) / 10;
+          workflow = ltx25Workflow({ prompt, video: clip.name, width, height, frames: clip.frames, strength: req.change === 'little' ? 0.75 : 0.95, prefix });
+          stages = 'onePass';
+        } else {
+          [width, height] = SIZES.ltx25[req.size] || SIZES.ltx25.landscape;
+          workflow = ltx25Workflow({ prompt, width, height, seconds, image, endImage, prefix });
+          stages = endImage ? 'onePass' : 'video';
+        }
+      } else if (flow === 's2v') {
+        [width, height] = SIZES.s2v[req.size] || SIZES.s2v.square;
+        const chunks = s2vChunks(sound.seconds);
+        seconds = Math.round(Math.min(sound.seconds, (chunks * S2V_CHUNK) / S2V_FPS));
+        prompt = prompt || 'The person in the photo talks or sings to the camera with natural expressions and gestures.';
+        workflow = s2vWorkflow({ prompt, image, audio: sound.name, width, height, chunks, prefix });
+        stages = s2vStages(chunks);
       } else {
         [width, height] = SIZES.video[req.size] || SIZES.video.landscape;
         workflow = videoWorkflow({ prompt, width, height, seconds, image, endImage, prefix, ...(maker.builtIn ? {} : { ckpt: FILES[maker.files[0]].name }), lora: !maker.noLora });
       }
+    } else if (mode === 'videoedit') {
+      // What the gallery shows: your words, else the video's own (so its NSFW blur carries over).
+      const shown = prompt || (task === 'erase' ? `Erased: ${target}${videoSource?.prompt ? ` · ${videoSource.prompt}` : ''}` : videoSource?.prompt || 'Sharpened video');
+      if (flow === 'seedvr2') {
+        width = clip.width * 2;
+        height = clip.height * 2;
+        seconds = Math.round(clip.seconds * 10) / 10;
+        workflow = seedvr2Workflow({ video: clip.name, multiplier: 2, prefix });
+        stages = 'seedvr2';
+      } else {
+        ({ width, height } = clip);
+        seconds = Math.round(((task === 'extend' ? clip.frames + VACE_MAX_FRAMES - VACE_EXTEND_KEEP : clip.frames) / VACE_FPS) * 10) / 10;
+        const words = prompt || 'The same scene with that part gone: a clean, natural background where it was, everything else unchanged.';
+        workflow = vaceWorkflow({ task, prompt: words, video: clip.name, width, height, frames: clip.frames, target, reference: inputs[0] || null, prefix });
+        stages = 'vace';
+      }
+      prompt = shown;
     } else if (mode === 'edit') {
       const lora = maker.lora ? FILES[maker.lora].name : null;
       // Some edit LoRAs only wake up on their trigger words.
@@ -762,7 +1035,7 @@ export function createStudio(o) {
       // Video models are huge (~40 GB staged in memory). Keeping the last job's models while
       // loading the next one runs the machine out of memory, and ComfyUI gets killed (soReal makes
       // shots back to back). So before a video, or after one, start from a clean slate.
-      if (comfyHoldsGpu && (job.mode === 'video' || lastMode === 'video')) {
+      if (comfyHoldsGpu && (job.kind === 'video' || lastMode === 'video')) {
         await comfyJson('/free', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ unload_models: true, free_memory: true }) }).catch(
           () => {},
         );
@@ -775,7 +1048,7 @@ export function createStudio(o) {
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ prompt: job.workflow, client_id: clientId }),
       });
-      lastMode = job.mode;
+      lastMode = job.kind;
       loadedMaker = job.maker;
       job.promptId = r.prompt_id;
       job.startedAt = now();
@@ -1243,12 +1516,24 @@ export function createStudio(o) {
     installMaker,
     removeMaker,
     createJob,
+    saveMedia,
     job: (id) => (jobs.has(id) ? publicJob(jobs.get(id)) : null),
     /** soReal: how long a job like this usually takes here (learned timings), in seconds. */
     estimate({ kind = 'image', maker, size, seconds, cold = false } = {}) {
       const m = makerById(String(maker || (kind === 'video' ? 'ltx' : 'qwen')));
-      const k = m?.kind === 'video' ? 'video' : 'image';
-      const table = k === 'video' ? (m?.id === 'h3-max' || m?.workflow === 'h3' ? SIZES.h3 : SIZES.video) : m?.id === 'krea-real' ? SIZES.krea : SIZES.image;
+      const k = m?.kind === 'video' || m?.kind === 'videoedit' ? 'video' : 'image';
+      const table =
+        k === 'video'
+          ? m?.id === 'h3-max' || m?.workflow === 'h3'
+            ? SIZES.h3
+            : m?.workflow === 'ltx25'
+              ? SIZES.ltx25
+              : m?.workflow === 's2v'
+                ? SIZES.s2v
+                : SIZES.video
+          : m?.id === 'krea-real'
+            ? SIZES.krea
+            : SIZES.image;
       const [width, height] = table[size] || Object.values(table)[0];
       return Math.round(expectedMs({ kind: k, maker: m?.id || maker, width: m?.kind === 'edit' ? undefined : width, height: m?.kind === 'edit' ? undefined : height, seconds }, cold) / 1000);
     },

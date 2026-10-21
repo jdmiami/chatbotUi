@@ -18,7 +18,7 @@ const LABEL: Record<Phase, string> = {
   error: 'Something went wrong',
 };
 
-function recorderType(): string {
+export function recorderType(): string {
   if (typeof MediaRecorder === 'undefined') return '';
   for (const t of ['audio/webm;codecs=opus', 'audio/mp4', 'audio/webm', 'audio/ogg;codecs=opus']) if (MediaRecorder.isTypeSupported?.(t)) return t;
   return '';

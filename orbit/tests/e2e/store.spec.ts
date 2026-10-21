@@ -80,8 +80,8 @@ test.describe('AI Store', () => {
     const makerCalls = await mockMakers(page);
     const { errors, win } = await openStore(page);
     await win.getByRole('tab', { name: 'Pictures & video' }).click();
-    const video = win.getByRole('region', { name: 'Video' });
-    await video.getByRole('button', { name: 'Get H3 Max' }).click();
+    const video = win.getByRole('region', { name: 'Video', exact: true });
+    await video.getByRole('button', { name: 'Get H3 Max', exact: true }).click();
     expect(makerCalls).toEqual(['install h3-max']);
     await expect(video.getByRole('status', { name: 'Adding H3 Max: 40%' })).toBeVisible();
     expect(errors).toEqual([]);
@@ -103,6 +103,66 @@ test.describe('AI Store', () => {
     await expect.poll(() => power.length).toBe(1);
     expect(power[0]).toMatchObject({ action: 'start' });
     expect(errors).toEqual([]);
+  });
+
+  test('video makers: all five on their shelves; LTX-2.5 says it needs a token; add Wan VACE', async ({ page }, testInfo) => {
+    await mockAi(page, 'on');
+    const calls: string[] = [];
+    let makers = [
+      { id: 'ltx-25', kind: 'video', name: 'LTX-2.5', blurb: 'Newest LTX.', for: null, twoImages: false, accepts: ['photo', 'endPhoto', 'video'], gated: true, needsToken: true, builtIn: false, wanted: false, installed: false, size: 39.7e9, percent: 0 },
+      { id: 's2v', kind: 'video', name: 'Talking photo', blurb: 'A photo and a voice.', for: null, twoImages: false, needs: ['photo', 'audio'], builtIn: false, wanted: false, installed: false, size: 25.2e9, percent: 0 },
+      { id: 'vace', kind: 'videoedit', name: 'Wan VACE', blurb: 'Edit a video.', for: null, twoImages: false, needs: ['video'], tasks: ['replace', 'restyle', 'extend', 'motion'], builtIn: false, wanted: false, installed: false, size: 43.7e9, percent: 0 },
+      { id: 'video-erase', kind: 'videoedit', name: 'Erase from video', blurb: 'Remove a thing.', for: null, twoImages: false, needs: ['video', 'target'], builtIn: false, wanted: false, installed: false, size: 43.7e9, percent: 0 },
+      { id: 'video-sharpen', kind: 'videoedit', name: 'Sharpen video', blurb: 'Twice as large.', for: null, twoImages: false, needs: ['video'], builtIn: false, wanted: false, installed: false, size: 3.96e9, percent: 0 },
+    ];
+    await page.route('**/fake-ai/_orbit/studio/makers**', async (route) => {
+      const req = route.request();
+      if (req.method() === 'POST') {
+        const { id } = req.postDataJSON() as { id: string };
+        calls.push(`install ${id}`);
+        makers = makers.map((m) => (m.id === id ? { ...m, wanted: true, percent: 25 } : m));
+      }
+      await route.fulfill({ json: { makers } });
+    });
+    const { errors, win } = await openStore(page);
+    await win.getByRole('tab', { name: 'Pictures & video' }).click();
+    const video = win.getByRole('region', { name: 'Video', exact: true });
+    const editing = win.getByRole('region', { name: 'Video editing' });
+    await expect(video).toContainText('LTX-2.5');
+    await expect(video).toContainText('Talking photo');
+    for (const n of ['Wan VACE', 'Erase from video', 'Sharpen video']) await expect(editing).toContainText(n);
+    await expectNoHorizontalOverflow(page);
+    await page.screenshot({ path: testInfo.outputPath('store-video-makers.png') });
+
+    // Gated: the button says so, and tapping it explains what to do instead of failing quietly.
+    await video.getByRole('button', { name: 'LTX-2.5 needs a Hugging Face token' }).click();
+    // (It explains in a toast; the store page below keeps the same words.)
+    expect(calls).toEqual([]);
+    await video.getByRole('button', { name: 'LTX-2.5: details' }).click();
+    const detail = page.getByRole('dialog', { name: 'LTX-2.5' });
+    await expect(detail.getByRole('note')).toContainText('hf_token');
+    await expect(detail.getByRole('region', { name: 'Specifications' }).getByText('Gated: your AI machine needs a Hugging Face token first')).toBeVisible();
+    await page.keyboard.press('Escape');
+
+    await editing.getByRole('button', { name: 'Wan VACE: details' }).click();
+    const vace = page.getByRole('dialog', { name: 'Wan VACE' });
+    const specs = vace.getByRole('region', { name: 'Specifications' });
+    await expect(specs.getByText('A video', { exact: true })).toBeVisible();
+    await expect(specs.getByText('About 28 GB of the 48 GB')).toBeVisible();
+    await vace.getByRole('button', { name: 'Get Wan VACE' }).click();
+    expect(calls).toEqual(['install vace']);
+    await page.keyboard.press('Escape');
+    await expect(editing.getByRole('status', { name: 'Adding Wan VACE: 25%' })).toBeVisible();
+    expect(errors).toEqual([]);
+  });
+
+  test('video makers show while the machine rests (from the catalog)', async ({ page }) => {
+    await mockAi(page, 'off');
+    const { win } = await openStore(page);
+    await win.getByRole('searchbox', { name: 'Search the store' }).fill('video');
+    for (const n of ['Wan VACE', 'Erase from video', 'Sharpen video']) await expect(win.getByRole('button', { name: `${n}: details` }).first()).toBeVisible();
+    await win.getByRole('searchbox', { name: 'Search the store' }).fill('');
+    for (const n of ['LTX-2.5', 'Talking photo']) await expect(win.getByRole('button', { name: `${n}: details` }).first()).toBeVisible();
   });
 
   test('opens from the home path, Settings and the AI app', async ({ page }) => {

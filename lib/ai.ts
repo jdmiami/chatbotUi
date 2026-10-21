@@ -264,6 +264,7 @@ async function createAiPod(tier: AiTier, role: 'main' | 'helper' = 'main', usual
                   R2_SECRET_ACCESS_KEY: '{{ RUNPOD_SECRET_r2_secret_access_key }}',
                 }
               : {}),
+            ...hfTokenEnv(),
             ...(role === 'helper' ? { AI_ROLE: 'helper' } : {}),
           },
         }),
@@ -273,6 +274,15 @@ async function createAiPod(tier: AiTier, role: 'main' | 'helper' = 'main', usual
     }
   }
   throw lastError ?? new Error('No GPU type configured');
+}
+
+/**
+ * Gated model files (LTX-2.5) need a Hugging Face token on the AI machine: Runpod fills it in from the
+ * secret named in AI_HF_TOKEN_SECRET (the site never sees the token). Unset: nothing is passed.
+ */
+function hfTokenEnv(): Record<string, string> {
+  const name = (process.env.AI_HF_TOKEN_SECRET || '').trim();
+  return /^[A-Za-z0-9_-]{1,64}$/.test(name) ? { HF_TOKEN: `{{ RUNPOD_SECRET_${name} }}` } : {};
 }
 
 /** Runpod says there's no GPU left on the stopped pod's own machine (it can only resume there). */
@@ -339,7 +349,7 @@ export async function startAi(tierId?: string): Promise<void> {
   }
   // Run the same code version and default models as this deployment: update a stopped machine
   // before starting it.
-  const want: Record<string, string> = { DEFAULT_MODELS: env().models, IDLE_MINUTES: String(tier.idleMinutes) };
+  const want: Record<string, string> = { DEFAULT_MODELS: env().models, IDLE_MINUTES: String(tier.idleMinutes), ...hfTokenEnv() };
   if (process.env.VERCEL_GIT_COMMIT_SHA) want.REPO_RAW = repoRaw();
   if (pod.env && Object.entries(want).some(([k, v]) => pod.env![k] !== v)) {
     await runpod(`/pods/${encodeURIComponent(pod.id)}`, {
@@ -376,7 +386,7 @@ export async function startHelper(): Promise<void> {
     return;
   }
   if (pod.status === 'RUNNING' || pod.status === 'STARTING' || pod.status === 'PROVISIONING') return;
-  const want: Record<string, string> = { AI_ROLE: 'helper', IDLE_MINUTES: String(tier.idleMinutes) };
+  const want: Record<string, string> = { AI_ROLE: 'helper', IDLE_MINUTES: String(tier.idleMinutes), ...hfTokenEnv() };
   if (process.env.VERCEL_GIT_COMMIT_SHA) want.REPO_RAW = repoRaw();
   if (pod.env && Object.entries(want).some(([k, v]) => pod.env![k] !== v)) {
     await runpod(`/pods/${encodeURIComponent(pod.id)}`, { method: 'PATCH', body: JSON.stringify({ env: { ...pod.env, ...want } }) }).catch(() => {});

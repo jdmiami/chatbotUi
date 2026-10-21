@@ -534,6 +534,11 @@ export function createGate(cfg, log = console) {
         delete body.background; // only the meme lab makes background jobs
         return send(res, 200, withJobUrl(await studio.createJob(body)));
       }
+      // A video or sound to work on (the raw file as the body, its type as content-type): jobs then
+      // name it by the id this returns ({ videoUpload } or { audioUpload }).
+      if (path === '/_orbit/studio/uploads' && req.method === 'POST' && studio.saveMedia) {
+        return send(res, 200, await studio.saveMedia(req, req.headers['content-type'], req.headers['content-length']));
+      }
       const jobMatch = /^\/_orbit\/studio\/jobs\/([A-Za-z0-9_-]+)(\/cancel)?$/.exec(path);
       if (jobMatch && req.method === 'GET' && !jobMatch[2]) {
         const j = studio.job(jobMatch[1]);

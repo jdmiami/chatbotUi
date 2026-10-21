@@ -27,6 +27,12 @@ images & videos (playground, Orbit) ──> gate :8080 /_orbit/studio ──> Co
   - In the playground: **Image maker** and **Video maker** in the model list (a pipe installed by the
     gate) and the built-in image button (`/v1/images/generations` on the gate).
   - In Orbit: the AI app's **Create** tab, with a gallery kept in R2.
+  - Video makers from the Store (`workflows.js`, each mirroring a ComfyUI template; `media.js` prepares
+    the videos and sounds with ffmpeg first): **LTX-2.5** (gated: needs `HF_TOKEN`, see Set up),
+    **Talking photo** (Wan 2.2 S2V), **Wan VACE** (replace a thing named in words with SAM 3.1,
+    restyle, extend, move a photo), **Erase from video** (VACE + SAM 3.1, same files) and
+    **Sharpen video** (SeedVR2 3B). Videos and sounds are sent to `POST /_orbit/studio/uploads`
+    (200 MB / 30 MB) and kept a day in `uploads/`.
   - One content rule, applied by the gate to every request: no sexual content involving minors.
   - Chat models are unloaded from the GPU before a job; ComfyUI frees the GPU 3 minutes after the last one.
 - **Gate** (`gate/`, Node, no dependencies): the only exposed port.
@@ -80,6 +86,11 @@ in North America first. `AI_WORLDWIDE=off` keeps it in North America.
 2. In Runpod add the secrets `r2_account_id`, `r2_access_key_id`, `r2_secret_access_key`.
 3. In Vercel set `RUNPOD_API_KEY` and `LINUX_GATEWAY_SECRET` (already used by the Linux machine).
    Optional settings are in `.env.example`.
+   - For **LTX-2.5** (its files are gated on Hugging Face): accept the licence at
+     [huggingface.co/Lightricks/LTX-2.5](https://huggingface.co/Lightricks/LTX-2.5), make a read token,
+     add it in Runpod as the secret `hf_token`, and set `AI_HF_TOKEN_SECRET=hf_token` in Vercel. The
+     machine gets it as `HF_TOKEN` (only the gate sees it; Open WebUI and ComfyUI don't). Without it the
+     Store shows LTX-2.5 as needing a token and won't start the download.
 4. Open **AI playground** on the start screen. The very first start downloads the models from their
    home sites and saves them in R2 (20–30 minutes); later starts bring them back from R2.
 

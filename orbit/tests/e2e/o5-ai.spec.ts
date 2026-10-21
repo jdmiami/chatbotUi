@@ -112,7 +112,7 @@ test.describe('Orbit 0.5: AI', () => {
     await picks.getByRole('button', { name: 'Makers' }).click();
     const store = page.locator('.app-window[data-app="store"]');
     await expect(store.getByText(/Your AI machine is resting/)).toBeVisible();
-    await expect(store.getByRole('region', { name: 'Video' })).toContainText('H3 Max');
+    await expect(store.getByRole('region', { name: 'Video', exact: true })).toContainText('H3 Max');
     await expectNoHorizontalOverflow(page);
     await page.screenshot({ path: testInfo.outputPath('makers-off.png') });
     await store.getByRole('button', { name: 'Turn on' }).click();

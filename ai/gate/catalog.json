@@ -943,6 +943,71 @@
    "trigger": "azure cel shaded style",
    "output": "A look for Krea Real",
    "about": "Lay a cel shaded look over Krea Real. Its trigger words are added for you."
+  },
+  "ltx-25": {
+   "publisher": "Lightricks",
+   "base": "LTX-2.5 22B distilled (int8)",
+   "repo": "Lightricks/LTX-2.5",
+   "license": "LTX-2.x Community (free under $10M a year in revenue)",
+   "output": "Video with sound, 24 fps, up to 10 s",
+   "resolution": "1280 \u00d7 704",
+   "gpu": "About 30 GB of the 48 GB",
+   "gated": true,
+   "about": "The newest LTX: sharper motion and sound than 2.3. Start from words, a photo, a first and last photo, or restyle a video you have. The download is gated: add a Hugging Face token to your AI machine and accept the licence on its page first.",
+   "tryIt": [
+    "A street drummer in the rain, crowd cheering, close-up on the sticks"
+   ]
+  },
+  "s2v": {
+   "publisher": "Wan-AI (Comfy-Org repack)",
+   "base": "Wan 2.2 S2V 14B (fp8)",
+   "repo": "Wan-AI/Wan2.2-S2V-14B",
+   "license": "Apache 2.0",
+   "output": "A talking or singing video, 16 fps, as long as the sound (up to about 19 s)",
+   "resolution": "640 \u00d7 640",
+   "gpu": "About 24 GB of the 48 GB",
+   "about": "Give it a photo of someone and a voice recording or a song: their lips, face and body move with it. Describe the scene to steer the moves.",
+   "tryIt": [
+    "She sings softly to the camera, swaying, warm stage lights"
+   ]
+  },
+  "vace": {
+   "publisher": "Wan-AI (Comfy-Org repack)",
+   "base": "Wan 2.1 VACE 14B (fp16, run in fp8) + SAM 3.1",
+   "repo": "Wan-AI/Wan2.1-VACE-14B",
+   "license": "Apache 2.0",
+   "output": "The edited video, 16 fps, up to 5 s (extend: 4 s more)",
+   "resolution": "Up to 1280 \u00d7 720",
+   "gpu": "About 28 GB of the 48 GB",
+   "about": "An all-in-one video editor. Replace: name a thing in the video and describe what goes there. Restyle: keep the motion, change the look. Extend: what happens next. Move a photo: a person from a photo moves like the video.",
+   "tryIt": [
+    "Replace the red car with a white horse",
+    "Make it a watercolour painting"
+   ]
+  },
+  "video-erase": {
+   "publisher": "Wan-AI (Comfy-Org repack)",
+   "base": "Wan 2.1 VACE 14B + SAM 3.1 (instead of DiffuEraser)",
+   "repo": "Wan-AI/Wan2.1-VACE-14B",
+   "license": "Apache 2.0",
+   "output": "The video without it, 16 fps, up to 5 s",
+   "resolution": "Up to 1280 \u00d7 720",
+   "gpu": "About 28 GB of the 48 GB",
+   "about": "Type what to remove: SAM 3.1 finds it in every frame and VACE paints the background back in. Uses the same files as Wan VACE, so it is free once VACE is on your machine.",
+   "tryIt": [
+    "the man in the red shirt",
+    "the watermark in the corner"
+   ]
+  },
+  "video-sharpen": {
+   "publisher": "ByteDance Seed (Comfy-Org repack)",
+   "base": "SeedVR2 3B (int8)",
+   "repo": "ByteDance-Seed/SeedVR2-3B",
+   "license": "Apache 2.0",
+   "output": "The same video, twice as large and sharper, with its sound",
+   "resolution": "Up to 2560 \u00d7 1440",
+   "gpu": "About 12 GB of the 48 GB",
+   "about": "A one-step video restorer: cleans up blur, noise and compression and doubles the size, frame by frame without flicker."
   }
  },
  "files": {
@@ -1106,6 +1171,116 @@
    "repo": "ilkerzgi/fal-Krea-2-Style-LoRAs",
    "path": "comfy/azure-cel-shaded.safetensors",
    "size": 469287984
+  },
+  "ltx25Unet": {
+   "dir": "diffusion_models",
+   "name": "ltx-2.5-22b-distilled-transformer-comfy-int8-convrot.safetensors",
+   "repo": "Lightricks/LTX-2.5",
+   "path": "diffusion_models/ltx-2.5-22b-distilled-transformer-comfy-int8-convrot.safetensors",
+   "size": 21504034224,
+   "gated": true
+  },
+  "ltx25Te": {
+   "dir": "text_encoders",
+   "name": "gemma4-12b-with-proj-ltx-2.5-comfy-int8-convrot.safetensors",
+   "repo": "Lightricks/LTX-2.5",
+   "path": "text_encoders/gemma4-12b-with-proj-ltx-2.5-comfy-int8-convrot.safetensors",
+   "size": 15372969374,
+   "gated": true
+  },
+  "ltx25Vae": {
+   "dir": "vae",
+   "name": "ltx-2.5-video-vae-bf16.safetensors",
+   "repo": "Lightricks/LTX-2.5",
+   "path": "vae/ltx-2.5-video-vae-bf16.safetensors",
+   "size": 1472223346,
+   "gated": true
+  },
+  "ltx25AudioVae": {
+   "dir": "vae",
+   "name": "ltx-2.5-audio-vae-bf16.safetensors",
+   "repo": "Lightricks/LTX-2.5",
+   "path": "vae/ltx-2.5-audio-vae-bf16.safetensors",
+   "size": 364866540,
+   "gated": true
+  },
+  "ltx25Upscaler": {
+   "dir": "latent_upscale_models",
+   "name": "ltx-2.5-latent-spatial-upscaler-x2-bf16-1.0.safetensors",
+   "repo": "Lightricks/LTX-2.5",
+   "path": "latent_upscale_models/ltx-2.5-latent-spatial-upscaler-x2-bf16-1.0.safetensors",
+   "size": 995778752,
+   "gated": true
+  },
+  "wanTe": {
+   "dir": "text_encoders",
+   "name": "umt5_xxl_fp8_e4m3fn_scaled.safetensors",
+   "repo": "Comfy-Org/Wan_2.1_ComfyUI_repackaged",
+   "path": "split_files/text_encoders/umt5_xxl_fp8_e4m3fn_scaled.safetensors",
+   "size": 6735906897
+  },
+  "wanVae": {
+   "dir": "vae",
+   "name": "wan_2.1_vae.safetensors",
+   "repo": "Comfy-Org/Wan_2.1_ComfyUI_repackaged",
+   "path": "split_files/vae/wan_2.1_vae.safetensors",
+   "size": 253815318
+  },
+  "vaceUnet": {
+   "dir": "diffusion_models",
+   "name": "wan2.1_vace_14B_fp16.safetensors",
+   "repo": "Comfy-Org/Wan_2.1_ComfyUI_repackaged",
+   "path": "split_files/diffusion_models/wan2.1_vace_14B_fp16.safetensors",
+   "size": 34675323640
+  },
+  "causvidLora": {
+   "dir": "loras",
+   "name": "Wan21_CausVid_14B_T2V_lora_rank32.safetensors",
+   "repo": "Kijai/WanVideo_comfy",
+   "path": "Wan21_CausVid_14B_T2V_lora_rank32.safetensors",
+   "size": 319116504
+  },
+  "sam3": {
+   "dir": "checkpoints",
+   "name": "sam3.1_multiplex_fp16.safetensors",
+   "repo": "Comfy-Org/sam3.1",
+   "path": "checkpoints/sam3.1_multiplex_fp16.safetensors",
+   "size": 1745546848
+  },
+  "s2vUnet": {
+   "dir": "diffusion_models",
+   "name": "wan2.2_s2v_14B_fp8_scaled.safetensors",
+   "repo": "Comfy-Org/Wan_2.2_ComfyUI_Repackaged",
+   "path": "split_files/diffusion_models/wan2.2_s2v_14B_fp8_scaled.safetensors",
+   "size": 16394832474
+  },
+  "s2vLora": {
+   "dir": "loras",
+   "name": "wan2.2_t2v_lightx2v_4steps_lora_v1.1_high_noise.safetensors",
+   "repo": "Comfy-Org/Wan_2.2_ComfyUI_Repackaged",
+   "path": "split_files/loras/wan2.2_t2v_lightx2v_4steps_lora_v1.1_high_noise.safetensors",
+   "size": 1226977424
+  },
+  "wav2vec": {
+   "dir": "audio_encoders",
+   "name": "wav2vec2_large_english_fp16.safetensors",
+   "repo": "Comfy-Org/Wan_2.2_ComfyUI_Repackaged",
+   "path": "split_files/audio_encoders/wav2vec2_large_english_fp16.safetensors",
+   "size": 630997322
+  },
+  "seedvr2": {
+   "dir": "diffusion_models",
+   "name": "seedvr2_3b_int8_convrot.safetensors",
+   "repo": "Comfy-Org/SeedVR2",
+   "path": "diffusion_models/seedvr2_3b_int8_convrot.safetensors",
+   "size": 3458259704
+  },
+  "seedvr2Vae": {
+   "dir": "vae",
+   "name": "seedvr2_ema_vae_fp16.safetensors",
+   "repo": "Comfy-Org/SeedVR2",
+   "path": "vae/seedvr2_ema_vae_fp16.safetensors",
+   "size": 501324814
   }
  },
  "makerDefs": [
@@ -1375,6 +1550,99 @@
    ],
    "trigger": "azure cel shaded style",
    "for": "krea-real"
+  },
+  {
+   "id": "ltx-25",
+   "kind": "video",
+   "name": "LTX-2.5",
+   "blurb": "Lightricks\u2019 newest: video with sound, first and last frame, and video to video. Needs a Hugging Face token.",
+   "files": [
+    "ltx25Unet",
+    "ltx25Te",
+    "ltx25Vae",
+    "ltx25AudioVae",
+    "ltx25Upscaler"
+   ],
+   "workflow": "ltx25",
+   "accepts": [
+    "photo",
+    "endPhoto",
+    "video"
+   ]
+  },
+  {
+   "id": "s2v",
+   "kind": "video",
+   "name": "Talking photo",
+   "blurb": "A photo and a voice or song become a talking or singing video (Wan 2.2 S2V).",
+   "files": [
+    "s2vUnet",
+    "s2vLora",
+    "wav2vec",
+    "wanTe",
+    "wanVae"
+   ],
+   "workflow": "s2v",
+   "needs": [
+    "photo",
+    "audio"
+   ]
+  },
+  {
+   "id": "vace",
+   "kind": "videoedit",
+   "name": "Wan VACE",
+   "blurb": "Edit a video: replace something by naming it, restyle it, extend it, or move a photo like it.",
+   "files": [
+    "vaceUnet",
+    "causvidLora",
+    "wanTe",
+    "wanVae",
+    "sam3"
+   ],
+   "workflow": "vace",
+   "needs": [
+    "video"
+   ],
+   "tasks": [
+    "replace",
+    "restyle",
+    "extend",
+    "motion"
+   ]
+  },
+  {
+   "id": "video-erase",
+   "kind": "videoedit",
+   "name": "Erase from video",
+   "blurb": "Name what to remove (a person, a sign, a watermark) and it is gone from every frame.",
+   "files": [
+    "vaceUnet",
+    "causvidLora",
+    "wanTe",
+    "wanVae",
+    "sam3"
+   ],
+   "workflow": "vace",
+   "task": "erase",
+   "needs": [
+    "video",
+    "target"
+   ]
+  },
+  {
+   "id": "video-sharpen",
+   "kind": "videoedit",
+   "name": "Sharpen video",
+   "blurb": "Makes a finished video twice as large and crisper (SeedVR2).",
+   "files": [
+    "seedvr2",
+    "seedvr2Vae"
+   ],
+   "workflow": "seedvr2",
+   "needs": [
+    "video"
+   ]
   }
  ]
 }
