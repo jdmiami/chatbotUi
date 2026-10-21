@@ -158,3 +158,28 @@ export async function sendText(page: Page, text: string) {
   await expect(page.locator('.ai-msg-assistant').last()).toContainText('Done.');
 }
 
+
+/** Turn "Show NSFW" on or off: it lives in Settings. Opens Settings, flips it, and goes back to the app that was open. */
+export async function setShowNsfw(page: Page, on: boolean) {
+  const app = await page.locator('.app-window:visible').first().getAttribute('data-app');
+  const index = page.getByRole('button', { name: /^Index/ });
+  const o5 = await index.isVisible();
+  const go = async (entry: RegExp, dockName: RegExp) => {
+    if (o5) {
+      await index.click();
+      await page.getByRole('dialog', { name: 'Index' }).locator('.o5-index-list').getByRole('button', { name: entry }).click();
+    } else {
+      await page.getByRole('navigation', { name: 'Dock' }).getByRole('button', { name: 'Home screen' }).click();
+      await page.getByRole('button', { name: dockName }).first().click();
+    }
+  };
+  await go(/Settings/, /^Settings\./);
+  const sw = page.locator('.app-window[data-app="settings"]').getByRole('switch', { name: 'Show NSFW' });
+  await sw.scrollIntoViewIfNeeded();
+  if ((await sw.isChecked()) !== on) await sw.click();
+  await expect(sw).toBeChecked({ checked: on });
+  const back: Record<string, [RegExp, RegExp]> = { ai: [/Talk/, /^AI\./], lab: [/Lab/, /^Lab\./], soreal: [/soReal/i, /^soReal\./i] };
+  const [entry, dockName] = back[app ?? 'ai'] ?? back.ai;
+  await go(entry, dockName);
+  await expect(page.locator(`.app-window[data-app="${app}"]`)).toBeVisible();
+}

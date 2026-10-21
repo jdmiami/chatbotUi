@@ -40,7 +40,7 @@ export function GalleryGrid<T extends GalleryMedia>({
   const view = useNsfwView();
   const shown = items.filter((it) => shows(nsfwFor(it.id, it.nsfw), view));
   const hidden = items.length - shown.length;
-  if (items.length > 0 && shown.length === 0) return <p className="ai-muted">{hidden === 1 ? 'One NSFW result is hidden.' : `${hidden} NSFW results are hidden.`} Turn on "Show NSFW" to see them.</p>;
+  if (items.length > 0 && shown.length === 0) return <p className="ai-muted">{hidden === 1 ? 'One NSFW result is hidden.' : `${hidden} NSFW results are hidden.`} Turn on "Show NSFW" in Settings to see them.</p>;
   return (
     <ul className="ai-gallery" aria-label={label}>
       {shown.map((it, n) => (
@@ -109,7 +109,7 @@ export function GalleryViewer({
           </Censor>
         )}
         <div className="ai-viewer-blur">
-          <span className="ai-muted">{nsfw ? 'NSFW: hidden unless "Show NSFW" is on' : 'NSFW'}</span>
+          <span className="ai-muted">{nsfw ? 'NSFW: hidden unless "Show NSFW" is on in Settings' : 'NSFW'}</span>
           <Toggle checked={nsfw} label="NSFW" onChange={(on) => setMark(media.id, on)} />
         </div>
         {children}

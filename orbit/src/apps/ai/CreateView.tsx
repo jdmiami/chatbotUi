@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Step, nextStep } from '../../shell/o5/Step';
 import { useShell } from '../../state/shell';
-import { UncensoredSwitch } from '../../ui/Censor';
 import { Icon } from '../../ui/Icon';
 import { ConfirmSheet, EmptyState, IconButton, Segmented } from '../../ui/components';
 import { isNsfw } from '../../ui/nsfw';
@@ -446,7 +445,8 @@ export function CreateView({
             <LiveDraw ai={ai} machineOn={machineOn} makers={known} onOpenMakers={onOpenMakers} onStarted={(job) => setJobs((prev) => [...prev, job])} />
           </Step>
         )}
-        {kind === 'live' && (
+        {/* The camera and the live stream stop while you're on another tab. */}
+        {kind === 'live' && isActive && (
           <Step on={o5} n="02" id="o5-make-live" title="Go live">
             <LiveVideo ai={ai} machineOn={machineOn} makers={known} onOpenMakers={onOpenMakers} onSaved={() => loadItems()} />
           </Step>
@@ -692,13 +692,6 @@ export function CreateView({
         )}
       </form>
 
-      <section className="ai-censor" aria-labelledby="ai-censor-title">
-        <div className="ai-censor-text">
-          <p className="o5-kicker" id="ai-censor-title">NSFW</p>
-          <p className="ai-muted">NSFW pictures and videos are hidden everywhere in Orbit until you turn on "Show NSFW". Even then they stay blurred: keep your finger on one to see it (a video plays while you hold it). One that slipped through: hold it for a moment and it hides. One hidden by mistake: turn on "Show NSFW", open it and turn off "NSFW".</p>
-        </div>
-        <UncensoredSwitch />
-      </section>
 
       {o5 && jobs.length > 0 && (
         <h3 className="o5-chapter-title" id="o5-making">

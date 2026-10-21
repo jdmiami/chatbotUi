@@ -1,6 +1,6 @@
 import { expect, test, type Page } from '@playwright/test';
 import { dock, expectNoHorizontalOverflow, openOrbit } from './helpers';
-import { INSTALLED, expectTappable, mockAi, openAi, recordChats, sendText } from './aiMocks';
+import { INSTALLED, expectTappable, mockAi, openAi, recordChats, sendText, setShowNsfw } from './aiMocks';
 
 /**
  * AI app on iPhone / iPad viewports. The site's /api/ai endpoints and the AI machine's
@@ -388,9 +388,9 @@ test.describe('AI app: Create', () => {
     const portrait = win.getByRole('button', { name: 'Image: a quiet portrait by the window' });
     await expect(fox).toBeVisible();
     await expect(portrait).toHaveCount(0);
-    const show = win.getByRole('switch', { name: 'Show NSFW' });
-    await expect(show).not.toBeChecked();
-    await show.click();
+    // The switch lives in Settings, not in the gallery.
+    await expect(win.getByRole('switch', { name: 'Show NSFW' })).toHaveCount(0);
+    await setShowNsfw(page, true);
     await expect(portrait).toBeVisible();
     // The second layer: blurred, the fox isn't.
     expect(await portrait.evaluate((el) => getComputedStyle(el).filter)).toContain('blur');
@@ -414,11 +414,11 @@ test.describe('AI app: Create', () => {
     await expect(win.locator('.ai-viewer-media.censor')).toBeVisible();
     await page.keyboard.press('Escape');
     // Off again: hidden again.
-    await show.click();
+    await setShowNsfw(page, false);
     await expect(portrait).toHaveCount(0);
     await expectTappable(page);
     // Left on, it still doesn't outlive the visit: opening Orbit again starts hidden.
-    await show.click();
+    await setShowNsfw(page, true);
     await expect(portrait).toBeVisible();
     await page.reload();
     // Orbit reopens the AI app where it was (Create): the switch is off again.
@@ -426,7 +426,6 @@ test.describe('AI app: Create', () => {
     await expect(win.or(icon).first()).toBeVisible();
     if (!(await win.isVisible())) await icon.click();
     if (!(await page.locator('.ai-create').isVisible())) await page.getByRole('group', { name: 'Chat, create or lab' }).getByRole('button', { name: 'Create' }).click();
-    await expect(win.getByRole('switch', { name: 'Show NSFW' })).not.toBeChecked();
     await expect(portrait).toHaveCount(0);
   });
 
@@ -458,7 +457,7 @@ test.describe('AI app: Create', () => {
     await expect(win.getByText(/NSFW results are hidden/)).toBeVisible();
 
     // Show NSFW: both show. The portrait was flagged by mistake: open it, turn off "NSFW".
-    await win.getByRole('switch', { name: 'Show NSFW' }).click();
+    await setShowNsfw(page, true);
     await expect(fox).toBeVisible();
     await portrait.click();
     const sw = win.getByRole('switch', { name: 'NSFW', exact: true });
@@ -469,9 +468,46 @@ test.describe('AI app: Create', () => {
     await page.keyboard.press('Escape');
 
     // Hide again: the portrait stays (not NSFW now), the fox hides.
-    await win.getByRole('switch', { name: 'Show NSFW' }).click();
+    await setShowNsfw(page, false);
     await expect(portrait).toBeVisible();
     await expect(fox).toHaveCount(0);
+  });
+
+  test('Make gallery: reloading it (a new picture lands, coming back to Make) keeps the same files and tiles', async ({ page }) => {
+    await mockAi(page, 'on');
+    await mockStudio(page);
+    // A fresh signed link for every file on every listing, like the real machine.
+    let n = 0;
+    await page.route('**/fake-ai/_orbit/studio/items', (route) => {
+      n++;
+      return route.fulfill({
+        json: {
+          items: [
+            { id: 'img1', kind: 'image', prompt: 'a red fox in snow', width: 1328, height: 1328, createdAt: '2026-10-16T10:00:00Z', url: `/_orbit/studio/file/img1?t=tok${n}` },
+            { id: 'vid1', kind: 'video', prompt: 'waves at sunset', width: 1280, height: 720, seconds: 5, createdAt: '2026-10-16T09:00:00Z', url: `/_orbit/studio/file/vid1?t=tok${n}` },
+          ],
+        },
+      });
+    });
+    await openOrbit(page);
+    await openCreate(page);
+    const win = page.locator('.app-window[data-app="ai"]');
+    const fox = win.getByRole('button', { name: 'Image: a red fox in snow' });
+    await expect(fox).toBeVisible();
+    const img = () => fox.locator('img').getAttribute('src');
+    const vid = () => win.getByRole('button', { name: 'Video: waves at sunset' }).locator('video').getAttribute('src');
+    const [img0, vid0] = [await img(), await vid()];
+    await win.locator('.ai-gallery li').first().evaluate((el) => el.setAttribute('data-probe', 'kept'));
+    const before = n;
+    // Go to Chat and back: the gallery is listed again.
+    await page.getByRole('group', { name: 'Chat, create or lab' }).getByRole('button', { name: 'Chat' }).click();
+    await page.getByRole('group', { name: 'Chat, create or lab' }).getByRole('button', { name: 'Create' }).click();
+    await expect.poll(() => n).toBeGreaterThan(before);
+    await page.waitForTimeout(500);
+    expect(await img()).toBe(img0);
+    expect(await vid()).toBe(vid0);
+    // Same tile, not a rebuilt one.
+    await expect(win.locator('.ai-gallery li[data-probe="kept"]')).toHaveCount(1);
   });
 
   test('NSFW: a new NSFW picture is hidden as soon as it lands; Show NSFW shows it blurred', async ({ page }) => {
@@ -487,7 +523,7 @@ test.describe('AI app: Create', () => {
     await expect(win.getByRole('button', { name: 'Image: a red fox in snow' })).toBeVisible({ timeout: 10_000 });
     await page.waitForTimeout(1500);
     await expect(made).toHaveCount(0);
-    await win.getByRole('switch', { name: 'Show NSFW' }).click();
+    await setShowNsfw(page, true);
     await expect(made).toBeVisible({ timeout: 10_000 });
     expect(await made.evaluate((el) => getComputedStyle(el).filter)).toContain('blur');
   });

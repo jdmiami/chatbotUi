@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { connectMarks, rememberItems, useNsfwFlags } from '../../ui/nsfwFlags';
-import { UncensoredSwitch, shows, useNsfwView } from '../../ui/Censor';
+import { shows, useNsfwView } from '../../ui/Censor';
 import { movieNsfw } from './movieNsfw';
 import type { AppProps } from '../types';
 import { useShell } from '../../state/shell';
@@ -460,10 +460,9 @@ function StartPage({
         <h3 className="sr-section-title" id="sr-movies-t">
           Your movies
         </h3>
-        <UncensoredSwitch />
         {movies && movies.length === 0 && <p className="ai-muted">Nothing yet. Your first movie starts above.</p>}
         {movies && movies.length > 0 && listed?.length === 0 && (
-          <p className="ai-muted">Your movies here are all NSFW, so they're hidden. Turn on "Show NSFW" to see them.</p>
+          <p className="ai-muted">Your movies here are all NSFW, so they're hidden. Turn on "Show NSFW" in Settings to see them.</p>
         )}
         <ul className="o5-links">
           {listed?.map((m) => (

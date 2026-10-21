@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test';
 import { expectNoHorizontalOverflow } from './helpers';
-import { mockAi } from './aiMocks';
+import { mockAi, setShowNsfw } from './aiMocks';
 
 /** The Lab as its own app (from the Index): the same Lab screen as the AI app's Lab tab. */
 test('the Lab app opens from the Index and shows what it is making and what comes next', async ({ page }) => {
@@ -307,7 +307,8 @@ for (const skin of ['classic', 'o5'] as const) {
     await expect(section.getByText(/One NSFW result is hidden/)).toBeVisible();
 
     // Show NSFW: it shows, blurred; in the viewer it plays while held.
-    await section.getByRole('switch', { name: 'Show NSFW' }).click();
+    await expect(section.getByRole('switch', { name: 'Show NSFW' })).toHaveCount(0);
+    await setShowNsfw(page, true);
     await expect(gallery.locator('.censor')).toHaveCount(1);
     await gallery.getByRole('button', { name: 'Video: Pool night' }).click();
     await expect(viewer.getByRole('switch', { name: 'NSFW', exact: true })).toBeChecked();

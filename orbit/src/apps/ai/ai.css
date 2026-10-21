@@ -216,6 +216,9 @@
 .ai-tabs .segmented { width: 100%; max-width: 360px; }
 .ai-tabs .segmented button { flex: 1; }
 .ai-layout[hidden] { display: none; }
+/* Make and Lab stay open (hidden) while you are on another tab. */
+.ai-create[hidden], .ai-make-tab[hidden] { display: none !important; }
+.ai-make-tab:not([hidden]) { display: contents; }
 
 .ai-create {
   flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain;
@@ -437,10 +440,6 @@
 .meme-card-actions .btn { min-height: 44px; padding: 0 10px; font-size: 13px; border-radius: 0; }
 
 /* The censor switch, between the form and the gallery. */
-.ai-censor { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 12px; align-items: center; padding: 12px 0; border-top: 1px solid var(--border); border-bottom: 1px solid var(--border); margin: 8px 0; }
-.ai-censor-text { min-width: 0; display: grid; gap: 4px; }
-.ai-censor-text p { margin: 0; }
-.ai-censor-text .ai-muted { font-size: 13px; }
 
 /* Lab: making now, topics, up next, its own gallery. */
 .lab-tab { overflow-y: auto; }
