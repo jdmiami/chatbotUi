@@ -192,9 +192,9 @@ test.describe('AI Store', () => {
         ? null
         : { name: '10Eros_v1.4_fp8mixed_learned.safetensors', makers: ['LTX video'], source: 'cloud storage', saving: false, completed: 12e9, total: 22e9, percent: 54, bytesPerSec: 95e6, etaSeconds: 105, startedAt: '2026-10-21T18:30:00Z' },
       queue: [
-        { name: '10Eros_Max_h3_TURBO-hybrid_beta5_int8.safetensors', size: 20.9e9, have: 0, makers: ['H3 Max'], problem: null },
-        { name: 'krea_real.safetensors', size: 19e9, have: 4e9, makers: ['Krea Real'], problem: null },
-        { name: 'ltx-2.5.safetensors', size: 39e9, have: 0, makers: ['LTX-2.5'], problem: 'Needs a Hugging Face token' },
+        { id: 'a', name: '10Eros_Max_h3_TURBO-hybrid_beta5_int8.safetensors', size: 20.9e9, have: 0, makers: ['H3 Max'], problem: null },
+        { id: 'b', name: 'krea_real.safetensors', size: 19e9, have: 4e9, makers: ['Krea Real'], problem: null },
+        { id: 'c', name: 'ltx-2.5.safetensors', size: 39e9, have: 0, makers: ['LTX-2.5'], problem: 'Needs a Hugging Face token' },
       ],
       done: 7,
       bytesLeft: 60e9,

@@ -181,3 +181,51 @@ test('download manager: what is coming down, how fast, what waits; pause keeps t
   assert.ok(d.log.some((e) => e.kind === 'done' && /img\.safetensors/.test(e.text)));
   void release;
 });
+
+test('download manager: pausing a copy from cloud storage leaves no full-size placeholder, and Resume right after Pause still restarts', async () => {
+  const dir = await dirWithout('img.safetensors');
+  const big = FILES.image[0];
+  let gate = null;
+  let pieces = 0;
+  // A fake bucket: holds the file; each piece waits until let go (so the pause lands mid-file).
+  const r2 = {
+    head: async (key) => (key === `models/${big.dir}/${big.name}` ? { size: big.size } : null),
+    getRange: async (key, start, end) => {
+      pieces++;
+      if (gate) await gate;
+      return Buffer.alloc(end - start + 1, 7);
+    },
+    getJson: async () => null,
+    putJson: async () => {},
+    remove: async () => {},
+  };
+  let release;
+  gate = new Promise((r) => (release = r));
+  const studio = createStudio({ dir, files: FILES, r2, fetchImpl: async (url) => services(new URL(url)), WebSocketImpl: null, log: quiet, retryMs: 10, statfs: bigDisk, nsfwDelayMs: 1e9 });
+  studio.start();
+  await until(async () => (await studio.downloads()).current?.source === 'cloud storage');
+  // Pause, and Resume before the stopping copy has wound down.
+  studio.pauseDownloads();
+  studio.resumeDownloads();
+  release();
+  gate = null;
+  await until(async () => (await studio.makers()).find((m) => m.id === 'qwen')?.installed);
+  assert.ok(pieces >= 1);
+
+  // A copy from cloud storage that stops half way (here: a piece fails) is dropped, not left full size.
+  const dir2 = await dirWithout('img.safetensors');
+  let failing = true;
+  const r2b = { ...r2, getRange: async (key, start, end) => { if (failing) throw new Error('connection reset'); return Buffer.alloc(end - start + 1, 7); } };
+  const studio2 = createStudio({ dir: dir2, files: FILES, r2: r2b, fetchImpl: async (url) => services(new URL(url)), WebSocketImpl: null, log: quiet, retryMs: 50, statfs: bigDisk, nsfwDelayMs: 1e9 });
+  studio2.start();
+  await until(async () => (await studio2.downloads()).log.some((e) => e.kind === 'retry'));
+  studio2.pauseDownloads();
+  await until(async () => (await studio2.downloads()).state === 'paused');
+  assert.equal(await fs.stat(path.join(dir2, 'models', big.dir, `${big.name}.part`)).catch(() => null), null, 'no placeholder left behind');
+  const r = await studio2.downloads();
+  assert.equal(r.queue.find((q) => q.name === big.name).have, 0, 'nothing counts as here');
+  assert.ok(r.queue.every((q) => typeof q.id === 'string' && q.id.includes('/')));
+  failing = false;
+  studio2.resumeDownloads();
+  await until(async () => (await studio2.makers()).find((m) => m.id === 'qwen')?.installed);
+});

@@ -257,7 +257,7 @@ export interface StudioDownloads {
     startedAt: string;
   } | null;
   /** Waiting behind it (problem: it gave up, and why). */
-  queue: { name: string; size: number; have: number; makers: string[]; problem: string | null }[];
+  queue: { id: string; name: string; size: number; have: number; makers: string[]; problem: string | null }[];
   done: number;
   bytesLeft: number;
   etaSeconds: number | null;

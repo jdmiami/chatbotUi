@@ -203,7 +203,7 @@ export function DownloadManager({ ai, status, machineOn, isActive }: { ai: Local
           <h4 className="dm-sub">Stuck ({stuck.length})</h4>
           <ul className="dm-list" aria-label="Stuck downloads">
             {stuck.map((q) => (
-              <li key={q.name} className="dm-stuck">
+              <li key={q.id} className="dm-stuck">
                 <span className="dm-name">{q.name}</span>
                 <span className="ai-muted">{q.problem}</span>
               </li>
@@ -217,7 +217,7 @@ export function DownloadManager({ ai, status, machineOn, isActive }: { ai: Local
           <h4 className="dm-sub">Next in line ({waiting.length})</h4>
           <ol className="dm-list" aria-label="Next in line">
             {waiting.map((q) => (
-              <li key={q.name}>
+              <li key={q.id}>
                 <span className="dm-name">{q.name}</span>
                 <span className="ai-muted">
                   {gb(q.size)}

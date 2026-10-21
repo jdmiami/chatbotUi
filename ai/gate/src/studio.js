@@ -335,7 +335,14 @@ export function createStudio(o) {
       await roomFor(file, kept.size);
       begin(file, 'cloud storage', 0, kept.size);
       download.ctrl = new AbortController();
-      await downloadFile(r2, modelKey(file), part, { onBytes: tick, signal: download.ctrl.signal });
+      try {
+        await downloadFile(r2, modelKey(file), part, { onBytes: tick, signal: download.ctrl.signal });
+      } catch (err) {
+        // A copy from cloud storage is laid out full size before its pieces arrive, so a half one can't
+        // be told from a whole one: drop it (it comes down again quickly) rather than count it as here.
+        await fsp.rm(part, { force: true });
+        throw err;
+      }
       await fsp.rename(part, dest);
       return;
     }
@@ -393,7 +400,9 @@ export function createStudio(o) {
     // Keep a copy in R2 so the next start doesn't download it from its home site again.
     if (r2) {
       begin(file, 'cloud storage', 0, size, true);
-      await uploadFile(r2, dest, modelKey(file), { onBytes: tick }).catch((err) =>
+      download.ctrl = new AbortController();
+      // Pause stops this too: the file is here; only its cloud copy waits for the next time.
+      await uploadFile(r2, dest, modelKey(file), { onBytes: tick, signal: download.ctrl.signal }).catch((err) =>
         log.warn?.(`[studio] could not keep ${file.name} in R2: ${err.message}`),
       );
     }
@@ -428,6 +437,8 @@ export function createStudio(o) {
           const s = Math.max(1, Math.round((Date.now() - t0) / 1000));
           logDownload('done', `Finished ${next.name} (${(next.size ? next.size / GB : 0).toFixed(1)} GB in ${s < 120 ? `${s} s` : `${Math.round(s / 60)} min`})`);
         } catch (err) {
+          // Nothing is coming down while it waits to try again (or stops).
+          download.current = null;
           if (err.paused || download.paused) {
             logDownload('paused', `Paused ${next.name}`);
             break;
@@ -449,6 +460,11 @@ export function createStudio(o) {
     } finally {
       download.current = null;
       download.running = false;
+      // Resumed while this loop was still stopping: start the next one now.
+      if (download.again && !download.paused) {
+        download.again = false;
+        void downloadAll();
+      }
     }
   }
 
@@ -470,7 +486,7 @@ export function createStudio(o) {
   async function downloads() {
     const owners = new Map();
     for (const m of kept()) for (const file of makerFiles(m)) owners.set(fid(file), [...(owners.get(fid(file)) ?? []), m.name]);
-    const c = download.current && download.running ? download.current : null;
+    const c = download.current && download.running && !download.paused ? download.current : null;
     const speed = speedOf(c);
     const queue = [];
     for (const file of neededFiles()) {
@@ -478,7 +494,7 @@ export function createStudio(o) {
       if (download.done.has(id) || (c && c.id === id)) continue;
       if (await haveFile(file)) continue;
       const part = (await fsp.stat(`${modelPath(file)}.part`).catch(() => null))?.size || 0;
-      queue.push({ name: file.name, size: file.size || 0, have: part, makers: owners.get(id) ?? [], problem: blocked.get(id) || null });
+      queue.push({ id, name: file.name, size: file.size || 0, have: part, makers: owners.get(id) ?? [], problem: blocked.get(id) || null });
     }
     const waiting = queue.filter((q) => !q.problem);
     const left = (c ? Math.max(0, c.total - c.completed) : 0) + waiting.reduce((t, q) => t + Math.max(0, q.size - q.have), 0);
@@ -541,6 +557,8 @@ export function createStudio(o) {
       blocked.clear();
     }
     if (was) logDownload('resume', 'Resumed by you');
+    // The paused loop may still be winding down (pieces under way finish first): start again after it.
+    if (download.running) download.again = true;
     void downloadAll();
   }
 
