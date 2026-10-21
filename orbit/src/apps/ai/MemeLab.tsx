@@ -1,23 +1,28 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Icon } from '../../ui/Icon';
-import { IconButton, Segmented, Toggle } from '../../ui/components';
+import { ConfirmSheet, IconButton, Segmented, Toggle } from '../../ui/components';
 import { TextArea } from '../../ui/TextArea';
 import { Censor } from '../../ui/Censor';
 import { isNsfw } from '../../ui/nsfw';
-import { connectMarks } from '../../ui/nsfwFlags';
+import { connectMarks, rememberItems } from '../../ui/nsfwFlags';
 import { AiError, type LabIdea, type LabMovieProgress, type LabStyle, type LocalAi, type MemeLabState, type MemeRecord, type YourStyleProfile } from '../../services/ai/LocalAi';
+import { GalleryGrid, GalleryViewer, type GalleryMedia } from './Gallery';
 
 /**
- * The Lab: whenever the AI machine is on and ready, it makes short videos about your topics (comedy,
- * or spicy: flirty thirst-trap clips of made-up adults with no nudity), or 30-second movies in your
- * own style (written from your saved prompts on the AI machine, made with soReal's auto flow),
- * one after another, planned to fill the hour before the machine turns itself off. A chat model
- * scores how viral each could go. Your own pictures and videos always come first. Nothing is posted.
- * Shown as the AI app's Lab tab and as the Lab app.
+ * The Lab: whenever the AI machine is on and ready, it makes 30-second vertical movies, one after
+ * another: comedy about your topics, spicy (flirty thirst-trap movies of made-up adults with no
+ * nudity), or in your own style (written from your saved prompts on the AI machine). Every one is
+ * made the soReal way: a story, then six shots, each starting from the last frame of the one before.
+ * It plans what fits before the machine turns itself off. A chat model scores how viral each could
+ * go. Your own pictures and videos always come first. Nothing is posted. The finished movies show
+ * in the same gallery as the Make tab's. Shown as the AI app's Lab tab and as the Lab app.
  */
 export function MemeLab({ ai, machineOn, isActive, onKept }: { ai: LocalAi; machineOn: boolean; isActive: boolean; onKept?: () => void }) {
-  // A Lab video held to blur is saved on the AI machine from here too.
+  // A Lab movie held to blur is saved on the AI machine from here too.
   useEffect(() => connectMarks(ai), [ai]);
+  const [viewing, setViewing] = useState<string | null>(null);
+  const viewFrom = useRef<DOMRect | null>(null);
+  const [confirmDelete, setConfirmDelete] = useState<MemeRecord | null>(null);
   const [lab, setLab] = useState<MemeLabState | null>(null);
   const [missing, setMissing] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -30,6 +35,8 @@ export function MemeLab({ ai, machineOn, isActive, onKept }: { ai: LocalAi; mach
     ai.memeLab().then(
       (s) => {
         setLab(s);
+        // The machine's check and your own say on each movie, for the blur (as the Make gallery does).
+        rememberItems((s.records ?? []).filter((r) => r && r.id));
         setMissing(false);
         setError(null);
       },
@@ -95,13 +102,23 @@ export function MemeLab({ ai, machineOn, isActive, onKept }: { ai: LocalAi; mach
     void act(ai.setLabTopics([...topics, t]), () => setTopic(''));
   };
   const records = [...(lab?.records ?? [])].filter((r) => r && r.id).sort((a, b) => (b.score ?? -1) - (a.score ?? -1));
+  const open = viewing ? (records.find((r) => r.id === viewing) ?? null) : null;
   const job = lab?.making?.job;
-  const queueMinutes = queue.length * (lab?.minutesPerVideo ?? 6);
+  const queueMinutes = queue.length * (lab?.minutesPerVideo ?? 40);
   const style: LabStyle = lab?.style ?? 'comedy';
   const spicy = style === 'spicy';
   const yours = style === 'yours';
-  const kind = spicy ? 'spicy videos' : yours ? 'movies in your style' : 'comedy videos';
+  const kind = spicy ? 'spicy movies' : yours ? 'movies in your style' : 'comedy movies';
   const movie = lab?.making?.movie ?? null;
+  /** Switch the style. An AI machine on older code refuses a style it doesn't know (or ignores it): say so plainly. */
+  const pickStyle = (v: LabStyle) =>
+    ai.setLabStyle(v).then(
+      (s) => {
+        setLab(s);
+        setError(s.style && s.style !== v ? OLDER_MACHINE : null);
+      },
+      (err: Error) => setError(err instanceof AiError && (err.status === 400 || err.status === 404 || err.status === 422) ? OLDER_MACHINE : err.message),
+    );
 
   return (
     <section className="meme-lab" aria-labelledby="meme-lab-title">
@@ -115,16 +132,16 @@ export function MemeLab({ ai, machineOn, isActive, onKept }: { ai: LocalAi; mach
             { value: 'comedy', label: 'Comedy' },
             { value: 'yours', label: 'Your style' },
           ]}
-          onChange={(v) => v !== style && void act(ai.setLabStyle(v))}
+          onChange={(v) => v !== style && void pickStyle(v)}
         />
       )}
       <p className="ai-muted meme-lab-dek">
         {spicy
-          ? 'While your AI machine is on, the Lab makes short vertical thirst-trap style videos: flirty, confident, stylish made-up adults, never nudity, so they can be posted. Another AI scores how viral each could go.'
+          ? 'While your AI machine is on, the Lab makes 30-second vertical thirst-trap style movies: flirty, confident, stylish made-up adults, never nudity, so they can be posted.'
           : yours
-            ? 'While your AI machine is on, the Lab makes 30-second vertical movies that look like yours. The AI on your machine reads the prompts you saved, writes a story in your style, and makes it shot by shot. It pauses whenever you make something.'
-            : 'While your AI machine is on, the Lab makes short vertical comedy videos about your topics, one after another, and another AI scores how viral each could go.'}{' '}
-        Your own pictures and videos always go first. Nothing is posted anywhere.
+            ? 'While your AI machine is on, the Lab makes 30-second vertical movies that look like yours. The AI on your machine reads the prompts you saved and writes a story in your style.'
+            : 'While your AI machine is on, the Lab makes 30-second vertical comedy movies about your topics, one after another.'}{' '}
+        Each one is made shot by shot, every shot starting where the last one ended, and another AI scores how viral it could go. It pauses whenever you make something. Nothing is posted anywhere.
       </p>
       {error && <p className="ai-error">{error}</p>}
       {yours && <YourStylePanel ai={ai} isActive={isActive} onChanged={load} />}
@@ -166,7 +183,7 @@ export function MemeLab({ ai, machineOn, isActive, onKept }: { ai: LocalAi; mach
 
       {!yours && <div className="meme-lab-block">
         <p className="o5-kicker">Your topics</p>
-        <p className="ai-muted meme-lab-dek">{spicy ? 'A vibe or a place for each video, e.g. date night, beach, gym.' : 'Comedy about whatever you list here.'} With no topics, it picks its own.</p>
+        <p className="ai-muted meme-lab-dek">{spicy ? 'A vibe or a place for each movie, e.g. date night, beach, gym.' : 'Comedy about whatever you list here.'} With no topics, it picks its own.</p>
         {topics.length > 0 && (
           <ul className="meme-topics" aria-label="Topics">
             {topics.map((t) => (
@@ -197,11 +214,9 @@ export function MemeLab({ ai, machineOn, isActive, onKept }: { ai: LocalAi; mach
         <p className="o5-kicker">
           Up next{queue.length > 0 ? ` · ${queue.length} planned, about ${queueMinutes} min · machine off in about ${lab?.minutesLeft ?? 0} min` : ''}
         </p>
-        {yours && (
-          <p className="ai-muted meme-lab-dek">
-            Each movie takes about {lab?.minutesPerVideo ?? 45} minutes, so the Lab plans just what fits before the machine turns off.
-          </p>
-        )}
+        <p className="ai-muted meme-lab-dek">
+          Each movie takes about {lab?.minutesPerVideo ?? 40} minutes, so the Lab plans just what fits before the machine turns off.
+        </p>
         {queue.length > 0 && (
           <ol className="meme-queue" aria-label="Up next">
             {queue.map((q: LabIdea, i) => (
@@ -232,7 +247,7 @@ export function MemeLab({ ai, machineOn, isActive, onKept }: { ai: LocalAi; mach
                       <p className="meme-queue-title">{q.title}</p>
                       <p className="ai-muted meme-queue-meta">
                         {q.kind === 'movie' && <span className="meme-queue-badge">{q.seconds ?? 30}-second movie</span>}
-                        {q.yours ? 'Your idea, made as written' : q.kind === 'movie' ? `In your style${q.look ? `: ${q.look}` : ''}` : q.topic ? `About ${q.topic}` : 'The AI sharpens it just before making'}
+                        {q.yours ? 'Your idea, made as written' : yours ? `In your style${q.look ? `: ${q.look}` : ''}` : q.topic ? `About ${q.topic}` : 'The AI sharpens it just before making'}
                       </p>
                     </>
                   )}
@@ -256,7 +271,7 @@ export function MemeLab({ ai, machineOn, isActive, onKept }: { ai: LocalAi; mach
             if (p) void act(ai.addLabIdea({ prompt: p }), () => setMine(''));
           }}
         >
-          <input id="lab-mine" value={mine} onChange={(e) => setMine(e.target.value)} placeholder={yours ? 'Your own movie idea, made next' : 'Your own idea, made next'} aria-label="Your own idea" autoComplete="off" />
+          <input id="lab-mine" value={mine} onChange={(e) => setMine(e.target.value)} placeholder="Your own movie idea, made next" aria-label="Your own idea" autoComplete="off" />
           <button type="submit" className="btn" disabled={!mine.trim()}>
             Add
           </button>
@@ -266,45 +281,114 @@ export function MemeLab({ ai, machineOn, isActive, onKept }: { ai: LocalAi; mach
       <div className="meme-lab-block">
         <p className="o5-kicker">The Lab gallery</p>
         {records.length === 0 ? (
-          <p className="ai-muted">Finished videos show up here, best first. They stay apart from your own gallery.</p>
+          <p className="ai-muted">Finished movies show up here, best first. They stay apart from your own gallery.</p>
         ) : (
-          <ol className="meme-lab-list" aria-label="Lab videos, best first">
-            {records.map((r) => (
-              <li key={r.id} className="meme-card" data-ready={r.status === 'ready' || undefined}>
-                <Censor as="div" className="meme-card-media" markId={r.id} nsfw={labNsfw(r)}>
-                  <video src={r.url ? `${r.url}#t=0.1` : undefined} controls playsInline preload="metadata" muted aria-label={r.title} />
-                  {r.movieId && <span className="meme-card-badge">{Math.round(r.seconds ?? 30)} s movie</span>}
-                </Censor>
-                <div className="meme-card-text">
-                  <p className="meme-card-kicker">
-                    {r.status === 'ready' ? 'Ready to post' : r.status === 'judged' ? 'Judged' : 'Waiting to be judged'}
-                    {r.score != null && <span className="meme-score">{r.score}</span>}
-                  </p>
-                  <Censor as="div" text markId={r.id} nsfw={labNsfw(r)}>
-                    <p className="meme-card-title">{r.title}</p>
-                    {r.why && <p className="ai-muted meme-card-why">{r.why}</p>}
-                    <p className="meme-card-caption">
-                      {r.caption} <span className="ai-muted">{(r.hashtags ?? []).join(' ')}</span>
-                    </p>
-                  </Censor>
-                  <div className="meme-card-actions">
-                    <button type="button" className="btn" onClick={() => copy(r)}>
-                      <Icon name="copy" size={16} /> {copied === r.id ? 'Copied' : 'Copy caption'}
-                    </button>
-                    <button type="button" className="btn" onClick={() => void act(ai.keepMeme(r.id), onKept)}>
-                      <Icon name="download" size={16} /> Keep in my gallery
-                    </button>
-                    <IconButton icon="trash" label={`Delete ${r.title}`} onClick={() => void act(ai.deleteMeme(r.id))} />
-                  </div>
-                </div>
-              </li>
-            ))}
-          </ol>
+          <GalleryGrid
+            items={records.map(asMedia)}
+            label="Lab movies, best first"
+            onOpen={(m, from) => {
+              viewFrom.current = from;
+              setViewing(m.id);
+            }}
+            corner={(m) =>
+              m.record.score != null ? (
+                <span className="ai-tile-score" data-ready={m.record.status === 'ready' || undefined} aria-hidden>
+                  {m.record.score}
+                </span>
+              ) : null
+            }
+          />
         )}
       </div>
+
+      {open && (
+        <GalleryViewer
+          media={asMedia(open)}
+          title="Lab movie"
+          origin={viewFrom.current}
+          onClose={() => setViewing(null)}
+          words={
+            <div className="lab-detail-words">
+              <p className="meme-card-title">{open.title}</p>
+              <p className="meme-card-caption">
+                {open.caption} <span className="ai-muted">{(open.hashtags ?? []).join(' ')}</span>
+              </p>
+            </div>
+          }
+        >
+          <section className="lab-detail" aria-label="Scouting report">
+            <p className="meme-card-kicker">
+              <span>
+                {open.status === 'ready' ? 'Ready to post' : open.status === 'judged' ? 'Judged' : 'Waiting to be judged'}
+                {open.movieId || (open.seconds ?? 0) > 10 ? <span className="lab-detail-badge"> · {Math.round(open.seconds ?? 30)} s movie</span> : null}
+              </span>
+              {open.score != null && (
+                <span className="meme-score" aria-label={`Viral score ${open.score} of 100`}>
+                  {open.score}
+                </span>
+              )}
+            </p>
+            <p className="ai-muted lab-detail-why">
+              {open.score != null ? (open.why ? `Why: ${open.why}` : 'Scored by the AI on your machine.') : open.why || 'The AI on your machine scores it once your own work is done.'}
+            </p>
+            {open.score != null && <p className="ai-muted lab-detail-why">Ready to post from {lab?.readyScore ?? 75}.</p>}
+          </section>
+          <div className="ai-viewer-actions">
+            <button type="button" className="btn" onClick={() => copy(open)}>
+              <Icon name="copy" size={16} /> {copied === open.id ? 'Copied' : 'Copy caption'}
+            </button>
+            <button
+              type="button"
+              className="btn"
+              onClick={() =>
+                void act(ai.keepMeme(open.id), () => {
+                  setViewing(null);
+                  onKept?.();
+                })
+              }
+            >
+              <Icon name="download" size={16} /> Keep in my gallery
+            </button>
+            {open.url && (
+              <a className="btn" href={open.url + (open.url.includes('?') ? '&' : '?') + 'download=1'} download>
+                <Icon name="download" size={16} /> Save
+              </a>
+            )}
+            <button type="button" className="btn danger" onClick={() => setConfirmDelete(open)}>
+              <Icon name="trash" size={16} /> Delete
+            </button>
+          </div>
+        </GalleryViewer>
+      )}
+      {confirmDelete && (
+        <ConfirmSheet
+          title="Delete this?"
+          message="It is removed from the Lab, with its pictures and shots."
+          confirmLabel="Delete"
+          destructive
+          onConfirm={() => {
+            const r = confirmDelete;
+            setConfirmDelete(null);
+            setViewing(null);
+            void act(ai.deleteMeme(r.id));
+          }}
+          onCancel={() => setConfirmDelete(null)}
+        />
+      )}
     </section>
   );
 }
+
+/** A Lab movie as the shared gallery shows it: blurred only for its words, the machine's check, or your say. */
+const asMedia = (r: MemeRecord): GalleryMedia & { record: MemeRecord } => ({
+  id: r.id,
+  kind: 'video',
+  url: r.url ?? '',
+  label: r.title,
+  nsfw: labNsfw(r),
+  seconds: r.seconds,
+  record: r,
+});
 
 const STAGES: { id: string; label: string; phases: LabMovieProgress['phase'][] }[] = [
   { id: 'story', label: 'Story', phases: ['draft', 'story', 'lead'] },
@@ -354,7 +438,8 @@ function YourStylePanel({ ai, isActive, onChanged }: { ai: LocalAi; isActive: bo
         setP(v);
         setErr(null);
       },
-      (e: Error) => setErr(e.message),
+      // An AI machine on older code has no "Your style" yet.
+      (e: Error) => setErr(e instanceof AiError && (e.status === 404 || e.status === 405) ? OLDER_MACHINE : e.message),
     );
   }, [ai]);
   useEffect(() => {
@@ -385,7 +470,7 @@ function YourStylePanel({ ai, isActive, onChanged }: { ai: LocalAi; isActive: bo
       <p className="o5-kicker">Your style</p>
       {err && <p className="ai-error">{err}</p>}
       {!p ? (
-        <p className="ai-muted">Reading your style…</p>
+        !err && <p className="ai-muted">Reading your style…</p>
       ) : (
         <>
           {draft != null ? (
@@ -452,8 +537,14 @@ function YourStylePanel({ ai, isActive, onChanged }: { ai: LocalAi; isActive: bo
   );
 }
 
-/** A Lab video is NSFW when its words say so, or when it was made in the spicy style. */
-const labNsfw = (r: MemeRecord & { style?: string }) => r.nsfw === true || r.style === 'spicy' || isNsfw(r.title, r.prompt, r.caption);
+/**
+ * A Lab movie is blurred when the AI machine's check saw NSFW in it, or its words say so (your own
+ * say comes on top, by its id). Never for its style alone: a spicy movie that shows nothing is clear.
+ */
+const labNsfw = (r: MemeRecord) => r.nsfw === true || isNsfw(r.title, r.prompt, r.caption);
+
+/** What an AI machine on older code says to a Lab style it doesn't know yet. */
+export const OLDER_MACHINE = 'Your AI machine is on an older version. Turn it off and on again to get this.';
 
 function LabHead({ children }: { children?: React.ReactNode }) {
   return (

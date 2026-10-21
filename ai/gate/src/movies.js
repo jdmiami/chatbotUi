@@ -7,6 +7,8 @@
 //   gets a reference picture (designed by the AI, or from an uploaded photo), a storyboard picture
 //   is made for every cut, and each shot is made BETWEEN two storyboard pictures (first and last
 //   frame), so cuts land on planned frames and the movie doesn't drift. Then it is stitched.
+//   With `continuity: 'chain'` (the Lab's movies) only the first storyboard picture is made and
+//   each shot starts from the LAST FRAME of the shot before instead.
 // - the original kind (no `flow`): shots written by hand, each continuing from the LAST FRAME of
 //   the shot before. Kept as it was, so older movies still open and make the same way.
 import { spawn } from 'node:child_process';
@@ -504,7 +506,9 @@ export function createMovies(o) {
       soundPicked: null,
       reviewStoryboard: Boolean(body.reviewStoryboard),
       approved: false,
-      continuity: KEYFRAME_MAKERS.includes(maker) ? 'keyframes' : 'chain',
+      // chain: each shot starts from the last frame of the shot before (only the first picture is
+      // made). The Lab asks for it; otherwise a maker that takes two frames goes between keyframes.
+      continuity: body.continuity === 'chain' || !KEYFRAME_MAKERS.includes(maker) ? 'chain' : 'keyframes',
       story: null,
       frames: [],
       shots: (Array.isArray(body.shots) ? body.shots : []).slice(0, 12).map(cleanAutoShot).filter((s) => s.prompt.trim()),
@@ -593,7 +597,8 @@ export function createMovies(o) {
     }
     if ((body.maker === 'ltx' || body.maker === 'h3-max') && body.maker !== m.maker) {
       m.maker = body.maker;
-      m.continuity = KEYFRAME_MAKERS.includes(m.maker) ? 'keyframes' : 'chain';
+      // A chained movie (the Lab's) stays chained: its storyboard has only the first picture.
+      if (m.continuity !== 'chain') m.continuity = KEYFRAME_MAKERS.includes(m.maker) ? 'keyframes' : 'chain';
       resetShots(m);
     }
     if (body.sound != null && (body.sound === 'auto' || SOUNDS.includes(body.sound)) && body.sound !== m.sound) {
@@ -779,7 +784,7 @@ export function createMovies(o) {
       seconds: SHOT_SECONDS,
       size: body.size === 'landscape' ? 'landscape' : 'portrait',
       maker,
-      continuity: KEYFRAME_MAKERS.includes(maker) ? 'keyframes' : 'chain',
+      continuity: body.continuity === 'chain' || !KEYFRAME_MAKERS.includes(maker) ? 'chain' : 'keyframes',
       lead: { mode: lead },
       frames: [],
       shots: [],

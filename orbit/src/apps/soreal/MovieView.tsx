@@ -51,7 +51,8 @@ export function MovieView({
   const [confirmDelete, setConfirmDelete] = useState(false);
   const auto = m.flow === 'auto';
   const running = m.running;
-  const frames = m.frames ?? [];
+  // A chained movie (the Lab's) has only its opening picture: each shot starts from the last frame of the one before.
+  const frames = m.continuity === 'chain' ? (m.frames ?? []).slice(0, 1) : (m.frames ?? []);
   const final = m.render && !m.render.stale ? itemById.get(m.render.itemId) : null;
   // One verdict for the whole movie: every shot and picture comes from the same story.
   // The words, or the AI machine's check of any picture or shot in it.

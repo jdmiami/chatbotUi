@@ -88,7 +88,7 @@
 .st-row-title { font: 400 calc(19px * var(--text-scale, 1)) / 1.2 var(--font-display, inherit); letter-spacing: -0.01em; }
 .st-row-sub { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; font-size: var(--fs-xs); color: var(--text-3); }
 .st-row-blurb { font-size: var(--fs-sm); color: var(--text-2); line-height: 1.4; display: -webkit-box; -webkit-line-clamp: 2; line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
-.st-row .btn, .st-card .btn { flex: none; min-width: 72px; }
+.st-row .btn, .st-card .btn { flex: none; min-width: 72px; min-height: 44px; }
 .st-adult { padding: 1px 7px; border: 1px solid color-mix(in srgb, var(--danger) 55%, transparent); border-radius: 999px; color: var(--danger); font: 600 10px/1.5 var(--font-ui); letter-spacing: 0.06em; }
 
 .st-progress { flex: none; display: inline-flex; align-items: center; gap: 8px; min-width: 72px; font: 500 var(--fs-sm) / 1 var(--font-ui); color: var(--text-2); font-variant-numeric: tabular-nums; }

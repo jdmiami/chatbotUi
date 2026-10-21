@@ -7,10 +7,9 @@ import { useShell } from '../../state/shell';
 import { useWorkspace } from '../../state/workspace';
 import { getLocalAi, type AiMachineStatus, type HubFile, type HubModel, type InstalledModel, type StudioMakerInfo } from '../../services/ai/LocalAi';
 import { useModelList } from '../ai/models';
-import { MAKER_CATALOG, rememberMakers, rememberedMakers } from '../ai/makerCatalog';
+import { PENDING_TEXT, offlineMakers, rememberMakers, withCatalog } from '../ai/makerCatalog';
 import {
   CATALOG,
-  CATALOG_MAKERS,
   CHAT,
   CHAT_SHELVES,
   GPU_BYTES,
@@ -54,19 +53,12 @@ function needsText(m: StudioMakerInfo): string | null {
   const s = list.length > 1 ? `${list.slice(0, -1).join(', ')} and ${list.at(-1)}` : list[0];
   return s[0].toUpperCase() + s.slice(1);
 }
+const RESTART_HELP = `${PENDING_TEXT}. Turn it off and on again to get it.`;
 const TOKEN_HELP =
   'LTX-2.5 is gated on Hugging Face. Accept its licence at huggingface.co/Lightricks/LTX-2.5, add your token in Runpod as the secret hf_token, set AI_HF_TOKEN_SECRET=hf_token in Vercel, then turn the AI machine off and on.';
 
 type Filter = 'all' | 'chat' | 'makers' | 'library';
 
-/** Makers to show while the machine is off: what it last reported, plus newer ones from the catalog. */
-function offlineMakers(): StudioMakerInfo[] {
-  const base = rememberedMakers() ?? MAKER_CATALOG;
-  const extra = CATALOG_MAKERS
-    .filter((m) => !base.some((b) => b.id === m.id))
-    .map((m) => ({ ...m, builtIn: false, wanted: false, installed: false, percent: 0 }));
-  return [...base, ...extra];
-}
 
 function Tile({ item, size = 56 }: { item: Item; size?: number }) {
   const id = item.type === 'chat' ? item.entry.id : item.maker.id;
@@ -143,7 +135,8 @@ export default function StoreApp({ isActive }: AppProps) {
     setOpen(target || null);
   }, [intent]);
 
-  const allMakers = makers ?? offline;
+  // Every maker in the catalog shows, even those an AI machine on older code doesn't know yet.
+  const allMakers = useMemo(() => (makers ? withCatalog(makers) : offline), [makers, offline]);
   const installed: InstalledModel[] = list?.installed ?? [];
   const haveChat = (e: ChatEntry) => installed.some((m) => m.name === nameOfSpec(e.spec) || m.name === nameOfSpec(e.spec).replace(/:latest$/, ''));
   const pullOf = (e: ChatEntry) => list?.pulls.find((p) => p.name === nameOfSpec(e.spec) || p.name === nameOfSpec(e.spec).replace(/:latest$/, ''));
@@ -214,7 +207,7 @@ export default function StoreApp({ isActive }: AppProps) {
   };
 
   /** What the main button says and does. */
-  function action(item: Item): { label: string; state: 'get' | 'progress' | 'have' | 'wait' | 'token'; percent?: number } {
+  function action(item: Item): { label: string; state: 'get' | 'progress' | 'have' | 'wait' | 'token' | 'soon'; percent?: number } {
     if (item.type === 'chat') {
       const pull = pullOf(item.entry);
       if (pull && !pull.done) return { label: pull.percent > 0 ? `${pull.percent}%` : 'Starting', state: 'progress', percent: pull.percent };
@@ -222,6 +215,7 @@ export default function StoreApp({ isActive }: AppProps) {
       return { label: machineOn ? `Get · ${formatSize(item.entry.size)}` : 'Get', state: machineOn ? 'get' : 'wait' };
     }
     const m = item.maker;
+    if (m.pending) return { label: 'After restart', state: 'soon' };
     if (m.needsToken && !m.installed) return { label: 'Needs a token', state: 'token' };
     if (m.wanted && !m.installed) return { label: `${m.percent}%`, state: 'progress', percent: m.percent };
     if (m.installed) return { label: 'Open', state: 'have' };
@@ -241,15 +235,18 @@ export default function StoreApp({ isActive }: AppProps) {
     return (
       <button
         type="button"
-        className={`btn ${big ? '' : 'small '}${a.state === 'have' ? '' : 'primary'}`}
+        className={`btn ${big ? '' : 'small '}${a.state === 'have' || a.state === 'soon' ? '' : 'primary'}`}
         disabled={busy === key || powering}
         onClick={(e) => {
           e.stopPropagation();
           if (a.state === 'have') use(item);
           else if (a.state === 'token') toast(TOKEN_HELP, 'info');
+          else if (a.state === 'soon') toast(RESTART_HELP, 'info');
           else void get(item);
         }}
-        aria-label={a.state === 'have' ? `Open ${titleOf(item)}` : a.state === 'token' ? `${titleOf(item)} needs a Hugging Face token` : `Get ${titleOf(item)}`}
+        aria-label={
+          a.state === 'have' ? `Open ${titleOf(item)}` : a.state === 'token' ? `${titleOf(item)} needs a Hugging Face token` : a.state === 'soon' ? `${titleOf(item)}: ${PENDING_TEXT}` : `Get ${titleOf(item)}`
+        }
       >
         {a.label}
       </button>
@@ -260,7 +257,9 @@ export default function StoreApp({ isActive }: AppProps) {
     const sub =
       item.type === 'chat'
         ? [item.entry.publisher, item.entry.params, formatSize(item.entry.size)].filter(Boolean).join(' · ')
-        : [KIND_NAME[item.maker.kind], CATALOG.makers[item.maker.id]?.publisher, item.maker.size ? formatSize(item.maker.size) : item.maker.builtIn ? 'Included' : ''].filter(Boolean).join(' · ');
+        : item.maker.pending
+          ? [KIND_NAME[item.maker.kind], PENDING_TEXT].join(' · ')
+          : [KIND_NAME[item.maker.kind], CATALOG.makers[item.maker.id]?.publisher, item.maker.size ? formatSize(item.maker.size) : item.maker.builtIn ? 'Included' : ''].filter(Boolean).join(' · ');
     const blurb = item.type === 'chat' ? item.entry.blurb : item.maker.blurb;
     const adult = item.type === 'chat' ? item.entry.tags.includes('uncensored') : /uncensored/i.test(item.maker.blurb);
     return (
@@ -583,7 +582,9 @@ function Detail({
           : `Fits this machine (needs about ${formatSize(gpuNeed(size))} of 48 GB GPU memory)`
     : m?.installed
       ? 'On your machine'
-      : m?.needsToken
+      : m?.pending
+        ? PENDING_TEXT
+        : m?.needsToken
         ? 'Needs a Hugging Face token on your AI machine'
         : 'Fits this machine';
   const abilities = e?.abilities ? [e.abilities.vision && 'Sees pictures', e.abilities.tools && 'Uses tools', e.abilities.thinking && 'Thinks step by step'].filter(Boolean).join(', ') : null;
@@ -675,7 +676,12 @@ function Detail({
             </ul>
           </section>
         ) : null}
-        {m?.needsToken && (
+        {m?.pending && (
+          <p className="st-note" role="note">
+            {RESTART_HELP}
+          </p>
+        )}
+        {m?.needsToken && !m.pending && (
           <p className="st-note" role="note">
             {TOKEN_HELP}
           </p>
