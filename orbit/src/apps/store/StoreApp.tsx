@@ -7,6 +7,7 @@ import { useShell } from '../../state/shell';
 import { useWorkspace } from '../../state/workspace';
 import { getLocalAi, type AiMachineStatus, type HubFile, type HubModel, type InstalledModel, type StudioMakerInfo } from '../../services/ai/LocalAi';
 import { useModelList } from '../ai/models';
+import { DownloadManager } from './DownloadManager';
 import { PENDING_TEXT, canResume, offlineMakers, progressText, rememberMakers, withCatalog } from '../ai/makerCatalog';
 import {
   CATALOG,
@@ -58,7 +59,7 @@ const RESTART_HELP = `${PENDING_TEXT}. Turn it off and on again to get it.`;
 const TOKEN_HELP =
   'LTX-2.5 is gated on Hugging Face. Accept its licence at huggingface.co/Lightricks/LTX-2.5, add your token in Runpod as the secret hf_token, set AI_HF_TOKEN_SECRET=hf_token in Vercel, then turn the AI machine off and on.';
 
-type Filter = 'all' | 'chat' | 'makers' | 'library';
+type Filter = 'all' | 'chat' | 'makers' | 'library' | 'downloads';
 
 
 function Tile({ item, size = 56 }: { item: Item; size?: number }) {
@@ -131,7 +132,7 @@ export default function StoreApp({ isActive }: AppProps) {
   useEffect(() => {
     if (intent?.app !== 'store') return;
     useWorkspace.getState().consumeIntent(intent.seq);
-    setFilter(intent.shelf === 'chat' ? 'chat' : intent.shelf === 'makers' ? 'makers' : intent.shelf === 'library' ? 'library' : 'all');
+    setFilter(intent.shelf === 'chat' ? 'chat' : intent.shelf === 'makers' ? 'makers' : intent.shelf === 'library' ? 'library' : intent.shelf === 'downloads' ? 'downloads' : 'all');
     const target = intent.item && [...CHAT.map((e) => ({ type: 'chat', entry: e }) as Item)].find((i) => keyOf(i) === intent.item);
     setOpen(target || null);
   }, [intent]);
@@ -368,6 +369,7 @@ export default function StoreApp({ isActive }: AppProps) {
                 ['chat', 'Chat'],
                 ['makers', 'Pictures & video'],
                 ['library', 'Your library'],
+                ['downloads', 'Downloads'],
               ] as const
             ).map(([id, label]) => (
               <button key={id} type="button" role="tab" aria-selected={filter === id} className="st-filter" onClick={() => setFilter(id)}>
@@ -400,6 +402,8 @@ export default function StoreApp({ isActive }: AppProps) {
           )}
           {chapters.length > 1 && <MagContents chapters={chapters} />}
         </MagCover>
+
+        {filter === 'downloads' && <DownloadManager ai={ai} status={status} machineOn={machineOn} isActive={isActive} />}
 
         {filter === 'all' && !q && (
           <MagChapter n={++n} id="store-picks" title="Editor’s picks" dek="The best of each shelf for this machine.">

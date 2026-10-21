@@ -131,3 +131,53 @@ test('downloads: resuming counts only what is left of a file half-way down', asy
   const list = await studio.installMaker('h3-max');
   assert.equal(list.find((m) => m.id === 'h3-max').wanted, true);
 });
+
+test('download manager: what is coming down, how fast, what waits; pause keeps the part, resume carries on', async () => {
+  const dir = await dirWithout('img.safetensors');
+  let release;
+  const ranges = [];
+  const fetchImpl = async (url, init = {}) => {
+    const u = new URL(url);
+    if (u.hostname !== 'huggingface.co') return services(u);
+    ranges.push(init.headers?.range ?? null);
+    if (ranges.length === 1) {
+      // Half the file, then it hangs until paused.
+      const body = new ReadableStream({
+        start(c) {
+          c.enqueue(new Uint8Array([1, 2, 3, 4]));
+          init.signal?.addEventListener('abort', () => c.error(Object.assign(new Error('aborted'), { name: 'AbortError' })));
+          release = () => c.close();
+        },
+      });
+      return new Response(body, { status: 200, headers: { 'content-length': '8' } });
+    }
+    return new Response(new Uint8Array([5, 6, 7, 8]), { status: 206 });
+  };
+  const studio = createStudio({ dir, files: FILES, fetchImpl, WebSocketImpl: null, log: quiet, retryMs: 10, stallDownloadMs: 60_000, statfs: bigDisk, nsfwDelayMs: 1e9 });
+  studio.start();
+  await until(async () => (await studio.downloads()).current?.completed === 4);
+  const r = await studio.downloads();
+  assert.equal(r.state, 'downloading');
+  assert.equal(r.current.name, 'img.safetensors');
+  assert.equal(r.current.source, 'Hugging Face');
+  assert.ok(r.current.makers.includes('Edit with words'), 'says which makers need the file');
+  assert.equal(r.current.percent, 50);
+  assert.match(r.bottleneck, /One file at a time: downloading img\.safetensors from Hugging Face/);
+
+  studio.pauseDownloads();
+  await until(async () => (await studio.downloads()).state === 'paused');
+  const p = await studio.downloads();
+  assert.equal(p.current, null);
+  assert.equal(p.queue[0].name, 'img.safetensors');
+  assert.equal(p.queue[0].have, 4, 'the half that came down stays');
+  assert.match(p.bottleneck, /paused/);
+  assert.ok(p.log.some((e) => e.kind === 'paused'));
+
+  studio.resumeDownloads();
+  await until(async () => (await studio.makers()).find((m) => m.id === 'qwen')?.installed);
+  assert.deepEqual(ranges, [null, 'bytes=4-'], 'resume asks only for the rest');
+  const d = await studio.downloads();
+  assert.equal(d.state, 'idle');
+  assert.ok(d.log.some((e) => e.kind === 'done' && /img\.safetensors/.test(e.text)));
+  void release;
+});

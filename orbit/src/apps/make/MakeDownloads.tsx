@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useShell } from '../../state/shell';
+import { useWorkspace } from '../../state/workspace';
 import type { AiMachineStatus, LocalAi, StudioMakerInfo } from '../../services/ai/LocalAi';
 import { canResume, progressText, progressWhy } from '../ai/makerCatalog';
 
@@ -35,6 +36,12 @@ export function MakeDownloads({ ai, status, machineOn, isActive }: { ai: LocalAi
     }
   };
 
+  const launch = useShell((s) => s.launch);
+  const openManager = () => {
+    useWorkspace.getState().sendIntent({ app: 'store', type: 'open', shelf: 'downloads' });
+    launch('store');
+  };
+
   const waking = status?.state === 'starting' || status?.state === 'downloading';
   if (waking && !machineOn) {
     const pull = status?.pulling;
@@ -56,9 +63,14 @@ export function MakeDownloads({ ai, status, machineOn, isActive }: { ai: LocalAi
   const overall = all ? Math.floor((done / all) * 100) : Math.floor(loading.reduce((t, m) => t + m.percent, 0) / loading.length);
   return (
     <section className="make-loading" aria-label="Makers loading">
-      <p className="make-loading-head" role="status">
-        {loading.length === 1 ? `Loading ${loading[0].name}` : `Loading ${loading.length} makers`}
-        <span className="ai-muted"> · {overall}%</span>
+      <p className="make-loading-head">
+        <span role="status">
+          {loading.length === 1 ? `Loading ${loading[0].name}` : `Loading ${loading.length} makers`}
+          <span className="ai-muted"> · {overall}%</span>
+        </span>
+        <button type="button" className="make-loading-all" onClick={openManager}>
+          Download manager
+        </button>
       </p>
       <ul className="make-loading-list">
         {loading.map((m) => (

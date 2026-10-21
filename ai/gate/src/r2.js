@@ -181,7 +181,7 @@ export async function uploadFile(r2, file, key, { partMiB = 64, concurrency = 6,
 }
 
 /** Download an object with parallel ranged requests straight into a file. */
-export async function downloadFile(r2, key, file, { chunkMiB = 64, concurrency = 8, onBytes = () => {} } = {}) {
+export async function downloadFile(r2, key, file, { chunkMiB = 64, concurrency = 8, onBytes = () => {}, signal = null } = {}) {
   const head = await r2.head(key);
   if (!head) throw new Error(`${key} is not in the bucket.`);
   const chunk = chunkMiB * 1024 * 1024;
@@ -190,6 +190,8 @@ export async function downloadFile(r2, key, file, { chunkMiB = 64, concurrency =
   try {
     await h.truncate(head.size);
     await pool(count, concurrency, async (i) => {
+      // Paused: no new pieces start (the ones under way finish).
+      if (signal?.aborted) throw Object.assign(new Error('paused'), { paused: true });
       const start = i * chunk;
       const end = Math.min(head.size, start + chunk) - 1;
       let buf;

@@ -15,7 +15,7 @@ export type Intent =
   | { seq: number; app: 'agent'; type: 'open-session'; sessionId: string }
   | { seq: number; app: 'agent'; type: 'compose'; text: string; /** project file it is about */ path?: string }
   /** Open the AI Store at a shelf (from the home, index, settings, the AI app…). */
-  | { seq: number; app: 'store'; type: 'open'; shelf?: 'chat' | 'makers' | 'library'; item?: string }
+  | { seq: number; app: 'store'; type: 'open'; shelf?: 'chat' | 'makers' | 'library' | 'downloads'; item?: string }
   /** Open the AI app in Create (image and video). */
   /** Open the AI app at the Lab tab. */
   | { seq: number; app: 'ai'; type: 'open-lab' }

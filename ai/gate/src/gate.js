@@ -559,6 +559,19 @@ export function createGate(cfg, log = console) {
       if (path === '/_orbit/studio' && req.method === 'GET') return send(res, 200, await studio.state());
       if (path === '/_orbit/studio/items' && req.method === 'GET') return send(res, 200, { items: (await studio.items()).map(withUrl) });
       if (path === '/_orbit/studio/makers' && req.method === 'GET') return send(res, 200, { makers: await studio.makers() });
+      // The download manager: everything coming down, how fast, what waits and why; pause or resume.
+      if (path === '/_orbit/studio/downloads' && req.method === 'GET' && studio.downloads) {
+        // With the machine's network speed in and out (one reading of the stats panel's numbers).
+        const stats = cfg.stats ? await cfg.stats().catch(() => null) : null;
+        return send(res, 200, { ...(await studio.downloads()), network: stats?.network ?? null });
+      }
+      if (path === '/_orbit/studio/downloads' && req.method === 'POST' && studio.downloads) {
+        const { action } = JSON.parse((await readBody(req, 1024)) || '{}');
+        if (action === 'pause') studio.pauseDownloads();
+        else if (action === 'resume') studio.resumeDownloads();
+        else return send(res, 400, { error: 'action must be pause or resume' });
+        return send(res, 200, await studio.downloads());
+      }
       if ((path === '/_orbit/studio/makers/install' || path === '/_orbit/studio/makers/remove') && req.method === 'POST') {
         const { id } = JSON.parse((await readBody(req, 4096)) || '{}');
         const list = path.endsWith('/install') ? await studio.installMaker(String(id || '')) : await studio.removeMaker(String(id || ''));
