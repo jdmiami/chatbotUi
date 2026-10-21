@@ -35,6 +35,8 @@ import {
   VACE_MAX_FRAMES,
   vaceWorkflow,
   videoWorkflow,
+  zimageSketchWorkflow,
+  sketchStrength,
 } from './workflows.js';
 
 /** Longest a single job may keep the machine awake (the slowest videos take about 20 minutes). */
@@ -61,6 +63,8 @@ const BASE_MS = {
   vace: 75_000,
   'video-erase': 75_000,
   'video-sharpen': 20_000,
+  // Sketch finish (Z-Image-Turbo + Fun ControlNet, 8 steps at about 1 megapixel): not measured either.
+  'sketch-finish': 20_000,
 };
 /** Loading a maker's models from the volume, the first time (or after another maker ran). */
 const LOAD_MS = { image: 30_000, video: 90_000 };
@@ -157,6 +161,8 @@ const SIZES = {
   // LTX-2.5 (multiples of 64: half size, then 2x) and Wan 2.2 S2V (its template: 640 x 640).
   ltx25: { landscape: [1280, 704], portrait: [704, 1280], square: [960, 960] },
   s2v: { square: [640, 640], portrait: [480, 832], landscape: [832, 480] },
+  // Sketch finish (Z-Image-Turbo): about a megapixel, multiples of 16.
+  sketch: { square: [1024, 1024], portrait: [832, 1216], landscape: [1216, 832] },
 };
 /** The longest videos and sounds the video makers take (seconds). */
 const MAX_SECONDS = { vace: VACE_MAX_FRAMES / VACE_FPS, extend: 10, ltx25: 10, seedvr2: 10, s2v: (4 * S2V_CHUNK) / S2V_FPS };
@@ -243,6 +249,8 @@ export function createStudio(o) {
   let ws = null;
 
   const modelPath = (file) => path.join(dir, 'models', file.dir, file.name);
+  // Files are told apart by folder and name (Live draw has several config.json files).
+  const fid = (file) => `${file.dir}/${file.name}`;
   const wantedPath = path.join(dir, 'makers.json');
   let wanted = new Set();
   try {
@@ -261,8 +269,8 @@ export function createStudio(o) {
   /** Every file to keep on the machine, in download order: the built-in image and video makers first. */
   function neededFiles() {
     const seen = new Map();
-    for (const kind of ['image', 'video']) for (const file of files[kind]) seen.set(file.name, file);
-    for (const m of kept()) for (const file of makerFiles(m)) if (!seen.has(file.name)) seen.set(file.name, file);
+    for (const kind of ['image', 'video']) for (const file of files[kind]) seen.set(fid(file), file);
+    for (const m of kept()) for (const file of makerFiles(m)) if (!seen.has(fid(file))) seen.set(fid(file), file);
     return [...seen.values()];
   }
   const metaDir = path.join(dir, 'output', 'orbit');
@@ -280,20 +288,21 @@ export function createStudio(o) {
     // Kept in R2 already: bring it down in parallel pieces (much faster than the model's home site).
     const kept = r2 ? await r2.head(modelKey(file)).catch(() => null) : null;
     if (kept && (!file.size || kept.size === file.size)) {
-      download.current = { name: file.name, completed: 0, total: kept.size };
+      download.current = { id: fid(file), name: file.name, completed: 0, total: kept.size };
       await downloadFile(r2, modelKey(file), part, { onBytes: (n) => (download.current.completed += n) });
       await fsp.rename(part, dest);
       return;
     }
     const have = (await fsp.stat(part).catch(() => null))?.size || 0;
-    const url = `https://huggingface.co/${file.repo}/resolve/main/${file.path.split('/').map(encodeURIComponent).join('/')}`;
+    // Most files come from Hugging Face; a few only from their makers' own site (`url`, pix2pix-turbo's LoRA).
+    const url = file.url || `https://huggingface.co/${file.repo}/resolve/main/${file.path.split('/').map(encodeURIComponent).join('/')}`;
     if (file.gated && !hfToken) throw Object.assign(new Error(TOKEN_MESSAGE), { permanent: true });
     const headers = { ...(have ? { range: `bytes=${have}-` } : {}), ...(file.gated ? { authorization: `Bearer ${hfToken}` } : {}) };
     const res = await f(url, { headers, redirect: 'follow' });
     if (file.gated && (res.status === 401 || res.status === 403)) throw Object.assign(new Error(TOKEN_REFUSED), { permanent: true });
     if (!res.ok || !res.body) throw new Error(`download ${file.name}: ${res.status}`);
     const resumed = res.status === 206;
-    download.current = { name: file.name, completed: resumed ? have : 0, total: file.size || Number(res.headers.get('content-length')) || 0 };
+    download.current = { id: fid(file), name: file.name, completed: resumed ? have : 0, total: file.size || Number(res.headers.get('content-length')) || 0 };
     const counter = new TransformStream({
       transform(chunk, ctrl) {
         download.current.completed += chunk.byteLength;
@@ -306,7 +315,7 @@ export function createStudio(o) {
     await fsp.rename(part, dest);
     // Keep a copy in R2 so the next start doesn't download it from its home site again.
     if (r2) {
-      download.current = { name: file.name, completed: 0, total: size, saving: true };
+      download.current = { id: fid(file), name: file.name, completed: 0, total: size, saving: true };
       await uploadFile(r2, dest, modelKey(file), { onBytes: (n) => (download.current.completed += n) }).catch((err) =>
         log.warn?.(`[studio] could not keep ${file.name} in R2: ${err.message}`),
       );
@@ -321,8 +330,8 @@ export function createStudio(o) {
       for (;;) {
         let next = null;
         for (const file of neededFiles()) {
-          if (download.done.has(file.name) || blocked.has(file.name)) continue;
-          if (await haveFile(file)) download.done.add(file.name);
+          if (download.done.has(fid(file)) || blocked.has(fid(file))) continue;
+          if (await haveFile(file)) download.done.add(fid(file));
           else {
             next = file;
             break;
@@ -332,11 +341,11 @@ export function createStudio(o) {
         try {
           await fetchFile(next);
           download.error = null;
-          download.done.add(next.name);
+          download.done.add(fid(next));
         } catch (err) {
           download.error = err.message;
           if (err.permanent) {
-            blocked.set(next.name, err.message);
+            blocked.set(fid(next), err.message);
             log.warn?.(`[studio] ${next.name}: ${err.message}`);
             continue;
           }
@@ -361,8 +370,8 @@ export function createStudio(o) {
     let done = 0;
     for (const file of list) {
       total += file.size || 0;
-      if (download.done.has(file.name)) done += file.size || 0;
-      else if (download.current?.name === file.name) done += download.current.completed;
+      if (download.done.has(fid(file))) done += file.size || 0;
+      else if (download.current?.id === fid(file)) done += download.current.completed;
     }
     return { total, done };
   }
@@ -388,7 +397,7 @@ export function createStudio(o) {
         // Gated on Hugging Face (LTX-2.5): needs a token on the machine before it can download.
         gated: list.some((file) => file.gated),
         needsToken: !installed && list.some((file) => file.gated) && !hfToken,
-        problem: list.map((file) => blocked.get(file.name)).find(Boolean) || null,
+        problem: list.map((file) => blocked.get(fid(file))).find(Boolean) || null,
         builtIn: Boolean(m.builtIn),
         wanted: Boolean(m.builtIn || wanted.has(m.id)),
         installed,
@@ -430,10 +439,10 @@ export function createStudio(o) {
     // Styles go with their maker.
     for (const s of MAKERS) if (s.for === id) wanted.delete(s.id);
     await saveWanted();
-    const keep = new Set(neededFiles().map((f) => f.name));
+    const keep = new Set(neededFiles().map(fid));
     for (const file of makerFiles(m)) {
-      if (keep.has(file.name)) continue;
-      download.done.delete(file.name);
+      if (keep.has(fid(file))) continue;
+      download.done.delete(fid(file));
       await fsp.rm(modelPath(file), { force: true });
       await fsp.rm(`${modelPath(file)}.part`, { force: true });
       if (r2) await r2.remove(modelKey(file)).catch(() => {});
@@ -451,8 +460,8 @@ export function createStudio(o) {
     let done = 0;
     for (const file of files[kind]) {
       total += file.size || 0;
-      if (download.done.has(file.name)) done += file.size || 0;
-      else if (download.current?.name === file.name) done += download.current.completed;
+      if (download.done.has(fid(file))) done += file.size || 0;
+      else if (download.current?.id === fid(file)) done += download.current.completed;
     }
     return total ? Math.min(100, Math.floor((done / total) * 100)) : 0;
   }
@@ -802,8 +811,9 @@ export function createStudio(o) {
    */
   async function createJob(req) {
     const maker = req.maker ? makerById(String(req.maker)) : makerById(req.kind === 'video' ? 'ltx' : 'qwen');
-    if (!maker || maker.kind === 'style') throw Object.assign(new Error('No such maker.'), { status: 400 });
-    const mode = maker.kind; // image | video | edit | upscale | videoedit
+    // Live makers (live.js) answer on their own connection, not as jobs.
+    if (!maker || maker.kind === 'style' || maker.kind === 'live') throw Object.assign(new Error('No such maker.'), { status: 400 });
+    const mode = maker.kind; // image | video | edit | upscale | videoedit | sketch
     // Which recipe: krea (Krea 2 family), qwen (Qwen Image family), ltx, ltx25, h3 or s2v (video),
     // vace or seedvr2 (video edits).
     const flow = maker.workflow || (maker.id === 'krea-real' ? 'krea' : maker.id === 'h3-max' ? 'h3' : mode === 'video' ? 'ltx' : 'qwen');
@@ -817,7 +827,7 @@ export function createStudio(o) {
     const target = String(req.target || '').trim().slice(0, 200);
     // Sharpening and erasing need no description; a talking photo has a default one.
     const promptOptional = mode === 'upscale' || flow === 'seedvr2' || task === 'erase' || flow === 's2v';
-    if (!prompt && !promptOptional) throw bad(mode === 'edit' || mode === 'videoedit' ? 'Describe the change.' : 'Describe what to make.');
+    if (!prompt && !promptOptional) throw bad(mode === 'edit' || mode === 'videoedit' ? 'Describe the change.' : mode === 'sketch' ? 'Say what your drawing is.' : 'Describe what to make.');
     if (needs.has('target') && !target) throw bad(task === 'erase' ? 'Say what to erase, e.g. “the man in the red shirt”.' : 'Say what to replace, e.g. “the red car”.');
     if (blockedPrompt(prompt) || blockedPrompt(target) || blockedPrompt(`${prompt} ${target}`)) throw Object.assign(new Error(BLOCKED_MESSAGE), { status: 422, blocked: true });
     const uploads = [...(req.image ? [req.image] : []), ...(Array.isArray(req.images) ? req.images : [])].slice(0, 2);
@@ -834,7 +844,8 @@ export function createStudio(o) {
     const audioUpload = req.audioUpload ? String(req.audioUpload) : null;
     const withVideo = Boolean(videoSource || videoUpload) && (mode === 'videoedit' || (maker.accepts || []).includes('video'));
     // Any photo or video you bring may show real people (a recording of a voice doesn't change that).
-    const photo = uploads.length > 0 || Boolean(endUpload) || Boolean(source?.photo) || Boolean(toSource?.photo) || (withVideo && (Boolean(videoUpload) || Boolean(videoSource?.photo)));
+    // A drawing made in Live draw isn't a photo (a gallery picture used as the drawing keeps its own rule).
+    const photo = (mode !== 'sketch' && uploads.length > 0) || Boolean(endUpload) || Boolean(source?.photo) || Boolean(toSource?.photo) || (withVideo && (Boolean(videoUpload) || Boolean(videoSource?.photo)));
     // Made from an NSFW picture or video: NSFW too, before anyone has looked.
     const nsfwSource = Boolean(source?.nsfw) || Boolean(toSource?.nsfw) || (withVideo && Boolean(videoSource?.nsfw));
     if (photo) {
@@ -881,9 +892,9 @@ export function createStudio(o) {
     if (req.fromLastFrameOf) inputs.push(await lastFrameOf(String(req.fromLastFrameOf)));
     else if (req.fromItem) inputs.push(await copyFromGallery(String(req.fromItem)));
     for (const u of uploads) inputs.push(await saveUpload(u));
-    const need = mode === 'edit' ? (maker.twoImages ? 2 : 1) : mode === 'upscale' ? 1 : 0;
+    const need = mode === 'edit' ? (maker.twoImages ? 2 : 1) : mode === 'upscale' || mode === 'sketch' ? 1 : 0;
     if (inputs.length < need) {
-      throw Object.assign(new Error(maker.twoImages ? 'Add two pictures: the person first, then the outfit.' : 'Add the picture to start from.'), { status: 400 });
+      throw Object.assign(new Error(maker.twoImages ? 'Add two pictures: the person first, then the outfit.' : mode === 'sketch' ? 'Draw something first.' : 'Add the picture to start from.'), { status: 400 });
     }
 
     let workflow;
@@ -946,6 +957,10 @@ export function createStudio(o) {
       // Some edit LoRAs only wake up on their trigger words.
       if (maker.trigger && !prompt.startsWith(maker.trigger)) prompt = `${maker.trigger} ${prompt}`;
       workflow = editWorkflow({ prompt, images: inputs.slice(0, need), lora, strength: maker.strength ?? 1, prefix });
+    } else if (mode === 'sketch') {
+      // Your drawing, finished: Z-Image-Turbo follows its lines (Fun ControlNet Union 2.1).
+      [width, height] = SIZES.sketch[req.size] || SIZES.sketch.square;
+      workflow = zimageSketchWorkflow({ prompt, sketch: inputs[0], width, height, strength: sketchStrength(req.follow), prefix });
     } else if (mode === 'upscale') {
       prompt = prompt || 'Sharpened 4×';
       workflow = upscaleWorkflow({ image: inputs[0], prefix, model: FILES[maker.files[0]].name });
@@ -988,6 +1003,8 @@ export function createStudio(o) {
       progress: 0,
       attempts: 1,
       notes: [],
+      // Drawings about children: a result the NSFW check flags is thrown away, not just blurred.
+      minorGuard: mode === 'sketch' && mentionsMinor(`${prompt} ${target}`),
       seq: ++seq,
       queuedAt: now(),
       createdAt: new Date(now()).toISOString(),
@@ -1032,6 +1049,8 @@ export function createStudio(o) {
   async function submit(job) {
     try {
       await unloadChatModels();
+      // Others using the graphics card (Live draw) make way for a video, which needs all of it.
+      if (job.kind === 'video') await o.makeWayForVideo?.().catch(() => {});
       // Video models are huge (~40 GB staged in memory). Keeping the last job's models while
       // loading the next one runs the machine out of memory, and ComfyUI gets killed (soReal makes
       // shots back to back). So before a video, or after one, start from a clean slate.
@@ -1101,17 +1120,23 @@ export function createStudio(o) {
         nsfw: job.nsfwSource || undefined,
         // Made by the meme lab: kept out of the gallery until you keep it.
         lab: job.background || undefined,
+        minorGuard: job.minorGuard || undefined,
         file,
         createdAt: job.createdAt,
       };
       await fsp.mkdir(metaDir, { recursive: true });
       await fsp.writeFile(path.join(metaDir, `${job.id}.json`), JSON.stringify(item));
       await keep(item);
+      // About children: looked at before anyone sees it (rate() removes an NSFW one).
+      if (item.minorGuard) {
+        await rate(item);
+        if (!(await readItem(item.id))) throw new Error(BLOCKED_MESSAGE);
+      }
       job.item = item;
       job.progress = 100;
       job.status = 'done';
       await learn(job);
-      if (!item.nsfw) void rate(item);
+      if (!item.nsfw && !item.minorGuard) void rate(item);
     } catch (err) {
       job.status = 'error';
       job.error = err.message;
@@ -1415,6 +1440,12 @@ export function createStudio(o) {
       if (!p) return;
       const r = await o.nsfw.check(p, { kind: item.kind, seconds: item.seconds });
       if (!r) return;
+      // A drawing about children that came out NSFW is never kept.
+      if (r.nsfw && item.minorGuard) {
+        log.warn?.(`[nsfw] ${item.id}: NSFW result from a prompt about children, removed`);
+        await remove(item.id);
+        return;
+      }
       // Read the note again: it may have changed meanwhile (kept from the Lab, or your own say).
       await withNote(item.id, async () => {
         const latest = (await readItem(item.id)) || item;
@@ -1524,6 +1555,29 @@ export function createStudio(o) {
         () => {},
       );
     },
+    /** A maker's files are all on this machine (live makers use them outside ComfyUI). */
+    async makerInstalled(id) {
+      const m = makerById(id);
+      return Boolean(m && (await makerReady(m)));
+    },
+    /** Where a model file is on disk (live makers load them themselves). */
+    modelPath,
+    /** Make room on the graphics card for a live maker: chat models out, ComfyUI's models freed if idle. */
+    async makeRoom() {
+      // A meme-lab video only fills quiet time: it stops for you, as it does for your own jobs.
+      const lab = inFlight();
+      if (lab?.background) {
+        note(lab, 'Made way for Live draw.');
+        await cancel(lab.id).catch(() => {});
+      }
+      await unloadChatModels();
+      if (!active().length) {
+        comfyHoldsGpu = false;
+        await comfyJson('/free', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ unload_models: true, free_memory: true }) }).catch(() => {});
+      }
+    },
+    /** A video you asked for is being made (it needs the whole graphics card: live previews wait). */
+    videoInFlight: () => active().some((j) => j.kind === 'video' && !j.background),
     state,
     makers,
     installMaker,

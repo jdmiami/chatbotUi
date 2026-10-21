@@ -20,7 +20,8 @@ import { createSearch } from './search.js';
 import { createVoice } from './voice.js';
 import { createR2, createR2Test, r2FromEnv } from './r2.js';
 import { createOllamaSync, createWebuiBackup } from './cloud.js';
-import { STUDIO_FILES } from './workflows.js';
+import { FILES, STUDIO_FILES } from './workflows.js';
+import { createLiveDraw, createLiveWorker } from './live.js';
 
 const env = process.env;
 if (!env.GATEWAY_SECRET || env.GATEWAY_SECRET.length < 32) {
@@ -58,6 +59,8 @@ const studio = env.STUDIO_DIR
       helper: HELPER,
       r2,
       inUseElsewhere: (id) => movies?.usedElsewhere(id),
+      // A video needs the whole graphics card: Live draw lets go of it first.
+      makeWayForVideo: async () => liveDraw?.release(),
       // Gated downloads (LTX-2.5). A Runpod secret that was never set arrives as "{{ RUNPOD_SECRET_… }}".
       hfToken: /^\{\{/.test(env.HF_TOKEN || '') ? '' : env.HF_TOKEN || env.HUGGING_FACE_HUB_TOKEN || '',
       // Looks at every picture and video for NSFW, on the CPU (nsfwcheck.js).
@@ -67,6 +70,28 @@ const studio = env.STUDIO_DIR
         env: { HF_HOME: path.join(env.STUDIO_DIR, 'hf') },
         ffmpeg: (args) => runFfmpeg(args, { timeoutMs: 60_000 }),
       }),
+    })
+  : null;
+// Live draw (live.js): pix2pix-turbo answers each stroke in its own worker on the graphics card,
+// started when Live draw is used and unloaded after a few quiet minutes.
+const liveDraw = studio
+  ? createLiveDraw({
+      worker: createLiveWorker({
+        name: 'Live draw',
+        python: path.join(env.STUDIO_DIR, 'venv', 'bin', 'python'),
+        script: fileURLToPath(new URL('../live_draw_worker.py', import.meta.url)),
+        env: {
+          LIVE_DRAW_SD_TURBO: path.join(env.STUDIO_DIR, 'models', 'live', 'sd-turbo'),
+          LIVE_DRAW_LORA: studio.modelPath(FILES.pix2pixSketchLora),
+          HF_HOME: path.join(env.STUDIO_DIR, 'hf'),
+        },
+        idleMs: 4 * 60_000,
+        log: console,
+      }),
+      installed: () => studio.makerInstalled('live-draw'),
+      makeRoom: () => studio.makeRoom(),
+      paused: () => (studio.videoInFlight() ? 'Your AI machine is making a video: live previews wait until it is done.' : null),
+      activity: () => idle.activity(),
     })
   : null;
 // soReal movies (chained video shots), kept with the studio's files.
@@ -107,7 +132,7 @@ const idle = createAutoOff({
   limitMinutes: clampAutoOffMinutes(env.IDLE_MINUTES),
   // Busy while a picture, video or movie shot is being made or a download is running (so the hour
   // starts once every download is done). A model merely sitting in GPU memory is not a job.
-  busy: async () => Boolean(models.pulling() || store.busy() || studio?.busy() || r2test?.running() || ollamaSync?.busy() || webuiBackup?.busy()),
+  busy: async () => Boolean(models.pulling() || store.busy() || studio?.busy() || liveDraw?.busy() || r2test?.running() || ollamaSync?.busy() || webuiBackup?.busy()),
   // A notification shortly before turning off, so the owner can keep it on.
   warnMinutes: AUTO_OFF.warnMinutes,
   warn: push ? async () => void (await push.send()) : null,
@@ -273,6 +298,7 @@ const server = createGate({
   studio,
   movies,
   lab,
+  liveDraw,
   r2test,
   studioKey: env.STUDIO_KEY || '',
   store,

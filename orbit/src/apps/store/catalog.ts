@@ -49,6 +49,12 @@ export interface MakerDetails {
   output?: string;
   /** GPU memory it uses, in plain words ("About 28 GB of the 48 GB"). */
   gpu?: string;
+  /** How fast it is, in plain words (and whether that was measured). */
+  speed?: string;
+  /** Where its code lives, when that isn't where its weights are. */
+  code?: string;
+  /** Only runs on the Turbo machine (80 GB). */
+  turboOnly?: boolean;
   /** Its files are gated on Hugging Face: the AI machine needs a token. */
   gated?: boolean;
 }

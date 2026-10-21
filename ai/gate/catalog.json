@@ -1008,6 +1008,38 @@
    "resolution": "Up to 2560 \u00d7 1440",
    "gpu": "About 12 GB of the 48 GB",
    "about": "A one-step video restorer: cleans up blur, noise and compression and doubles the size, frame by frame without flicker."
+  },
+  "live-draw": {
+   "publisher": "Gaurav Parmar et al., CMU and Adobe (img2img-turbo)",
+   "base": "pix2pix-turbo (sketch to image) on Stability AI's SD-Turbo",
+   "repo": "stabilityai/sd-turbo",
+   "code": "https://github.com/GaParmar/img2img-turbo",
+   "license": "pix2pix-turbo code and LoRA: MIT. SD-Turbo weights: Stability AI Community License (free for personal use, research and businesses under US$1M a year; above that Stability AI needs to license it).",
+   "output": "A live preview of your drawing, 512 × 512, while you draw",
+   "resolution": "512 × 512",
+   "gpu": "About 4–6 GB of the 48 GB while Live draw is open (an estimate, not measured yet); it unloads after 4 quiet minutes",
+   "speed": "One step per preview: meant to keep up with your pencil, but its speed on this machine has not been measured yet",
+   "about": "Draw with your Apple Pencil or finger and see a picture appear beside it as you draw. Say what it is in a few words; the slider sets how closely it follows your lines. When you like it, Finish makes a full-quality version with Sketch finish.",
+   "tryIt": [
+    "a cat on a windowsill, oil painting",
+    "a lighthouse in a storm, watercolour"
+   ]
+  },
+  "sketch-finish": {
+   "publisher": "Alibaba (Tongyi-MAI and PAI), Comfy-Org repack",
+   "base": "Z-Image-Turbo 6B + Z-Image-Turbo-Fun-Controlnet-Union-2.1 (2602, 8 steps)",
+   "repo": "alibaba-pai/Z-Image-Turbo-Fun-Controlnet-Union-2.1",
+   "license": "Apache 2.0",
+   "output": "A finished picture that follows your drawing's lines",
+   "resolution": "1024 × 1024, 832 × 1216 or 1216 × 832",
+   "steps": 8,
+   "gpu": "About 25–30 GB of the 48 GB (an estimate, not measured yet)",
+   "speed": "8 steps at about a megapixel: under a minute is expected, not measured yet",
+   "about": "Finishes a Live draw sketch at full quality. Z-Image-Turbo makes the picture and a ControlNet keeps it on your lines (more with “Follow my lines”). The result goes into your gallery like any picture: the NSFW check, your marks and “Make it move” all work on it.",
+   "tryIt": [
+    "a red fox in fresh snow, golden hour",
+    "a cosy cabin interior, children's book illustration"
+   ]
   }
  },
  "files": {
@@ -1281,6 +1313,117 @@
    "repo": "Comfy-Org/SeedVR2",
    "path": "vae/seedvr2_ema_vae_fp16.safetensors",
    "size": 501324814
+  },
+  "zImageUnet": {
+   "dir": "diffusion_models",
+   "name": "z_image_turbo_bf16.safetensors",
+   "repo": "Comfy-Org/z_image_turbo",
+   "path": "split_files/diffusion_models/z_image_turbo_bf16.safetensors",
+   "size": 12309866400
+  },
+  "zImageTe": {
+   "dir": "text_encoders",
+   "name": "qwen_3_4b.safetensors",
+   "repo": "Comfy-Org/z_image_turbo",
+   "path": "split_files/text_encoders/qwen_3_4b.safetensors",
+   "size": 8044982048
+  },
+  "zImageVae": {
+   "dir": "vae",
+   "name": "ae.safetensors",
+   "repo": "Comfy-Org/z_image_turbo",
+   "path": "split_files/vae/ae.safetensors",
+   "size": 335304388
+  },
+  "zImageCnet": {
+   "dir": "model_patches",
+   "name": "Z-Image-Turbo-Fun-Controlnet-Union-2.1-2602-8steps.safetensors",
+   "repo": "alibaba-pai/Z-Image-Turbo-Fun-Controlnet-Union-2.1",
+   "path": "Z-Image-Turbo-Fun-Controlnet-Union-2.1-2602-8steps.safetensors",
+   "size": 6712485600
+  },
+  "sdTurboUnet": {
+   "dir": "live/sd-turbo/unet",
+   "name": "diffusion_pytorch_model.fp16.safetensors",
+   "repo": "stabilityai/sd-turbo",
+   "path": "unet/diffusion_pytorch_model.fp16.safetensors",
+   "size": 1731904736
+  },
+  "sdTurboUnetConfig": {
+   "dir": "live/sd-turbo/unet",
+   "name": "config.json",
+   "repo": "stabilityai/sd-turbo",
+   "path": "unet/config.json",
+   "size": 1867
+  },
+  "sdTurboVae": {
+   "dir": "live/sd-turbo/vae",
+   "name": "diffusion_pytorch_model.fp16.safetensors",
+   "repo": "stabilityai/sd-turbo",
+   "path": "vae/diffusion_pytorch_model.fp16.safetensors",
+   "size": 167335342
+  },
+  "sdTurboVaeConfig": {
+   "dir": "live/sd-turbo/vae",
+   "name": "config.json",
+   "repo": "stabilityai/sd-turbo",
+   "path": "vae/config.json",
+   "size": 655
+  },
+  "sdTurboTe": {
+   "dir": "live/sd-turbo/text_encoder",
+   "name": "model.fp16.safetensors",
+   "repo": "stabilityai/sd-turbo",
+   "path": "text_encoder/model.fp16.safetensors",
+   "size": 680820392
+  },
+  "sdTurboTeConfig": {
+   "dir": "live/sd-turbo/text_encoder",
+   "name": "config.json",
+   "repo": "stabilityai/sd-turbo",
+   "path": "text_encoder/config.json",
+   "size": 618
+  },
+  "sdTurboMerges": {
+   "dir": "live/sd-turbo/tokenizer",
+   "name": "merges.txt",
+   "repo": "stabilityai/sd-turbo",
+   "path": "tokenizer/merges.txt",
+   "size": 524619
+  },
+  "sdTurboSpecialTokens": {
+   "dir": "live/sd-turbo/tokenizer",
+   "name": "special_tokens_map.json",
+   "repo": "stabilityai/sd-turbo",
+   "path": "tokenizer/special_tokens_map.json",
+   "size": 574
+  },
+  "sdTurboTokenizerConfig": {
+   "dir": "live/sd-turbo/tokenizer",
+   "name": "tokenizer_config.json",
+   "repo": "stabilityai/sd-turbo",
+   "path": "tokenizer/tokenizer_config.json",
+   "size": 855
+  },
+  "sdTurboVocab": {
+   "dir": "live/sd-turbo/tokenizer",
+   "name": "vocab.json",
+   "repo": "stabilityai/sd-turbo",
+   "path": "tokenizer/vocab.json",
+   "size": 1059962
+  },
+  "sdTurboScheduler": {
+   "dir": "live/sd-turbo/scheduler",
+   "name": "scheduler_config.json",
+   "repo": "stabilityai/sd-turbo",
+   "path": "scheduler/scheduler_config.json",
+   "size": 553
+  },
+  "pix2pixSketchLora": {
+   "dir": "live/pix2pix-turbo",
+   "name": "sketch_to_image_stochastic_lora.pkl",
+   "url": "https://www.cs.cmu.edu/~img2img-turbo/models/sketch_to_image_stochastic_lora.pkl",
+   "size": 524833285
   }
  },
  "makerDefs": [
@@ -1643,6 +1786,39 @@
    "needs": [
     "video"
    ]
+  },
+  {
+   "id": "live-draw",
+   "kind": "live",
+   "name": "Live draw (pix2pix-turbo)",
+   "blurb": "See a picture appear while you draw with your Pencil or finger.",
+   "files": [
+    "sdTurboUnet",
+    "sdTurboUnetConfig",
+    "sdTurboVae",
+    "sdTurboVaeConfig",
+    "sdTurboTe",
+    "sdTurboTeConfig",
+    "sdTurboMerges",
+    "sdTurboSpecialTokens",
+    "sdTurboTokenizerConfig",
+    "sdTurboVocab",
+    "sdTurboScheduler",
+    "pix2pixSketchLora"
+   ]
+  },
+  {
+   "id": "sketch-finish",
+   "kind": "sketch",
+   "name": "Sketch finish (Z-Image)",
+   "blurb": "Finishes a Live draw sketch at full quality, following your lines.",
+   "files": [
+    "zImageUnet",
+    "zImageTe",
+    "zImageVae",
+    "zImageCnet"
+   ],
+   "workflow": "zimage-sketch"
   }
  ]
 }

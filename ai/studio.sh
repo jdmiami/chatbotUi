@@ -12,7 +12,11 @@ S="${STUDIO_DIR:-$P/studio}"
 COMFY_VERSION=v0.41.2
 TORCH="torch==2.11.0 torchvision==0.26.0 torchaudio==2.11.0"
 TORCH_INDEX=https://download.pytorch.org/whl/cu128
-STAMP="$COMFY_VERSION $TORCH"
+# Live draw's worker (gate/live_draw_worker.py: pix2pix-turbo) runs in the same Python; it needs these
+# on top of ComfyUI's own packages (transformers, safetensors, Pillow). Pinned: pix2pix-turbo uses
+# diffusers.utils.peft_utils.set_weights_and_activate_adapters, still there in 0.37.
+LIVE="diffusers==0.37.1 peft==0.18.1"
+STAMP="$COMFY_VERSION $TORCH $LIVE"
 
 log() { echo "[studio] $*"; }
 state() { if [ "${AI_ROLE:-main}" = "helper" ]; then echo "$*" > "$S/state-helper"; else echo "$*" > "$S/state"; fi; }
@@ -52,6 +56,8 @@ install() {
     # shellcheck disable=SC2086
     "$S/venv/bin/python" -m pip install -q $TORCH --index-url "$TORCH_INDEX" || return 1
     "$S/venv/bin/python" -m pip install -q -r "$S/ComfyUI/requirements.txt" || return 1
+    # shellcheck disable=SC2086
+    "$S/venv/bin/python" -m pip install -q $LIVE || return 1
     echo "$STAMP" > "$S/venv/.installed"
   fi
 }
