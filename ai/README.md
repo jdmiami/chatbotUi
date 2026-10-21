@@ -27,6 +27,12 @@ images & videos (playground, Orbit) ──> gate :8080 /_orbit/studio ──> Co
   - In the playground: **Image maker** and **Video maker** in the model list (a pipe installed by the
     gate) and the built-in image button (`/v1/images/generations` on the gate).
   - In Orbit: the AI app's **Create** tab, with a gallery kept in R2.
+  - Video makers from the Store (`workflows.js`, each mirroring a ComfyUI template; `media.js` prepares
+    the videos and sounds with ffmpeg first): **LTX-2.5** (gated: needs `HF_TOKEN`, see Set up),
+    **Talking photo** (Wan 2.2 S2V), **Wan VACE** (replace a thing named in words with SAM 3.1,
+    restyle, extend, move a photo), **Erase from video** (VACE + SAM 3.1, same files) and
+    **Sharpen video** (SeedVR2 3B). Videos and sounds are sent to `POST /_orbit/studio/uploads`
+    (200 MB / 30 MB) and kept a day in `uploads/`.
   - One content rule, applied by the gate to every request: no sexual content involving minors.
   - Chat models are unloaded from the GPU before a job; ComfyUI frees the GPU 3 minutes after the last one.
 - **Gate** (`gate/`, Node, no dependencies): the only exposed port.

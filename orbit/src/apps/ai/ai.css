@@ -375,7 +375,7 @@
 .ai-voice-bar .btn { min-height: var(--tap, 44px); padding: 0 18px; }
 
 /* ---- Create: makers, styles, editing */
-.ai-maker-picks { display: flex; gap: 6px; overflow-x: auto; padding-bottom: 2px; scrollbar-width: none; }
+.ai-maker-picks { display: flex; flex-wrap: wrap; gap: 6px; padding-bottom: 2px; }
 .ai-maker-picks::-webkit-scrollbar { display: none; }
 .ai-maker-chip { flex: none; display: inline-flex; align-items: center; gap: 4px; min-height: var(--tap, 44px); padding: 0 14px; border-radius: 999px; border: 1px solid var(--border); background: var(--surface); color: var(--text); font: inherit; font-size: var(--fs-sm); cursor: pointer; }
 .ai-maker-chip[aria-checked='true'] { background: var(--accent); border-color: var(--accent); color: #fff; }
@@ -458,3 +458,14 @@
   .meme-queue-item { grid-template-columns: auto minmax(0, 1fr); }
   .meme-queue-actions { grid-column: 2; }
 }
+
+/* ---- Create: a video or a sound to work on (VideoInputs.tsx) */
+.ai-media-pick { display: grid; gap: 8px; justify-items: start; min-width: 0; }
+.ai-media-chosen { display: flex; align-items: center; gap: var(--space-2, 10px); width: 100%; min-width: 0; }
+.ai-media-chosen .ai-muted { flex: 1; min-width: 0; }
+.ai-media-thumb { flex: none; }
+.ai-media-thumb video { display: block; width: 112px; height: 64px; object-fit: cover; border-radius: var(--radius-sm); background: #000; }
+.ai-media-chosen audio { flex: 1; min-width: 0; max-width: 100%; height: 44px; }
+.ai-media-buttons { display: flex; gap: 8px; flex-wrap: wrap; }
+.ai-media-pick .btn { min-height: var(--tap, 44px); }
+.ai-target { width: 100%; min-height: var(--tap, 44px); box-sizing: border-box; }

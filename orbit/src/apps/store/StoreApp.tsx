@@ -41,10 +41,21 @@ const MAKER_SHELVES: { id: string; title: string; dek: string; kinds: StudioMake
   { id: 'store-pictures', title: 'Pictures', dek: 'Each paints in its own hand.', kinds: ['image'] },
   { id: 'store-video', title: 'Video', dek: 'Moving pictures, with sound.', kinds: ['video'] },
   { id: 'store-edit', title: 'Editing', dek: 'Change, restage or restore a picture you have.', kinds: ['edit'] },
+  { id: 'store-video-edit', title: 'Video editing', dek: 'Change, erase or sharpen a video you have.', kinds: ['videoedit'] },
   { id: 'store-upscale', title: 'Sharpen & enlarge', dek: 'Make small pictures big and crisp.', kinds: ['upscale'] },
   { id: 'store-styles', title: 'Styles', dek: 'Looks to lay over a picture maker.', kinds: ['style'] },
 ];
-const KIND_NAME: Record<StudioMakerInfo['kind'], string> = { image: 'Picture maker', video: 'Video maker', edit: 'Picture editor', upscale: 'Upscaler', style: 'Style' };
+const KIND_NAME: Record<StudioMakerInfo['kind'], string> = { image: 'Picture maker', video: 'Video maker', edit: 'Picture editor', upscale: 'Upscaler', style: 'Style', videoedit: 'Video editor' };
+const NEED_WORDS: Record<string, string> = { video: 'a video', audio: 'a voice or song', photo: 'a photo', target: 'words naming what to change' };
+/** "A video and a voice or song" */
+function needsText(m: StudioMakerInfo): string | null {
+  const list = (m.needs ?? []).map((n) => NEED_WORDS[n]).filter(Boolean);
+  if (!list.length) return m.twoImages ? 'Two pictures' : m.kind === 'edit' || m.kind === 'upscale' ? 'A picture to start from' : null;
+  const s = list.length > 1 ? `${list.slice(0, -1).join(', ')} and ${list.at(-1)}` : list[0];
+  return s[0].toUpperCase() + s.slice(1);
+}
+const TOKEN_HELP =
+  'LTX-2.5 is gated on Hugging Face. Accept its licence at huggingface.co/Lightricks/LTX-2.5, add your token in Runpod as the secret hf_token, set AI_HF_TOKEN_SECRET=hf_token in Vercel, then turn the AI machine off and on.';
 
 type Filter = 'all' | 'chat' | 'makers' | 'library';
 
@@ -68,7 +79,7 @@ function Tile({ item, size = 56 }: { item: Item; size?: number }) {
       aria-hidden
       style={{ width: size, height: size, background: `linear-gradient(145deg, hsl(${h} 46% 38%), hsl(${(h + 40) % 360} 52% 18%))` }}
     >
-      {glyph ? <Icon name={glyph === 'video' ? 'film' : glyph === 'style' ? 'sparkle' : glyph === 'upscale' ? 'search' : 'image'} size={Math.round(size * 0.42)} /> : <span>{letter}</span>}
+      {glyph ? <Icon name={glyph === 'video' || glyph === 'videoedit' ? 'film' : glyph === 'style' ? 'sparkle' : glyph === 'upscale' ? 'search' : 'image'} size={Math.round(size * 0.42)} /> : <span>{letter}</span>}
     </span>
   );
 }
@@ -203,7 +214,7 @@ export default function StoreApp({ isActive }: AppProps) {
   };
 
   /** What the main button says and does. */
-  function action(item: Item): { label: string; state: 'get' | 'progress' | 'have' | 'wait'; percent?: number } {
+  function action(item: Item): { label: string; state: 'get' | 'progress' | 'have' | 'wait' | 'token'; percent?: number } {
     if (item.type === 'chat') {
       const pull = pullOf(item.entry);
       if (pull && !pull.done) return { label: pull.percent > 0 ? `${pull.percent}%` : 'Starting', state: 'progress', percent: pull.percent };
@@ -211,6 +222,7 @@ export default function StoreApp({ isActive }: AppProps) {
       return { label: machineOn ? `Get · ${formatSize(item.entry.size)}` : 'Get', state: machineOn ? 'get' : 'wait' };
     }
     const m = item.maker;
+    if (m.needsToken && !m.installed) return { label: 'Needs a token', state: 'token' };
     if (m.wanted && !m.installed) return { label: `${m.percent}%`, state: 'progress', percent: m.percent };
     if (m.installed) return { label: 'Open', state: 'have' };
     return { label: machineOn ? `Get${m.size ? ` · ${formatSize(m.size)}` : ''}` : 'Get', state: machineOn ? 'get' : 'wait' };
@@ -234,9 +246,10 @@ export default function StoreApp({ isActive }: AppProps) {
         onClick={(e) => {
           e.stopPropagation();
           if (a.state === 'have') use(item);
+          else if (a.state === 'token') toast(TOKEN_HELP, 'info');
           else void get(item);
         }}
-        aria-label={a.state === 'have' ? `Open ${titleOf(item)}` : `Get ${titleOf(item)}`}
+        aria-label={a.state === 'have' ? `Open ${titleOf(item)}` : a.state === 'token' ? `${titleOf(item)} needs a Hugging Face token` : `Get ${titleOf(item)}`}
       >
         {a.label}
       </button>
@@ -570,7 +583,9 @@ function Detail({
           : `Fits this machine (needs about ${formatSize(gpuNeed(size))} of 48 GB GPU memory)`
     : m?.installed
       ? 'On your machine'
-      : 'Fits this machine';
+      : m?.needsToken
+        ? 'Needs a Hugging Face token on your AI machine'
+        : 'Fits this machine';
   const abilities = e?.abilities ? [e.abilities.vision && 'Sees pictures', e.abilities.tools && 'Uses tools', e.abilities.thinking && 'Thinks step by step'].filter(Boolean).join(', ') : null;
   const specs: [string, React.ReactNode][] = (
     e
@@ -600,7 +615,9 @@ function Detail({
           ['Makes', d.output],
           ['Best size', d.resolution],
           ['Steps', d.steps ? `${d.steps} (more is slower, finer)` : null],
-          ['Needs', m?.twoImages ? 'Two pictures' : m?.kind === 'edit' || m?.kind === 'upscale' ? 'A picture to start from' : null],
+          ['Needs', m ? needsText(m) : null],
+          ['GPU memory', d.gpu],
+          ['Access', d.gated || m?.gated ? (m?.needsToken ? 'Gated: your AI machine needs a Hugging Face token first' : 'Gated on Hugging Face (needs a token)') : null],
           ['Works with', m?.for ? `${m.for === 'krea-real' ? 'Krea Real' : m.for}` : null],
           ['Trigger words', d.trigger],
           ['Licence', d.license],
@@ -658,6 +675,16 @@ function Detail({
             </ul>
           </section>
         ) : null}
+        {m?.needsToken && (
+          <p className="st-note" role="note">
+            {TOKEN_HELP}
+          </p>
+        )}
+        {m?.problem && !m.needsToken && (
+          <p className="st-note" role="note">
+            {m.problem}
+          </p>
+        )}
         {adult && <p className="st-note">Refusals removed: it answers without filtering. Orbit's one rule still applies everywhere: nothing sexual involving minors, and no undressing of real photos.</p>}
         <section aria-label="Specifications">
           <p className="o5-kicker">Specifications</p>

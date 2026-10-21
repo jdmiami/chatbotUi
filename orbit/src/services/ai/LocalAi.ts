@@ -134,20 +134,42 @@ export interface MemeLabState {
   records: MemeRecord[];
 }
 
+/** What a maker works from, besides words: a video, a voice or song, a photo, an end photo, words naming a thing. */
+export type StudioInput = 'video' | 'audio' | 'photo' | 'endPhoto' | 'target';
+/** Wan VACE: what to do with the video. */
+export type VideoTask = 'replace' | 'restyle' | 'extend' | 'motion';
+
 export interface StudioMakerInfo {
   id: string;
-  kind: 'image' | 'video' | 'edit' | 'upscale' | 'style';
+  kind: 'image' | 'video' | 'edit' | 'upscale' | 'style' | 'videoedit';
   name: string;
   blurb: string;
   /** For a style: the maker it belongs to. */
   for: string | null;
   /** Needs two pictures (outfit swap: the person, then the outfit). */
   twoImages: boolean;
+  /** What it must have, and what it can also take (older machines don't say). */
+  needs?: StudioInput[];
+  accepts?: StudioInput[];
+  /** Wan VACE's tasks. */
+  tasks?: VideoTask[];
+  /** Its files are gated on Hugging Face (LTX-2.5); needsToken: the machine has no token for them. */
+  gated?: boolean;
+  needsToken?: boolean;
+  /** Why its download is stuck, in plain words (a refused token). */
+  problem?: string | null;
   builtIn: boolean;
   wanted: boolean;
   installed: boolean;
   size: number;
   percent: number;
+}
+
+/** A video or sound sent to the AI machine for a maker to work on. */
+export interface StudioUpload {
+  id: string;
+  kind: 'video' | 'audio';
+  size: number;
 }
 
 export interface StudioRequest {
@@ -165,6 +187,18 @@ export interface StudioRequest {
   image?: string;
   /** Or a picture from the gallery, by id. */
   fromItem?: string;
+  /** The picture a video ends on, as a data URL. */
+  endImage?: string;
+  /** A gallery video to work on, or an uploaded one (StudioUpload id). */
+  videoItem?: string;
+  videoUpload?: string;
+  /** An uploaded voice or song (StudioUpload id). */
+  audioUpload?: string;
+  /** Wan VACE: what to do; target: the words naming what to replace or erase. */
+  task?: VideoTask;
+  target?: string;
+  /** LTX-2.5 video to video: change it a little or a lot. */
+  change?: 'little' | 'lot';
 }
 
 /** soReal: one shot of a movie (a video made from the last frame of the shot before). */
@@ -575,6 +609,11 @@ export class LocalAi {
 
   async removeStudioMaker(id: string): Promise<StudioMakerInfo[]> {
     return (await this.studioCall<{ makers: StudioMakerInfo[] }>('/_orbit/studio/makers/remove', { method: 'POST', body: JSON.stringify({ id }) })).makers;
+  }
+
+  /** Send a video or sound file (at most 200 MB / 30 MB) for a maker to work on. */
+  async uploadStudioMedia(file: Blob): Promise<StudioUpload> {
+    return this.studioCall<StudioUpload>('/_orbit/studio/uploads', { method: 'POST', body: file, headers: { 'content-type': file.type || 'application/octet-stream' } });
   }
 
   async createStudioJob(req: StudioRequest): Promise<StudioJob> {

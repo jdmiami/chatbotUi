@@ -6,12 +6,20 @@ import { ConfirmSheet, EmptyState, IconButton, Segmented, Sheet, Toggle } from '
 import { Censor } from '../../ui/Censor';
 import { isNsfw } from '../../ui/nsfw';
 import { rememberItems } from '../../ui/nsfwFlags';
-import { AiError, type LocalAi, type StudioItem, type StudioJob, type StudioKind, type StudioMakerInfo, type StudioState } from '../../services/ai/LocalAi';
+import { AiError, type LocalAi, type StudioItem, type StudioJob, type StudioKind, type StudioMakerInfo, type StudioState, type VideoTask } from '../../services/ai/LocalAi';
 import { MAKER_CATALOG, rememberMakers, rememberedMakers } from './makerCatalog';
+import { AudioSource, VideoSource, type AudioPick, type VideoPick } from './VideoInputs';
 import { TextArea } from '../../ui/TextArea';
 
-type Mode = StudioKind | 'edit';
-const DEFAULT_PICK: Record<Mode, string> = { image: 'qwen', video: 'ltx', edit: 'edit' };
+/** vedit: change, erase or sharpen a video you have. */
+type Mode = StudioKind | 'edit' | 'vedit';
+const DEFAULT_PICK: Record<Mode, string> = { image: 'qwen', video: 'ltx', edit: 'edit', vedit: 'vace' };
+const TASKS: Record<VideoTask, { label: string; placeholder: string }> = {
+  replace: { label: 'Replace', placeholder: 'What goes there instead? e.g. a white horse' },
+  restyle: { label: 'Restyle', placeholder: 'The new look, e.g. a watercolour painting' },
+  extend: { label: 'Extend', placeholder: 'What happens next?' },
+  motion: { label: 'Move a photo', placeholder: 'Describe the scene, e.g. she dances in a sunlit room' },
+};
 const ANGLES = ['front-right quarter view, eye-level shot', 'right side view, eye-level shot', 'back view, eye-level shot', 'left side view, eye-level shot', 'front view, high-angle shot', 'front view, eye-level shot close-up'];
 
 function loadPick(): Record<Mode, string> {
@@ -105,6 +113,15 @@ export function CreateView({
   const [startItem, setStartItem] = useState<string | null>(null);
   /** Pictures to edit: up to two (outfit swap: the person, then the outfit). */
   const [editImages, setEditImages] = useState<{ src: string; item?: string }[]>([]);
+  /** Video makers: the video to work on, a voice or song, the end photo, and what to do. */
+  const [video, setVideo] = useState<VideoPick | null>(null);
+  const [audio, setAudio] = useState<AudioPick | null>(null);
+  const [endImage, setEndImage] = useState<string | null>(null);
+  const [task, setTask] = useState<VideoTask>('replace');
+  const [target, setTarget] = useState('');
+  const [change, setChange] = useState<'little' | 'lot'>('lot');
+  /** Wan VACE: a picture of the new thing (replace) or of who should move (motion). */
+  const [refPhoto, setRefPhoto] = useState<{ src: string; item?: string } | null>(null);
   const [studio, setStudio] = useState<StudioState | null>(null);
   const [studioError, setStudioError] = useState<string | null>(null);
   const [makers, setMakersState] = useState<StudioMakerInfo[] | null>(null);
@@ -128,6 +145,8 @@ export function CreateView({
   const [confirmDelete, setConfirmDelete] = useState<StudioItem | null>(null);
   const fileInput = useRef<HTMLInputElement>(null);
   const editInput = useRef<HTMLInputElement>(null);
+  const endInput = useRef<HTMLInputElement>(null);
+  const refInput = useRef<HTMLInputElement>(null);
 
   const setPick = (mode: Mode, id: string) =>
     setPickState((prev) => {
@@ -189,30 +208,64 @@ export function CreateView({
   }, [running.map((j) => j.id).join(','), ai, loadItems]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Makers for this mode: the installed ones, plus the one picked (even while it downloads).
-  const kindsFor = (m: Mode): StudioMakerInfo['kind'][] => (m === 'edit' ? ['edit', 'upscale'] : [m]);
+  const kindsFor = (m: Mode): StudioMakerInfo['kind'][] => (m === 'edit' ? ['edit', 'upscale'] : m === 'vedit' ? ['videoedit'] : [m]);
   const choices = known.filter((m) => kindsFor(kind).includes(m.kind) && (m.installed || m.wanted));
   const chosen = known.find((m) => m.id === pick[kind]) ?? known.find((m) => m.id === DEFAULT_PICK[kind]) ?? null;
   const chosenId = chosen?.id ?? DEFAULT_PICK[kind];
   const styles = known.filter((m) => m.kind === 'style' && m.for === chosenId && m.installed);
   const sharpen = chosen?.kind === 'upscale';
   const needImages = kind === 'edit' ? (chosen?.twoImages ? 2 : 1) : 0;
-  const builtInMaker = studio?.[kind === 'video' ? 'video' : 'image'];
+  // What the chosen maker works from (video makers): the machine says; older ones don't.
+  const needs = chosen?.needs ?? [];
+  const accepts = chosen?.accepts ?? [];
+  const tasks = kind === 'vedit' ? (chosen?.tasks ?? []) : [];
+  const vTask: VideoTask | 'erase' | null = kind !== 'vedit' ? null : tasks.length ? (tasks.includes(task) ? task : tasks[0]) : needs.includes('target') ? 'erase' : null;
+  const sharpenVideo = kind === 'vedit' && !tasks.length && !needs.includes('target');
+  const talking = kind === 'video' && needs.includes('audio');
+  const takesVideo = kind === 'vedit' || (kind === 'video' && accepts.includes('video'));
+  const restyling = kind === 'video' && takesVideo && Boolean(video);
+  const wantsTarget = vTask === 'replace' || vTask === 'erase';
+  const wantsRef = vTask === 'replace' || vTask === 'motion';
+  const noWords = sharpenVideo || vTask === 'erase';
+  const promptOk = sharpen || noWords || talking || Boolean(prompt.trim());
+  const inputsOk =
+    kind === 'vedit'
+      ? Boolean(video) && (!wantsTarget || Boolean(target.trim())) && (vTask !== 'motion' || Boolean(refPhoto))
+      : kind === 'video' && talking
+        ? Boolean(startImage) && Boolean(audio)
+        : editImages.length >= needImages;
+  const builtInMaker = studio?.[kind === 'video' || kind === 'vedit' ? 'video' : 'image'];
   const makerReady = machineOn && Boolean(studio?.running) && (chosen ? chosen.installed : Boolean(builtInMaker?.ready));
-  const canMake = makerReady && (sharpen || Boolean(prompt.trim())) && editImages.length >= needImages && !submitting;
+  const canMake = makerReady && promptOk && inputsOk && !submitting;
 
   const make = async () => {
     if (!canMake) return;
     setSubmitting(true);
     try {
       const fromGallery = kind === 'edit' ? editImages.find((p, i) => i === 0 && p.item)?.item : undefined;
+      const videoRef = video ? (video.item ? { videoItem: video.item } : { videoUpload: video.upload }) : {};
       const job = await ai.createStudioJob({
-        kind: kind === 'video' ? 'video' : 'image',
+        kind: kind === 'video' || kind === 'vedit' ? 'video' : 'image',
         maker: chosenId,
-        prompt: prompt.trim(),
-        ...(kind !== 'edit' ? { size: size[kind] } : {}),
+        prompt: noWords ? '' : prompt.trim(),
+        ...(kind === 'image' || kind === 'video' ? { size: size[kind] } : {}),
         ...(style && styles.some((s) => s.id === style) ? { style } : {}),
-        ...(kind === 'video'
-          ? { seconds: Number(seconds), ...(startItem ? { fromItem: startItem } : { image: startImage ?? undefined }) }
+        ...(kind === 'video' && restyling ? { ...videoRef, change } : {}),
+        ...(kind === 'video' && !restyling
+          ? {
+              seconds: Number(seconds),
+              ...(startItem ? { fromItem: startItem } : { image: startImage ?? undefined }),
+              ...(endImage && accepts.includes('endPhoto') ? { endImage } : {}),
+              ...(talking && audio ? { audioUpload: audio.upload } : {}),
+            }
+          : {}),
+        ...(kind === 'vedit'
+          ? {
+              ...videoRef,
+              ...(tasks.length && vTask && vTask !== 'erase' ? { task: vTask } : {}),
+              ...(wantsTarget ? { target: target.trim() } : {}),
+              ...(wantsRef && refPhoto ? (refPhoto.item ? { fromItem: refPhoto.item } : { image: refPhoto.src }) : {}),
+            }
           : {}),
         ...(kind === 'edit'
           ? {
@@ -274,6 +327,35 @@ export function CreateView({
     if (maker !== 'sharpen') toast('Describe the change, then tap Edit.', 'info');
   };
 
+  /** A gallery video into Video edit, with the maker that does what was tapped. */
+  const workOnVideo = (item: StudioItem, maker: string, hint: string) => {
+    setKind('vedit');
+    setPick('vedit', maker);
+    setVideo({ src: item.url, item: item.id, nsfw: item.nsfw === true || isNsfw(item.prompt), label: item.prompt });
+    setPrompt('');
+    setTarget('');
+    setViewing(null);
+    toast(hint, 'info');
+  };
+  const installed = (id: string) => known.some((m) => m.id === id && m.installed);
+
+  const pickRef = async (file: File | undefined) => {
+    if (!file) return;
+    try {
+      setRefPhoto({ src: await toDataUrl(file) });
+    } catch {
+      toast('That picture could not be read.', 'error');
+    }
+  };
+  const pickEnd = async (file: File | undefined) => {
+    if (!file) return;
+    try {
+      setEndImage(await toDataUrl(file));
+    } catch {
+      toast('That picture could not be read.', 'error');
+    }
+  };
+
   const status = (() => {
     if (!machineOn) return 'Turn on your AI machine to make images and videos.';
     if (studioError) return studioError;
@@ -282,10 +364,19 @@ export function CreateView({
     if (!chosen && !builtInMaker?.downloaded) return `The maker is downloading (first start only): ${builtInMaker?.percent ?? 0}%.`;
     if (!studio.running) return studio.setup.startsWith('error') ? `The maker had a problem: ${studio.setup.slice(6).trim()}` : 'The image and video maker is starting…';
     if (kind === 'edit') return needImages === 2 && editImages.length < 2 ? 'Add the person first, then the outfit.' : sharpen ? 'Makes the picture four times larger and crisper.' : 'Edits take under a minute.';
+    if (kind === 'vedit') {
+      if (!video) return 'Add the video to work on.';
+      if (wantsTarget && !target.trim()) return vTask === 'erase' ? 'Say what to erase.' : 'Say what to replace.';
+      if (vTask === 'motion' && !refPhoto) return 'Add a photo of who should move.';
+      return sharpenVideo ? 'Makes the video twice as large and crisper: a few minutes.' : 'Works on the first 5 seconds. Video edits take a few minutes.';
+    }
+    if (talking) return !startImage ? 'Add a photo of the person.' : !audio ? 'Add a voice recording or a song.' : 'Talking videos take a few minutes.';
+    if (restyling) return 'Keeps the motion and the sound of your video (up to 10 s).';
     return kind === 'image' ? 'Images take under a minute.' : 'Videos with sound take a few minutes.';
   })();
 
-  const verb = kind === 'image' ? 'Make image' : kind === 'video' ? 'Make video' : sharpen ? 'Sharpen' : 'Edit';
+  const verb =
+    kind === 'image' ? 'Make image' : kind === 'video' ? 'Make video' : kind === 'vedit' ? (sharpenVideo ? 'Sharpen video' : vTask === 'erase' ? 'Erase it' : 'Edit video') : sharpen ? 'Sharpen' : 'Edit';
 
   return (
     <div className="ai-create">
@@ -307,6 +398,7 @@ export function CreateView({
                   ['image', 'A picture', 'From a description'],
                   ['video', 'A video', 'With sound, from words or a photo'],
                   ['edit', 'An edit', 'Change a photo with words'],
+                  ['vedit', 'Edit a video', 'Change, erase or sharpen one you have'],
                 ] as const
               ).map(([v, label, hint]) => (
                 <button
@@ -334,6 +426,7 @@ export function CreateView({
                 { value: 'image', label: 'Image' },
                 { value: 'video', label: 'Video' },
                 { value: 'edit', label: 'Edit' },
+                { value: 'vedit', label: 'Video edit' },
               ]}
             />
           )}
@@ -366,7 +459,58 @@ export function CreateView({
           </div>
         )}
         </Step>
-        <Step on={o5} n="03" id="o5-make-describe" title={kind === 'edit' ? 'Show it, then say the change' : 'Describe it'}>
+        <Step on={o5} n="03" id="o5-make-describe" title={kind === 'edit' || kind === 'vedit' ? 'Show it, then say the change' : 'Describe it'}>
+        {kind === 'vedit' && (
+          <>
+            <VideoSource ai={ai} value={video} onChange={setVideo} onError={(m) => toast(m, 'error')} />
+            {tasks.length > 0 && (
+              <div className="ai-maker-picks" role="radiogroup" aria-label="What to do">
+                {tasks.map((t) => (
+                  <button key={t} type="button" role="radio" aria-checked={vTask === t} className="ai-maker-chip" onClick={() => setTask(t)}>
+                    {TASKS[t].label}
+                  </button>
+                ))}
+              </div>
+            )}
+            {wantsTarget && (
+              <input
+                className="input ai-target"
+                value={target}
+                onChange={(e) => setTarget(e.target.value)}
+                aria-label={vTask === 'erase' ? 'What to erase' : 'What to replace'}
+                placeholder={vTask === 'erase' ? 'What to erase, e.g. the man in the red shirt' : 'What to replace, e.g. the red car'}
+                maxLength={200}
+                enterKeyHint="done"
+              />
+            )}
+            {wantsRef && (
+              <div className="ai-create-photo">
+                {refPhoto ? (
+                  <>
+                    <img src={refPhoto.src} alt={vTask === 'motion' ? 'Who should move' : 'The new thing'} />
+                    <span className="ai-muted">{vTask === 'motion' ? 'This person moves like the video.' : 'It looks like this picture.'}</span>
+                    <IconButton icon="close" label="Remove the picture" onClick={() => setRefPhoto(null)} />
+                  </>
+                ) : (
+                  <button type="button" className="btn ghost" onClick={() => refInput.current?.click()}>
+                    <Icon name="image" size={18} /> {vTask === 'motion' ? 'Add a photo of who should move' : 'Add a picture of it (optional)'}
+                  </button>
+                )}
+                <input
+                  ref={refInput}
+                  type="file"
+                  accept="image/*"
+                  hidden
+                  aria-label="Picture for the video edit"
+                  onChange={(e) => {
+                    void pickRef(e.target.files?.[0]);
+                    e.target.value = '';
+                  }}
+                />
+              </div>
+            )}
+          </>
+        )}
         {kind === 'edit' && (
           <div className="ai-edit-photos">
             {editImages.map((p, i) => (
@@ -392,14 +536,20 @@ export function CreateView({
             />
           </div>
         )}
-        {!sharpen && (
+        {!sharpen && !noWords && (
           <TextArea
             value={prompt}
             onChange={(e) => setPrompt(e.target.value)}
             rows={3}
             aria-label="Describe it"
             placeholder={
-              kind === 'edit'
+              kind === 'vedit' && vTask && vTask in TASKS
+                ? TASKS[vTask as VideoTask].placeholder
+                : talking
+                  ? 'Describe the scene (optional), e.g. she sings softly on a stage'
+                  : restyling
+                    ? 'The new look, e.g. as a claymation'
+                    : kind === 'edit'
                 ? chosenId === 'angles'
                   ? 'Which angle? e.g. back view, eye-level shot'
                   : chosenId === 'outfit'
@@ -423,15 +573,58 @@ export function CreateView({
           </div>
         )}
         </Step>
-        {(kind !== 'edit' || !o5) && (
-        <Step on={o5} n="04" id="o5-make-shape" title={kind === 'video' ? 'Shape, length and start' : 'Shape'}>
-        {kind !== 'edit' && (
+        {((kind !== 'edit' && kind !== 'vedit') || !o5) && (
+        <Step on={o5} n="04" id="o5-make-shape" title={kind === 'video' ? (talking ? 'Shape, photo and sound' : 'Shape, length and start') : 'Shape'}>
+        {(kind === 'image' || kind === 'video') && !restyling && (
           <div className="ai-create-options">
             <Segmented label="Shape" value={size[kind]} onChange={(v) => setSize((s) => ({ ...s, [kind]: v }))} options={SIZES[kind]} />
-            {kind === 'video' && <Segmented label="Length" value={seconds} onChange={setSeconds} options={LENGTHS} />}
+            {kind === 'video' && !talking && <Segmented label="Length" value={seconds} onChange={setSeconds} options={LENGTHS} />}
           </div>
         )}
-        {kind === 'video' && (
+        {restyling && (
+          <div className="ai-create-options">
+            <Segmented
+              label="How much to change"
+              value={change}
+              onChange={setChange}
+              options={[
+                { value: 'little', label: 'A little' },
+                { value: 'lot', label: 'A lot' },
+              ]}
+            />
+          </div>
+        )}
+        {kind === 'video' && takesVideo && !startImage && !endImage && (
+          <VideoSource ai={ai} value={video} onChange={setVideo} onError={(m) => toast(m, 'error')} hint="Or restyle a video you have: it keeps the motion and the sound." />
+        )}
+        {talking && <AudioSource ai={ai} value={audio} onChange={setAudio} onError={(m) => toast(m, 'error')} />}
+        {kind === 'video' && accepts.includes('endPhoto') && !restyling && (
+          <div className="ai-create-photo">
+            {endImage ? (
+              <>
+                <img src={endImage} alt="Ending photo" />
+                <span className="ai-muted">The video ends on this photo.</span>
+                <IconButton icon="close" label="Remove the ending photo" onClick={() => setEndImage(null)} />
+              </>
+            ) : (
+              <button type="button" className="btn ghost" onClick={() => endInput.current?.click()}>
+                <Icon name="image" size={18} /> End on a photo
+              </button>
+            )}
+            <input
+              ref={endInput}
+              type="file"
+              accept="image/*"
+              hidden
+              aria-label="Ending photo file"
+              onChange={(e) => {
+                void pickEnd(e.target.files?.[0]);
+                e.target.value = '';
+              }}
+            />
+          </div>
+        )}
+        {kind === 'video' && !restyling && (
           <div className="ai-create-photo">
             {startImage ? (
               <>
@@ -448,7 +641,7 @@ export function CreateView({
               </>
             ) : (
               <button type="button" className="btn ghost" onClick={() => fileInput.current?.click()}>
-                <Icon name="image" size={18} /> Start from a photo
+                <Icon name="image" size={18} /> {talking ? 'Add a photo of the person' : 'Start from a photo'}
               </button>
             )}
             <input
@@ -465,9 +658,9 @@ export function CreateView({
         )}
         </Step>
         )}
-        <Step on={o5} n={kind === 'edit' ? '04' : '05'} id="o5-make-go" title="Make it">
+        <Step on={o5} n={kind === 'edit' || kind === 'vedit' ? '04' : '05'} id="o5-make-go" title="Make it">
         <button type="submit" className="btn primary ai-make" disabled={!canMake}>
-          <Icon name={kind === 'video' ? 'film' : kind === 'edit' ? 'pencil' : 'image'} size={18} /> {submitting ? 'Starting…' : verb}
+          <Icon name={kind === 'video' || kind === 'vedit' ? 'film' : kind === 'edit' ? 'pencil' : 'image'} size={18} /> {submitting ? 'Starting…' : verb}
         </button>
         <p className="ai-muted" role="status">
           {status}
@@ -583,6 +776,7 @@ export function CreateView({
                 className="btn"
                 onClick={() => {
                   setKind(viewing.kind);
+                  setVideo(null);
                   setPrompt(viewing.prompt === 'Sharpened 4×' ? '' : viewing.prompt);
                   setViewing(null);
                 }}
@@ -600,6 +794,25 @@ export function CreateView({
                   {makers?.some((m) => m.id === 'sharpen' && m.installed) && (
                     <button type="button" className="btn" onClick={() => editItem(viewing, 'sharpen')}>
                       <Icon name="sparkle" size={16} /> Sharpen
+                    </button>
+                  )}
+                </>
+              )}
+              {viewing.kind === 'video' && (
+                <>
+                  {installed('vace') && (
+                    <button type="button" className="btn" onClick={() => workOnVideo(viewing, 'vace', 'Pick what to do, then describe the change.')}>
+                      <Icon name="pencil" size={16} /> Edit this video
+                    </button>
+                  )}
+                  {installed('video-erase') && (
+                    <button type="button" className="btn" onClick={() => workOnVideo(viewing, 'video-erase', 'Say what to erase, then tap Erase it.')}>
+                      <Icon name="close" size={16} /> Erase from video
+                    </button>
+                  )}
+                  {installed('video-sharpen') && (
+                    <button type="button" className="btn" onClick={() => workOnVideo(viewing, 'video-sharpen', 'Tap Sharpen video to make it twice as large and crisper.')}>
+                      <Icon name="sparkle" size={16} /> Sharpen video
                     </button>
                   )}
                 </>

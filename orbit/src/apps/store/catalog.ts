@@ -47,6 +47,10 @@ export interface MakerDetails {
   steps?: number;
   resolution?: string;
   output?: string;
+  /** GPU memory it uses, in plain words ("About 28 GB of the 48 GB"). */
+  gpu?: string;
+  /** Its files are gated on Hugging Face: the AI machine needs a token. */
+  gated?: boolean;
 }
 
 interface MakerDef {
@@ -57,25 +61,32 @@ interface MakerDef {
   for?: string;
   twoImages?: boolean;
   files: string[];
+  needs?: StudioMakerInfo['needs'];
+  accepts?: StudioMakerInfo['accepts'];
+  tasks?: StudioMakerInfo['tasks'];
 }
 interface Catalog {
   chat: ChatEntry[];
   makers: Record<string, MakerDetails>;
   /** Makers the machine can add beyond its built-in list (same entries the machine reads). */
   makerDefs?: MakerDef[];
-  files?: Record<string, { size: number }>;
+  files?: Record<string, { size: number; gated?: boolean }>;
 }
 
 export const CATALOG = raw as unknown as Catalog;
 
 /** The catalog's extra makers, shaped like the machine reports them (for when it is off). */
-export const CATALOG_MAKERS: Pick<StudioMakerInfo, 'id' | 'kind' | 'name' | 'blurb' | 'for' | 'twoImages' | 'size'>[] = (CATALOG.makerDefs ?? []).map((m) => ({
+export const CATALOG_MAKERS: Pick<StudioMakerInfo, 'id' | 'kind' | 'name' | 'blurb' | 'for' | 'twoImages' | 'size' | 'needs' | 'accepts' | 'tasks' | 'gated'>[] = (CATALOG.makerDefs ?? []).map((m) => ({
   id: m.id,
   kind: m.kind,
   name: m.name,
   blurb: m.blurb,
   for: m.for ?? null,
   twoImages: Boolean(m.twoImages),
+  needs: m.needs ?? [],
+  accepts: m.accepts ?? [],
+  tasks: m.tasks ?? [],
+  gated: m.files.some((k) => CATALOG.files?.[k]?.gated),
   // Only the files this maker adds (shared base models are counted where they first appear).
   size: m.files.reduce((n, k) => n + (CATALOG.files?.[k]?.size ?? 0), 0),
 }));

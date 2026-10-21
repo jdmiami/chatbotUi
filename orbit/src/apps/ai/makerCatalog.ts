@@ -16,6 +16,12 @@ const ENTRIES: Entry[] = [
   ['outfit', 'edit', 'Outfit swap', 'Dress the person in picture 1 in the outfit from picture 2.', { twoImages: true }],
   ['angles', 'edit', 'New angle', 'The same subject from another camera angle.'],
   ['sharpen', 'upscale', 'Sharpen 4×', 'Makes a picture four times larger and crisper.'],
+  // Video makers that take a video, a voice or song, or words naming a thing (ai/gate/catalog.json).
+  ['ltx-25', 'video', 'LTX-2.5', 'Lightricks’ newest: video with sound, first and last frame, and video to video. Needs a Hugging Face token.', { accepts: ['photo', 'endPhoto', 'video'], gated: true }],
+  ['s2v', 'video', 'Talking photo', 'A photo and a voice or song become a talking or singing video (Wan 2.2 S2V).', { needs: ['photo', 'audio'] }],
+  ['vace', 'videoedit', 'Wan VACE', 'Edit a video: replace something by naming it, restyle it, extend it, or move a photo like it.', { needs: ['video'], tasks: ['replace', 'restyle', 'extend', 'motion'] }],
+  ['video-erase', 'videoedit', 'Erase from video', 'Name what to remove (a person, a sign, a watermark) and it is gone from every frame.', { needs: ['video', 'target'] }],
+  ['video-sharpen', 'videoedit', 'Sharpen video', 'Makes a finished video twice as large and crisper (SeedVR2).', { needs: ['video'] }],
 ];
 
 export const MAKER_CATALOG: StudioMakerInfo[] = ENTRIES.map(([id, kind, name, blurb, extra]) => {
