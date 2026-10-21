@@ -375,6 +375,22 @@ export interface MovieEstimate {
 
 export type ContentPart = { type: 'text'; text: string } | { type: 'image_url'; image_url: { url: string } };
 
+export interface StorageReport {
+  at: string;
+  disks: { label: string; path?: string; total: number; free: number }[];
+  /** Cloudflare R2; null when the AI machine keeps nothing there. */
+  cloud: {
+    bytes: number;
+    files: number;
+    freeBytes: number;
+    perGbMonth: number;
+    costPerMonth: number;
+    folders: { id: string; label: string; bytes: number; files: number }[];
+  } | null;
+  /** Gallery items by size, biggest first. */
+  items: { id: string; bytes: number }[];
+}
+
 export interface ChatMessage {
   role: 'system' | 'user' | 'assistant';
   /** Text, or text plus photos for models that can see. */
@@ -799,10 +815,16 @@ export class LocalAi {
     return this.labAbsolute(await this.studioCall<MemeLabState>(`/_orbit/studio/lab/${encodeURIComponent(id)}`, { method: 'DELETE' }));
   }
 
+<<<<<<< HEAD
   /** Add something made in the cloud (a data: URL or a cloud maker's https link) to the gallery. */
   async importCloudItem(body: { url: string; kind: 'image' | 'video'; prompt: string; maker: string }): Promise<StudioItem> {
     const r = await this.studioCall<{ item: StudioItem }>('/_orbit/studio/import', { method: 'POST', body: JSON.stringify(body) });
     return this.absolute(r.item);
+=======
+  /** What is kept in cloud storage (by folder, each gallery item's size) and its monthly cost. */
+  storage(fresh = false): Promise<StorageReport> {
+    return this.studioCall<StorageReport>(`/_orbit/storage${fresh ? '?fresh=1' : ''}`);
+>>>>>>> origin/main
   }
 
   async deleteStudioItem(id: string): Promise<void> {

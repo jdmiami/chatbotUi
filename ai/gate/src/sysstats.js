@@ -150,5 +150,5 @@ export function createSysStats({ volume = '/workspace', procRoot = '/proc', cgro
     };
   }
 
-  return { collect };
+  return { collect, disks };
 }

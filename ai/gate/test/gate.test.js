@@ -52,6 +52,7 @@ before(async () => {
       activity: () => activity++,
       status: async () => ({ ready: true }),
       stats: async () => ({ cpu: { percent: 12 }, gpus: [{ name: 'A40' }] }),
+      storage: { get: async ({ fresh }) => ({ fresh, cloud: { bytes: 1 } }), forget() {} },
       keepAwake: (m) => Date.UTC(2030, 0, 1) + m * 60_000,
       idleState: () => ({ limitMinutes: 20, idleMinutes: 3 }),
       push: createPush({ secret: SECRET, subject: 'mailto:o@x', log: {} }),
@@ -385,6 +386,15 @@ test('stats: token or session required, and reading them does not keep the machi
   assert.equal(res.status, 200);
   assert.deepEqual(await res.json(), { cpu: { percent: 12 }, gpus: [{ name: 'A40' }] });
   assert.equal(activity, before, 'polling stats is not activity');
+});
+
+test('storage: token or session required; ?fresh=1 lists again; not activity', async () => {
+  assert.equal((await fetch(`${base}/_orbit/storage`)).status, 401);
+  const before = activity;
+  const auth = { headers: { authorization: `Bearer ${apiToken()}` } };
+  assert.deepEqual(await (await fetch(`${base}/_orbit/storage`, auth)).json(), { fresh: false, cloud: { bytes: 1 } });
+  assert.deepEqual(await (await fetch(`${base}/_orbit/storage?fresh=1`, auth)).json(), { fresh: true, cloud: { bytes: 1 } });
+  assert.equal(activity, before, 'looking at storage is not activity');
 });
 
 test('keep awake: pushes the turn-off time back and counts as activity', async () => {

@@ -144,6 +144,64 @@ export async function money(): Promise<Money | null> {
   return value;
 }
 
+/** Runpod network volumes ("saved storage"): $0.07 per GB a month (under 1 TB). */
+export const VOLUME_PER_GB_MONTH = 0.07;
+
+export interface SpendDay {
+  date: string;
+  amount: number;
+  /** What the day's money went on. */
+  gpu: number;
+  cpu: number;
+  disk: number;
+  storage: number;
+}
+
+export interface SpendHistory {
+  days: SpendDay[];
+  total: number | null;
+  volumes: { id: string; name: string; sizeGb: number; dataCenter: string | null; costPerMonth: number }[];
+}
+
+type BillingRecord = Record<string, unknown>;
+const num = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) ? v : typeof v === 'string' && v.trim() && Number.isFinite(Number(v)) ? Number(v) : null);
+
+/** Spend per day for the last `days` days, oldest first, and the drives that cost money while off. */
+export async function spendHistory(days: number): Promise<SpendHistory> {
+  if (!process.env.RUNPOD_API_KEY) return { days: [], total: null, volumes: [] };
+  const [bill, vols] = await Promise.all([
+    runpod(`/billing?bucketSize=day&lastN=${days}`).catch(() => null) as Promise<{ records?: BillingRecord[]; metadata?: { totals?: { totalAmount?: number } } } | BillingRecord[] | null>,
+    runpod('/networkvolumes').catch(() => null) as Promise<{ id?: string; name?: string; size?: number; dataCenterId?: string }[] | null>,
+  ]);
+  const records = Array.isArray(bill) ? bill : bill?.records ?? [];
+  const out: SpendDay[] = [];
+  const sum = (r: BillingRecord, keys: string[]) => keys.reduce((t, k) => t + (num(r[k]) ?? 0), 0);
+  for (const r of records) {
+    const when = r.startTime ?? r.time ?? r.date;
+    const amount = num(r.totalAmount) ?? num(r.amount);
+    const at = typeof when === 'string' || typeof when === 'number' ? new Date(when) : null;
+    if (!at || Number.isNaN(at.getTime()) || amount == null) continue;
+    out.push({
+      date: at.toISOString().slice(0, 10),
+      amount,
+      gpu: sum(r, ['podGpuAmount', 'serverlessGpuAmount', 'clusterGpuAmount']),
+      cpu: sum(r, ['podCpuAmount', 'serverlessCpuAmount']),
+      disk: sum(r, ['podDiskAmount', 'serverlessDiskAmount', 'clusterDiskAmount']),
+      storage: sum(r, ['storageStandardAmount', 'storageHighPerformanceAmount']),
+    });
+  }
+  out.sort((a, b) => a.date.localeCompare(b.date));
+  const total = Array.isArray(bill) ? null : num(bill?.metadata?.totals?.totalAmount);
+  const volumes = (Array.isArray(vols) ? vols : []).map((v) => ({
+    id: String(v.id ?? ''),
+    name: String(v.name ?? 'Saved storage'),
+    sizeGb: Number(v.size) || 0,
+    dataCenter: v.dataCenterId ?? null,
+    costPerMonth: (Number(v.size) || 0) * VOLUME_PER_GB_MONTH,
+  }));
+  return { days: out, total: total ?? (out.length ? out.reduce((t, d) => t + d.amount, 0) : null), volumes };
+}
+
 async function linuxCard(user: string, detail: boolean): Promise<MachineCard | null> {
   const id = podId();
   if (!id) return null;

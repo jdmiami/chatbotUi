@@ -37,6 +37,7 @@ const raw: Record<AppId, () => Promise<{ default: ComponentType<AppProps> }>> = 
   store: () => import('./store/StoreApp'),
   soreal: () => import('./soreal/SoRealApp'),
   lab: () => import('./lab/LabApp'),
+  stats: () => import('./stats/StatsApp'),
   settings: () => import('./settings/SettingsApp'),
   playground: () => import('./portal/PortalApp').then((m) => ({ default: m.PlaygroundApp })),
   vscode: () => import('./portal/PortalApp').then((m) => ({ default: m.VsCodeApp })),
@@ -126,6 +127,15 @@ export const APPS: Record<AppId, AppMeta> = {
     tile: 'linear-gradient(145deg, #ff5f6d, #c2185b 55%, #4a148c)',
     glyph: '#fff1e0',
     component: lazy(loaders.soreal),
+  },
+  stats: {
+    id: 'stats',
+    name: 'Stats',
+    description: 'Every number: CPU, memory, GPU, network, disks, money and storage',
+    icon: 'sliders',
+    tile: 'linear-gradient(145deg, #7ee0b5, #1f8a70 55%, #12355b)',
+    glyph: '#f2fff8',
+    component: lazy(loaders.stats),
   },
   lab: {
     id: 'lab',

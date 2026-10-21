@@ -10,6 +10,7 @@ export type AppId =
   | 'store'
   | 'soreal'
   | 'lab'
+  | 'stats'
   | 'settings'
   // Full-screen apps that live on the site (Orbit shows their page and opens them).
   | 'playground'
@@ -228,4 +229,4 @@ function migrate(s: Settings): Settings {
   return { ...m, skin: 'o5' };
 }
 
-export const APP_ORDER: AppId[] = ['terminal', 'editor', 'agent', 'ai', 'make', 'store', 'soreal', 'lab', 'playground', 'vscode', 'desktop', 'windows', 'settings'];
+export const APP_ORDER: AppId[] = ['terminal', 'editor', 'agent', 'ai', 'make', 'store', 'soreal', 'lab', 'stats', 'playground', 'vscode', 'desktop', 'windows', 'settings'];

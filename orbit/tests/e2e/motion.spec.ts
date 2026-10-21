@@ -31,12 +31,19 @@ test.describe('motion levels', () => {
     expect(await icon.evaluate((el) => getComputedStyle(el).animationName)).toContain('mo-icon-pop');
 
     await page.getByRole('button', { name: /^Terminal\./ }).click();
-    // Mid-flight the window is scaled down and clipped to the icon.
+    // Mid-flight the window is scaled down and clipped to the icon (watched frame by frame: when it
+    // starts depends on how fast the app's code arrives).
     const mid = await terminalWindow(page).evaluate(
       (el) =>
-        new Promise<{ clip: string; transform: string }>((res) =>
-          setTimeout(() => res({ clip: getComputedStyle(el).clipPath, transform: getComputedStyle(el).transform }), 60),
-        ),
+        new Promise<{ clip: string; transform: string }>((res) => {
+          const t0 = performance.now();
+          const look = () => {
+            const s = getComputedStyle(el);
+            if ((s.clipPath.includes('inset') && s.transform !== 'none') || performance.now() - t0 > 1500) return res({ clip: s.clipPath, transform: s.transform });
+            requestAnimationFrame(look);
+          };
+          look();
+        }),
     );
     expect(mid.clip).toContain('inset');
     expect(mid.transform).not.toBe('none');

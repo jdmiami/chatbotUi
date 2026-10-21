@@ -317,12 +317,14 @@ export function createGate(cfg, log = console) {
     }
 
     // ---- live stats for the status panel (reading them doesn't count as using the machine)
-    if (path === '/_orbit/stats' || path === '/_orbit/keepawake') {
+    if (path === '/_orbit/stats' || path === '/_orbit/keepawake' || path === '/_orbit/storage') {
       if (!cors(req, res)) return send(res, 403, { error: 'Origin not allowed' });
       if (req.method === 'OPTIONS') return send(res, 204, '');
       if (!apiToken(req) && !session(req)) return send(res, 401, { error: 'Unauthorized' });
       try {
         if (path === '/_orbit/stats' && req.method === 'GET' && cfg.stats) return send(res, 200, await cfg.stats());
+        // What is kept (R2 by folder, each gallery item's size) and what it costs a month.
+        if (path === '/_orbit/storage' && req.method === 'GET' && cfg.storage) return send(res, 200, await cfg.storage.get({ fresh: url.searchParams.get('fresh') === '1' }));
         if (path === '/_orbit/keepawake' && req.method === 'POST' && cfg.keepAwake) {
           const { minutes } = JSON.parse((await readBody(req, 4096)) || '{}');
           activity();
@@ -660,7 +662,11 @@ export function createGate(cfg, log = console) {
         return it ? send(res, 200, { ok: true, nsfwUser: it.nsfwUser ?? null }) : send(res, 404, { error: 'That picture is gone.' });
       }
       const itemMatch = /^\/_orbit\/studio\/items\/([A-Za-z0-9_-]+)$/.exec(path);
-      if (itemMatch && req.method === 'DELETE') return send(res, (await studio.remove(itemMatch[1])) ? 200 : 404, { ok: true });
+      if (itemMatch && req.method === 'DELETE') {
+        const gone = await studio.remove(itemMatch[1]);
+        cfg.storage?.forget();
+        return send(res, gone ? 200 : 404, { ok: true });
+      }
       return send(res, 404, { error: 'Not found' });
     } catch (err) {
       const code = err.status || (err instanceof SyntaxError ? 400 : 500);
