@@ -223,7 +223,10 @@ export default function StoreApp({ isActive }: AppProps) {
     return { label: machineOn ? `Get${m.size ? ` · ${formatSize(m.size)}` : ''}` : 'Get', state: machineOn ? 'get' : 'wait' };
   }
 
-  function Button({ item, big }: { item: Item; big?: boolean }) {
+  // Plain render helpers, not components: a component declared inside StoreApp is a new type on
+  // every render, so each refresh (every few seconds) would throw away and rebuild every row,
+  // which on iPhone/iPad jumps the page back up and loses the tap in progress.
+  function button(item: Item, big?: boolean) {
     const a = action(item);
     const key = keyOf(item);
     if (a.state === 'progress')
@@ -254,7 +257,7 @@ export default function StoreApp({ isActive }: AppProps) {
     );
   }
 
-  function Row({ item }: { item: Item }) {
+  function row(item: Item, key: string) {
     const sub =
       item.type === 'chat'
         ? [item.entry.publisher, item.entry.params, formatSize(item.entry.size)].filter(Boolean).join(' · ')
@@ -264,7 +267,7 @@ export default function StoreApp({ isActive }: AppProps) {
     const blurb = item.type === 'chat' ? item.entry.blurb : item.maker.blurb;
     const adult = item.type === 'chat' ? item.entry.tags.includes('uncensored') : /uncensored/i.test(item.maker.blurb);
     return (
-      <li className="st-row" data-installed={action(item).state === 'have' || undefined}>
+      <li key={key} className="st-row" data-installed={action(item).state === 'have' || undefined}>
         <button type="button" className="st-row-open" onClick={() => setOpen(item)} aria-label={`${titleOf(item)}: details`}>
           <Tile item={item} />
           <span className="st-row-text">
@@ -276,7 +279,7 @@ export default function StoreApp({ isActive }: AppProps) {
             <span className="st-row-blurb">{blurb}</span>
           </span>
         </button>
-        <Button item={item} />
+        {button(item)}
       </li>
     );
   }
@@ -387,7 +390,7 @@ export default function StoreApp({ isActive }: AppProps) {
                       <span className="st-card-title">{e.title}</span>
                       <span className="st-card-blurb">{e.blurb}</span>
                     </button>
-                    <Button item={item} />
+                    {button(item)}
                   </li>
                 );
               })}
@@ -398,9 +401,7 @@ export default function StoreApp({ isActive }: AppProps) {
         {chatShelves.map((s) => (
           <MagChapter key={s.tag} n={++n} id={`store-chat-${s.tag}`} title={s.title} dek={s.dek}>
             <ul className="st-list" role="list">
-              {s.items.map((e) => (
-                <Row key={e.id} item={{ type: 'chat', entry: e }} />
-              ))}
+              {s.items.map((e) => row({ type: 'chat', entry: e }, e.id))}
             </ul>
           </MagChapter>
         ))}
@@ -408,9 +409,7 @@ export default function StoreApp({ isActive }: AppProps) {
         {makerShelves.map((s) => (
           <MagChapter key={s.id} n={++n} id={s.id} title={s.title} dek={s.dek}>
             <ul className="st-list" role="list">
-              {s.items.map((m) => (
-                <Row key={m.id} item={{ type: 'maker', maker: m }} />
-              ))}
+              {s.items.map((m) => row({ type: 'maker', maker: m }, m.id))}
             </ul>
           </MagChapter>
         ))}
@@ -419,9 +418,7 @@ export default function StoreApp({ isActive }: AppProps) {
           <MagChapter n={++n} id="store-library" title="Your library" dek="On your AI machine now. Only the model you chat with sits in the GPU.">
             {!machineOn && !libMakers.length && <p className="st-muted">Turn the machine on to see what it holds.</p>}
             <ul className="st-list" role="list">
-              {libChat.map((e) => (
-                <Row key={e.id} item={{ type: 'chat', entry: e }} />
-              ))}
+              {libChat.map((e) => row({ type: 'chat', entry: e }, e.id))}
               {extraInstalled.map((m) => (
                 <li key={m.name} className="st-row" data-installed>
                   <span className="st-row-open">
@@ -442,9 +439,7 @@ export default function StoreApp({ isActive }: AppProps) {
                   </button>
                 </li>
               ))}
-              {libMakers.map((m) => (
-                <Row key={m.id} item={{ type: 'maker', maker: m }} />
-              ))}
+              {libMakers.map((m) => row({ type: 'maker', maker: m }, m.id))}
             </ul>
           </MagChapter>
         )}
@@ -527,7 +522,7 @@ export default function StoreApp({ isActive }: AppProps) {
       {open && (
         <Detail
           item={open}
-          button={<Button item={open} big />}
+          button={button(open, true)}
           installedChat={open.type === 'chat' && haveChat(open.entry)}
           free={free}
           onRemove={machineOn && (open.type === 'chat' ? haveChat(open.entry) : open.maker.installed && !open.maker.builtIn) ? () => setRemove(open) : undefined}
