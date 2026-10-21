@@ -149,7 +149,7 @@ function connectToGuacd(config, display) {
  *   also serves Orbit's authenticated API (/orbit/api/*) and terminal WebSocket (/orbit/pty).
  * @param code optional coding workspace proxy (./code.js): VS Code in the browser at /code/.
  */
-export function createGateway(config, log = console, orbit = null, code = null, idle = null) {
+export function createGateway(config, log = console, orbit = null, code = null, idle = null, saver = null) {
   const onInput = idle ? () => idle.activity() : () => {};
   const server = http.createServer((req, res) => {
     if (req.url === '/healthz') {
@@ -164,12 +164,32 @@ export function createGateway(config, log = console, orbit = null, code = null, 
     }
     // "Keep on": the site asks for more time, signed with the owner's host token (like /orbit/api).
     if (req.url === '/keepawake' && idle) return keepAwake(req, res);
+    // "Save my home now": the site asks before it turns the machine off (signed like /keepawake).
+    if (req.url === '/save' && saver?.enabled) return saveHome(req, res);
     const url = new URL(req.url, 'http://gateway.local');
     if (orbit && url.pathname.startsWith('/orbit/api')) return orbit.api(req, res, url);
     if (code && /^\/code(\/|$)/.test(url.pathname)) return code.handle(req, res, url);
     res.writeHead(404);
     res.end();
   });
+
+  async function saveHome(req, res) {
+    const json = (status, body) => {
+      res.writeHead(status, { 'content-type': 'application/json', 'cache-control': 'no-store' });
+      res.end(JSON.stringify(body));
+    };
+    if (req.method !== 'POST') return json(405, { error: 'Use POST' });
+    try {
+      await verifyOrbitToken(bearer(req), config.secret);
+    } catch {
+      return json(401, { error: 'Unauthorized' });
+    }
+    try {
+      return json(200, await saver.save());
+    } catch (err) {
+      return json(502, { error: `Could not save: ${err.message}` });
+    }
+  }
 
   async function keepAwake(req, res) {
     const json = (status, body) => {

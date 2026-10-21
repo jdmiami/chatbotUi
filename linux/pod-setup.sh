@@ -13,11 +13,15 @@
 #
 # Only port 8080 needs to be exposed. Everything else listens on localhost. Every Orbit and desktop
 # request needs a short-lived token signed with GATEWAY_SECRET by the signed-in web app.
-# With a network volume at /workspace, the desktop user's home (projects, Orbit sessions,
-# Antigravity sign-in) survives restarts; system packages reinstall on each fresh start.
+# The desktop user's home (projects, Orbit sessions, Antigravity sign-in) survives restarts in
+# Cloudflare R2: restored from linux/home.tar at every start, saved every 10 minutes when something
+# changed and before every turn-off (no Runpod drive needed). System packages reinstall on each
+# fresh start. A machine with a network volume at /workspace keeps the home there instead (and still
+# copies it to R2 when the R2 keys are set).
 #
 # Required env: GATEWAY_SECRET (same value as LINUX_GATEWAY_SECRET in Vercel), DESKTOP_PASSWORD
-# Optional env: DESKTOP_USER (default "desktop"), ALLOWED_ORIGINS, REPO_RAW, PERSIST_DIR
+# Optional env: DESKTOP_USER (default "desktop"), ALLOWED_ORIGINS, REPO_RAW, PERSIST_DIR,
+#   R2_ACCOUNT_ID, R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY (Runpod secrets: keep the home in R2)
 set -euo pipefail
 
 : "${GATEWAY_SECRET:?GATEWAY_SECRET is required}"
@@ -84,7 +88,7 @@ log "updating the gateway and Orbit host"
 rm -rf /opt/gateway.new /opt/shared.new && mkdir -p /opt/gateway.new/src/orbit /opt/gateway.new/bin /opt/gateway /opt/shared.new /opt/shared
 fetched=1
 for f in package.json package-lock.json src/index.js src/server.js src/protocol.js src/origins.js \
-  src/code.js src/ai-local.js src/sysstats.js src/idle.js src/orbit/auth.js src/orbit/files.js src/orbit/pty.js src/orbit/agent.js src/orbit/claw.js src/orbit/claw-client.js src/orbit/http.js src/orbit/seed.js \
+  src/code.js src/ai-local.js src/sysstats.js src/idle.js src/homesave.js src/orbit/auth.js src/orbit/files.js src/orbit/pty.js src/orbit/agent.js src/orbit/claw.js src/orbit/claw-client.js src/orbit/http.js src/orbit/seed.js \
   bin/workspace-secrets.mjs; do
   curl -fsSL "${REPO_RAW}/gateway/${f}" -o "/opt/gateway.new/${f}" || { fetched=0; log "could not fetch gateway/${f}"; break; }
 done
@@ -120,6 +124,65 @@ fi
 chmod 755 /opt/gateway/bin/workspace-secrets.mjs
 ln -sf /opt/gateway/bin/workspace-secrets.mjs /usr/local/bin/workspace-secrets
 node -e "require('/opt/gateway/node_modules/node-pty')" && log "node-pty ok" || log "WARNING: node-pty failed to load (Orbit terminal unavailable)"
+
+# Where the home is kept: R2 (no drive) or the network volume at $PERSIST_DIR.
+resolved() { [ -n "${1:-}" ] && [ "${1#\{\{}" = "$1" ]; }
+HOME_SAVE_CMD=""
+if resolved "${R2_ACCOUNT_ID:-}" && resolved "${R2_ACCESS_KEY_ID:-}" && resolved "${R2_SECRET_ACCESS_KEY:-}"; then
+  mkdir -p /opt/r2/src && echo '{"type":"module"}' > /opt/r2/package.json
+  for f in r2.js r2cli.js; do
+    curl -fsSL "${REPO_RAW}/ai/gate/src/${f}" -o "/opt/r2/src/${f}.new" && mv "/opt/r2/src/${f}.new" "/opt/r2/src/${f}" || log "could not fetch ai/gate/src/${f}"
+  done
+  # The keys, for the save script only (root; never on a command line).
+  umask 077
+  printf 'R2_ACCOUNT_ID=%q\nR2_ACCESS_KEY_ID=%q\nR2_SECRET_ACCESS_KEY=%q\n' "$R2_ACCOUNT_ID" "$R2_ACCESS_KEY_ID" "$R2_SECRET_ACCESS_KEY" > /etc/orbit-r2.env
+  umask 022
+  r2() { node /opt/r2/src/r2cli.js "$@"; }
+  if [ ! -s /opt/r2/src/r2.js ] || [ ! -s /opt/r2/src/r2cli.js ]; then
+    # Without the R2 code "nothing saved yet" can't be told from "couldn't look": never save then.
+    log "WARNING: the R2 code could not be downloaded; your home is not restored or saved this start"
+    touch /run/orbit-home-nosave
+  elif ! grep -qs " $PERSIST_DIR " /proc/mounts && [ ! -f "$PERSIST_DIR/.home-restored" ]; then
+    log "restoring your home from R2"
+    mkdir -p "$PERSIST_DIR"
+    # Saving stays off until the restore is known to have worked (or that there was nothing to restore).
+    touch /run/orbit-home-nosave
+    restored=""
+    for attempt in 1 2 3; do
+      if r2 get-tar linux/home.tar "$PERSIST_DIR"; then code=0; else code=$?; fi
+      # Just restored: nothing to save until something changes.
+      if [ "$code" = 0 ]; then restored=1; touch /run/orbit-home-saved; break; fi
+      if [ "$code" = 1 ]; then restored=new; log "nothing saved in R2 yet: starting with a fresh home"; break; fi
+      log "restore failed (attempt $attempt), retrying in 10s"
+      sleep 10
+    done
+    if [ -n "$restored" ]; then
+      rm -f /run/orbit-home-nosave
+      touch "$PERSIST_DIR/.home-restored"
+    else
+      # Never save an empty home over the copy in R2: saving stays off until the next start.
+      log "WARNING: could not restore your home from R2; saving is off for this start"
+    fi
+  fi
+  # The save script: packs the home into linux/home.tar when anything in it changed since the last save.
+  cat > /usr/local/bin/orbit-home-save.new <<SAVE
+#!/bin/bash
+set -uo pipefail
+exec 9>/run/orbit-home-save.lock
+flock 9
+if [ -f /run/orbit-home-nosave ]; then echo "saving is off: the home could not be restored at start" >&2; exit 1; fi
+[ -d "$PERSIST_DIR/home" ] || exit 0
+marker=/run/orbit-home-saved
+if [ -f "\$marker" ] && [ -z "\$(find "$PERSIST_DIR/home" -newer "\$marker" -print -quit 2>/dev/null)" ]; then exit 0; fi
+touch "\$marker.next"
+set -a; . /etc/orbit-r2.env; set +a
+node /opt/r2/src/r2cli.js put-tar linux/home.tar "$PERSIST_DIR" --exclude='home/*/.cache' --exclude='home/*/.npm/_cacache' home && mv "\$marker.next" "\$marker"
+SAVE
+  chmod 755 /usr/local/bin/orbit-home-save.new && mv /usr/local/bin/orbit-home-save.new /usr/local/bin/orbit-home-save
+  HOME_SAVE_CMD=/usr/local/bin/orbit-home-save
+  # Every 10 minutes (only when something changed), so a crash loses at most that much.
+  ( while sleep 600; do /usr/local/bin/orbit-home-save || true; done ) >> /var/log/orbit-home-save.log 2>&1 &
+fi
 
 # Desktop user, with its home on the persistent volume when there is one.
 home_root=/home
@@ -323,6 +386,8 @@ gateway_env=(
   # Runpod's key for this pod only: the gateway turns the machine off after IDLE_MINUTES without input
   # (the site sends its AUTO_OFF_MINUTES; 60 and never more, see shared/autooff.js).
   "RUNPOD_POD_ID=${RUNPOD_POD_ID:-}" "RUNPOD_API_KEY=${RUNPOD_API_KEY:-}" "IDLE_MINUTES=${IDLE_MINUTES:-60}"
+  # Saves the home to R2 before the auto-off and when the site asks (empty: nothing to save to).
+  "HOME_SAVE_CMD=$HOME_SAVE_CMD"
 )
 unset DESKTOP_PASSWORD
 cd /opt/gateway

@@ -18,14 +18,17 @@ browser --https/wss--> gateway :8080 --+-- Orbit host: files, terminal (tmux), a
 
 ## Run it on Runpod (CPU pod)
 
-Create a **network volume** first (Secure Cloud, e.g. 20 GB) so the home folder, projects, Orbit
-sessions and the agy sign-in survive stopping the machine. Then create a CPU pod with:
+No drive is needed: the home folder (projects, Orbit sessions, the agy sign-in) is kept in
+Cloudflare R2 as `linux/home.tar`. It is restored at every start, saved every 10 minutes when
+something changed, and saved again before every turn-off (the machine's own auto-off, and the
+site's "Turn off", which asks the machine's `/save` first). If the restore fails, saving stays off
+for that start, so an empty home never replaces the saved one. Create a CPU pod with:
 
 | Setting | Value |
 | --- | --- |
 | Image | `ubuntu:24.04` |
 | Exposed HTTP port | `8080` |
-| Network volume | mounted at `/workspace` |
+| Env `R2_ACCOUNT_ID`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY` | `{{ RUNPOD_SECRET_r2_account_id }}` etc. (the same Runpod secrets the AI machine uses) |
 | Start command | `bash -c "apt-get update && apt-get install -y curl ca-certificates && curl -fsSL https://raw.githubusercontent.com/jdmiami/chatbotUi/main/linux/pod-setup.sh \| bash"` |
 | Env `GATEWAY_SECRET` | `npm run gen-secret` (same value as `LINUX_GATEWAY_SECRET` in Vercel) |
 | Env `DESKTOP_PASSWORD` | the password for the `desktop` user's desktop sign-in |
@@ -54,8 +57,8 @@ password prompt UI).
 ## Antigravity
 
 Sign in once: in **Orbit → Terminal** run `agy`, open the link it prints, sign in with Google, then
-paste the code back into the terminal. The sign-in is stored as a file in the home folder on the
-network volume (`~/.gemini/antigravity-cli/`), so it survives restarts.
+paste the code back into the terminal. The sign-in is stored as a file in the home folder
+(`~/.gemini/antigravity-cli/`), which is kept in R2, so it survives restarts.
 
 Use Orbit's Terminal for this rather than a terminal on the Linux desktop: a desktop session may hand
 the sign-in to a keyring that Orbit's Antigravity runner can't read.
@@ -67,6 +70,6 @@ steps and Orbit tells you which. To allow some commands ahead of time, add `perm
 ## Cost
 
 While it is on, a `cpu3g` 2 vCPU / 8 GB machine costs about $0.08/hour. While it is off it costs
-nothing per hour; the network volume bills for storage (about $0.07 per GB per month, so about $1.40 a
-month for 20 GB). On each start the system packages reinstall, but everything under `/workspace`
-is kept.
+nothing: the home lives in R2 ($0.015 per GB a month after the first 10 GB, which are free). On each
+start the system packages reinstall and the home comes back from R2. A pod that still has a network
+volume at `/workspace` keeps the home there and also copies it to R2.

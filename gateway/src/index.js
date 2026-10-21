@@ -2,10 +2,13 @@ import os from 'node:os';
 import path from 'node:path';
 import { createGateway, loadConfig } from './server.js';
 import { cliAgentRunning } from './idle.js';
+import { createHomeSaver } from './homesave.js';
 import { clampAutoOffMinutes, createAutoOff, runpodStopSelf } from '../../shared/autooff.js';
 
 const config = loadConfig();
 const log = console;
+// The home lives in R2 (no drive): saved before every turn-off, and on the site's ask (/save).
+const saver = createHomeSaver({ log });
 
 // The one auto-off rule (shared/autooff.js), the same as the AI machine's: off after IDLE_MINUTES
 // without touch, mouse or keyboard input while no Antigravity turn or Claude Code task runs. The site
@@ -14,7 +17,10 @@ const log = console;
 const idle = createAutoOff({
   limitMinutes: clampAutoOffMinutes(process.env.IDLE_MINUTES),
   busy: async () => Boolean(orbit?.agent.running.size) || (await cliAgentRunning()),
-  stop: () => runpodStopSelf({ podId: process.env.RUNPOD_POD_ID, apiKey: process.env.RUNPOD_API_KEY }),
+  stop: async () => {
+    await saver.save().catch(() => {}); // a failed save must not keep the machine billing
+    return runpodStopSelf({ podId: process.env.RUNPOD_POD_ID, apiKey: process.env.RUNPOD_API_KEY });
+  },
   log,
   tag: '[idle]',
 });
@@ -84,7 +90,7 @@ if (process.env.AI_LOCAL_PORT && siteUrl) {
   );
 }
 
-const server = createGateway(config, log, orbit, code, idle);
+const server = createGateway(config, log, orbit, code, idle, saver);
 idle.start();
 
 server.listen(config.port, () => {
