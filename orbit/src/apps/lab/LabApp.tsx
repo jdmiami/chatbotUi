@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { AppProps } from '../types';
 import { AppHeader } from '../../ui/components';
 import { useShell } from '../../state/shell';
@@ -29,7 +29,12 @@ export default function LabApp({ isActive }: AppProps) {
     return () => clearInterval(t);
   }, [isActive, refresh, status?.state]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const machineOn = status?.state === 'on';
+  // Once on, the Lab stays on screen until the machine is really off: one slow or odd status answer
+  // must not swap the whole Lab out and back (it looked like the page reloading).
+  const wasOn = useRef(false);
+  if (status?.state === 'on') wasOn.current = true;
+  else if (status && status.state !== 'error') wasOn.current = false;
+  const machineOn = status?.state === 'on' || wasOn.current;
   const turnOn = async () => {
     setPowering(true);
     try {

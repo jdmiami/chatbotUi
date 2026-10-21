@@ -667,9 +667,20 @@ export class LocalAi {
     return body as T;
   }
 
+  /**
+   * A file's link, kept the same for a few hours. The machine signs a fresh link (good for 12 hours)
+   * every time it lists a file, and a new link makes the browser download the picture or video again:
+   * the Lab and the gallery refresh every few seconds, so without this everything would keep reloading.
+   */
+  private fileLinks = new Map<string, { url: string; at: number }>();
   private absolute<T extends { url?: string } | null>(item: T): T {
     if (!item || !this.grant || !item.url || /^https?:/.test(item.url)) return item;
-    return { ...item, url: (this.grant.url ?? this.grant.helper ?? '') + item.url };
+    const url = (this.grant.url ?? this.grant.helper ?? '') + item.url;
+    const key = url.replace(/[?#].*$/, '');
+    const kept = this.fileLinks.get(key);
+    if (kept && Date.now() - kept.at < 6 * 3600_000) return { ...item, url: kept.url };
+    this.fileLinks.set(key, { url, at: Date.now() });
+    return { ...item, url };
   }
   private absoluteJob(job: StudioJob): StudioJob {
     return { ...job, item: this.absolute(job.item) };

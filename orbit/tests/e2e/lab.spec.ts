@@ -342,3 +342,27 @@ test('Your style on an older AI machine: a plain message, not a raw error', asyn
   await expect(section).not.toContainText('Not found');
   await expectNoHorizontalOverflow(page);
 });
+
+test('Lab refreshes keep the same pictures and videos (no reloading) and the same page', async ({ page }) => {
+  await mockAi(page, 'on');
+  // The machine signs a fresh link for every file on every refresh, like the real one.
+  let n = 0;
+  const polls: number[] = [];
+  await page.route('**/fake-ai/_orbit/studio/lab**', async (route) => {
+    n++;
+    if (new URL(route.request().url()).pathname.endsWith('/studio/lab')) polls.push(n);
+    const s = labState();
+    await route.fulfill({ json: { ...s, records: s.records.map((r) => ({ ...r, url: `/_orbit/studio/file/${r.id}?t=tok${n}` })) } });
+  });
+  await page.route('**/fake-ai/_orbit/studio/file/**', (route) => route.fulfill({ status: 200, headers: { 'content-type': 'video/mp4' }, body: '' }));
+  const section = await openLabIn(page, 'o5');
+  const gallery = section.getByRole('list', { name: 'Lab movies, best first' });
+  await expect(gallery.getByRole('listitem').first()).toBeVisible();
+  const src = await gallery.locator('video').first().getAttribute('src');
+  await gallery.getByRole('listitem').first().evaluate((el) => el.setAttribute('data-probe', 'kept'));
+  // Two Lab refreshes later (every 10 s): the same file links, the same tiles.
+  const start = polls.length;
+  await expect.poll(() => polls.length, { timeout: 30_000 }).toBeGreaterThanOrEqual(start + 2);
+  expect(await gallery.locator('video').first().getAttribute('src')).toBe(src);
+  await expect(gallery.locator('[data-probe="kept"]')).toHaveCount(1);
+});
