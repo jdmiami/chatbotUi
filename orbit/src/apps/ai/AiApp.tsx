@@ -150,6 +150,12 @@ export default function AiApp({ isActive, compact, placement }: AppProps) {
     if (hasPictures && isActive && status?.state === 'on') void refreshFlags(ai);
   }, [ai, hasPictures, isActive, status?.state, chat?.id]);
   const ready = status?.state === 'on';
+  // For the Lab and Make: once on, stay on screen until the machine is really off (one odd status
+  // answer must not swap them out and back, which looked like the page reloading).
+  const wasOn = useRef(false);
+  if (ready) wasOn.current = true;
+  else if (status && status.state !== 'error') wasOn.current = false;
+  const steadyOn = ready || wasOn.current;
 
   const update = useCallback((fn: (s: AiChatStore) => AiChatStore) => {
     setStore((prev) => {
@@ -753,14 +759,14 @@ export default function AiApp({ isActive, compact, placement }: AppProps) {
 
       {mode === 'lab' && (
         <div className="ai-create lab-tab">
-          <MemeLab ai={ai} machineOn={ready} isActive={isActive} />
+          <MemeLab ai={ai} machineOn={steadyOn} isActive={isActive} />
         </div>
       )}
 
       {mode === 'create' && (
         <CreateView
           ai={ai}
-          machineOn={ready}
+          machineOn={steadyOn}
           isActive={isActive}
           onOpenMakers={() => openStore('makers')}
         />
