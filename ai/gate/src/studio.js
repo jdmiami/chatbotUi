@@ -517,6 +517,12 @@ export function createStudio(o) {
     }
     wanted.add(id);
     await saveWanted();
+    // Adding one already wanted resumes it: its files get another try (a file the download gave up
+    // on, or one that was counted as done and then went missing).
+    for (const file of makerFiles(m)) {
+      blocked.delete(fid(file));
+      download.done.delete(fid(file));
+    }
     void downloadAll();
     return makers();
   }

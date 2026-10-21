@@ -47,3 +47,49 @@
 .make-cloud-link { padding-top: 12px; }
 .make-cloud-link > * { display: block; }
 .make-cloud-link .btn { min-height: 44px; }
+
+/* What is still loading: a bar pinned to the top of Make while it scrolls. */
+.make-scroll > .make-loading {
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  box-sizing: border-box;
+  width: 100%;
+  padding: 10px var(--space-3, 12px);
+  background: color-mix(in srgb, var(--surface-1, var(--bg)) 82%, transparent);
+  -webkit-backdrop-filter: blur(14px) saturate(1.4);
+  backdrop-filter: blur(14px) saturate(1.4);
+  border-bottom: 1px solid var(--border, rgba(127, 127, 127, 0.2));
+}
+:root[data-skin='o5'] .make-scroll > .make-loading {
+  padding-left: calc(var(--safe-left) + clamp(18px, 6vw, 64px));
+  padding-right: calc(var(--safe-right) + clamp(18px, 6vw, 64px));
+}
+.make-loading > * { max-width: 760px; margin-inline: auto; box-sizing: border-box; }
+.make-loading-head { margin-block: 0 6px; font: 600 var(--fs-sm, 14px) / 1.3 var(--font-ui); }
+.make-loading-list { list-style: none; margin: 8px auto 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.make-loading-list li {
+  display: grid;
+  /* The same columns on every row, so the bars line up whether or not a row has Resume. */
+  grid-template-columns: minmax(80px, 9rem) 1fr 8.5rem 6rem;
+  align-items: center;
+  gap: 10px;
+  font: 500 var(--fs-sm, 14px) / 1.2 var(--font-ui);
+}
+.make-loading-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.make-loading-pct { color: var(--text-2); font-variant-numeric: tabular-nums; white-space: nowrap; text-align: right; }
+.make-loading-list .btn { justify-self: end; }
+.make-loading-list .btn { min-height: 36px; }
+/* Phones: the name over the bar, the number and Resume on the right. */
+@media (max-width: 520px) {
+  .make-loading-list li { grid-template-columns: 1fr auto auto; }
+  .make-loading-list li > :empty { display: none; }
+  .make-loading-list li .ai-bar { grid-column: 1 / -1; grid-row: 2; }
+}
+/* Waking up, with no number yet: the bar moves so it is clearly working. */
+.make-bar-busy span { animation: make-bar-busy 1.4s ease-in-out infinite; }
+@keyframes make-bar-busy {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(340%); }
+}
+@media (prefers-reduced-motion: reduce) { .make-bar-busy span { animation: none; } }

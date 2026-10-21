@@ -86,3 +86,24 @@ test('downloads: adding a maker that cannot fit is refused up front, with how mu
   await assert.rejects(studio.installMaker('h3-max'), (err) => err.status === 507 && /Not enough disk space for H3 Max: needs about \d+ GB, 10 GB free/.test(err.message));
   assert.equal((await studio.makers()).find((m) => m.id === 'h3-max').wanted, false);
 });
+
+test('downloads: a stopped maker resumes when it is added again (Resume)', async () => {
+  const dir = await dirWithout('img.safetensors');
+  let free = 1; // the disk is full at first, so the download gives up on the file
+  let asked = 0;
+  const fetchImpl = async (url) => {
+    const u = new URL(url);
+    if (u.hostname !== 'huggingface.co') return services(u);
+    asked++;
+    return new Response(new Uint8Array(8), { status: 200, headers: { 'content-length': '8' } });
+  };
+  const studio = createStudio({ dir, files: FILES, fetchImpl, WebSocketImpl: null, log: quiet, retryMs: 10, statfs: async () => ({ bavail: free, bsize: 1024 ** 3 }), nsfwDelayMs: 1e9 });
+  studio.start();
+  await until(async () => (await studio.makers()).find((m) => m.id === 'qwen')?.status === 'disk');
+  assert.equal(asked, 0);
+  // Room was made (a maker removed, a bigger disk): Resume picks it up again.
+  free = 100;
+  await studio.installMaker('qwen');
+  await until(async () => (await studio.makers()).find((m) => m.id === 'qwen')?.installed);
+  assert.equal(asked, 1);
+});

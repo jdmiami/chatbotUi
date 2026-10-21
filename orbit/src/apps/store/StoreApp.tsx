@@ -7,7 +7,7 @@ import { useShell } from '../../state/shell';
 import { useWorkspace } from '../../state/workspace';
 import { getLocalAi, type AiMachineStatus, type HubFile, type HubModel, type InstalledModel, type StudioMakerInfo } from '../../services/ai/LocalAi';
 import { useModelList } from '../ai/models';
-import { PENDING_TEXT, offlineMakers, progressText, rememberMakers, withCatalog } from '../ai/makerCatalog';
+import { PENDING_TEXT, canResume, offlineMakers, progressText, rememberMakers, withCatalog } from '../ai/makerCatalog';
 import {
   CATALOG,
   CHAT,
@@ -173,8 +173,9 @@ export default function StoreApp({ isActive }: AppProps) {
         toast(`Adding ${name}. You can keep using Orbit meanwhile.`, 'info');
         await refresh();
       } else {
+        const again = canResume(item.maker, machineOn);
         setMakers(await ai.installStudioMaker(item.maker.id));
-        toast(`Adding ${item.maker.name}.`, 'info');
+        toast(again ? `Resuming ${item.maker.name}.` : `Adding ${item.maker.name}.`, 'info');
       }
     } catch (err) {
       toast((err as Error).message, 'error');
@@ -228,13 +229,33 @@ export default function StoreApp({ isActive }: AppProps) {
   function button(item: Item, big?: boolean) {
     const a = action(item);
     const key = keyOf(item);
-    if (a.state === 'progress')
-      return (
+    if (a.state === 'progress') {
+      const progress = (
         <span className="st-progress" role="status" aria-label={`Adding ${titleOf(item)}: ${a.label}`}>
           <span className="st-ring" style={{ '--p': `${Math.max(3, a.percent ?? 0)}%` } as React.CSSProperties} />
           {a.label}
         </span>
       );
+      // A download that stopped: start it again from where it was.
+      if (item.type !== 'maker' || !canResume(item.maker, machineOn)) return progress;
+      return (
+        <span className="st-resume">
+          {progress}
+          <button
+            type="button"
+            className="btn small primary"
+            disabled={busy === key}
+            onClick={(e) => {
+              e.stopPropagation();
+              void get(item);
+            }}
+            aria-label={`Resume ${titleOf(item)}`}
+          >
+            Resume
+          </button>
+        </span>
+      );
+    }
     return (
       <button
         type="button"
