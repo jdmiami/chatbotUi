@@ -4,8 +4,8 @@ import { Icon } from '../../ui/Icon';
 import { ConfirmSheet, IconButton, Segmented } from '../../ui/components';
 import { TextArea } from '../../ui/TextArea';
 import { Censor } from '../../ui/Censor';
-import { isNsfw } from '../../ui/nsfw';
-import { nsfwFor, useNsfwFlags } from '../../ui/nsfwFlags';
+import { useNsfwFlags } from '../../ui/nsfwFlags';
+import { movieNsfw } from './movieNsfw';
 import { getLocalAi, type AiMachine, type Movie, type MovieDraft, type MovieShot, type StudioItem } from '../../services/ai/LocalAi';
 import { TEMPLATES, aboutTime, phaseLine, stages } from './plan';
 
@@ -54,12 +54,9 @@ export function MovieView({
   // A chained movie (the Lab's) has only its opening picture: each shot starts from the last frame of the one before.
   const frames = m.continuity === 'chain' ? (m.frames ?? []).slice(0, 1) : (m.frames ?? []);
   const final = m.render && !m.render.stale ? itemById.get(m.render.itemId) : null;
-  // One verdict for the whole movie: every shot and picture comes from the same story.
-  // The words, or the AI machine's check of any picture or shot in it.
-  // Your own say on any of them (held to blur) counts too.
+  // One verdict for the whole movie (its words, the check, your own say on any shot): see movieNsfw.
   useNsfwFlags();
-  const madeIds = [m.render?.itemId, m.lead?.itemId, ...m.shots.map((s) => s.itemId), ...(m.frames ?? []).map((f) => f.itemId)];
-  const nsfw = madeIds.some((id) => id && nsfwFor(id, itemById.get(id)?.nsfw === true)) || isNsfw(m.idea, m.title, m.look, m.lead?.description, ...m.shots.flatMap((s) => [s.prompt, s.says, s.end]), ...(m.frames ?? []).map((f) => f.prompt));
+  const nsfw = movieNsfw(m, itemById);
   const template = TEMPLATES.find((t) => t.id === m.template);
   const review = auto && m.phase === 'review' && !running;
   const left = !running && (m.phase === 'stopped' || m.phase === 'error' || (auto && m.phase !== 'done' && m.phase !== 'review' && m.phase !== 'draft') || (!auto && m.shots.some((s) => s.status !== 'done')));

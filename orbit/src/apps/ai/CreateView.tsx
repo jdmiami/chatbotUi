@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Step, nextStep } from '../../shell/o5/Step';
 import { useShell } from '../../state/shell';
+import { UncensoredSwitch } from '../../ui/Censor';
 import { Icon } from '../../ui/Icon';
-import { ConfirmSheet, EmptyState, IconButton, Segmented, Toggle } from '../../ui/components';
+import { ConfirmSheet, EmptyState, IconButton, Segmented } from '../../ui/components';
 import { isNsfw } from '../../ui/nsfw';
 import { connectMarks, nsfwFor, rememberItems, useNsfwFlags } from '../../ui/nsfwFlags';
 import { GalleryGrid, GalleryViewer, type GalleryMedia } from './Gallery';
@@ -100,8 +101,6 @@ export function CreateView({
 }) {
   const toast = useShell((s) => s.toast);
   const o5 = useShell((s) => s.settings.skin === 'o5');
-  const censor = useShell((s) => s.settings.censor !== false);
-  const updateSettings = useShell((s) => s.updateSettings);
   // The next step glides into view once this one is answered.
   const next = (id: string) => nextStep(o5, id);
   const [kind, setKind] = useState<Mode>('image');
@@ -675,10 +674,10 @@ export function CreateView({
 
       <section className="ai-censor" aria-labelledby="ai-censor-title">
         <div className="ai-censor-text">
-          <p className="o5-kicker" id="ai-censor-title">NSFW blur</p>
-          <p className="ai-muted">{censor ? 'On: NSFW pictures and videos, and their words, are blurred everywhere in Orbit. Keep your finger on one to see it; a video plays while you hold it and pauses when you let go. One that was missed: hold it for a moment and it blurs. One blurred by mistake: open it and turn off "Blur this one".' : 'Off: NSFW pictures and videos show as they are.'}</p>
+          <p className="o5-kicker" id="ai-censor-title">NSFW</p>
+          <p className="ai-muted">NSFW pictures and videos are hidden everywhere in Orbit, with no blur, until you turn on "Show NSFW". One that slipped through: hold it for a moment and it hides. One hidden by mistake: turn on "Show NSFW", open it and turn off "NSFW".</p>
         </div>
-        <Toggle checked={censor} label="Blur NSFW pictures and videos" onChange={(on) => updateSettings({ censor: on })} />
+        <UncensoredSwitch />
       </section>
 
       {o5 && jobs.length > 0 && (

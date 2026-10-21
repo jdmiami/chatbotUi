@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { Icon } from '../../ui/Icon';
 import { ConfirmSheet, IconButton, Segmented, Toggle } from '../../ui/components';
 import { TextArea } from '../../ui/TextArea';
-import { Censor } from '../../ui/Censor';
+import { Censor, UncensoredSwitch } from '../../ui/Censor';
 import { isNsfw } from '../../ui/nsfw';
 import { connectMarks, rememberItems } from '../../ui/nsfwFlags';
 import { AiError, type LabIdea, type LabMovieProgress, type LabStyle, type LocalAi, type MemeLabState, type MemeRecord, type YourStyleProfile } from '../../services/ai/LocalAi';
@@ -280,6 +280,7 @@ export function MemeLab({ ai, machineOn, isActive, onKept }: { ai: LocalAi; mach
 
       <div className="meme-lab-block">
         <p className="o5-kicker">The Lab gallery</p>
+        <UncensoredSwitch />
         {records.length === 0 ? (
           <p className="ai-muted">Finished movies show up here, best first. They stay apart from your own gallery.</p>
         ) : (

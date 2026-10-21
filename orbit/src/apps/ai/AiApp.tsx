@@ -22,7 +22,7 @@ import '../agent/agent.css';
 import './ai.css';
 import { AiOrb } from './AiOrb';
 import { TextArea } from '../../ui/TextArea';
-import { Censor } from '../../ui/Censor';
+import { Censor, useNsfwView } from '../../ui/Censor';
 import { isNsfw } from '../../ui/nsfw';
 import { refreshFlags, useNsfwFlags } from '../../ui/nsfwFlags';
 import { autoOffMinutesOf, autoOffSentence } from '../../services/autoOff';
@@ -144,6 +144,7 @@ export default function AiApp({ isActive, compact, placement }: AppProps) {
   const chat = store.chats.find((c) => c.id === store.activeId) ?? null;
   // Pictures made in this chat: the AI machine's NSFW check says which to blur.
   const flagged = useNsfwFlags();
+  const nsfwView = useNsfwView();
   const hasPictures = Boolean(chat?.messages.some((m) => m.picture?.jobId));
   useEffect(() => {
     if (hasPictures && isActive && status?.state === 'on') void refreshFlags(ai);
@@ -880,7 +881,9 @@ export default function AiApp({ isActive, compact, placement }: AppProps) {
                       </>
                     ) : m.picture ? (
                       <figure className="ai-picture">
-                        {m.picture.url ? (
+                        {m.picture.url && nsfwView === 'hide' && (isNsfw(m.picture.prompt) || flagged(m.picture.jobId)) ? (
+                          <p className="ai-muted ai-picture-hidden">NSFW picture hidden. Turn on "Show NSFW" in Make to see it.</p>
+                        ) : m.picture.url ? (
                           <Censor as="div" markId={m.picture.jobId} nsfw={isNsfw(m.picture.prompt) || flagged(m.picture.jobId)}>
                             <img src={m.picture.url} alt={m.picture.prompt} />
                           </Censor>
