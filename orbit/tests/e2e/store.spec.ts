@@ -198,6 +198,40 @@ test.describe('AI Store', () => {
     expect(errors).toEqual([]);
   });
 
+  test('refreshing while a maker downloads never moves the page or rebuilds the rows (no jump back up, no lost tap)', async ({ page }) => {
+    await mockAi(page, 'on');
+    // A maker downloading: the Store refreshes every few seconds.
+    let pct = 10;
+    await page.route('**/fake-ai/_orbit/studio/makers**', (route) =>
+      route.fulfill({
+        json: {
+          makers: [
+            { id: 'qwen', kind: 'image', name: 'Qwen Uncensored', blurb: 'All-rounder.', for: null, twoImages: false, builtIn: true, wanted: true, installed: true, size: 17e9, percent: 100 },
+            { id: 'h3-max', kind: 'video', name: 'H3 Max', blurb: 'Best motion.', for: null, twoImages: false, builtIn: false, wanted: true, installed: false, size: 52e9, percent: (pct += 5) },
+            { id: 'sharpen', kind: 'upscale', name: 'Sharpen 4×', blurb: 'Bigger and crisper.', for: null, twoImages: false, builtIn: false, wanted: false, installed: false, size: 67e6, percent: 0 },
+          ],
+        },
+      }),
+    );
+    const { win } = await openStore(page);
+    const scroller = win.locator('.st-scroll');
+    await expect(win.getByRole('status', { name: /Adding H3 Max/ }).first()).toBeVisible();
+    // Read halfway down the page.
+    const target = await scroller.evaluate((el) => {
+      el.scrollTop = Math.floor((el.scrollHeight - el.clientHeight) / 2);
+      return el.scrollTop;
+    });
+    expect(target).toBeGreaterThan(100);
+    // Tag one row: a rebuilt row would lose the mark.
+    await win.locator('.st-row').nth(3).evaluate((el) => el.setAttribute('data-probe', 'kept'));
+    const before = await win.getByRole('status', { name: /Adding H3 Max/ }).first().textContent();
+    // Two refreshes later (every 3 s while downloading): same place, same rows.
+    await expect.poll(() => win.getByRole('status', { name: /Adding H3 Max/ }).first().textContent(), { timeout: 15_000 }).not.toBe(before);
+    await page.waitForTimeout(3500);
+    expect(Math.abs((await scroller.evaluate((el) => el.scrollTop)) - target)).toBeLessThan(4);
+    await expect(win.locator('.st-row[data-probe="kept"]')).toHaveCount(1);
+  });
+
   test('opens from the home path, Settings and the AI app', async ({ page }) => {
     await mockAi(page, 'on');
     await mockMakers(page);
