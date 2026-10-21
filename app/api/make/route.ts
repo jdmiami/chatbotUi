@@ -34,7 +34,7 @@ export async function POST(request: Request) {
   const size = (['square', 'landscape', 'portrait'] as const).includes(input?.size as CloudSize) ? (input!.size as CloudSize) : kind === 'video' ? 'landscape' : 'square';
   const seconds = Math.min(Math.max(Number(input?.seconds) || 0, 0), 10) || undefined;
   try {
-    const job = await cloudMakeStart({ kind, prompt, size, seconds, provider: input?.provider === 'fal' || input?.provider === 'cloudflare' ? input.provider : undefined });
+    const job = await cloudMakeStart({ kind, prompt, size, seconds, provider: input?.provider === 'fal' || input?.provider === 'cloudflare' || input?.provider === 'runpod' ? input.provider : undefined });
     return Response.json(job, { headers: noStore });
   } catch (err) {
     const e = err as CloudMakeError;

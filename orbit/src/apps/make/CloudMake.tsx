@@ -130,8 +130,8 @@ export function CloudMake({
       </h3>
       {!info?.configured ? (
         <p className="ai-muted">
-          Cloud making isn't set up yet. Add a Cloudflare Workers AI token (CLOUDFLARE_ACCOUNT_ID and CLOUDFLARE_AI_TOKEN: about 230 free pictures a day) or a fal.ai key (FAL_KEY: pictures
-          and videos, a few cents each) in Vercel.
+          Cloud making isn't set up yet. It uses Runpod Serverless (RUNPOD_API_KEY, paid from your Runpod balance), a Cloudflare Workers AI token (CLOUDFLARE_ACCOUNT_ID and
+          CLOUDFLARE_AI_TOKEN: about 230 free pictures a day) or a fal.ai key (FAL_KEY) in Vercel.
         </p>
       ) : (
         <>
@@ -159,7 +159,7 @@ export function CloudMake({
                 }}
               >
                 {label}
-                {k === 'video' && !info.video.length ? <span className="ai-muted"> needs fal.ai</span> : null}
+                {k === 'video' && !info.video.length ? <span className="ai-muted"> not set up</span> : null}
               </button>
             ))}
           </div>

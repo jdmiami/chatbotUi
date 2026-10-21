@@ -1696,7 +1696,8 @@ export function createStudio(o) {
       } catch {
         throw bad('Not a link');
       }
-      if (u.protocol !== 'https:' || !/(^|\.)fal\.(media|run|ai)$/.test(u.hostname)) throw bad('Only files from the cloud makers can be added');
+      // fal.ai's file hosts, and Runpod Serverless results (image.runpod.ai).
+      if (u.protocol !== 'https:' || !(/(^|\.)fal\.(media|run|ai)$/.test(u.hostname) || u.hostname === 'image.runpod.ai')) throw bad('Only files from the cloud makers can be added');
       const res = await (o.fetchImpl || fetch)(u, { signal: AbortSignal.timeout(120_000) });
       if (!res.ok) throw bad(`Could not fetch it (${res.status})`, 502);
       if (Number(res.headers.get('content-length')) > max) throw bad('That file is too large', 413);
