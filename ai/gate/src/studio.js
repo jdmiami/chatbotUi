@@ -835,6 +835,8 @@ export function createStudio(o) {
     const withVideo = Boolean(videoSource || videoUpload) && (mode === 'videoedit' || (maker.accepts || []).includes('video'));
     // Any photo or video you bring may show real people (a recording of a voice doesn't change that).
     const photo = uploads.length > 0 || Boolean(endUpload) || Boolean(source?.photo) || Boolean(toSource?.photo) || (withVideo && (Boolean(videoUpload) || Boolean(videoSource?.photo)));
+    // Made from an NSFW picture or video: NSFW too, before anyone has looked.
+    const nsfwSource = Boolean(source?.nsfw) || Boolean(toSource?.nsfw) || (withVideo && Boolean(videoSource?.nsfw));
     if (photo) {
       const refused =
         blockedForPhoto(prompt) || (task === 'erase' ? blockedTarget(target) : task === 'replace' ? blockedReplace(target, prompt) : target ? blockedForPhoto(target) : false);
@@ -980,6 +982,7 @@ export function createStudio(o) {
       fromImage: inputs.length > 0,
       background: Boolean(req.background),
       photo,
+      nsfwSource,
       workflow,
       status: 'queued',
       progress: 0,
@@ -1095,6 +1098,7 @@ export function createStudio(o) {
         seconds: job.seconds,
         fromImage: job.fromImage,
         photo: job.photo || undefined,
+        nsfw: job.nsfwSource || undefined,
         // Made by the meme lab: kept out of the gallery until you keep it.
         lab: job.background || undefined,
         file,
@@ -1107,6 +1111,7 @@ export function createStudio(o) {
       job.progress = 100;
       job.status = 'done';
       await learn(job);
+      if (!item.nsfw) void rate(item);
     } catch (err) {
       job.status = 'error';
       job.error = err.message;
@@ -1380,12 +1385,49 @@ export function createStudio(o) {
   }
 
   /** Put a finished file (already under output/) in the gallery, e.g. a stitched movie. */
-  async function addItem({ kind, prompt, file, seconds, width, height, movie, photo }) {
-    const item = { id: newId(), kind, maker: 'soreal', prompt, width, height, seconds, movie, photo: photo || undefined, file, createdAt: new Date(now()).toISOString() };
+  async function addItem({ kind, prompt, file, seconds, width, height, movie, photo, nsfw }) {
+    const item = { id: newId(), kind, maker: 'soreal', prompt, width, height, seconds, movie, photo: photo || undefined, nsfw: nsfw || undefined, file, createdAt: new Date(now()).toISOString() };
     await fsp.mkdir(metaDir, { recursive: true });
     await fsp.writeFile(path.join(metaDir, `${item.id}.json`), JSON.stringify(item));
     await keep(item);
+    if (!item.nsfw) void rate(item);
     return item;
+  }
+
+  // ---- the NSFW check: look at each picture or video once, and remember the answer in its note.
+  const rating = new Set();
+  /** Look at an item and save whether it is NSFW (nsfw: true | false). Quiet when the checker can't run. */
+  async function rate(item) {
+    if (!o.nsfw || rating.has(item.id)) return;
+    rating.add(item.id);
+    try {
+      const p = await localFile(item);
+      if (!p) return;
+      const r = await o.nsfw.check(p, { kind: item.kind, seconds: item.seconds });
+      if (!r) return;
+      // Read the note again: it may have changed meanwhile (kept from the Lab, for one).
+      const latest = (await readItem(item.id)) || item;
+      latest.nsfw = r.nsfw || Boolean(latest.nsfw);
+      latest.nsfwScore = r.score;
+      item.nsfw = latest.nsfw;
+      await fsp.writeFile(path.join(metaDir, `${item.id}.json`), JSON.stringify(latest));
+      await keep(latest);
+    } catch (err) {
+      log.warn?.(`[nsfw] ${item.id}: ${err.message}`);
+    } finally {
+      rating.delete(item.id);
+    }
+  }
+
+  /** Everything made before the check existed (or while it couldn't run): look at it now, one at a time. */
+  async function rateAll() {
+    if (!o.nsfw) return;
+    for (const lab of [false, true]) {
+      for (const it of await items(10_000, lab).catch(() => [])) {
+        if (typeof it.nsfw === 'boolean') continue;
+        await rate(it);
+      }
+    }
   }
 
   /** Open an item's file for sending. Returns { path, size, type, name } or null. */
@@ -1434,6 +1476,10 @@ export function createStudio(o) {
         if (r2) await loadSaved();
         if (!helper || r2) await downloadAll();
       })();
+      // Look over the gallery for NSFW a little after start, then every half hour for anything missed.
+      const look = () => void rateAll().catch((err) => log.warn?.(`[nsfw] ${err.message}`));
+      setTimeout(look, o.nsfwDelayMs ?? 60_000).unref?.();
+      setInterval(look, 30 * 60_000).unref?.();
       const t = setInterval(() => void poll().catch(() => {}), o.pollMs ?? 3000);
       t.unref?.();
     },
@@ -1486,6 +1532,8 @@ export function createStudio(o) {
     remove,
     file,
     poll,
+    /** Check every unchecked picture and video now (tests; also runs by itself after start). */
+    rateAll,
     sizes: SIZES,
     mirror,
   };

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { rememberItems } from '../../ui/nsfwFlags';
 import type { AppProps } from '../types';
 import { useShell } from '../../state/shell';
 import { useWorkspace } from '../../state/workspace';
@@ -64,7 +65,9 @@ export default function SoRealApp({ isActive, placement }: AppProps) {
 
   const refreshItems = useCallback(async () => {
     try {
-      setItems(await ai.studioItems());
+      const gallery = await ai.studioItems();
+      rememberItems(gallery);
+      setItems(gallery);
     } catch {
       /* the next look tries again */
     }
@@ -72,6 +75,7 @@ export default function SoRealApp({ isActive, placement }: AppProps) {
   const load = useCallback(async () => {
     try {
       const [list, gallery] = await Promise.all([ai.movies(), ai.studioItems()]);
+      rememberItems(gallery);
       setMovies(list);
       setItems(gallery);
       setLoadError(null);

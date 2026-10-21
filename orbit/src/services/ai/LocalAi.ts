@@ -42,6 +42,8 @@ export interface StudioItem {
   maker?: string;
   /** soReal: the movie it was joined from. */
   movie?: string;
+  /** The AI machine's NSFW check, from the picture itself (unset: not checked yet). */
+  nsfw?: boolean;
   createdAt: string;
   /** Absolute link to the file (works in <img>/<video> tags for 12 hours). */
   url: string;
@@ -89,6 +91,8 @@ export interface StudioState {
 /** A meme-lab video: made while the AI machine was unused, scored by a chat model for how viral it could go. */
 export interface MemeRecord {
   id: string;
+  /** The AI machine's NSFW check flagged the video. */
+  nsfw?: boolean;
   url?: string;
   title: string;
   prompt: string;
