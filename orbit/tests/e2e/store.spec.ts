@@ -181,6 +181,73 @@ test.describe('AI Store', () => {
     expect(errors).toEqual([]);
   });
 
+  test('download manager: what is downloading, how fast, what waits and why; pause, resume, copy the report', async ({ page }, testInfo) => {
+    await mockAi(page, 'on');
+    let paused = false;
+    const actions: string[] = [];
+    const report = () => ({
+      state: paused ? 'paused' : 'downloading',
+      paused,
+      current: paused
+        ? null
+        : { name: '10Eros_v1.4_fp8mixed_learned.safetensors', makers: ['LTX video'], source: 'cloud storage', saving: false, completed: 12e9, total: 22e9, percent: 54, bytesPerSec: 95e6, etaSeconds: 105, startedAt: '2026-10-21T18:30:00Z' },
+      queue: [
+        { id: 'a', name: '10Eros_Max_h3_TURBO-hybrid_beta5_int8.safetensors', size: 20.9e9, have: 0, makers: ['H3 Max'], problem: null },
+        { id: 'b', name: 'krea_real.safetensors', size: 19e9, have: 4e9, makers: ['Krea Real'], problem: null },
+        { id: 'c', name: 'ltx-2.5.safetensors', size: 39e9, have: 0, makers: ['LTX-2.5'], problem: 'Needs a Hugging Face token' },
+      ],
+      done: 7,
+      bytesLeft: 60e9,
+      etaSeconds: paused ? null : 640,
+      lastError: null,
+      diskFree: 655e9,
+      bottleneck: paused
+        ? 'Downloads are paused. Resume to carry on from where they stopped.'
+        : 'One file at a time: downloading 10Eros_v1.4_fp8mixed_learned.safetensors from cloud storage at 95 MB/s. 2 more wait behind it.',
+      log: [
+        { at: '2026-10-21T18:29:00Z', kind: 'done', text: 'Finished qwen_image.safetensors (20.4 GB in 4 min)' },
+        { at: '2026-10-21T18:30:00Z', kind: 'start', text: 'Downloading 10Eros_v1.4_fp8mixed_learned.safetensors' },
+      ],
+      network: { rxPerSec: 97e6, txPerSec: 1.2e6 },
+    });
+    await page.route('**/fake-ai/_orbit/studio/downloads', async (route) => {
+      const req = route.request();
+      if (req.method() === 'POST') {
+        const { action } = req.postDataJSON() as { action: string };
+        actions.push(action);
+        paused = action === 'pause';
+      }
+      await route.fulfill({ json: report() });
+    });
+    await page.context().grantPermissions(['clipboard-read', 'clipboard-write']).catch(() => {});
+    const { errors, win } = await openStore(page);
+    await win.getByRole('tab', { name: 'Downloads' }).click();
+    const dm = win.getByRole('region', { name: 'Downloads' });
+    await expect(dm.getByRole('status')).toContainText('Downloading');
+    await expect(dm).toContainText('60.0 GB to go');
+    await expect(dm.getByLabel('What is happening')).toContainText('One file at a time');
+    await expect(dm).toContainText('95 MB/s');
+    await expect(dm).toContainText('11 min');
+    await expect(dm).toContainText('from cloud storage');
+    await expect(dm).toContainText('For LTX video');
+    await expect(dm.getByRole('list', { name: 'Next in line' }).getByRole('listitem')).toHaveCount(2);
+    await expect(dm.getByRole('list', { name: 'Next in line' })).toContainText('4.0 GB already here');
+    await expect(dm.getByRole('list', { name: 'Stuck downloads' })).toContainText('Needs a Hugging Face token');
+    await expect(dm.getByRole('list', { name: 'What happened' })).toContainText('Finished qwen_image.safetensors');
+    await expectNoHorizontalOverflow(page);
+    await dm.getByRole('list', { name: 'Next in line' }).scrollIntoViewIfNeeded();
+    await page.screenshot({ path: testInfo.outputPath('downloads.png') });
+
+    await dm.getByRole('button', { name: 'Pause all' }).click();
+    await expect(dm.getByRole('status')).toContainText('Paused');
+    await expect(dm.getByLabel('What is happening')).toContainText('paused');
+    await dm.getByRole('button', { name: 'Resume all' }).click();
+    await expect(dm.getByRole('status')).toContainText('Downloading');
+    expect(actions).toEqual(['pause', 'resume']);
+    await dm.getByRole('button', { name: 'Copy report' }).click();
+    expect(errors).toEqual([]);
+  });
+
   test('video makers show while the machine rests (from the catalog)', async ({ page }) => {
     await mockAi(page, 'off');
     const { win } = await openStore(page);

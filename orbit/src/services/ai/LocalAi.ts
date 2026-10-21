@@ -13,7 +13,7 @@ export interface AiMachineStatus {
   state: AiMachineState;
   costPerHour: number | null;
   detail?: string;
-  pulling?: { model: string; percent: number } | null;
+  pulling?: { model: string; percent: number; status?: string } | null;
   models?: string[];
   idle?: AiIdle | null;
   /** The one auto-off rule's minutes (the same for every machine and speed). */
@@ -237,6 +237,36 @@ export interface StudioMakerInfo {
    */
   status?: 'downloading' | 'saving' | 'waiting' | 'setup' | 'paused' | 'disk' | 'blocked';
   waitingFor?: string;
+}
+
+/** The download manager (the AI machine's /_orbit/studio/downloads). */
+export interface StudioDownloads {
+  state: 'downloading' | 'saving' | 'paused' | 'retrying' | 'starting' | 'blocked' | 'idle';
+  paused: boolean;
+  current: {
+    name: string;
+    makers: string[];
+    /** Where it comes from: 'cloud storage', 'Hugging Face', … */
+    source: string;
+    saving: boolean;
+    completed: number;
+    total: number;
+    percent: number;
+    bytesPerSec: number | null;
+    etaSeconds: number | null;
+    startedAt: string;
+  } | null;
+  /** Waiting behind it (problem: it gave up, and why). */
+  queue: { id: string; name: string; size: number; have: number; makers: string[]; problem: string | null }[];
+  done: number;
+  bytesLeft: number;
+  etaSeconds: number | null;
+  lastError: string | null;
+  diskFree: number | null;
+  /** In words: what is holding things up. */
+  bottleneck: string;
+  log: { at: string; kind: string; text: string }[];
+  network: { rxPerSec: number | null; txPerSec: number | null } | null;
 }
 
 /** A video or sound sent to the AI machine for a maker to work on. */
@@ -721,6 +751,14 @@ export class LocalAi {
   /** Blur an item (true), never blur it (false), or let the NSFW check decide again (null). */
   async markNsfw(id: string, nsfw: boolean | null): Promise<void> {
     await this.studioCall(`/_orbit/studio/items/${encodeURIComponent(id)}/nsfw`, { method: 'POST', body: JSON.stringify({ nsfw }) });
+  }
+
+  async studioDownloads(): Promise<StudioDownloads> {
+    return this.studioCall<StudioDownloads>('/_orbit/studio/downloads');
+  }
+
+  async setStudioDownloads(action: 'pause' | 'resume'): Promise<StudioDownloads> {
+    return this.studioCall<StudioDownloads>('/_orbit/studio/downloads', { method: 'POST', body: JSON.stringify({ action }) });
   }
 
   async studioMakers(): Promise<StudioMakerInfo[]> {
