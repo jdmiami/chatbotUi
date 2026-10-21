@@ -65,6 +65,8 @@ export interface Settings {
    * work stays on the AI machine. Sends on-screen text and screenshots, never passwords. Unset = on.
    */
   cloudAi?: boolean;
+  /** Cloud AI provider to try first ('nvidia', 'groq', …); the rest are backups. Unset: the site's order. */
+  cloudPrefer?: string;
   /** Ghost text and rewrites in text boxes (needs cloud AI). Unset = on. */
   writeHelp?: boolean;
   /** Retired (the old NSFW blur switch). Nothing reads it. */
