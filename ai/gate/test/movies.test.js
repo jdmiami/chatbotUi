@@ -298,7 +298,7 @@ test('the main machine keeps a maker the helper is making a movie with', async (
   assert.equal(await main.usedElsewhere('h3-max'), true);
   assert.equal(await main.usedElsewhere('ltx'), false);
   assert.equal(await helper.usedElsewhere('h3-max'), false);
-  const mainStudio = make({ dir, files: { image: [], video: [] }, fetchImpl: async () => Response.json({}), WebSocketImpl: null, log: { warn() {} }, inUseElsewhere: (id) => main.usedElsewhere(id) });
+  const mainStudio = make({ dir, files: { image: [], video: [] }, fetchImpl: async () => Response.json({}), WebSocketImpl: null, log: { warn() {} }, inUseElsewhere: (id) => main.usedElsewhere(id), statfs: async () => ({ bavail: 1e7, bsize: 1024 ** 2 }) });
   await mainStudio.installMaker('h3-max');
   await assert.rejects(mainStudio.removeMaker('h3-max'), (e) => e.status === 409 && /helper/.test(e.message));
   await helper.stop(m.id);

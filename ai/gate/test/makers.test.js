@@ -44,7 +44,7 @@ async function setup() {
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'makers-'));
   for (const f of [...FILES.image, ...FILES.video]) await place(dir, f);
   const state = { prompts: [] };
-  const studio = createStudio({ dir, files: FILES, fetchImpl: fakeServices(state), WebSocketImpl: null, log: { warn() {} }, retryMs: 20 });
+  const studio = createStudio({ dir, files: FILES, fetchImpl: fakeServices(state), WebSocketImpl: null, log: { warn() {} }, retryMs: 20, statfs: async () => ({ bavail: 1e7, bsize: 1024 ** 2 }) });
   return { dir, state, studio };
 }
 /** Start a job and stop it right away, so the next one goes straight to ComfyUI (one at a time). */
@@ -183,7 +183,7 @@ test('memory: ComfyUI is cleared before a video and after one, not between pictu
     if (u.pathname === '/api/ps') return Response.json({ models: [] });
     return Response.json({});
   };
-  const studio = createStudio({ dir, files: FILES, fetchImpl, WebSocketImpl: null, log: { warn() {} }, retryMs: 20 });
+  const studio = createStudio({ dir, files: FILES, fetchImpl, WebSocketImpl: null, log: { warn() {} }, retryMs: 20, statfs: async () => ({ bavail: 1e7, bsize: 1024 ** 2 }) });
   await make(studio, { kind: 'image', prompt: 'a cat' });
   await make(studio, { kind: 'image', prompt: 'a dog' });
   assert.deepEqual(calls, ['/prompt', '/prompt']);

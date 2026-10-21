@@ -78,3 +78,11 @@ test('downloads: a full disk says so (and the number stops for a reason you can 
   assert.match(qwen.problem, /Not enough disk space for img\.safetensors \(0 GB free, needs about 3 GB\)/);
   assert.equal(asked, 0, 'nothing is fetched that cannot fit');
 });
+
+test('downloads: adding a maker that cannot fit is refused up front, with how much it needs', async () => {
+  const dir = await dirWithout('none');
+  const studio = createStudio({ dir, files: FILES, fetchImpl: async (url) => services(new URL(url)), WebSocketImpl: null, log: quiet, statfs: async () => ({ bavail: 10 * 1024, bsize: 1024 ** 2 }), nsfwDelayMs: 1e9 });
+  // H3 Max is about 52 GB; 10 GB are free.
+  await assert.rejects(studio.installMaker('h3-max'), (err) => err.status === 507 && /Not enough disk space for H3 Max: needs about \d+ GB, 10 GB free/.test(err.message));
+  assert.equal((await studio.makers()).find((m) => m.id === 'h3-max').wanted, false);
+});
