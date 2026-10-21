@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { FILES, MAKERS, h3Workflow, kreaWorkflow, qwenWorkflow, upscaleWorkflow, videoWorkflow } from '../src/workflows.js';
+import { FILES, MAKERS, VACE_TASKS, h3Workflow, kreaWorkflow, qwenWorkflow, upscaleWorkflow, videoWorkflow } from '../src/workflows.js';
 import { FEATURED } from '../src/store.js';
 import { parseModelSpec } from '../src/machine.js';
 
@@ -55,4 +55,26 @@ test('recipes take the maker’s own model file and settings', () => {
   assert.deepEqual(h[7].inputs.model, ['15', 0]);
   assert.equal(h3Workflow({ prompt: 'x' })[15], undefined);
   assert.equal(upscaleWorkflow({ image: 'a.png', model: FILES.ultrasharp.name })[2].inputs.model_name, FILES.ultrasharp.name);
+});
+
+test('catalog: video makers name what they need, gated files are only LTX-2.5’s, and VRAM fits 48 GB', () => {
+  const INPUTS = ['video', 'audio', 'photo', 'endPhoto', 'target'];
+  const FLOWS = { ltx25: 'video', s2v: 'video', vace: 'videoedit', seedvr2: 'videoedit' };
+  for (const id of ['ltx-25', 's2v', 'vace', 'video-erase', 'video-sharpen']) {
+    const d = CATALOG.makerDefs.find((m) => m.id === id);
+    assert.ok(d, id);
+    assert.equal(FLOWS[d.workflow], d.kind, `${id}: its recipe makes a ${d.kind}`);
+    for (const k of [...(d.needs || []), ...(d.accepts || [])]) assert.ok(INPUTS.includes(k), `${id}: ${k}`);
+    const page = CATALOG.makers[id];
+    assert.ok(page.about && page.license && page.gpu && page.output, `${id}: store page`);
+    assert.match(page.gpu, /of the 48 GB/);
+    for (const k of d.files) assert.equal(Boolean(FILES[k].gated), FILES[k].repo === 'Lightricks/LTX-2.5', `${id}: ${k} is gated only on the gated repo`);
+  }
+  assert.equal(CATALOG.makers['ltx-25'].gated, true);
+  // Shared files are one entry (downloaded once): the Wan text encoder and VAE.
+  const vace = CATALOG.makerDefs.find((m) => m.id === 'vace');
+  const s2v = CATALOG.makerDefs.find((m) => m.id === 's2v').files;
+  assert.deepEqual(vace.files.filter((k) => s2v.includes(k)), ['wanTe', 'wanVae']);
+  assert.deepEqual(CATALOG.makerDefs.find((m) => m.id === 'video-erase').files, vace.files);
+  for (const t of vace.tasks) assert.ok(VACE_TASKS.includes(t), t);
 });
