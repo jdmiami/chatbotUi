@@ -22,9 +22,8 @@ async function openMake(page: Page) {
   });
   await page.goto('/');
   await page.getByRole('button', { name: /^Index/ }).click();
-  await page.getByRole('dialog', { name: 'Index' }).getByRole('button', { name: /Talk/ }).click();
-  const win = page.locator('.app-window[data-app="ai"]');
-  await win.getByRole('button', { name: 'Make', exact: true }).click();
+  await page.getByRole('dialog', { name: 'Index' }).locator('.o5-index-list').getByRole('button', { name: /^\d*\s*Make/ }).click();
+  const win = page.locator('.app-window[data-app="make"]');
   await win.getByRole('radio', { name: /Live draw/ }).click();
   return { win, errors };
 }

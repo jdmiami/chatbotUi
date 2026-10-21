@@ -41,7 +41,8 @@ export const APP_WORDS: [RegExp, AppId][] = [
   [/\b(so ?real|movies?|films?)\b/, 'soreal'],
   [/\b(stats|statistics|storage|usage|cost|spending|ram|cpu|gpu)\b/, 'stats'],
   [/\b(settings?|preferences|options)\b/, 'settings'],
-  [/\b(ai|chat|talk|assistant|images?|pictures?|videos?|make|create)\b/, 'ai'],
+  [/\b(images?|pictures?|photos?|videos?|make|create|draw|gallery)\b/, 'make'],
+  [/\b(ai|chat|talk|assistant)\b/, 'ai'],
 ];
 
 const clean = (s: string) => s.replace(/\s+/g, ' ').trim();
@@ -184,15 +185,14 @@ export function parseCommand(input: string): Step[] | null {
   if ((m = /^(?:make|create|draw|generate)\s+(?:me\s+)?(?:an?\s+)?(picture|image|photo|video|clip)s?\s+(?:of|showing|with)\s+(.+)$/.exec(t))) {
     const video = /video|clip/.test(m[1]);
     return [
-      { do: 'open', app: 'ai' },
-      { do: 'click', target: 'Make|Create' },
+      { do: 'open', app: 'make' },
       { do: 'click', target: video ? 'A video|Video' : 'A picture|Image' },
       { do: 'type', target: 'Describe it', text: input.replace(/^.*?\b(?:of|showing|with)\s+/i, '').trim() },
       { do: 'click', target: video ? 'Make video' : 'Make image' },
     ];
   }
   if ((m = /^(?:ask|tell)\s+(?:the\s+)?(?:ai|assistant|model)\s+(?:to\s+|about\s+|whether\s+|if\s+)?(.+)$/.exec(t))) {
-    return [{ do: 'open', app: 'ai' }, { do: 'click', target: 'Talk|Chat' }, { do: 'type', target: 'Message', text: input.replace(/^.*?\b(?:ai|assistant|model)\b\s*(?:to\s+|about\s+)?/i, '').trim(), submit: true }];
+    return [{ do: 'open', app: 'ai' }, { do: 'type', target: 'Message', text: input.replace(/^.*?\b(?:ai|assistant|model)\b\s*(?:to\s+|about\s+)?/i, '').trim(), submit: true }];
   }
   if ((m = /^(?:tap|click|press|hit|select|choose)\s+(?:on\s+)?(?:the\s+)?(.+)$/.exec(t))) return [{ do: 'click', target: input.replace(/^\s*\S+\s+(?:on\s+)?(?:the\s+)?/i, '').trim() }];
   // "type …", or "write/enter "…" in X" (plain "write me a poem" is a request for the model).
@@ -213,7 +213,7 @@ export function needsConfirm(step: Step, label?: string): string | null {
 export const PLANNER_PROMPT = `You operate Orbit, a web workspace, for its owner, one step at a time.
 Each turn you get the goal, what you've done, and what is on screen now as numbered items ("#3 button: Make").
 Reply with ONE JSON object and nothing else, one of:
-{"do":"open","app":"terminal|editor|agent|ai|soreal|stats|settings"}
+{"do":"open","app":"terminal|editor|agent|ai|make|soreal|stats|settings"}
 {"do":"home"} {"do":"back"}
 {"do":"click","target":"#3"}            (use the item number)
 {"do":"type","target":"#5","text":"...","submit":true|false}

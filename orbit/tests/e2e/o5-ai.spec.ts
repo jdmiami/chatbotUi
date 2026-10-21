@@ -18,8 +18,16 @@ async function openO5Ai(page: Page) {
   return errors;
 }
 
-async function expectTappable(page: Page) {
-  const boxes = await page.locator('.app-window[data-app="ai"] button:visible').evaluateAll((els) =>
+async function openO5Make(page: Page) {
+  await page.getByRole('button', { name: /^Index/ }).click();
+  await page.getByRole('dialog', { name: 'Index' }).locator('.o5-index-list').getByRole('button', { name: /^\d*\s*Make/ }).click();
+  const win = page.locator('.app-window[data-app="make"]');
+  await expect(win.locator('.ai-create')).toBeVisible();
+  return win;
+}
+
+async function expectTappable(page: Page, app = 'ai') {
+  const boxes = await page.locator(`.app-window[data-app="${app}"] button:visible`).evaluateAll((els) =>
     els.map((el) => {
       const r = el.getBoundingClientRect();
       return { name: el.getAttribute('aria-label') || el.textContent?.trim() || '?', w: r.width, h: r.height };
@@ -34,7 +42,9 @@ test.describe('Orbit 0.5: AI', () => {
     const errors = await openO5Ai(page);
     const win = page.locator('.app-window[data-app="ai"]');
     await expect(win.locator('.app-header')).toHaveCount(0);
-    await expect(win.getByRole('group', { name: 'Talk or make' }).getByRole('button', { name: 'Talk' })).toHaveAttribute('aria-pressed', 'true');
+    // Talk only: Make is its own app now.
+    await expect(win.locator('.o5-ai-title')).toHaveText('Talk');
+    await expect(win.getByRole('button', { name: 'Make', exact: true })).toHaveCount(0);
     // Only the essentials in the message box until you ask for more.
     await expect(win.getByRole('button', { name: 'Search the web' })).toBeHidden();
     await expect(win.getByRole('button', { name: /^Model:/ })).toBeHidden();
@@ -83,8 +93,7 @@ test.describe('Orbit 0.5: AI', () => {
       r.fulfill({ json: { makers: [{ id: 'qwen', kind: 'image', name: 'Qwen Image', installed: true, builtIn: true }, { id: 'ltx', kind: 'video', name: 'LTX', installed: true, builtIn: true }] } }),
     );
     const errors = await openO5Ai(page);
-    const win = page.locator('.app-window[data-app="ai"]');
-    await win.getByRole('button', { name: 'Make', exact: true }).click();
+    const win = await openO5Make(page);
     for (const t of ['What will it be?', 'Who makes it', 'Describe it', 'Shape', 'Make it']) await expect(win.getByRole('heading', { name: t, exact: true })).toBeAttached();
     await win.getByRole('radio', { name: /A video/ }).click();
     await expect(win.getByRole('heading', { name: 'Who makes it' })).toBeInViewport();
@@ -92,7 +101,7 @@ test.describe('Orbit 0.5: AI', () => {
     await win.getByRole('radio', { name: 'LTX' }).click();
     await expect(win.getByRole('textbox', { name: 'Describe it' })).toBeInViewport();
     await expectNoHorizontalOverflow(page);
-    await expectTappable(page);
+    await expectTappable(page, 'make');
     expect(errors).toEqual([]);
   });
 
@@ -108,8 +117,7 @@ test.describe('Orbit 0.5: AI', () => {
         r.fulfill({ json: { makers: [{ id: 'qwen', kind: 'image', name: 'Qwen Image', installed: true, builtIn: true }, { id: 'ltx', kind: 'video', name: 'LTX', installed: true, builtIn: true }] } }),
       );
       const errors = await openO5Ai(page);
-      const win = page.locator('.app-window[data-app="ai"]');
-      await win.getByRole('button', { name: 'Make', exact: true }).click();
+      const win = await openO5Make(page);
       await win.getByRole('radio', { name: /Edit a video/ }).click();
       const picks = win.getByRole('radiogroup', { name: 'Maker' });
       for (const n of ['Wan VACE', 'Erase from video', 'Sharpen video']) await expect(picks.getByRole('radio', { name: new RegExp(`^${n}`) })).toBeVisible();
@@ -119,7 +127,7 @@ test.describe('Orbit 0.5: AI', () => {
         await expect(win.getByRole('status').filter({ hasText: 'arrives when your AI machine restarts' })).toBeVisible();
       }
       await expectNoHorizontalOverflow(page);
-      await expectTappable(page);
+      await expectTappable(page, 'make');
       await page.screenshot({ path: testInfo.outputPath('make-vedit.png') });
       await picks.getByRole('button', { name: 'Makers' }).click();
       const store = page.locator('.app-window[data-app="store"]');
@@ -134,8 +142,7 @@ test.describe('Orbit 0.5: AI', () => {
     const powerCalls: Record<string, unknown>[] = [];
     await mockAi(page, 'off', powerCalls);
     const errors = await openO5Ai(page);
-    const win = page.locator('.app-window[data-app="ai"]');
-    await win.getByRole('button', { name: 'Make', exact: true }).click();
+    const win = await openO5Make(page);
     await win.getByRole('radio', { name: /A picture/ }).click();
     const picks = win.getByRole('radiogroup', { name: 'Maker' });
     const qwen = picks.getByRole('radio', { name: 'Qwen Uncensored' });
@@ -186,8 +193,7 @@ test.describe('Orbit 0.5: AI', () => {
       });
     });
     const errors = await openO5Ai(page);
-    const win = page.locator('.app-window[data-app="ai"]');
-    await win.getByRole('button', { name: 'Make', exact: true }).click();
+    const win = await openO5Make(page);
     await win.getByRole('radio', { name: /A picture/ }).click();
     await win.getByRole('textbox', { name: 'Describe it' }).fill('a lighthouse at dusk');
     await win.getByRole('button', { name: 'Make image' }).click();

@@ -93,10 +93,13 @@ export function CreateView({
   machineOn,
   isActive,
   onOpenMakers,
+  reloadKey = 0,
 }: {
   ai: LocalAi;
   machineOn: boolean;
   isActive: boolean;
+  /** Changes when something was added to the gallery from outside (cloud creations moved in). */
+  reloadKey?: number;
   /** Opens the Store at its picture and video makers. */
   onOpenMakers?: () => void;
 }) {
@@ -197,6 +200,10 @@ export function CreateView({
     const t = setInterval(() => void refresh(), 5000);
     return () => clearInterval(t);
   }, [isActive, machineOn, refresh, loadItems]);
+
+  useEffect(() => {
+    if (reloadKey && machineOn) loadItems();
+  }, [reloadKey]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Follow running jobs closely.
   const running = jobs.filter(active);

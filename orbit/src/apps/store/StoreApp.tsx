@@ -202,8 +202,7 @@ export default function StoreApp({ isActive }: AppProps) {
       sendIntent({ app: 'ai', type: 'use-model', model: nameOfSpec(item.entry.spec).replace(/:latest$/, '') });
       launch('ai');
     } else {
-      sendIntent({ app: 'ai', type: 'open-create' });
-      launch('ai');
+      launch('make');
     }
   };
 

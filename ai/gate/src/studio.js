@@ -1503,6 +1503,42 @@ export function createStudio(o) {
   }
 
   /** Put a finished file (already under output/) in the gallery, e.g. a stitched movie. */
+  /**
+   * A picture or video made in the cloud while this machine was off: fetch it (a data: URL, or an
+   * https link on fal.ai's file servers only) and add it to the gallery like anything made here.
+   */
+  async function importItem({ url, kind, prompt, maker = 'cloud', width, height, seconds }) {
+    if (kind !== 'image' && kind !== 'video') throw bad('kind must be image or video');
+    const max = kind === 'video' ? 300 * 1024 * 1024 : 40 * 1024 * 1024;
+    let buf;
+    let type = '';
+    const data = /^data:(image\/(?:png|jpeg|webp)|video\/mp4);base64,([A-Za-z0-9+/=]+)$/.exec(String(url || ''));
+    if (data) {
+      type = data[1];
+      buf = Buffer.from(data[2], 'base64');
+    } else {
+      let u;
+      try {
+        u = new URL(String(url));
+      } catch {
+        throw bad('Not a link');
+      }
+      if (u.protocol !== 'https:' || !/(^|\.)fal\.(media|run|ai)$/.test(u.hostname)) throw bad('Only files from the cloud makers can be added');
+      const res = await (o.fetchImpl || fetch)(u, { signal: AbortSignal.timeout(120_000) });
+      if (!res.ok) throw bad(`Could not fetch it (${res.status})`, 502);
+      if (Number(res.headers.get('content-length')) > max) throw bad('That file is too large', 413);
+      type = (res.headers.get('content-type') || '').split(';')[0];
+      buf = Buffer.from(await res.arrayBuffer());
+    }
+    if (buf.length > max) throw bad('That file is too large', 413);
+    const ext = kind === 'video' ? '.mp4' : type === 'image/png' ? '.png' : type === 'image/webp' ? '.webp' : '.jpg';
+    const rel = path.join('cloud', `${newId()}${ext}`);
+    const dest = path.join(dir, 'output', rel);
+    await fsp.mkdir(path.dirname(dest), { recursive: true });
+    await fsp.writeFile(dest, buf);
+    return addItem({ kind, maker: String(maker).slice(0, 40), prompt: String(prompt || '').slice(0, 2000), file: rel, width, height, seconds });
+  }
+
   async function addItem({ kind, maker = 'soreal', prompt, file, seconds, width, height, movie, photo, nsfw, lab }) {
     // lab: a Lab movie's cut, kept out of the gallery until you keep it (like a Lab video).
     const item = { id: newId(), kind, maker, prompt, width, height, seconds, movie, photo: photo || undefined, nsfw: nsfw || undefined, lab: lab || undefined, file, createdAt: new Date(now()).toISOString() };
@@ -1679,6 +1715,7 @@ export function createStudio(o) {
     removeMaker,
     createJob,
     saveMedia,
+    importItem,
     job: (id) => (jobs.has(id) ? publicJob(jobs.get(id)) : null),
     /** soReal: how long a job like this usually takes here (learned timings), in seconds. */
     estimate({ kind = 'image', maker, size, seconds, cold = false } = {}) {

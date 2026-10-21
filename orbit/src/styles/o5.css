@@ -660,23 +660,19 @@
   overflow: hidden;
   transition: max-height var(--dur-o5) var(--ease-o5), opacity var(--dur-o5) var(--ease-o5), padding var(--dur-o5) var(--ease-o5);
 }
-.o5-ai-modes { display: flex; align-items: baseline; gap: clamp(14px, 4vw, 28px); }
-.o5-ai-mode {
+.o5-ai-title {
+  margin: 0;
+  display: flex;
+  align-items: center;
   min-height: var(--tap);
-  min-width: var(--tap);
-  padding: 0;
-  border: 0;
-  background: none;
-  color: var(--text-3);
+  color: var(--text);
   font-family: var(--font-display);
   font-variation-settings: 'opsz' 72;
   font-size: calc(30px * var(--text-scale));
   font-weight: 360;
+  font-style: italic;
   letter-spacing: -0.02em;
-  cursor: pointer;
-  transition: color var(--dur-fast), font-size var(--dur-o5) var(--ease-o5);
 }
-.o5-ai-mode[aria-pressed='true'] { color: var(--text); font-style: italic; }
 .o5-orb-btn {
   position: relative;
   min-height: 44px;

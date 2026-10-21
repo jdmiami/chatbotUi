@@ -136,14 +136,7 @@ export function Path({ hidden }: { hidden: boolean }) {
 
       <Chapter n="03" id="o5-make" title="Make" dek="Pictures, videos, and whole short films from one idea.">
         <Go label="soReal" art="soreal" hint="A movie from one idea" onClick={() => launch('soreal')} />
-        <Go
-          label="Images & video"
-          hint="In the AI app, under Create"
-          onClick={() => {
-            sendIntent({ app: 'ai', type: 'open-create' });
-            launch('ai');
-          }}
-        />
+        <Go label="Make" art="make" hint="Pictures, videos and edits" onClick={() => launch('make')} />
         <Go
           label="Makers"
           art="store"

@@ -144,7 +144,7 @@ describe('orb agent', () => {
     expect(parseCommand('Tap Make the movie')).toEqual([{ do: 'click', target: 'Make the movie' }]);
     expect(parseCommand('type "hello world" into Message')).toEqual([{ do: 'type', text: 'hello world', target: 'Message' }]);
     const make = parseCommand('Make a picture of a red fox in snow')!;
-    expect(make[0]).toEqual({ do: 'open', app: 'ai' });
+    expect(make[0]).toEqual({ do: 'open', app: 'make' });
     expect(make.find((s) => s.do === 'type')).toEqual({ do: 'type', target: 'Describe it', text: 'a red fox in snow' });
     expect(parseCommand('write me a poem about the sea and then summarise my week')).toBeNull();
   });

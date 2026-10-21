@@ -16,7 +16,6 @@ import { VoiceMode } from './VoiceMode';
 import { canSpeak, createSpeaker, unlockSpeech } from './speech';
 import { cue } from '../../motion/feedback';
 import { MemeLab } from './MemeLab';
-import { CreateView } from './CreateView';
 import { ModelPicker, useModelList } from './models';
 import '../agent/agent.css';
 import './ai.css';
@@ -114,15 +113,16 @@ export default function AiApp({ isActive, compact, placement }: AppProps) {
   const [pickerOpen, setPickerOpen] = useState(false);
   const [atBottom, setAtBottom] = useState(true);
   const [now, setNow] = useState(() => Date.now());
-  const [mode, setMode] = useState<'chat' | 'create' | 'lab'>(() => {
+  // Make is its own app now; the Lab tab stays (classic look) beside the chat.
+  const [mode, setMode] = useState<'chat' | 'lab'>(() => {
     try {
       const m = sessionStorage.getItem('orbit:ai:mode');
-      return m === 'create' || m === 'lab' ? m : 'chat';
+      return m === 'lab' && useShell.getState().settings.skin !== 'o5' ? m : 'chat';
     } catch {
       return 'chat';
     }
   });
-  const visited = useRef({ create: false, lab: false }).current;
+  const visited = useRef({ lab: false }).current;
   if (mode !== 'chat') visited[mode] = true;
   const [memory, setMemoryState] = useState<MemoryStore>(() => loadMemory());
   const setMemory = useCallback((fn: (m: MemoryStore) => MemoryStore) => {
@@ -222,8 +222,6 @@ export default function AiApp({ isActive, compact, placement }: AppProps) {
       update((s) => (s.chats.some((c) => c.id === id) ? { ...s, activeId: id } : s));
     } else if (intent.type === 'open-lab') {
       chooseMode('lab');
-    } else {
-      chooseMode('create');
     }
   }, [intent]); // eslint-disable-line react-hooks/exhaustive-deps
   const installed = modelStore.list?.installed;
@@ -271,7 +269,7 @@ export default function AiApp({ isActive, compact, placement }: AppProps) {
   const modelInfo = installed?.find((m) => m.name === model);
 
   const [speed, setSpeed] = useState<string | null>(null);
-  const chooseMode = (m: 'chat' | 'create' | 'lab') => {
+  const chooseMode = (m: 'chat' | 'lab') => {
     setMode(m);
     try {
       sessionStorage.setItem('orbit:ai:mode', m);
@@ -663,13 +661,7 @@ export default function AiApp({ isActive, compact, placement }: AppProps) {
     <div className="ag-root ai-root" data-placement={placement}>
       {o5 ? (
         <div className="o5-ai-bar">
-          <div className="o5-ai-modes" role="group" aria-label="Talk or make">
-            {(['chat', 'create'] as const).map((m) => (
-              <button key={m} type="button" className="o5-ai-mode" aria-pressed={mode === m} onClick={() => chooseMode(m)}>
-                {m === 'chat' ? 'Talk' : 'Make'}
-              </button>
-            ))}
-          </div>
+          <p className="o5-ai-title">Talk</p>
           <button
             type="button"
             className="o5-orb-btn"
@@ -708,7 +700,7 @@ export default function AiApp({ isActive, compact, placement }: AppProps) {
   
         <div className="ai-tabs">
           <Segmented
-            label="Chat, create or lab"
+            label="Chat or lab"
             value={mode}
             onChange={(m) => {
               setMode(m);
@@ -720,7 +712,6 @@ export default function AiApp({ isActive, compact, placement }: AppProps) {
             }}
             options={[
               { value: 'chat', label: 'Chat' },
-              { value: 'create', label: 'Create' },
               { value: 'lab', label: 'Lab' },
             ]}
           />
@@ -778,22 +769,11 @@ export default function AiApp({ isActive, compact, placement }: AppProps) {
         </div>
       )}
 
-      {/* Make and Lab stay open once visited (hidden while on another tab): coming back keeps the
+      {/* The Lab stays open once visited (hidden while on another tab): coming back keeps the
           gallery, the pictures and where you were, instead of loading it all again. */}
       {(mode === 'lab' || visited.lab) && (
         <div className="ai-create lab-tab" hidden={mode !== 'lab'}>
           <MemeLab ai={ai} machineOn={steadyOn} isActive={isActive && mode === 'lab'} />
-        </div>
-      )}
-
-      {(mode === 'create' || visited.create) && (
-        <div className="ai-make-tab" hidden={mode !== 'create'}>
-          <CreateView
-            ai={ai}
-            machineOn={steadyOn}
-            isActive={isActive && mode === 'create'}
-            onOpenMakers={() => openStore('makers')}
-          />
         </div>
       )}
 

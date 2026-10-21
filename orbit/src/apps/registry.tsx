@@ -33,6 +33,7 @@ const raw: Record<AppId, () => Promise<{ default: ComponentType<AppProps> }>> = 
   editor: () => import('./editor/EditorApp'),
   agent: () => import('./agent/AgentApp'),
   ai: () => import('./ai/AiApp'),
+  make: () => import('./make/MakeApp'),
   store: () => import('./store/StoreApp'),
   soreal: () => import('./soreal/SoRealApp'),
   lab: () => import('./lab/LabApp'),
@@ -108,6 +109,15 @@ export const APPS: Record<AppId, AppMeta> = {
     tile: 'linear-gradient(145deg, #f5c16c, #d9663a 55%, #6d2a5c)',
     glyph: '#ffffff',
     component: lazy(loaders.store),
+  },
+  make: {
+    id: 'make',
+    name: 'Make',
+    description: 'Pictures, videos and edits from words, a sketch or your camera',
+    icon: 'image',
+    tile: 'linear-gradient(145deg, #ff9a62, #e0457b 55%, #5b2a86)',
+    glyph: '#fff4ea',
+    component: lazy(loaders.make),
   },
   soreal: {
     id: 'soreal',
