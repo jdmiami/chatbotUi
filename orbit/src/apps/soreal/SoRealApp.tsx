@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { rememberItems } from '../../ui/nsfwFlags';
+import { connectMarks, rememberItems } from '../../ui/nsfwFlags';
 import type { AppProps } from '../types';
 import { useShell } from '../../state/shell';
 import { useWorkspace } from '../../state/workspace';
@@ -34,6 +34,8 @@ function listHint(m: Movie) {
  */
 export default function SoRealApp({ isActive, placement }: AppProps) {
   const ai = useMemo(() => getLocalAi(), []);
+  // A shot or picture held to blur is saved on the AI machine from here too.
+  useEffect(() => connectMarks(ai), [ai]);
   const toast = useShell((s) => s.toast);
   const setSummary = useWorkspace((s) => s.setSummary);
   const [status, setStatus] = useState<AiMachineStatus | null>(null);

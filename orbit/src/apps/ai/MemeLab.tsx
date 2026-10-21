@@ -4,6 +4,7 @@ import { IconButton, Segmented, Toggle } from '../../ui/components';
 import { TextArea } from '../../ui/TextArea';
 import { Censor } from '../../ui/Censor';
 import { isNsfw } from '../../ui/nsfw';
+import { connectMarks } from '../../ui/nsfwFlags';
 import { AiError, type LabIdea, type LabMovieProgress, type LabStyle, type LocalAi, type MemeLabState, type MemeRecord, type YourStyleProfile } from '../../services/ai/LocalAi';
 
 /**
@@ -15,6 +16,8 @@ import { AiError, type LabIdea, type LabMovieProgress, type LabStyle, type Local
  * Shown as the AI app's Lab tab and as the Lab app.
  */
 export function MemeLab({ ai, machineOn, isActive, onKept }: { ai: LocalAi; machineOn: boolean; isActive: boolean; onKept?: () => void }) {
+  // A Lab video held to blur is saved on the AI machine from here too.
+  useEffect(() => connectMarks(ai), [ai]);
   const [lab, setLab] = useState<MemeLabState | null>(null);
   const [missing, setMissing] = useState(false);
   const [error, setError] = useState<string | null>(null);
