@@ -815,16 +815,15 @@ export class LocalAi {
     return this.labAbsolute(await this.studioCall<MemeLabState>(`/_orbit/studio/lab/${encodeURIComponent(id)}`, { method: 'DELETE' }));
   }
 
-<<<<<<< HEAD
   /** Add something made in the cloud (a data: URL or a cloud maker's https link) to the gallery. */
   async importCloudItem(body: { url: string; kind: 'image' | 'video'; prompt: string; maker: string }): Promise<StudioItem> {
     const r = await this.studioCall<{ item: StudioItem }>('/_orbit/studio/import', { method: 'POST', body: JSON.stringify(body) });
     return this.absolute(r.item);
-=======
+  }
+
   /** What is kept in cloud storage (by folder, each gallery item's size) and its monthly cost. */
   storage(fresh = false): Promise<StorageReport> {
     return this.studioCall<StorageReport>(`/_orbit/storage${fresh ? '?fresh=1' : ''}`);
->>>>>>> origin/main
   }
 
   async deleteStudioItem(id: string): Promise<void> {
