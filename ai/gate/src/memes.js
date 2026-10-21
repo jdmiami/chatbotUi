@@ -373,12 +373,16 @@ export function createMemeLab(o) {
   }
 
   /** Stop and throw away the movie being made now, with its pictures and shots. */
-  async function dropCurrent() {
+  /** Stop and clear what is being made. `wait`: wait until its movie is gone (otherwise it goes in the background). */
+  async function dropCurrent({ wait = true } = {}) {
     if (!current) return false;
     const c = current;
     current = null;
     saved.making = null;
-    if (c.movieId) await o.movies?.remove(c.movieId).catch(() => {});
+    if (c.movieId) {
+      const gone = o.movies?.remove(c.movieId).catch(() => {});
+      if (wait) await gone;
+    }
     return true;
   }
 
@@ -612,7 +616,8 @@ export function createMemeLab(o) {
       if (STYLES.includes(style) && style !== saved.style) {
         saved.style = style;
         if (!Array.isArray(topics)) topics = saved.topics;
-        await dropCurrent();
+        // Answer at once: stopping a movie mid-shot can take minutes, and the switch must not look stuck.
+        await dropCurrent({ wait: false });
         // Your own ideas belong to the style you wrote them for.
         saved.queue = [];
         if (style === 'yours') profile = (await o.profile?.current().catch(() => null)) || profile;

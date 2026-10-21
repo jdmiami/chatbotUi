@@ -30,6 +30,7 @@ export function MemeLab({ ai, machineOn, isActive, onKept }: { ai: LocalAi; mach
   const [topic, setTopic] = useState('');
   const [mine, setMine] = useState('');
   const [editing, setEditing] = useState<{ id: string; prompt: string } | null>(null);
+  const [switching, setSwitching] = useState<LabStyle | null>(null);
 
   const load = useCallback(() => {
     ai.memeLab().then(
@@ -111,14 +112,21 @@ export function MemeLab({ ai, machineOn, isActive, onKept }: { ai: LocalAi; mach
   const kind = spicy ? 'spicy movies' : yours ? 'movies in your style' : 'comedy movies';
   const movie = lab?.making?.movie ?? null;
   /** Switch the style. An AI machine on older code refuses a style it doesn't know (or ignores it): say so plainly. */
-  const pickStyle = (v: LabStyle) =>
-    ai.setLabStyle(v).then(
+  // The tap shows at once ("Switching…"); the machine confirms a moment later.
+  const pickStyle = (v: LabStyle) => {
+    setSwitching(v);
+    return ai.setLabStyle(v).then(
       (s) => {
+        setSwitching(null);
         setLab(s);
         setError(s.style && s.style !== v ? OLDER_MACHINE : null);
       },
-      (err: Error) => setError(err instanceof AiError && (err.status === 400 || err.status === 404 || err.status === 422) ? OLDER_MACHINE : err.message),
+      (err: Error) => {
+        setSwitching(null);
+        setError(err instanceof AiError && (err.status === 400 || err.status === 404 || err.status === 422) ? OLDER_MACHINE : err.message);
+      },
     );
+  };
 
   return (
     <section className="meme-lab" aria-labelledby="meme-lab-title">
@@ -126,14 +134,19 @@ export function MemeLab({ ai, machineOn, isActive, onKept }: { ai: LocalAi; mach
       {lab?.style && (
         <Segmented<LabStyle>
           label="Lab style"
-          value={style}
+          value={switching ?? style}
           options={[
             { value: 'spicy', label: 'Spicy' },
             { value: 'comedy', label: 'Comedy' },
             { value: 'yours', label: 'Your style' },
           ]}
-          onChange={(v) => v !== style && void pickStyle(v)}
+          onChange={(v) => v !== (switching ?? style) && void pickStyle(v)}
         />
+      )}
+      {switching && (
+        <p className="ai-muted" role="status">
+          Switching to {switching === 'yours' ? 'Your style' : switching === 'spicy' ? 'Spicy' : 'Comedy'}…
+        </p>
       )}
       <p className="ai-muted meme-lab-dek">
         {spicy

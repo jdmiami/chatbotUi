@@ -69,7 +69,7 @@ export interface Settings {
   writeHelp?: boolean;
   /** Retired (the old NSFW blur switch). Nothing reads it. */
   censor?: boolean;
-  /** NSFW pictures and videos: hidden everywhere (unset, 'hide'), or shown as they are ('show', "Show NSFW"). No blur. */
+  /** NSFW pictures and videos: hidden everywhere (unset, 'hide'), or shown blurred until held ('show', "Show NSFW"). Never saved: every visit starts hidden. */
   nsfwView?: 'hide' | 'show';
   /** Seen the first-run "what is simulated" sheet. */
   introSeen: boolean;
@@ -204,7 +204,8 @@ export const useShell = create<ShellState>()(
       name: 'orbit:shell:v1',
       storage: createJSONStorage(() => localStorage),
       // Only preferences persist. Running apps start fresh after a reload.
-      partialize: (s) => ({ settings: s.settings, split: { ...s.split, enabled: false } }),
+      // "Show NSFW" never outlives the visit: every time Orbit opens, NSFW is hidden again (a fail-safe).
+      partialize: (s) => ({ settings: { ...s.settings, nsfwView: undefined }, split: { ...s.split, enabled: false } }),
       merge: (persisted, current) => {
         const p = (persisted ?? {}) as Partial<ShellState>;
         return {
