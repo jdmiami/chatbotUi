@@ -11,10 +11,12 @@ import { AiError, type LocalAi, type StudioItem, type StudioJob, type StudioKind
 import { PENDING_TEXT, offlineMakers, rememberMakers, withCatalog } from './makerCatalog';
 import { AudioSource, VideoSource, type AudioPick, type VideoPick } from './VideoInputs';
 import { TextArea } from '../../ui/TextArea';
+import { LiveDraw } from './LiveDraw';
+import { LiveVideo } from './LiveVideo';
 
-/** vedit: change, erase or sharpen a video you have. */
-type Mode = StudioKind | 'edit' | 'vedit';
-const DEFAULT_PICK: Record<Mode, string> = { image: 'qwen', video: 'ltx', edit: 'edit', vedit: 'vace' };
+/** vedit: change, erase or sharpen a video you have; draw: Live draw (see it while you draw). */
+type Mode = StudioKind | 'edit' | 'vedit' | 'draw' | 'live';
+const DEFAULT_PICK: Record<Mode, string> = { image: 'qwen', video: 'ltx', edit: 'edit', vedit: 'vace', draw: 'live-draw', live: 'live-sdv2' };
 const TASKS: Record<VideoTask, { label: string; placeholder: string }> = {
   replace: { label: 'Replace', placeholder: 'What goes there instead? e.g. a white horse' },
   restyle: { label: 'Restyle', placeholder: 'The new look, e.g. a watercolour painting' },
@@ -210,7 +212,7 @@ export function CreateView({
   }, [running.map((j) => j.id).join(','), ai, loadItems]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Makers for this mode: the installed ones, plus the one picked (even while it downloads).
-  const kindsFor = (m: Mode): StudioMakerInfo['kind'][] => (m === 'edit' ? ['edit', 'upscale'] : m === 'vedit' ? ['videoedit'] : [m]);
+  const kindsFor = (m: Mode): StudioMakerInfo['kind'][] => (m === 'edit' ? ['edit', 'upscale'] : m === 'vedit' ? ['videoedit'] : m === 'draw' || m === 'live' ? ['live'] : [m]);
   // Video editing has no built-in maker: every one shows, so you can see what there is to add.
   const choices = known.filter((m) => kindsFor(kind).includes(m.kind) && (m.installed || m.wanted || kind === 'vedit'));
   const chosen = known.find((m) => m.id === pick[kind]) ?? known.find((m) => m.id === DEFAULT_PICK[kind]) ?? null;
@@ -242,7 +244,7 @@ export function CreateView({
   const canMake = makerReady && promptOk && inputsOk && !submitting;
 
   const make = async () => {
-    if (!canMake) return;
+    if (!canMake || kind === 'draw' || kind === 'live') return false;
     setSubmitting(true);
     try {
       const fromGallery = kind === 'edit' ? editImages.find((p, i) => i === 0 && p.item)?.item : undefined;
@@ -403,6 +405,8 @@ export function CreateView({
                   ['video', 'A video', 'With sound, from words or a photo'],
                   ['edit', 'An edit', 'Change a photo with words'],
                   ['vedit', 'Edit a video', 'Change, erase or sharpen one you have'],
+                  ['draw', 'Live draw', 'Draw, and see it become a picture as you go'],
+                  ['live', 'Live video', 'Your camera or a drawing, restyled as you watch'],
                 ] as const
               ).map(([v, label, hint]) => (
                 <button
@@ -413,7 +417,7 @@ export function CreateView({
                   className="o5-choice"
                   onClick={() => {
                     setKind(v);
-                    next('o5-make-who');
+                    next(v === 'draw' ? 'o5-make-draw' : v === 'live' ? 'o5-make-live' : 'o5-make-who');
                   }}
                 >
                   <span className="o5-go-label">{label}</span>
@@ -431,10 +435,24 @@ export function CreateView({
                 { value: 'video', label: 'Video' },
                 { value: 'edit', label: 'Edit' },
                 { value: 'vedit', label: 'Video edit' },
+                { value: 'draw', label: 'Draw' },
+                { value: 'live', label: 'Live' },
               ]}
             />
           )}
         </Step>
+        {kind === 'draw' && (
+          <Step on={o5} n="02" id="o5-make-draw" title="Draw it">
+            <LiveDraw ai={ai} machineOn={machineOn} makers={known} onOpenMakers={onOpenMakers} onStarted={(job) => setJobs((prev) => [...prev, job])} />
+          </Step>
+        )}
+        {kind === 'live' && (
+          <Step on={o5} n="02" id="o5-make-live" title="Go live">
+            <LiveVideo ai={ai} machineOn={machineOn} makers={known} onOpenMakers={onOpenMakers} onSaved={() => loadItems()} />
+          </Step>
+        )}
+        {kind !== 'draw' && kind !== 'live' && (
+        <>
         <Step on={o5} n="02" id="o5-make-who" title="Who makes it">
         <div className="ai-maker-picks" role="radiogroup" aria-label="Maker">
           {(choices.length ? choices : chosen ? [chosen] : []).map((m) => (
@@ -670,6 +688,8 @@ export function CreateView({
           {status}
         </p>
         </Step>
+        </>
+        )}
       </form>
 
       <section className="ai-censor" aria-labelledby="ai-censor-title">

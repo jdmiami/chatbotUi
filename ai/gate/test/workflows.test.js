@@ -22,6 +22,7 @@ import {
   upscaleWorkflow,
   vaceWorkflow,
   videoWorkflow,
+  zimageSketchWorkflow,
 } from '../src/workflows.js';
 
 // Every recipe is checked against the node schemas of the pinned ComfyUI (v0.41.2 /object_info,
@@ -56,6 +57,7 @@ const GRAPHS = {
   vaceMotion: vaceWorkflow({ task: 'motion', prompt: 'x', video: V, width: 960, height: 960, frames: 81, reference: P }),
   vaceExtend: vaceWorkflow({ task: 'extend', prompt: 'x', video: V, width: 1280, height: 720, frames: 80 }),
   seedvr2: seedvr2Workflow({ video: V }),
+  sketch: zimageSketchWorkflow({ prompt: 'x', sketch: P, width: 832, height: 1216, strength: 0.65 }),
 };
 
 const isLink = (v) => Array.isArray(v) && v.length === 2 && typeof v[0] === 'string' && Number.isInteger(v[1]);

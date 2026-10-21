@@ -685,3 +685,44 @@ export function seedvr2Workflow({ video, multiplier = 2, seed = randomSeed(), pr
     15: save(['14', 0], prefix),
   };
 }
+
+// ---------------------------------------------------------------- Sketch finish (Live draw)
+
+/** "Follow my lines" 0..1 → the ControlNet's strength 0.65..1.0 (Alibaba PAI's scale tests for 2.1 cover 0.65–1.0). */
+export function sketchStrength(follow) {
+  const f = Math.min(1, Math.max(0, Number.isFinite(Number(follow)) && follow !== null && follow !== '' ? Number(follow) : 0.6));
+  return Math.round((0.65 + 0.35 * f) * 100) / 100;
+}
+
+/**
+ * Sketch finish: your drawing, finished by Z-Image-Turbo following its lines with Alibaba PAI's
+ * Z-Image-Turbo-Fun-Controlnet-Union-2.1 (2602, 8 steps). Built from ComfyUI v0.41.2's own
+ * "Canny to Image (Z-Image-Turbo)" / "ControlNet (Z-Image-Turbo)" blueprints: ModelPatchLoader +
+ * QwenImageDiffsynthControlnet (which applies a Z-Image Fun ControlNet), then ModelSamplingAuraFlow
+ * shift 3; 8 steps, cfg 1, res_multistep. Instead of the blueprint's Canny step, the drawing (dark
+ * lines on white) is inverted to white lines on black, the scribble/HED-style input the Union model
+ * reads: core ComfyUI has no HED preprocessor, and a drawing needs none. `strength` is the
+ * ControlNet's strength (what VideoX-Fun calls control_context_scale).
+ */
+export function zimageSketchWorkflow({ prompt, sketch, width = 1024, height = 1024, strength = 0.85, seed = randomSeed(), steps = 8, prefix = 'orbit/image' }) {
+  return {
+    1: { class_type: 'UNETLoader', inputs: { unet_name: FILES.zImageUnet.name, weight_dtype: 'default' } },
+    2: { class_type: 'CLIPLoader', inputs: { clip_name: FILES.zImageTe.name, type: 'lumina2', device: 'default' } },
+    3: { class_type: 'VAELoader', inputs: { vae_name: FILES.zImageVae.name } },
+    4: { class_type: 'ModelPatchLoader', inputs: { name: FILES.zImageCnet.name } },
+    5: { class_type: 'LoadImage', inputs: { image: sketch } },
+    6: { class_type: 'ImageInvert', inputs: { image: ['5', 0] } },
+    7: { class_type: 'ImageScale', inputs: { image: ['6', 0], upscale_method: 'lanczos', width, height, crop: 'center' } },
+    8: { class_type: 'QwenImageDiffsynthControlnet', inputs: { model: ['1', 0], model_patch: ['4', 0], vae: ['3', 0], image: ['7', 0], strength } },
+    9: { class_type: 'ModelSamplingAuraFlow', inputs: { model: ['8', 0], shift: 3 } },
+    10: { class_type: 'CLIPTextEncode', inputs: { clip: ['2', 0], text: prompt } },
+    11: { class_type: 'ConditioningZeroOut', inputs: { conditioning: ['10', 0] } },
+    12: { class_type: 'EmptySD3LatentImage', inputs: { width, height, batch_size: 1 } },
+    13: {
+      class_type: 'KSampler',
+      inputs: { model: ['9', 0], seed, steps, cfg: 1, sampler_name: 'res_multistep', scheduler: 'simple', positive: ['10', 0], negative: ['11', 0], latent_image: ['12', 0], denoise: 1 },
+    },
+    14: { class_type: 'VAEDecode', inputs: { samples: ['13', 0], vae: ['3', 0] } },
+    15: { class_type: 'SaveImage', inputs: { images: ['14', 0], filename_prefix: prefix } },
+  };
+}

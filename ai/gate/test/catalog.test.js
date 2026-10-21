@@ -30,7 +30,8 @@ test('catalog: every extra maker is in the store with downloadable files and a r
     assert.ok(m, d.id);
     for (const k of m.files) {
       const f = FILES[k];
-      assert.ok(f && f.repo && f.path && f.name && f.size > 0 && f.dir, `${d.id}: file ${k}`);
+      // From Hugging Face (repo + path), or its makers' own https address (pix2pix-turbo's LoRA).
+      assert.ok(f && (f.repo ? f.path : /^https:\/\//.test(f.url || '')) && f.name && f.size > 0 && f.dir, `${d.id}: file ${k}`);
     }
     if (m.kind === 'style') assert.ok(m.loraFile?.name && m.trigger && MAKERS.some((x) => x.id === m.for), d.id);
     if (m.kind === 'edit') assert.ok(FILES[m.lora], d.id);

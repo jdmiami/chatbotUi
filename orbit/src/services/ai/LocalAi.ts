@@ -5,6 +5,7 @@
  * its OpenAI-compatible API (POST /api/ai/token). Chats stream straight from the AI machine.
  * The token lives only in memory.
  */
+import type { LiveDrawState } from './liveDraw';
 
 export type AiMachineState = 'unconfigured' | 'off' | 'starting' | 'downloading' | 'on' | 'error';
 
@@ -200,7 +201,8 @@ export type VideoTask = 'replace' | 'restyle' | 'extend' | 'motion';
 
 export interface StudioMakerInfo {
   id: string;
-  kind: 'image' | 'video' | 'edit' | 'upscale' | 'style' | 'videoedit';
+  /** live: answers while you draw (Live draw); sketch: finishes a drawing (Sketch finish). */
+  kind: 'image' | 'video' | 'edit' | 'upscale' | 'style' | 'videoedit' | 'live' | 'sketch';
   name: string;
   blurb: string;
   /** For a style: the maker it belongs to. */
@@ -224,6 +226,10 @@ export interface StudioMakerInfo {
   percent: number;
   /** In Orbit's catalog but not on the AI machine's list: its code is older. Arrives when it restarts. */
   pending?: boolean;
+  /** Only runs on the Turbo machine (80 GB): Krea Realtime. */
+  turboOnly?: boolean;
+  /** Its files are here and its own Python is being set up: what it is doing. */
+  setup?: string;
 }
 
 /** A video or sound sent to the AI machine for a maker to work on. */
@@ -260,6 +266,8 @@ export interface StudioRequest {
   target?: string;
   /** LTX-2.5 video to video: change it a little or a lot. */
   change?: 'little' | 'lot';
+  /** Sketch finish: how closely to follow the drawing's lines, 0..1. */
+  follow?: number;
 }
 
 /** soReal: one shot of a movie (a video made from the last frame of the shot before). */
@@ -628,6 +636,23 @@ export class LocalAi {
     const body = (await res.json().catch(() => ({}))) as { text?: string; error?: string };
     if (!res.ok) throw new AiError(body.error || `The AI machine answered ${res.status}.`, res.status);
     return body.text ?? '';
+  }
+
+  // ---- live makers (Live draw)
+
+  /** The main AI machine's address and a token, for Live draw's own connection (liveDraw.ts). */
+  async liveAccess(): Promise<{ url: string; token: string } | null> {
+    const g = await this.access();
+    return g?.url ? { url: g.url, token: g.token } : null;
+  }
+
+  liveDrawState(): Promise<LiveDrawState> {
+    return this.studioCall<LiveDrawState>('/_orbit/live/draw');
+  }
+
+  /** Live draw opened: the machine starts loading its model, so the first stroke doesn't wait. */
+  warmLiveDraw(): Promise<LiveDrawState> {
+    return this.studioCall<LiveDrawState>('/_orbit/live/draw/warm', { method: 'POST', body: '{}' });
   }
 
   // ---- image and video maker

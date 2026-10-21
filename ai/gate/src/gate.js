@@ -12,6 +12,7 @@ import http from 'node:http';
 import net from 'node:net';
 import { signJwt, verifyJwt } from './jwt.js';
 import { AUTO_OFF } from '../../../shared/autooff.js';
+import { acceptWebSocket, askedProtocols } from './wsock.js';
 
 export const COOKIE = '__Host-orbit_ai';
 const COOKIE_HOURS = 12;
@@ -109,6 +110,10 @@ const bearer = (req) => {
  *   lab                     meme lab (memes.js), optional
  *   studioKey               key Open WebUI uses for the studio from inside the machine (loopback only)
  *   r2test                  R2 speed test (r2.js createR2Test), optional
+ *   liveDraw                Live draw (live.js createLiveDraw), optional: /_orbit/live/draw, as a
+ *                           WebSocket or (fallback) one POST per preview
+ *   liveVideo               Live video (livevideo.js createLiveVideo), optional: /_orbit/live/video
+ *                           (WebSocket only: frames both ways while it runs)
  */
 // Open WebUI requests that ask a model for something (chat, images, speech, title/tag tasks).
 const WEBUI_WORK = /\/(chat\/completions|api\/chat|api\/generate|images|audio|tasks)(\/|$)/;
@@ -129,6 +134,8 @@ export function createGate(cfg, log = console) {
   const movies = cfg.movies || null;
   const r2test = cfg.r2test || null;
   const studioKey = cfg.studioKey ? Buffer.from(cfg.studioKey) : null;
+  const liveDraw = cfg.liveDraw || null;
+  const liveVideo = cfg.liveVideo || null;
 
   const apiToken = (req) => {
     try {
@@ -382,6 +389,31 @@ export function createGate(cfg, log = console) {
       if (!cors(req, res)) return send(res, 403, { error: 'Origin not allowed' });
       if (req.method === 'OPTIONS') return send(res, 204, '');
       return handleStudio(req, res, url, path);
+    }
+
+    // ---- Live draw, one preview per request (the WebSocket below is the usual way)
+    if (liveDraw && (path === '/_orbit/live/draw' || path === '/_orbit/live/draw/warm')) {
+      if (!cors(req, res)) return send(res, 403, { error: 'Origin not allowed' });
+      if (req.method === 'OPTIONS') return send(res, 204, '');
+      if (!apiToken(req) && !session(req)) return send(res, 401, { error: 'Unauthorized' });
+      try {
+        if (req.method === 'GET' && path === '/_orbit/live/draw') return send(res, 200, await liveDraw.state());
+        if (req.method === 'POST' && path === '/_orbit/live/draw/warm') {
+          await liveDraw.warm();
+          return send(res, 200, await liveDraw.state());
+        }
+        if (req.method === 'POST') {
+          const body = JSON.parse((await readBody(req, 8 * 1024 * 1024)) || '{}');
+          const out = await liveDraw.frame(body);
+          if (out.dropped) return send(res, 204, '');
+          res.writeHead(200, { 'content-type': 'image/jpeg', 'cache-control': 'no-store', 'x-live-ms': String(out.ms), 'access-control-expose-headers': 'x-live-ms' });
+          return res.end(out.jpeg);
+        }
+        return send(res, 405, { error: 'Method not allowed' });
+      } catch (err) {
+        const code = err.status || (err instanceof SyntaxError ? 400 : 500);
+        return send(res, code, { error: err.message, blocked: Boolean(err.blocked), paused: Boolean(err.paused) });
+      }
     }
 
     // ---- OpenAI-compatible API (Ollama) for Orbit's chat and the coding agent
@@ -729,8 +761,83 @@ export function createGate(cfg, log = console) {
     fs.createReadStream(file.path, { start, end }).pipe(res);
   }
 
+  // Live draw's own WebSocket. A browser can't add an Authorization header to a WebSocket, so Orbit
+  // sends its API token as the second sub-protocol (["orbit-live", token]); a signed-in browser on
+  // this address can use its cookie instead. The origin must be one of Orbit's.
+  /** Accept one of the gate's own live WebSockets after the origin and sign-in checks (null when refused). */
+  function liveAccept(req, socket, head) {
+    const origin = req.headers.origin;
+    if (origin && !allowed(origin) && origin !== `https://${req.headers.host}`) {
+      socket.end('HTTP/1.1 403 Forbidden\r\nConnection: close\r\n\r\n');
+      return null;
+    }
+    const asked = askedProtocols(req);
+    const tokenOk = asked.some((p) => {
+      try {
+        return Boolean(verifyJwt(p, secret, { audience: 'orbit-ai', maxAgeSec: 65 * 60 }));
+      } catch {
+        return false;
+      }
+    });
+    if (!tokenOk && !session(req)) {
+      socket.end('HTTP/1.1 401 Unauthorized\r\nConnection: close\r\n\r\n');
+      return null;
+    }
+    return acceptWebSocket(req, socket, head, { protocol: asked.includes('orbit-live') ? 'orbit-live' : null, maxPayload: 8 * 1024 * 1024 });
+  }
+
+  // Live video: one stream per connection; frames both ways as JSON (base64 JPEGs).
+  function liveVideoSocket(req, socket, head) {
+    const ws = liveAccept(req, socket, head);
+    if (!ws) return;
+    const conn = liveVideo.open((msg) => ws.send(JSON.stringify(msg)));
+    ws.on('message', (data, binary) => {
+      if (binary) return;
+      let msg;
+      try {
+        msg = JSON.parse(data.toString('utf8'));
+      } catch {
+        return;
+      }
+      void conn.message(msg);
+    });
+    ws.on('close', () => conn.close());
+  }
+
+  function liveSocket(req, socket, head) {
+    const ws = liveAccept(req, socket, head);
+    if (!ws) return;
+    const reply = (msg) => ws.send(JSON.stringify(msg));
+    ws.on('message', async (data, binary) => {
+      if (binary) return reply({ type: 'error', error: 'Send drawings as JSON.' });
+      let msg;
+      try {
+        msg = JSON.parse(data.toString('utf8'));
+      } catch {
+        return reply({ type: 'error', error: 'Not JSON.' });
+      }
+      try {
+        if (msg.type === 'state') return reply({ type: 'state', state: await liveDraw.state() });
+        if (msg.type === 'warm') {
+          await liveDraw.warm();
+          return reply({ type: 'state', state: await liveDraw.state() });
+        }
+        if (msg.type !== 'frame') return reply({ type: 'error', id: msg.id ?? null, error: 'Unknown message.' });
+        const out = await liveDraw.frame(msg);
+        if (!ws.open) return;
+        if (out.dropped) return reply({ type: 'dropped', id: msg.id ?? null });
+        reply({ type: 'frame', id: msg.id ?? null, ms: out.ms, image: `data:image/jpeg;base64,${out.jpeg.toString('base64')}` });
+      } catch (err) {
+        reply({ type: 'error', id: msg.id ?? null, status: err.status || 500, error: err.message, blocked: Boolean(err.blocked), paused: Boolean(err.paused) });
+      }
+    });
+  }
+
   // WebSockets (Open WebUI's live updates). Same cookie rule; piped as raw bytes once upgraded.
   server.on('upgrade', (req, socket, head) => {
+    const upPath = new URL(req.url, 'http://gate.local').pathname;
+    if (liveDraw && upPath === '/_orbit/live/draw') return liveSocket(req, socket, head);
+    if (liveVideo && upPath === '/_orbit/live/video') return liveVideoSocket(req, socket, head);
     const user = session(req);
     if (!user) {
       socket.end('HTTP/1.1 401 Unauthorized\r\nConnection: close\r\n\r\n');

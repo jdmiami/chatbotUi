@@ -132,7 +132,7 @@ test('studio with R2: the gallery is kept there, shows up on a fresh machine, an
   state.finished = true;
   await studio.poll();
   assert.equal(studio.job(job.id).status, 'done');
-  assert.deepEqual([...objects.keys()].sort(), [`gallery/orbit/${job.id}.json`, `gallery/orbit/${state.outName}`, 'state/timings.json']);
+  assert.deepEqual([...objects.keys()].sort(), [`gallery/orbit/${job.id}.json`, `gallery/orbit/${state.outName}`, 'state/timings.json'].sort());
 
   // The disk was wiped (a new start): the gallery comes back from R2, the file when it's opened.
   const fresh = await newStudio();

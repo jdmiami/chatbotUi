@@ -43,13 +43,14 @@ const MAKER_SHELVES: { id: string; title: string; dek: string; kinds: StudioMake
   { id: 'store-video-edit', title: 'Video editing', dek: 'Change, erase or sharpen a video you have.', kinds: ['videoedit'] },
   { id: 'store-upscale', title: 'Sharpen & enlarge', dek: 'Make small pictures big and crisp.', kinds: ['upscale'] },
   { id: 'store-styles', title: 'Styles', dek: 'Looks to lay over a picture maker.', kinds: ['style'] },
+  { id: 'store-live', title: 'Live', dek: 'Draw, and watch it turn into a picture as you go.', kinds: ['live', 'sketch'] },
 ];
-const KIND_NAME: Record<StudioMakerInfo['kind'], string> = { image: 'Picture maker', video: 'Video maker', edit: 'Picture editor', upscale: 'Upscaler', style: 'Style', videoedit: 'Video editor' };
+const KIND_NAME: Record<StudioMakerInfo['kind'], string> = { image: 'Picture maker', video: 'Video maker', edit: 'Picture editor', upscale: 'Upscaler', style: 'Style', videoedit: 'Video editor', live: 'Live maker', sketch: 'Sketch finisher' };
 const NEED_WORDS: Record<string, string> = { video: 'a video', audio: 'a voice or song', photo: 'a photo', target: 'words naming what to change' };
 /** "A video and a voice or song" */
 function needsText(m: StudioMakerInfo): string | null {
   const list = (m.needs ?? []).map((n) => NEED_WORDS[n]).filter(Boolean);
-  if (!list.length) return m.twoImages ? 'Two pictures' : m.kind === 'edit' || m.kind === 'upscale' ? 'A picture to start from' : null;
+  if (!list.length) return m.twoImages ? 'Two pictures' : m.kind === 'edit' || m.kind === 'upscale' ? 'A picture to start from' : m.kind === 'live' || m.kind === 'sketch' ? 'Your drawing (Make → Live draw)' : null;
   const s = list.length > 1 ? `${list.slice(0, -1).join(', ')} and ${list.at(-1)}` : list[0];
   return s[0].toUpperCase() + s.slice(1);
 }
@@ -71,7 +72,7 @@ function Tile({ item, size = 56 }: { item: Item; size?: number }) {
       aria-hidden
       style={{ width: size, height: size, background: `linear-gradient(145deg, hsl(${h} 46% 38%), hsl(${(h + 40) % 360} 52% 18%))` }}
     >
-      {glyph ? <Icon name={glyph === 'video' || glyph === 'videoedit' ? 'film' : glyph === 'style' ? 'sparkle' : glyph === 'upscale' ? 'search' : 'image'} size={Math.round(size * 0.42)} /> : <span>{letter}</span>}
+      {glyph ? <Icon name={glyph === 'video' || glyph === 'videoedit' ? 'film' : glyph === 'style' ? 'sparkle' : glyph === 'upscale' ? 'search' : glyph === 'live' || glyph === 'sketch' ? 'pencil' : 'image'} size={Math.round(size * 0.42)} /> : <span>{letter}</span>}
     </span>
   );
 }
@@ -584,6 +585,10 @@ function Detail({
       ? 'On your machine'
       : m?.pending
         ? PENDING_TEXT
+        : m?.setup
+        ? `Setting up its own Python: ${m.setup}`
+        : m?.turboOnly
+        ? 'Turbo machine only (H100, 80 GB): turn the AI machine on as Turbo to add it'
         : m?.needsToken
         ? 'Needs a Hugging Face token on your AI machine'
         : 'Fits this machine';
@@ -618,12 +623,14 @@ function Detail({
           ['Steps', d.steps ? `${d.steps} (more is slower, finer)` : null],
           ['Needs', m ? needsText(m) : null],
           ['GPU memory', d.gpu],
+          ['Speed', d.speed],
           ['Access', d.gated || m?.gated ? (m?.needsToken ? 'Gated: your AI machine needs a Hugging Face token first' : 'Gated on Hugging Face (needs a token)') : null],
           ['Works with', m?.for ? `${m.for === 'krea-real' ? 'Krea Real' : m.for}` : null],
           ['Trigger words', d.trigger],
           ['Licence', d.license],
           ['Updated', d.released],
           ['Source', d.repo ? <a href={`https://huggingface.co/${d.repo}`} target="_blank" rel="noopener">{d.repo}</a> : null],
+          ['Code', d.code ? <a href={d.code} target="_blank" rel="noopener">{d.code.replace(/^https:\/\/(www\.)?/, '')}</a> : null],
           ['On this machine', fit],
         ]
   ).filter(([, v]) => v !== null && v !== undefined && v !== '' && (v as unknown) !== false) as [string, React.ReactNode][];

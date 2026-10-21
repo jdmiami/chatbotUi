@@ -20,7 +20,9 @@ import { createSearch } from './search.js';
 import { createVoice } from './voice.js';
 import { createR2, createR2Test, r2FromEnv } from './r2.js';
 import { createOllamaSync, createWebuiBackup } from './cloud.js';
-import { STUDIO_FILES } from './workflows.js';
+import { FILES, STUDIO_FILES } from './workflows.js';
+import { createLiveDraw, createLiveWorker } from './live.js';
+import { TURBO_GPU_BYTES, TURBO_MESSAGE, createLiveEnvs, createLiveServer, createLiveVideo } from './livevideo.js';
 
 const env = process.env;
 if (!env.GATEWAY_SECRET || env.GATEWAY_SECRET.length < 32) {
@@ -49,6 +51,13 @@ const models = createModelKeeper({
   saved: async () => ollamaSync && (await ollamaSync.backup()),
 });
 
+// GPU memory of this machine (nvidia-smi), for makers that only fit the Turbo machine.
+const gpuStats = createGpuStats({ ollama: OLLAMA, comfy: null });
+const gpuMemory = async () => Math.max(0, ...((await gpuStats().catch(() => null))?.gpus || []).map((g) => g.memoryTotal || 0));
+// The Python of each Live video maker (ai/live_env.sh), set up once its files are here.
+const liveEnvs = env.STUDIO_DIR
+  ? createLiveEnvs({ dir: env.STUDIO_DIR, script: fileURLToPath(new URL('../live_env.sh', import.meta.url)), node: process.execPath, log: console })
+  : null;
 // Image and video maker (ComfyUI, started by ai/studio.sh). Off when STUDIO_DIR isn't set.
 const studio = env.STUDIO_DIR
   ? createStudio({
@@ -58,6 +67,15 @@ const studio = env.STUDIO_DIR
       helper: HELPER,
       r2,
       inUseElsewhere: (id) => movies?.usedElsewhere(id),
+      // A video needs the whole graphics card: Live draw lets go of it first.
+      makeWayForVideo: async () => {
+        liveDraw?.release();
+        liveVideo?.release();
+      },
+      liveEnvs,
+      gpuMemory,
+      turboBytes: TURBO_GPU_BYTES,
+      turboMessage: TURBO_MESSAGE,
       // Gated downloads (LTX-2.5). A Runpod secret that was never set arrives as "{{ RUNPOD_SECRET_… }}".
       hfToken: /^\{\{/.test(env.HF_TOKEN || '') ? '' : env.HF_TOKEN || env.HUGGING_FACE_HUB_TOKEN || '',
       // Looks at every picture and video for NSFW, on the CPU (nsfwcheck.js).
@@ -69,6 +87,85 @@ const studio = env.STUDIO_DIR
       }),
     })
   : null;
+// Live draw (live.js): pix2pix-turbo answers each stroke in its own worker on the graphics card,
+// started when Live draw is used and unloaded after a few quiet minutes.
+const liveDraw = studio
+  ? createLiveDraw({
+      worker: createLiveWorker({
+        name: 'Live draw',
+        python: path.join(env.STUDIO_DIR, 'venv', 'bin', 'python'),
+        script: fileURLToPath(new URL('../live_draw_worker.py', import.meta.url)),
+        env: {
+          LIVE_DRAW_SD_TURBO: path.join(env.STUDIO_DIR, 'models', 'live', 'sd-turbo'),
+          LIVE_DRAW_LORA: studio.modelPath(FILES.pix2pixSketchLora),
+          HF_HOME: path.join(env.STUDIO_DIR, 'hf'),
+        },
+        idleMs: 4 * 60_000,
+        log: console,
+      }),
+      installed: () => studio.makerInstalled('live-draw'),
+      makeRoom: () => studio.makeRoom(),
+      paused: () => (studio.videoInFlight() ? 'Your AI machine is making a video: live previews wait until it is done.' : null),
+      activity: () => idle.activity(),
+    })
+  : null;
+// Live video (livevideo.js): StreamDiffusionV2 in its own worker, Krea Realtime as Krea's own server
+// on 127.0.0.1 (never exposed: Orbit reaches both through the gate's /_orbit/live/video).
+const KREA_PORT = Number(env.KREA_PORT || 8766);
+const liveVideo =
+  studio && liveEnvs
+    ? createLiveVideo({
+        studio,
+        envs: liveEnvs,
+        sdv2Worker: () =>
+          createLiveWorker({
+            name: 'StreamDiffusionV2',
+            python: path.join(liveEnvs.root, 'sdv2', 'src', '.venv', 'bin', 'python'),
+            script: fileURLToPath(new URL('../live_video_worker.py', import.meta.url)),
+            env: {
+              SDV2_REPO: path.join(liveEnvs.root, 'sdv2', 'src'),
+              SDV2_CKPT: path.dirname(studio.modelPath(FILES.sdv2Ckpt)),
+              STREAMDIFFUSIONV2_ROOT: path.join(env.STUDIO_DIR, 'models', 'live'),
+              HF_HOME: path.join(env.STUDIO_DIR, 'hf'),
+              HF_HUB_OFFLINE: '1',
+            },
+            idleMs: 4 * 60_000,
+            startTimeoutMs: 15 * 60_000,
+            timeoutMs: 120_000,
+            log: console,
+          }),
+        krea: createLiveServer({
+          name: 'Krea Realtime',
+          cmd: path.join(liveEnvs.root, 'krea', 'src', '.venv', 'bin', 'python'),
+          args: ['-m', 'uvicorn', 'release_server:app', '--host', '127.0.0.1', '--port', String(KREA_PORT)],
+          cwd: path.join(liveEnvs.root, 'krea', 'src'),
+          env: {
+            MODEL_FOLDER: path.join(env.STUDIO_DIR, 'models', 'live', 'wan_models'),
+            CONFIG: 'configs/self_forcing_server_14b.yaml',
+            // torch.compile makes the first start much slower; not worth it for a session or two.
+            DO_COMPILE: 'false',
+            CUDA_VISIBLE_DEVICES: '0',
+            HF_HOME: path.join(env.STUDIO_DIR, 'hf'),
+          },
+          url: `http://127.0.0.1:${KREA_PORT}`,
+          // Its config reads checkpoints/krea-realtime-video-14b.safetensors from its own folder.
+          prepare: async () => {
+            const link = path.join(liveEnvs.root, 'krea', 'src', 'checkpoints', FILES.kreaRealtime.name);
+            await fs.mkdir(path.dirname(link), { recursive: true });
+            await fs.rm(link, { force: true });
+            await fs.symlink(studio.modelPath(FILES.kreaRealtime), link);
+          },
+          idleMs: 5 * 60_000,
+          log: console,
+        }),
+        kreaUrl: `ws://127.0.0.1:${KREA_PORT}`,
+        gpuMemory,
+        makeWay: async () => liveDraw?.release(),
+        activity: () => idle.activity(),
+        ffmpeg: (args, opts) => runFfmpeg(args, opts),
+        log: console,
+      })
+    : null;
 // soReal movies (chained video shots), kept with the studio's files.
 // A chat model on this machine writes each movie's story (labChat: below, the same as the meme lab's).
 const movies = studio ? createMovies({ dir: env.STUDIO_DIR, studio, machine: HELPER ? 'helper' : 'main', mirror: studio.mirror, chat: ({ system, user }) => labChat({ system, user }) }) : null;
@@ -107,7 +204,7 @@ const idle = createAutoOff({
   limitMinutes: clampAutoOffMinutes(env.IDLE_MINUTES),
   // Busy while a picture, video or movie shot is being made or a download is running (so the hour
   // starts once every download is done). A model merely sitting in GPU memory is not a job.
-  busy: async () => Boolean(models.pulling() || store.busy() || studio?.busy() || r2test?.running() || ollamaSync?.busy() || webuiBackup?.busy()),
+  busy: async () => Boolean(models.pulling() || store.busy() || studio?.busy() || liveDraw?.busy() || liveVideo?.busy() || r2test?.running() || ollamaSync?.busy() || webuiBackup?.busy()),
   // A notification shortly before turning off, so the owner can keep it on.
   warnMinutes: AUTO_OFF.warnMinutes,
   warn: push ? async () => void (await push.send()) : null,
@@ -273,6 +370,8 @@ const server = createGate({
   studio,
   movies,
   lab,
+  liveDraw,
+  liveVideo,
   r2test,
   studioKey: env.STUDIO_KEY || '',
   store,

@@ -452,6 +452,36 @@
     "LATENT"
    ]
   },
+  "EmptySD3LatentImage": {
+   "input": {
+    "required": {
+     "width": [
+      "INT",
+      {
+       "min": 16,
+       "max": 16384
+      }
+     ],
+     "height": [
+      "INT",
+      {
+       "min": 16,
+       "max": 16384
+      }
+     ],
+     "batch_size": [
+      "INT",
+      {
+       "min": 1,
+       "max": 4096
+      }
+     ]
+    }
+   },
+   "output": [
+    "LATENT"
+   ]
+  },
   "GetVideoComponents": {
    "input": {
     "required": {
@@ -553,6 +583,67 @@
       {
        "min": 1,
        "max": 4096
+      }
+     ]
+    }
+   },
+   "output": [
+    "IMAGE"
+   ]
+  },
+  "ImageInvert": {
+   "input": {
+    "required": {
+     "image": [
+      "IMAGE",
+      {}
+     ]
+    }
+   },
+   "output": [
+    "IMAGE"
+   ]
+  },
+  "ImageScale": {
+   "input": {
+    "required": {
+     "image": [
+      "IMAGE",
+      {}
+     ],
+     "upscale_method": [
+      "COMBO",
+      {
+       "options": [
+        "nearest-exact",
+        "bilinear",
+        "area",
+        "bicubic",
+        "lanczos"
+       ]
+      }
+     ],
+     "width": [
+      "INT",
+      {
+       "min": 0,
+       "max": 16384
+      }
+     ],
+     "height": [
+      "INT",
+      {
+       "min": 0,
+       "max": 16384
+      }
+     ],
+     "crop": [
+      "COMBO",
+      {
+       "options": [
+        "disabled",
+        "center"
+       ]
       }
      ]
     }
@@ -1398,6 +1489,52 @@
     "LATENT"
    ]
   },
+  "ModelPatchLoader": {
+   "input": {
+    "required": {
+     "name": [
+      "COMBO",
+      {
+       "options": []
+      }
+     ]
+    }
+   },
+   "output": [
+    "MODEL_PATCH"
+   ]
+  },
+  "ModelSamplingAuraFlow": {
+   "input": {
+    "required": {
+     "model": [
+      "MODEL",
+      {}
+     ],
+     "shift": [
+      "FLOAT",
+      {
+       "min": 0,
+       "max": 100
+      }
+     ]
+    },
+    "optional": {
+     "sampling": [
+      "COMBO",
+      {
+       "options": [
+        "flow",
+        "img_to_img_velocity"
+       ]
+      }
+     ]
+    }
+   },
+   "output": [
+    "MODEL"
+   ]
+  },
   "ModelSamplingSD3": {
    "input": {
     "required": {
@@ -1446,6 +1583,58 @@
         "int4"
        ],
        "multiselect": false
+      }
+     ]
+    }
+   },
+   "output": [
+    "MODEL"
+   ]
+  },
+  "QwenImageDiffsynthControlnet": {
+   "input": {
+    "required": {
+     "model": [
+      "MODEL",
+      {}
+     ],
+     "model_patch": [
+      "MODEL_PATCH",
+      {}
+     ],
+     "vae": [
+      "VAE",
+      {}
+     ],
+     "image": [
+      "IMAGE",
+      {}
+     ],
+     "strength": [
+      "FLOAT",
+      {
+       "min": -10,
+       "max": 10
+      }
+     ]
+    },
+    "optional": {
+     "mask": [
+      "MASK",
+      {}
+     ],
+     "start_percent": [
+      "FLOAT",
+      {
+       "min": 0,
+       "max": 1
+      }
+     ],
+     "end_percent": [
+      "FLOAT",
+      {
+       "min": 0,
+       "max": 1
       }
      ]
     }

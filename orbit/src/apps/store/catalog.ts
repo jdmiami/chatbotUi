@@ -49,6 +49,12 @@ export interface MakerDetails {
   output?: string;
   /** GPU memory it uses, in plain words ("About 28 GB of the 48 GB"). */
   gpu?: string;
+  /** How fast it is, in plain words (and whether that was measured). */
+  speed?: string;
+  /** Where its code lives, when that isn't where its weights are. */
+  code?: string;
+  /** Only runs on the Turbo machine (80 GB). */
+  turboOnly?: boolean;
   /** Its files are gated on Hugging Face: the AI machine needs a token. */
   gated?: boolean;
 }
@@ -64,6 +70,8 @@ interface MakerDef {
   needs?: StudioMakerInfo['needs'];
   accepts?: StudioMakerInfo['accepts'];
   tasks?: StudioMakerInfo['tasks'];
+  /** Only runs on the Turbo machine (80 GB). */
+  turboOnly?: boolean;
 }
 interface Catalog {
   chat: ChatEntry[];
@@ -76,7 +84,7 @@ interface Catalog {
 export const CATALOG = raw as unknown as Catalog;
 
 /** The catalog's extra makers, shaped like the machine reports them (for when it is off). */
-export const CATALOG_MAKERS: Pick<StudioMakerInfo, 'id' | 'kind' | 'name' | 'blurb' | 'for' | 'twoImages' | 'size' | 'needs' | 'accepts' | 'tasks' | 'gated'>[] = (CATALOG.makerDefs ?? []).map((m) => ({
+export const CATALOG_MAKERS: Pick<StudioMakerInfo, 'id' | 'kind' | 'name' | 'blurb' | 'for' | 'twoImages' | 'size' | 'needs' | 'accepts' | 'tasks' | 'gated' | 'turboOnly'>[] = (CATALOG.makerDefs ?? []).map((m) => ({
   id: m.id,
   kind: m.kind,
   name: m.name,
@@ -87,6 +95,7 @@ export const CATALOG_MAKERS: Pick<StudioMakerInfo, 'id' | 'kind' | 'name' | 'blu
   accepts: m.accepts ?? [],
   tasks: m.tasks ?? [],
   gated: m.files.some((k) => CATALOG.files?.[k]?.gated),
+  turboOnly: m.turboOnly || undefined,
   // Only the files this maker adds (shared base models are counted where they first appear).
   size: m.files.reduce((n, k) => n + (CATALOG.files?.[k]?.size ?? 0), 0),
 }));
