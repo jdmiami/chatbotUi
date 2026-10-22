@@ -1,10 +1,10 @@
 /**
  * Predicted choices: the studio's writer reads what was picked so far and offers the answers you
- * are most likely to want next. Your own AI machine answers when it is on (its uncensored models),
- * else the cloud. If neither answers in time, the ready answers stand on their own.
+ * are most likely to want next. The studio's own writer answers while the studio is awake; otherwise,
+ * or if it doesn't answer in time, the ready answers stand on their own.
  */
-import { cloudText } from '../services/ai/CloudAi';
-import { getLocalAi, type ChatMessage } from '../services/ai/LocalAi';
+import type { ChatMessage } from '../services/ai/LocalAi';
+import { studioAi } from './memberApi';
 import type { Answers, Choice, Flow, StepDef, StudioDef } from './defs';
 import { briefOf } from './engine';
 
@@ -57,17 +57,11 @@ function messages(studio: StudioDef, flow: Flow, step: StepDef, answers: Answers
 }
 
 async function ask(msgs: ChatMessage[], signal: AbortSignal): Promise<string> {
-  const ai = getLocalAi();
-  const status = await ai.status().catch(() => null);
-  if (status?.state === 'on') {
-    const models = await ai.listModels().catch(() => [] as string[]);
-    if (models[0]) {
-      let text = '';
-      await ai.chat(models[0], msgs, { onText: (d) => (text += d) }, signal);
-      return text;
-    }
-  }
-  return cloudText({ task: 'fast', messages: msgs, maxTokens: 300, temperature: 0.9, signal });
+  // Only while the studio is awake: asking never wakes it (that costs).
+  if (!studioAi.awake()) return '';
+  let text = '';
+  await studioAi.chat(msgs, (d) => (text += d), signal, 300);
+  return text;
 }
 
 /** The writer's suggestions for this question (empty when it has nothing to go on, or fails). */

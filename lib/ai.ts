@@ -496,6 +496,22 @@ export async function aiToken(user: string, audience: 'orbit-ai' | 'orbit-ai-log
   return jwt.sign(new TextEncoder().encode(env().secret));
 }
 
+/**
+ * A studio member's 1-hour key for the AI machine. Its audience is not 'orbit-ai', so every owner
+ * route on the machine refuses it; only the machine's /_studio routes take it, and they keep each
+ * member's pictures, videos and films apart by `sub` (studio:user).
+ */
+export async function studioToken(studio: string, user: string) {
+  return new SignJWT({ studio })
+    .setProtectedHeader({ alg: 'HS256' })
+    .setSubject(`${studio}:${user}`)
+    .setIssuer('rdp-web')
+    .setAudience('studio-member')
+    .setIssuedAt()
+    .setExpirationTime('60m')
+    .sign(new TextEncoder().encode(env().secret));
+}
+
 interface GateStatus {
   ready: boolean;
   models: { name: string }[];

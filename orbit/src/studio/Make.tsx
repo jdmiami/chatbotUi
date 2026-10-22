@@ -1,5 +1,6 @@
 import { forwardRef, useCallback, useEffect, useRef, useState } from 'react';
-import { getLocalAi, type Movie, type StudioItem } from '../services/ai/LocalAi';
+import type { StudioItem } from '../services/ai/LocalAi';
+import { studioAi, type MemberMovie } from './memberApi';
 import type { StudioDef } from './defs';
 import { briefOf, jobOf, promptOf } from './engine';
 import type { Project } from './projects';
@@ -24,11 +25,11 @@ const PHASE: Record<string, string> = {
  * word "machine"), starts the job, follows it to the end and shows what came out.
  */
 export const Make = forwardRef<HTMLElement, { studio: StudioDef; project: Project; onChange: (p: Project) => void }>(function Make({ studio, project, onChange }, ref) {
-  const ai = getLocalAi();
+  const ai = studioAi;
   const flow = studio.flows[project.kind];
   const [note, setNote] = useState<string | null>(null);
   const [progress, setProgress] = useState<number | null>(null);
-  const [movie, setMovie] = useState<Movie | null>(null);
+  const [movie, setMovie] = useState<MemberMovie | null>(null);
   const [items, setItems] = useState<Map<string, StudioItem>>(new Map());
   const live = useRef(true);
   const current = useRef(project);
@@ -137,14 +138,14 @@ export const Make = forwardRef<HTMLElement, { studio: StudioDef; project: Projec
   const approve = async () => {
     if (!project.movieId) return;
     try {
-      setMovie(await ai.runMovie(project.movieId, 'main', { approve: true }));
+      setMovie(await ai.runMovie(project.movieId, { approve: true }));
     } catch (err) {
       update({ status: 'error', error: (err as Error).message });
     }
   };
 
   const result = project.items.map((id) => items.get(id)).filter(Boolean) as StudioItem[];
-  const frames = movie?.phase === 'review' ? (movie.frames ?? []).map((f) => (f.itemId ? items.get(f.itemId) : undefined)).filter(Boolean) as StudioItem[] : [];
+  const frames = movie?.phase === 'review' ? movie.frames.filter((f): f is { id: string; status: string; url: string } => Boolean(f.url)) : [];
   const what = project.kind === 'image' ? 'picture' : project.kind;
 
   // The orb follows along: it glows while the studio works, reads out each new stage, and says when it's ready.

@@ -1,10 +1,11 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { AnimatePresence, motion } from 'motion/react';
 import { useShell } from '../state/shell';
 import { useMotionLevel } from '../motion/MotionProvider';
 import { SPRING, transitionFor } from '../motion/springs';
 import { useVisualViewport } from '../hooks/useVisualViewport';
-import { getLocalAi, type StudioItem } from '../services/ai/LocalAi';
+import type { StudioItem } from '../services/ai/LocalAi';
+import { studioAi } from './memberApi';
 import { OrbCursor } from '../shell/orb/OrbCursor';
 import { Toasts } from '../shell/Toasts';
 import type { Answers, Choice, MakeKind, StudioDef } from './defs';
@@ -380,15 +381,15 @@ const SHELVES: { id: Shelf; label: string; icon: IconName }[] = [
 function Gallery({ studio, shelf, setShelf, projects, onOpen }: { studio: StudioDef; shelf: Shelf; setShelf: (s: Shelf | null) => void; projects: Project[]; onOpen: (p: Project) => void }) {
   const [items, setItems] = useState<StudioItem[] | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const mine = useMemo(() => new Set(projects.flatMap((p) => p.items)), [projects]);
+  // Only ever this member's own work (the studio's AI keeps everyone's apart).
   useEffect(() => {
-    getLocalAi()
+    studioAi
       .studioItems()
       .then(
-        (list) => setItems(list.filter((i) => mine.has(i.id))),
+        (list) => setItems(list),
         () => setError('Your pictures and films show here while the studio is awake. Start something and it wakes up.'),
       );
-  }, [mine]);
+  }, []);
   useEffect(() => {
     const k = (e: KeyboardEvent) => e.key === 'Escape' && setShelf(null);
     addEventListener('keydown', k);

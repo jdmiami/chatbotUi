@@ -1,6 +1,6 @@
 import { forwardRef, useEffect, useRef, useState } from 'react';
-import { cloudChat } from '../services/ai/CloudAi';
-import { getLocalAi, type ChatMessage } from '../services/ai/LocalAi';
+import type { ChatMessage } from '../services/ai/LocalAi';
+import { studioAi } from './memberApi';
 import { canListen, listen, type Listening } from '../shell/orb/listen';
 import type { MakeKind, StudioDef } from './defs';
 import { Headline } from './Sheets';
@@ -37,13 +37,14 @@ export const Talk = forwardRef<HTMLElement, { studio: StudioDef; onMake: (kind: 
       setMsgs([...history, { role: 'assistant', content: reply }]);
     };
     try {
-      const ai = getLocalAi();
-      const on = (await ai.status().catch(() => null))?.state === 'on';
-      const model = on ? (await ai.listModels().catch(() => [] as string[]))[0] : undefined;
-      if (model) await ai.chat(model, all, { onText }, ctrl.current.signal);
-      else await cloudChat({ task: 'chat', messages: all, signal: ctrl.current.signal }, { onText });
+      await studioAi.chat(all, onText, ctrl.current.signal);
     } catch (err) {
-      if ((err as Error).name !== 'AbortError') setError((err as Error).message);
+      if ((err as Error).name === 'AbortError') return;
+      // Resting: wake the studio for the writer, and say so.
+      if ((err as { status?: number }).status === 503) {
+        void studioAi.power('start').catch(() => {});
+        setError('The writer is waking up with the studio. Try again in a couple of minutes.');
+      } else setError((err as Error).message);
     } finally {
       setBusy(false);
     }
