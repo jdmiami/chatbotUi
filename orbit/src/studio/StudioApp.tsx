@@ -15,7 +15,7 @@ import { keepCharacter, listCharacters, listProjects, newProject, saveProject, t
 import { CharacterList, Gate, Headline, Home } from './Sheets';
 import { Choices } from './Choices';
 import { Walk } from './Walk';
-import { lineFor, nudgeFor, orbSay, orbThink } from './orbGuide';
+import { lineFor, nudgeFor, orbHome, orbSay, orbThink } from './orbGuide';
 import { setPageChat } from '../shell/orb/pageChat';
 import { Make } from './Make';
 import { Talk } from './Talk';
@@ -138,6 +138,12 @@ export function StudioApp({ studio }: { studio: StudioDef }) {
     const t = setTimeout(() => orbSay(line), full ? 700 : 100);
     return () => clearTimeout(t);
   }, [stepKey]); // eslint-disable-line react-hooks/exhaustive-deps
+  // Wherever you dragged or threw the orb, each new question (forward or back) brings it home.
+  useEffect(() => {
+    orbHome();
+    const t = setTimeout(orbHome, full ? 650 : 120);
+    return () => clearTimeout(t);
+  }, [stepKey]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => {
     orbThink(predicting ? 0.7 : null);
     return () => orbThink(null);
@@ -205,6 +211,8 @@ export function StudioApp({ studio }: { studio: StudioDef }) {
   /** Pick an answer: the orb flies onto it, the others leave one by one, then it moves up into the trail. */
   const pick = async (label: string) => {
     if (picked !== null) return;
+    // The orb comes back to tap the answer you picked.
+    orbHome();
     if (view === 'start') {
       setPicked(label);
       await settle();

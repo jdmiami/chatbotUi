@@ -15,6 +15,11 @@ export function orbThink(energy: number | null) {
   window.dispatchEvent(new CustomEvent('orb:energy', { detail: energy }));
 }
 
+/** Bring the orb back to its place beside what matters (after you dragged or threw it). */
+export function orbHome() {
+  window.dispatchEvent(new CustomEvent('orb:home'));
+}
+
 const plain = (q: string) => q.replace(/\*/g, '');
 const lower = (s: string) => (s.length > 1 && s[1] === s[1].toLowerCase() ? s[0].toLowerCase() + s.slice(1) : s);
 

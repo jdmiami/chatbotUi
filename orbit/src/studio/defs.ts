@@ -70,6 +70,8 @@ export interface StudioDef {
   characters: string;
   makers: { image: string[]; video: string[]; movie: 'ltx' | 'h3-max' };
   rules: string[];
+  /** Ready ways to start talking with the writer (Talk), so nobody faces an empty box. */
+  talk: { starters: Choice[]; followUps: Choice[] };
   flows: Record<Exclude<MakeKind, 'talk'>, Flow>;
 }
 

@@ -88,6 +88,23 @@ export const AFTER_DARK: StudioDef = {
   characters: 'Characters',
   makers: { image: ['qwen-real', 'krea-real', 'qwen'], video: ['h3-max', 'ltx'], movie: 'h3-max' },
   rules: ['Fictional adults only, every one 25 or older', 'No real or famous people, and no photos of real people', 'Consent always', 'Nothing involving minors, ever'],
+  talk: {
+    starters: [
+      { label: 'Slow-burn tension', hint: 'Glances, waiting, the long build-up' },
+      { label: 'Strangers after midnight', hint: 'A hotel bar, one more drink' },
+      { label: 'Lovers reunited', hint: 'Years apart, one night back' },
+      { label: 'Something forbidden', hint: 'A secret neither should keep' },
+      { label: 'Playful and teasing', hint: 'Light, flirty, a little wicked' },
+      { label: 'Dark and intense', hint: 'Power, rain, neon, no small talk' },
+    ],
+    followUps: [
+      { label: 'Take it further', hint: 'What happens next' },
+      { label: 'Make it more intense', hint: 'Turn the heat up' },
+      { label: 'Give me three directions', hint: 'Different ways it could go' },
+      { label: 'Turn it into a scene', hint: 'Who, where, the moment' },
+      { label: 'Change the setting', hint: 'Same story, somewhere new' },
+    ],
+  },
   flows: {
     image: {
       kind: 'image',
