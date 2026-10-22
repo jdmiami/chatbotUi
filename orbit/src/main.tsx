@@ -9,11 +9,14 @@ import './styles/o5.css';
 import './styles/orb.css';
 import { Boot } from './shell/Boot';
 import { MotionProvider } from './motion/MotionProvider';
+import { studioFromLocation } from './studio';
+import { StudioBoot } from './studio/StudioBoot';
+
+// A studio site (After Dark…) is the member edition: one studio, no Orbit apps.
+const studio = studioFromLocation();
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
-    <MotionProvider>
-      <Boot />
-    </MotionProvider>
+    <MotionProvider>{studio ? <StudioBoot studio={studio} /> : <Boot />}</MotionProvider>
   </StrictMode>,
 );
