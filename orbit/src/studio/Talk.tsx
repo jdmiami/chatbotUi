@@ -76,7 +76,7 @@ export const Talk = forwardRef<HTMLElement, { studio: StudioDef; onMake: (kind: 
 
   return (
     <article className="st-sheet st-talk" ref={ref} aria-labelledby="st-talk-t">
-      <p className="st-kick">
+      <p className="o5-kicker st-kick">
         <span>Talk</span>
         <span className="st-num">The writer</span>
       </p>
@@ -110,7 +110,7 @@ export const Talk = forwardRef<HTMLElement, { studio: StudioDef; onMake: (kind: 
           void send(text);
         }}
       >
-        <label htmlFor="st-talk-in">{hearing ? 'Listening…' : 'Say it or type it'}</label>
+        <label className="o5-kicker" htmlFor="st-talk-in">{hearing ? 'Listening…' : 'Say it or type it'}</label>
         <input id="st-talk-in" value={text} onChange={(e) => setText(e.target.value)} placeholder="A slow-burn story about…" autoComplete="off" enterKeyHint="send" />
         {canListen() && (
           <button type="button" className="st-mic" aria-pressed={!!hearing} aria-label={hearing ? 'Stop listening' : 'Speak'} onClick={mic}>

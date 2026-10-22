@@ -148,7 +148,7 @@ export const Make = forwardRef<HTMLElement, { studio: StudioDef; project: Projec
 
   return (
     <article className="st-sheet st-brief" ref={ref} aria-labelledby="st-brief-t">
-      <p className="st-kick">
+      <p className="o5-kicker st-kick">
         <span>The brief</span>
         <span className="st-num">{project.status === 'done' ? 'Finished' : project.status === 'making' ? 'Being made' : 'Ready'}</span>
       </p>

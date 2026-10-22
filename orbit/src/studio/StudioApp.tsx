@@ -1,6 +1,8 @@
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { AnimatePresence, motion } from 'motion/react';
 import { useShell } from '../state/shell';
 import { useMotionLevel } from '../motion/MotionProvider';
+import { SPRING, transitionFor } from '../motion/springs';
 import { useVisualViewport } from '../hooks/useVisualViewport';
 import { getLocalAi, type StudioItem } from '../services/ai/LocalAi';
 import { OrbCursor } from '../shell/orb/OrbCursor';
@@ -9,8 +11,9 @@ import type { Answers, Choice, MakeKind, StudioDef } from './defs';
 import { answer, back as backOne, finishAll, nextStep, pickFor, progressOf, stepsFor } from './engine';
 import { mergeChoices, predictChoices } from './predict';
 import { keepCharacter, listCharacters, listProjects, newProject, saveProject, type Project } from './projects';
-import { carryIn, carryOut, wait } from './carry';
-import { CharacterList, Gate, Home, Question } from './Sheets';
+import { CharacterList, Gate, Headline, Home } from './Sheets';
+import { Choices } from './Choices';
+import { Walk } from './Walk';
 import { Make } from './Make';
 import { Talk } from './Talk';
 import { SqIcon, type IconName } from './icons';
@@ -26,6 +29,7 @@ const START: Choice[] = [
   { label: 'A movie', hint: 'Several scenes, cut together' },
 ];
 const START_KIND: Record<string, MakeKind> = { 'Talk it through': 'talk', 'A picture': 'image', 'A video': 'video', 'A movie': 'movie' };
+const wait = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 const CHARACTER_KEYS = new Set(['Appearance', 'Lead', 'Partner']);
 
 function titleOf(p: Project): string {
@@ -58,8 +62,7 @@ export function StudioApp({ studio }: { studio: StudioDef }) {
   const [predicting, setPredicting] = useState(false);
   const [shelf, setShelf] = useState<Shelf | null>(null);
   const [options, setOptions] = useState(false);
-  const sheet = useRef<HTMLElement>(null);
-  const moving = useRef(false);
+  const full = level === 'full';
 
   // The studio's look: its colours on <html>, a dark desk, the magazine faces.
   useEffect(() => {
@@ -75,7 +78,8 @@ export function StudioApp({ studio }: { studio: StudioDef }) {
       '--st-accent': t.accent,
       '--st-desk': t.desk,
       '--st-desk2': t.desk2,
-      '--accent': t.accent,
+      // On the dark page the accent is the orb's light tone; the deep one is for the paper drawers.
+      '--accent': t.orbA,
       '--orb-a': t.orbA,
       '--orb-b': t.orbB,
     };
@@ -86,12 +90,7 @@ export function StudioApp({ studio }: { studio: StudioDef }) {
 
   const flow = project ? studio.flows[project.kind] : null;
   const step = view === 'walk' && flow && project ? nextStep(flow, project.answers) : null;
-  const stepKey = `${view}|${step?.id ?? ''}|${project?.id ?? ''}|${view === 'make' ? project?.status : ''}`;
-
-  // The next sheet comes out of the orb.
-  useLayoutEffect(() => {
-    carryIn(sheet.current, level);
-  }, [stepKey]); // eslint-disable-line react-hooks/exhaustive-deps
+  const stepKey = `${view}|${step?.id ?? ''}|${project?.id ?? ''}`;
 
   // The writer's predictions for the question on screen.
   useEffect(() => {
@@ -109,20 +108,10 @@ export function StudioApp({ studio }: { studio: StudioDef }) {
     };
   }, [stepKey]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  /** Move to another screen: the old sheet goes into the orb first. */
-  const go = useCallback(
-    async (change: () => void) => {
-      if (moving.current) return;
-      moving.current = true;
-      try {
-        await carryOut(sheet.current, level);
-        change();
-      } finally {
-        moving.current = false;
-      }
-    },
-    [level],
-  );
+  /** Move to another screen (it leaves and the next one arrives on springs, see the render). */
+  const go = useCallback(async (change: () => void) => change(), []);
+  /** Time for the other answers to leave one by one, before the picked one moves on. */
+  const settle = () => wait(full ? 560 : level === 'lite' ? 200 : 0);
 
   const keep = useCallback(
     (p: Project) => {
@@ -155,21 +144,28 @@ export function StudioApp({ studio }: { studio: StudioDef }) {
     return saved;
   };
 
-  /** Pick an answer: the orb flies to it, taps it, and carries the page away. */
+  /** Pick an answer: the orb flies onto it, the others leave one by one, then it moves up into the trail. */
   const pick = async (label: string) => {
+    if (picked !== null) return;
     if (view === 'start') {
       setPicked(label);
-      await wait(level === 'off' ? 0 : 420);
+      await settle();
       setPicked(null);
       return startKind(START_KIND[label]);
     }
     if (!project || !flow || !step) return;
     setPicked(label);
-    await wait(level === 'off' ? 0 : 420);
-    await go(() => {
-      setPicked(null);
-      after(project, answer(flow, project.answers, step.id, label));
-    });
+    await settle();
+    setPicked(null);
+    after(project, answer(flow, project.answers, step.id, label));
+  };
+
+  /** Tap an earlier answer: back to that question (the answers after it are asked again). */
+  const revisit = (stepId: string) => {
+    if (!project || !flow) return;
+    const order = stepsFor(flow, project.answers).map((s) => s.id);
+    const cut = order.indexOf(stepId);
+    keep({ ...project, answers: Object.fromEntries(Object.entries(project.answers).filter(([k]) => order.indexOf(k) < cut)) });
   };
 
   const pickForMe = () => {
@@ -208,41 +204,49 @@ export function StudioApp({ studio }: { studio: StudioDef }) {
       setView(p.status === 'draft' && nextStep(studio.flows[p.kind], p.answers) ? 'walk' : 'make');
     });
 
-  const confirmAdult = () =>
-    void go(() => {
-      try {
-        localStorage.setItem(adultKey, '1');
-      } catch {
-        /* asked again next time */
-      }
-      setView('home');
-    });
+  const confirmAdult = async (yes: boolean) => {
+    setPicked(yes ? 'I am 18 or older' : 'Take me back');
+    await settle();
+    setPicked(null);
+    if (!yes) {
+      if (history.length > 1) history.back();
+      else window.location.href = 'about:blank';
+      return;
+    }
+    try {
+      localStorage.setItem(adultKey, '1');
+    } catch {
+      /* asked again next time */
+    }
+    setView('home');
+  };
 
   const canBack = view !== 'home' && view !== 'gate';
   const canSave = (view === 'walk' || view === 'make') && project?.status === 'draft';
 
+  // The walkthrough scrolls itself (its trail above the question); every other screen is one column.
   let body: React.ReactNode = null;
-  if (view === 'gate') body = <Gate ref={sheet} studio={studio} onYes={confirmAdult} onNo={() => (window.location.href = 'about:blank')} />;
-  else if (view === 'home') body = <Home ref={sheet} studio={studio} projects={projects} onOpen={open} onNew={() => void go(() => setView('start'))} onTalk={() => startKind('talk')} />;
+  let walking = false;
+  if (view === 'gate') body = <Gate studio={studio} picked={picked} onPick={(yes) => void confirmAdult(yes)} />;
+  else if (view === 'home') body = <Home studio={studio} projects={projects} onOpen={open} onNew={() => void go(() => setView('start'))} onTalk={() => startKind('talk')} />;
   else if (view === 'start')
     body = (
-      <Question
-        ref={sheet}
-        step={{ id: 'start', kick: 'Opening', q: 'What shall we *make?*', dek: 'Pick one. Every choice is a short walk, one question at a time.', key: 'Making', choices: START, closed: true }}
-        n={1}
-        total={1}
-        choices={START}
-        predicting={false}
-        picked={picked}
-        onPick={(l) => void pick(l)}
-      />
+      <article className="st-sheet" aria-labelledby="st-start-t">
+        <p className="o5-kicker st-kick">
+          <span>Opening</span>
+        </p>
+        <Headline text="What shall we *make?*" id="st-start-t" orb={picked === null} />
+        <p className="st-dek">Pick one. Every choice is a short walk, one question at a time.</p>
+        <Choices items={START} picked={picked} onPick={(l) => void pick(l)} delay={0.2} />
+      </article>
     );
   else if (view === 'walk' && step && project && flow) {
     const { n, total } = progressOf(flow, project.answers);
+    walking = true;
     body = (
-      <Question
-        key={step.id}
-        ref={sheet}
+      <Walk
+        flow={flow}
+        answers={project.answers}
         step={step}
         n={n}
         total={total}
@@ -252,10 +256,12 @@ export function StudioApp({ studio }: { studio: StudioDef }) {
         onPick={(l) => void pick(l)}
         onPickForMe={pickForMe}
         onFinishForMe={finishForMe}
+        onRevisit={revisit}
       />
     );
-  } else if ((view === 'make' || view === 'walk') && project) body = <Make ref={sheet} studio={studio} project={project} onChange={keep} />;
-  else if (view === 'talk') body = <Talk ref={sheet} studio={studio} onMake={(k, seed) => startKind(k, seed)} />;
+  } else if ((view === 'make' || view === 'walk') && project) body = <Make studio={studio} project={project} onChange={keep} />;
+  else if (view === 'talk') body = <Talk studio={studio} onMake={(k, seed) => startKind(k, seed)} />;
+  const screen = view === 'walk' && !walking ? 'make' : view;
 
   return (
     <div className="st-root" data-view={view}>
@@ -279,7 +285,18 @@ export function StudioApp({ studio }: { studio: StudioDef }) {
       </header>
 
       <main className="st-stage" id="st-stage">
-        {body}
+        {/* One screen leaves (sinking into a blur) before the next rises in. */}
+        <AnimatePresence mode="wait" initial={false}>
+          <motion.div
+            key={`${screen}|${project?.id ?? ''}`}
+            className="st-view"
+            initial={full ? { opacity: 0, y: 28, filter: 'blur(14px)' } : { opacity: 0 }}
+            animate={{ opacity: 1, y: 0, filter: 'blur(0px)', transition: full ? SPRING.smooth : transitionFor(level) }}
+            exit={full ? { opacity: 0, y: -18, filter: 'blur(14px)', transition: { ...SPRING.smooth, stiffness: 260 } } : { opacity: 0, transition: transitionFor(level) }}
+          >
+            {walking ? body : <div className="st-scroll">{body}</div>}
+          </motion.div>
+        </AnimatePresence>
       </main>
 
       {view !== 'gate' && (
