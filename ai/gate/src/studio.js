@@ -906,6 +906,7 @@ export function createStudio(o) {
       id: j.id,
       kind: j.kind,
       maker: j.maker || null,
+      owner: j.owner || undefined,
       prompt: j.prompt,
       status: j.status,
       progress: j.progress,
@@ -1262,6 +1263,8 @@ export function createStudio(o) {
       seconds,
       fromImage: inputs.length > 0,
       background: Boolean(req.background),
+      // A studio member's job (gate.js sets it from their key, never from the request body).
+      owner: typeof req.owner === 'string' && req.owner ? req.owner.slice(0, 120) : undefined,
       photo,
       nsfwSource,
       workflow,
@@ -1387,6 +1390,7 @@ export function createStudio(o) {
         // Made by the meme lab: kept out of the gallery until you keep it.
         lab: job.background || undefined,
         minorGuard: job.minorGuard || undefined,
+        owner: job.owner || undefined,
         file,
         createdAt: job.createdAt,
       };
@@ -1713,9 +1717,9 @@ export function createStudio(o) {
     return addItem({ kind, maker: String(maker).slice(0, 40), prompt: String(prompt || '').slice(0, 2000), file: rel, width, height, seconds });
   }
 
-  async function addItem({ kind, maker = 'soreal', prompt, file, seconds, width, height, movie, photo, nsfw, lab }) {
+  async function addItem({ kind, maker = 'soreal', prompt, file, seconds, width, height, movie, photo, nsfw, lab, owner }) {
     // lab: a Lab movie's cut, kept out of the gallery until you keep it (like a Lab video).
-    const item = { id: newId(), kind, maker, prompt, width, height, seconds, movie, photo: photo || undefined, nsfw: nsfw || undefined, lab: lab || undefined, file, createdAt: new Date(now()).toISOString() };
+    const item = { id: newId(), kind, maker, prompt, width, height, seconds, movie, photo: photo || undefined, nsfw: nsfw || undefined, lab: lab || undefined, owner: owner || undefined, file, createdAt: new Date(now()).toISOString() };
     await fsp.mkdir(metaDir, { recursive: true });
     await fsp.writeFile(path.join(metaDir, `${item.id}.json`), JSON.stringify(item));
     await keep(item);

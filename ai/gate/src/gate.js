@@ -386,6 +386,13 @@ export function createGate(cfg, log = console) {
       return handleStore(req, res, url, path);
     }
 
+    // ---- studio members (After Dark…): their own narrow door, see handleMember
+    if (studio && path.startsWith('/_studio/')) {
+      if (!cors(req, res)) return send(res, 403, { error: 'Origin not allowed' });
+      if (req.method === 'OPTIONS') return send(res, 204, '');
+      return handleMember(req, res, path);
+    }
+
     // ---- image and video maker
     if (studio && (path === '/v1/images/generations' || path === '/_orbit/studio' || path.startsWith('/_orbit/studio/'))) {
       if (!cors(req, res)) return send(res, 403, { error: 'Origin not allowed' });
@@ -484,12 +491,14 @@ export function createGate(cfg, log = console) {
   // A chat reply. Loading a big model from storage can take longer than Runpod's proxy waits for
   // a silent connection (100 s), so streamed replies start right away and send SSE comments until
   // the model answers; errors then arrive as an SSE error event.
-  async function streamChat(req, res) {
-    let raw;
-    try {
-      raw = await readBody(req, 20 * 1024 * 1024);
-    } catch (err) {
-      return send(res, err.status || 400, { error: { message: err.message } });
+  async function streamChat(req, res, given = null) {
+    let raw = given;
+    if (raw === null) {
+      try {
+        raw = await readBody(req, 20 * 1024 * 1024);
+      } catch (err) {
+        return send(res, err.status || 400, { error: { message: err.message } });
+      }
     }
     let streaming = false;
     try {
@@ -500,7 +509,7 @@ export function createGate(cfg, log = console) {
     await studio?.yieldGpu?.().catch(() => {});
     const headers = { 'content-type': 'application/json', 'content-length': Buffer.byteLength(raw) };
     if (!streaming) {
-      const up = http.request({ host: ollama.hostname, port: ollama.port, method: 'POST', path: req.url, headers }, (upRes) => {
+      const up = http.request({ host: ollama.hostname, port: ollama.port, method: 'POST', path: given === null ? req.url : '/v1/chat/completions', headers }, (upRes) => {
         res.writeHead(upRes.statusCode || 502, { 'content-type': upRes.headers['content-type'] || 'application/json' });
         upRes.pipe(res);
       });
@@ -515,7 +524,7 @@ export function createGate(cfg, log = console) {
       clearInterval(ping);
       res.end(`data: ${JSON.stringify({ error: { message } })}\n\n`);
     };
-    const up = http.request({ host: ollama.hostname, port: ollama.port, method: 'POST', path: req.url, headers }, (upRes) => {
+    const up = http.request({ host: ollama.hostname, port: ollama.port, method: 'POST', path: given === null ? req.url : '/v1/chat/completions', headers }, (upRes) => {
       clearInterval(ping);
       if ((upRes.statusCode || 500) >= 400) {
         let body = '';
@@ -539,6 +548,117 @@ export function createGate(cfg, log = console) {
       up.destroy();
     });
     up.end(raw);
+  }
+
+  // ---- studio members: a member's key (audience studio-member, from the site's /api/studio/ai)
+  // opens only these routes. Everything they make is tagged with them, and they only ever see their
+  // own pictures, videos and films. Owner routes keep refusing their key (wrong audience).
+  const memberOf = (req) => {
+    try {
+      const p = verifyJwt(bearer(req), secret, { audience: 'studio-member', maxAgeSec: 65 * 60 });
+      return typeof p.sub === 'string' && p.sub ? `m:${p.sub}` : null;
+    } catch {
+      return null;
+    }
+  };
+  async function handleMember(req, res, path) {
+    const owner = memberOf(req);
+    if (!owner) return send(res, 401, { error: 'Unauthorized' });
+    if (req.method !== 'GET' && req.method !== 'HEAD') activity();
+    const fileUrl = (id) => `/_orbit/studio/file/${id}?t=${fileToken(id)}`;
+    const itemView = (it) =>
+      it ? { id: it.id, kind: it.kind, prompt: it.prompt, width: it.width, height: it.height, seconds: it.seconds, movie: it.movie, nsfw: it.nsfw, createdAt: it.createdAt, url: fileUrl(it.id) } : null;
+    const jobView = (j) => ({
+      id: j.id,
+      kind: j.kind,
+      status: j.status,
+      progress: j.progress,
+      error: j.error,
+      position: j.position,
+      expectedSeconds: j.expectedSeconds,
+      etaSeconds: j.etaSeconds,
+      item: itemView(j.item),
+    });
+    const movieView = (m) => ({
+      id: m.id,
+      title: m.title,
+      phase: m.phase,
+      error: m.error ?? null,
+      etaSeconds: m.etaSeconds,
+      running: m.running,
+      frames: (m.frames || []).map((f) => ({ id: f.id, status: f.status, url: f.itemId ? fileUrl(f.itemId) : null })),
+      render: m.render ? { itemId: m.render.itemId, url: fileUrl(m.render.itemId) } : null,
+    });
+    const body = async (max = 64 * 1024) => JSON.parse((await readBody(req, max)) || '{}');
+    const ownMovie = async (id) => {
+      const m = movies && (await movies.get(id));
+      return m && m.owner === owner ? m : null;
+    };
+    try {
+      if (path === '/_studio/makers' && req.method === 'GET') {
+        const list = await studio.makers();
+        return send(res, 200, { makers: list.filter((m) => m.kind === 'image' || m.kind === 'video').map((m) => ({ id: m.id, kind: m.kind, name: m.name, installed: m.installed })) });
+      }
+      if (path === '/_studio/jobs' && req.method === 'POST') {
+        // Words only: no uploads (no photos of real people), no edits of anyone else's files.
+        const b = await body();
+        const maker = (await studio.makers()).find((m) => m.id === String(b.maker || ''));
+        if (!maker || (maker.kind !== 'image' && maker.kind !== 'video')) return send(res, 400, { error: 'No such maker.' });
+        const job = await studio.createJob({ kind: maker.kind, maker: maker.id, prompt: String(b.prompt || ''), size: b.size, seconds: b.seconds, style: b.style, owner });
+        return send(res, 200, jobView(job));
+      }
+      const jobMatch = /^\/_studio\/jobs\/([A-Za-z0-9_-]+)$/.exec(path);
+      if (jobMatch && req.method === 'GET') {
+        const j = studio.job(jobMatch[1]);
+        return j && j.owner === owner ? send(res, 200, jobView(j)) : send(res, 404, { error: 'No such job' });
+      }
+      if (path === '/_studio/items' && req.method === 'GET') {
+        return send(res, 200, { items: (await studio.items()).filter((it) => it.owner === owner).map(itemView) });
+      }
+      if (movies && path === '/_studio/movies' && req.method === 'POST') {
+        const b = await body();
+        const m = await movies.create({
+          idea: String(b.idea || ''),
+          title: String(b.title || ''),
+          look: String(b.look || ''),
+          maker: b.maker,
+          size: b.size,
+          length: b.length,
+          sound: b.sound,
+          reviewStoryboard: Boolean(b.reviewStoryboard),
+          lead: b.lead && typeof b.lead === 'object' ? { mode: b.lead.mode === 'ai' ? 'ai' : 'auto', description: String(b.lead.description || '') } : undefined,
+          owner,
+        });
+        return send(res, 200, movieView(m));
+      }
+      const movieMatch = /^\/_studio\/movies\/([A-Za-z0-9_-]+)(\/run)?$/.exec(path);
+      if (movies && movieMatch) {
+        const m = await ownMovie(movieMatch[1]);
+        if (!m) return send(res, 404, { error: 'No such film.' });
+        if (!movieMatch[2] && req.method === 'GET') return send(res, 200, movieView(m));
+        if (movieMatch[2] && req.method === 'POST') {
+          const b = await body();
+          return send(res, 200, movieView(await movies.run(m.id, { approve: Boolean(b.approve) })));
+        }
+      }
+      if (path === '/_studio/chat' && req.method === 'POST') {
+        // The studio's writer: its own words go in as the system prompt from the site's studio page.
+        const b = await body(256 * 1024);
+        const messages = (Array.isArray(b.messages) ? b.messages : [])
+          .filter((m) => m && (m.role === 'system' || m.role === 'user' || m.role === 'assistant') && typeof m.content === 'string')
+          .slice(-40)
+          .map((m) => ({ role: m.role, content: m.content.slice(0, 8000) }));
+        if (!messages.length) return send(res, 400, { error: 'Say something first.' });
+        const tags = await fetch(`${cfg.ollama}/api/tags`).then((r) => r.json()).catch(() => ({ models: [] }));
+        const model = tags.models?.[0]?.name;
+        if (!model) return send(res, 503, { error: 'The writer is still waking up. Try again in a moment.' });
+        return streamChat(req, res, JSON.stringify({ model, messages, stream: true, max_tokens: Math.min(1200, Number(b.max_tokens) || 600), temperature: 0.9 }));
+      }
+      return send(res, 404, { error: 'Not found' });
+    } catch (err) {
+      const code = err.status && err.status < 600 ? err.status : err instanceof SyntaxError ? 400 : 500;
+      return send(res, code, { error: err.message, blocked: Boolean(err.blocked) });
+    }
   }
 
   async function handleStudio(req, res, url, path) {
@@ -580,6 +700,7 @@ export function createGate(cfg, log = console) {
       if (path === '/_orbit/studio/jobs' && req.method === 'POST') {
         const body = JSON.parse((await readBody(req, 30 * 1024 * 1024)) || '{}');
         delete body.background; // only the meme lab makes background jobs
+        delete body.owner; // only a member's key sets that (handleMember)
         return send(res, 200, withJobUrl(await studio.createJob(body)));
       }
       // A video or sound to work on (the raw file as the body, its type as content-type): jobs then
@@ -697,6 +818,7 @@ export function createGate(cfg, log = console) {
       delete b.lab;
       delete b.background;
       delete b.nsfw;
+      delete b.owner;
       return send(res, 200, await movies.create(b));
     }
     // How long a movie like this takes, before it is made: { length, size, maker, lead }.

@@ -442,7 +442,7 @@ export function createMovies(o) {
       // A clip without sound: join the pictures only.
       await ffmpeg(stitchArgs(inputs, out, { audio: false, ...cuts }));
     }
-    const item = await studio.addItem({ kind: 'video', prompt: m.title, file: rel, seconds: Math.round(seconds * 10) / 10, width, height, movie: m.id, photo, ...(m.lab ? { lab: true } : {}), ...(m.nsfw ? { nsfw: true } : {}) });
+    const item = await studio.addItem({ kind: 'video', prompt: m.title, file: rel, seconds: Math.round(seconds * 10) / 10, width, height, movie: m.id, photo, ...(m.lab ? { lab: true } : {}), ...(m.nsfw ? { nsfw: true } : {}), ...(m.owner ? { owner: m.owner } : {}) });
     // Shots may have changed while it was being joined: read it again before saying it is current.
     const latest = (await read(id)) || m;
     latest.render = { itemId: item.id, at: new Date(now()).toISOString() };
@@ -489,6 +489,8 @@ export function createMovies(o) {
     const m = {
       id: newId(),
       flow: 'auto',
+      // A studio member's film (gate.js sets it from their key, never from the request body).
+      owner: typeof body.owner === 'string' && body.owner ? body.owner.slice(0, 120) : undefined,
       title: text(body.title, 120).trim() || ideaTitle(body.idea),
       // Named for you until you name it.
       autoTitle: !text(body.title, 120).trim(),
