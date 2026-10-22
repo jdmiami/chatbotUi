@@ -1,0 +1,94 @@
+/*
+ * depth.css: the CSS that consumes --p / --ap (written by useScrollDepth in depth.ts) and
+ * data-chrome (written by useChromeOnScroll in chrome.ts). Copied rule for rule from Orbit's
+ * src/styles/o5.css and src/studio/studio.css; only the selectors tie them to Orbit's class names.
+ * --ease-o5 / --dur-o5 are Orbit 0.5's house ease (o5.css :root). See docs/05-motion.md §10–11.
+ */
+
+:root {
+  --ease-o5: cubic-bezier(0.22, 1, 0.36, 1);
+  --dur-o5: 520ms;
+}
+
+/* ---- The home path (o5.css): a scroller with perspective; each chapter is a [data-depth] spread. */
+.o5-path {
+  perspective: 1400px;
+  perspective-origin: 50% 50%;
+  transition: opacity var(--dur-o5) var(--ease-o5), transform var(--dur-o5) var(--ease-o5), filter var(--dur-o5) var(--ease-o5);
+}
+.o5-path[data-hidden='true'] {
+  opacity: 0;
+  transform: scale(0.94);
+  filter: blur(6px);
+  pointer-events: none;
+}
+.o5-spread { transform-style: preserve-3d; }
+.o5-page { will-change: transform, opacity; }
+/* Depth: pages sink back and fade as they leave the middle of the screen (--p from depth.ts). */
+:root[data-motion='full'] .o5-spread .o5-page {
+  transform: translate3d(0, calc(var(--p, 0) * -6vh), calc(var(--ap, 0) * -260px)) rotateX(calc(var(--p, 0) * 9deg));
+  opacity: calc(1 - var(--ap, 0) * 0.85);
+  filter: blur(calc(var(--ap, 0) * 3px));
+}
+:root[data-motion='lite'] .o5-spread .o5-page {
+  opacity: calc(1 - var(--ap, 0) * 0.7);
+}
+/* The big chapter number sits far behind the page and drifts slower: a second layer of depth. */
+.o5-numeral {
+  transform: translate3d(0, calc(-50% + var(--p, 0) * 22vh), -1px);
+  pointer-events: none;
+  user-select: none;
+}
+
+/* ---- Page sheets (o5.css): [data-depth] chapters inside a .sheet[data-page]. */
+:root[data-skin='o5'] .mag-numeral {
+  transform: translate3d(0, calc(var(--p, 0) * 10vh), -1px);
+  pointer-events: none;
+  user-select: none;
+  z-index: -1;
+}
+/* The depth moves a chapter's contents, never the chapter itself, so measuring it (depth.ts)
+   always sees where it really is. */
+:root[data-skin='o5'][data-motion='full'] .sheet[data-page] [data-depth] > :not(.mag-numeral) {
+  transform: translate3d(0, calc(var(--p, 0) * -3vh), calc(var(--ap, 0) * -160px)) rotateX(calc(var(--p, 0) * 6deg));
+  opacity: calc(1 - var(--ap, 0) * 0.7);
+  filter: blur(calc(var(--ap, 0) * 2.5px));
+}
+:root[data-skin='o5'][data-motion='lite'] .sheet[data-page] [data-depth] > :not(.mag-numeral) { opacity: calc(1 - var(--ap, 0) * 0.55); }
+
+/* ---- The studio walkthrough (studio.css): the trail of answers above the question. */
+/* Depth: what leaves the middle sinks back and blurs, so one thing is in focus at a time. */
+:root[data-motion='full'] .st-scroll [data-depth] > * {
+  transform: translate3d(0, calc(var(--p, 0) * -2vh), 0) scale(calc(1 - var(--ap, 0) * 0.06));
+  transform-origin: 0 50%;
+  opacity: calc(1 - var(--ap, 0) * 0.62);
+  filter: blur(calc(var(--ap, 0) * 3px));
+}
+:root[data-motion='lite'] .st-scroll [data-depth] > * {
+  opacity: calc(1 - var(--ap, 0) * 0.5);
+}
+
+/* ---- Chrome on scroll (o5.css): the app header tucks away, the running head takes its place. */
+:root[data-skin='o5'] .app-header {
+  min-height: calc(var(--safe-top) + 60px);
+  max-height: calc(var(--safe-top) + 140px);
+  overflow: hidden;
+  transition: max-height var(--dur-o5) var(--ease-o5), opacity var(--dur-o5) var(--ease-o5), padding var(--dur-o5) var(--ease-o5),
+    min-height var(--dur-o5) var(--ease-o5);
+}
+:root[data-skin='o5'] .app-window[data-chrome='hidden'] .app-header {
+  max-height: var(--safe-top);
+  min-height: var(--safe-top);
+  padding-top: var(--safe-top);
+  padding-bottom: 0;
+  opacity: 0;
+  pointer-events: none;
+}
+:root[data-skin='o5'] .app-window[data-chrome='hidden'] .o5-ai-bar { max-height: var(--safe-top); padding-top: var(--safe-top); padding-bottom: 0; opacity: 0; pointer-events: none; }
+.o5-runhead {
+  opacity: 0;
+  transform: translateY(-100%);
+  transition: opacity 0.25s ease, transform 0.35s var(--ease-o5);
+}
+.app-window[data-chrome='hidden'] .o5-runhead { opacity: 1; transform: none; }
+:root[data-motion='off'] .o5-runhead { transition: none; }

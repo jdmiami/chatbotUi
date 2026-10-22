@@ -1,0 +1,28 @@
+/* Load this BEFORE orb.css: orb.css rounds the cursor's face (.orb-cursor-face, border-radius 50%) and
+   must come later than the .ai-orb-gpu rule below, which squares the GPU canvas for other uses. */
+/*
+ * The orb's face when it is not drawn on the GPU (motion 'lite' or 'off', or no WebGL): a CSS
+ * sphere. These rules are copied from Orbit's AI app stylesheet (apps/ai/ai.css) because OrbFace
+ * keeps the same class names. Load this next to orb.css.
+ */
+.ai-orb {
+  width: 64px; height: 64px; border-radius: 50%;
+  background: radial-gradient(circle at 30% 30%, #fff8, transparent 40%), conic-gradient(from 0deg, #8b5cf6, #06b6d4, #22c55e, #f59e0b, #8b5cf6);
+  box-shadow: 0 0 40px rgb(139 92 246 / 0.45); animation: ai-spin 8s linear infinite, ai-breathe 4s ease-in-out infinite;
+}
+/* The GPU orb draws its own sphere, light and glow: no CSS colours, spin or scale on top. */
+.ai-orb-gpu { display: block; width: 88px; height: 88px; margin: -12px; background: none; border-radius: 0; box-shadow: none; animation: none; filter: drop-shadow(0 8px 24px rgb(139 92 246 / 0.4)); }
+@keyframes ai-spin { to { transform: rotate(360deg); } }
+@keyframes ai-breathe { 50% { box-shadow: 0 0 64px rgb(6 182 212 / 0.5); } }
+
+/* Lite motion: a pair of eyes that look where the face looks, and blink. */
+.ai-orb { position: relative; }
+.ai-orb-eyes { position: absolute; inset: 30% 22% 40%; display: flex; justify-content: space-between; transition: transform 0.3s ease; }
+.ai-orb-eyes i { width: 18%; aspect-ratio: 0.62; border-radius: 50%; background: rgb(16 12 30 / 0.85); animation: ai-orb-blink 4.6s infinite; transform-origin: 50% 60%; }
+.ai-orb-eyes[data-sleepy] i { animation-duration: 7s; transform: scaleY(0.45); }
+@keyframes ai-orb-blink { 0%, 93%, 100% { scale: 1 1; } 96% { scale: 1 0.1; } }
+.ai-orb:has(.ai-orb-eyes) { animation: ai-breathe 4s ease-in-out infinite; }
+
+@media (prefers-reduced-motion: reduce) {
+  .ai-orb { animation: none !important; }
+}

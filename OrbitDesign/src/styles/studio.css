@@ -1,0 +1,942 @@
+/*
+ * OrbitDesign: the magazine site look (Orbit Studios): .st-* layout, type, hairline lists, underlined inputs, bars, drawers.
+ * Source: orbit/src/studio/studio.css, copied unchanged apart from this header.
+ */
+
+/*
+ * Orbit Studios, in Orbit 0.5's own look: a full-screen editorial page, no boxes or cards; type,
+ * hairlines, space and depth do the work. Each studio only changes the accent and the glow.
+ * Every piece moves on springs (StudioApp, Walk, Choices); this file only sets where things rest.
+ */
+:root[data-studio] {
+  --st-gutter: calc(clamp(18px, 6vw, 64px));
+  --st-col: 760px;
+}
+
+.st-root {
+  position: fixed;
+  inset: 0;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  color: var(--text);
+  font-family: var(--font-ui);
+  background: var(--o5-glow), var(--bg);
+}
+.st-root button {
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+.st-root :focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+}
+
+/* ---- top bar: the masthead, options and the gallery */
+.st-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: calc(env(safe-area-inset-top, 0px) + 10px) calc(env(safe-area-inset-right, 0px) + var(--st-gutter)) 10px calc(env(safe-area-inset-left, 0px) + var(--st-gutter));
+  border-bottom: 1px solid var(--o5-hair);
+}
+.st-flag {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.st-flag small {
+  font: 600 calc(10.5px * var(--text-scale, 1)) / 1.3 var(--font-ui);
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--text-3);
+}
+.st-flag b {
+  font-family: var(--font-display);
+  font-weight: 340;
+  font-variation-settings: 'opsz' 72;
+  font-size: calc(26px * var(--text-scale, 1));
+  letter-spacing: -0.02em;
+  line-height: 1.05;
+}
+.st-flag i {
+  font-style: italic;
+  font-weight: 300;
+  color: var(--accent);
+}
+.st-top-actions {
+  display: flex;
+  gap: 8px;
+}
+.st-sq {
+  width: 44px;
+  height: 44px;
+  display: grid;
+  place-items: center;
+  border: 1px solid var(--o5-hair);
+  border-radius: 0;
+  background: transparent;
+  color: var(--text-2);
+  transition: color var(--dur-fast, 0.15s), border-color var(--dur-fast, 0.15s);
+}
+.st-sq:hover {
+  color: var(--text);
+  border-color: var(--text-3);
+}
+
+/* ---- the middle: the only part that moves */
+.st-stage {
+  position: relative;
+  min-height: 0;
+  overflow: hidden;
+}
+.st-view {
+  position: absolute;
+  inset: 0;
+  will-change: transform, opacity, filter;
+}
+.st-scroll {
+  height: 100%;
+  overflow-y: auto;
+  overflow-x: hidden;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+  padding: 0 calc(env(safe-area-inset-right, 0px) + var(--st-gutter)) 0 calc(env(safe-area-inset-left, 0px) + var(--st-gutter));
+}
+.st-scroll > * {
+  max-width: var(--st-col);
+  margin-inline: auto;
+}
+.st-sheet {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: clamp(28px, 7vh, 64px) 0 calc(env(safe-area-inset-bottom, 0px) + 18vh);
+}
+
+.st-kick {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+}
+.st-num {
+  font-variant-numeric: tabular-nums;
+}
+/* The question, with the orb's place kept at its right. */
+.st-qwrap {
+  position: relative;
+}
+.st-q {
+  margin: 0;
+  padding-right: 64px;
+  font-family: var(--font-display);
+  font-weight: 340;
+  font-variation-settings: 'opsz' 120;
+  font-size: calc(clamp(36px, 8.4vw, 64px) * var(--text-scale, 1));
+  letter-spacing: -0.035em;
+  line-height: 1;
+  text-wrap: balance;
+}
+.st-q em {
+  font-style: italic;
+  font-weight: 300;
+  color: var(--accent);
+}
+.st-orb-spot {
+  position: absolute;
+  top: 0;
+  right: 4px;
+  width: 52px;
+  height: 52px;
+}
+.st-dek {
+  margin: 0;
+  max-width: 34ch;
+  font-family: var(--font-display);
+  font-variation-settings: 'opsz' 24;
+  font-size: calc(clamp(18px, 2.4vw, 22px) * var(--text-scale, 1));
+  line-height: 1.38;
+  color: var(--text-2);
+}
+
+/* ---- answers: words to pick, between hairlines, like the rest of Orbit */
+.st-choices {
+  list-style: none;
+  margin: 8px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+}
+.st-choices > li:first-child .st-choice {
+  border-top: 1px solid var(--o5-hair);
+}
+.st-choice {
+  position: relative;
+  width: 100%;
+  display: grid;
+  gap: 3px;
+  min-height: 68px;
+  padding: 14px 56px 14px 0;
+  border: 0;
+  border-bottom: 1px solid var(--o5-hair);
+  border-radius: 0;
+  background: none;
+  text-align: left;
+  color: var(--text-2) !important;
+  transition: color var(--dur-fast, 0.15s), padding 520ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+.st-choice:hover:not(:disabled),
+.st-choice[data-orb-hover] {
+  color: var(--text) !important;
+}
+.st-choice[aria-pressed='true'],
+.st-choice[data-orb-pressed] {
+  color: var(--text) !important;
+  padding-left: 12px;
+}
+.st-lb {
+  font-family: var(--font-display);
+  font-variation-settings: 'opsz' 48;
+  font-size: calc(clamp(24px, 4.4vw, 34px) * var(--text-scale, 1));
+  font-weight: 380;
+  letter-spacing: -0.02em;
+  line-height: 1.12;
+  overflow-wrap: anywhere;
+}
+.st-choice[aria-pressed='true'] .st-lb {
+  font-style: italic;
+}
+.st-choice[aria-pressed='true'] .st-lb::after {
+  content: ' ✦';
+  color: var(--accent);
+  font-style: normal;
+  font-size: 0.55em;
+  vertical-align: middle;
+}
+/* The orb's pick: it rests on it, the words a shade brighter, a small kicker above. */
+.st-choice[data-rec] {
+  color: var(--text) !important;
+}
+.st-rec {
+  font: 600 10.5px / 1 var(--font-ui);
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--accent);
+}
+.st-ht {
+  font: 400 var(--fs-sm, 14px) / 1.35 var(--font-ui);
+  color: var(--text-3);
+}
+.st-choice-spot {
+  position: absolute;
+  top: 50%;
+  right: 6px;
+  width: 40px;
+  height: 40px;
+  margin-top: -20px;
+}
+.st-predicting {
+  margin: 0;
+  font-family: var(--font-display);
+  font-style: italic;
+  color: var(--text-3);
+  animation: st-pulse 1.4s ease-in-out infinite;
+}
+@keyframes st-pulse {
+  50% {
+    opacity: 0.4;
+  }
+}
+
+/* ---- your own words: one underlined line */
+.st-own {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  align-items: end;
+  gap: 4px 14px;
+  margin-top: 8px;
+}
+.st-own label {
+  grid-column: 1 / -1;
+}
+.st-own input {
+  min-width: 0;
+  padding: 6px 0 10px;
+  border: 0;
+  border-bottom: 1px solid var(--o5-hair);
+  border-radius: 0;
+  background: transparent;
+  color: var(--text);
+  font-family: var(--font-display);
+  font-size: calc(22px * var(--text-scale, 1));
+  outline: none;
+  transition: border-color var(--dur-fast, 0.15s);
+}
+.st-own input:focus {
+  border-bottom-color: var(--accent);
+}
+.st-own input::placeholder {
+  color: var(--text-3);
+  font-style: italic;
+}
+.st-own button,
+.st-shortcuts button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 44px;
+  padding: 0;
+  border: 0;
+  background: none;
+  font: 600 calc(11px * var(--text-scale, 1)) / 1.3 var(--font-ui) !important;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--text-2) !important;
+  text-decoration: underline;
+  text-decoration-color: var(--o5-hair);
+  text-underline-offset: 6px;
+  transition: color var(--dur-fast, 0.15s);
+}
+.st-own button:hover:not(:disabled),
+.st-shortcuts button:hover {
+  color: var(--accent) !important;
+}
+.st-own button:disabled {
+  opacity: 0.4;
+}
+.st-mic[aria-pressed='true'] {
+  color: var(--accent) !important;
+}
+.st-shortcuts {
+  margin: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0 22px;
+}
+
+/* ---- the walkthrough: the answers so far stacked small above the question you're on */
+.st-trail {
+  list-style: none;
+  margin: 0;
+  padding: 16vh 0 0;
+}
+.st-trail-row {
+  width: 100%;
+  display: grid;
+  gap: 2px;
+  padding: 10px 0;
+  border: 0;
+  border-bottom: 1px solid var(--o5-hair);
+  border-radius: 0;
+  background: none;
+  text-align: left;
+}
+.st-trail-ans {
+  display: block;
+  font-family: var(--font-display);
+  font-style: italic;
+  font-weight: 340;
+  font-size: calc(22px * var(--text-scale, 1));
+  line-height: 1.2;
+  color: var(--text);
+  overflow-wrap: anywhere;
+}
+.st-trail-row:hover .st-trail-ans {
+  color: var(--accent);
+}
+.st-now {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  min-height: 80%;
+  padding: clamp(28px, 6vh, 56px) 0 calc(env(safe-area-inset-bottom, 0px) + 30vh);
+}
+.st-scroll > .st-trail,
+.st-scroll > .st-now {
+  max-width: var(--st-col);
+  margin-inline: auto;
+}
+/* Depth: what leaves the middle sinks back and blurs, so one thing is in focus at a time. */
+:root[data-motion='full'] .st-scroll [data-depth] > * {
+  transform: translate3d(0, calc(var(--p, 0) * -2vh), 0) scale(calc(1 - var(--ap, 0) * 0.06));
+  transform-origin: 0 50%;
+  opacity: calc(1 - var(--ap, 0) * 0.62);
+  filter: blur(calc(var(--ap, 0) * 3px));
+}
+:root[data-motion='lite'] .st-scroll [data-depth] > * {
+  opacity: calc(1 - var(--ap, 0) * 0.5);
+}
+
+/* ---- contents (home, projects, characters) */
+.st-contents {
+  list-style: none;
+  margin: 8px 0 0;
+  padding: 0;
+}
+.st-contents > li:first-child .st-row {
+  border-top: 1px solid var(--o5-hair);
+}
+.st-row {
+  width: 100%;
+  display: grid;
+  grid-template-columns: 44px minmax(0, 1fr);
+  align-items: center;
+  gap: 2px 16px;
+  min-height: 72px;
+  padding: 14px 0;
+  border: 0;
+  border-bottom: 1px solid var(--o5-hair);
+  border-radius: 0;
+  background: none;
+  text-align: left;
+  color: var(--text) !important;
+}
+.st-row > :first-child {
+  grid-row: span 2;
+}
+.st-row:hover .st-row-t {
+  color: var(--accent);
+}
+.st-row-n {
+  font-family: var(--font-display);
+  font-style: italic;
+  font-size: 26px;
+  color: var(--accent);
+}
+.st-row-t {
+  font-family: var(--font-display);
+  font-variation-settings: 'opsz' 48;
+  font-weight: 380;
+  font-size: calc(clamp(22px, 3.8vw, 30px) * var(--text-scale, 1));
+  letter-spacing: -0.02em;
+  line-height: 1.15;
+  overflow-wrap: anywhere;
+  transition: color var(--dur-fast, 0.15s);
+}
+.st-row-m {
+  font: 400 var(--fs-sm, 14px) / 1.35 var(--font-ui);
+  color: var(--text-3);
+}
+.st-ico {
+  width: 40px;
+  height: 40px;
+  display: grid;
+  place-items: center;
+  border: 1px solid var(--o5-hair);
+  border-radius: 0;
+  color: var(--text-2);
+}
+.st-empty {
+  margin: 0;
+  padding: 18px 0;
+  font-family: var(--font-display);
+  font-style: italic;
+  color: var(--text-3);
+}
+.st-rules {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.st-rules li {
+  position: relative;
+  padding: 10px 0 10px 22px;
+  border-bottom: 1px solid var(--o5-hair);
+  font-family: var(--font-display);
+  font-size: calc(17px * var(--text-scale, 1));
+  color: var(--text-2);
+}
+.st-rules li::before {
+  content: '';
+  position: absolute;
+  left: 2px;
+  top: 19px;
+  width: 7px;
+  height: 7px;
+  background: var(--accent);
+}
+
+/* ---- brief and making */
+.st-brieflist {
+  margin: 8px 0 0;
+}
+.st-brieflist > div {
+  display: grid;
+  grid-template-columns: minmax(96px, 30%) minmax(0, 1fr);
+  gap: 12px;
+  padding: 12px 0;
+  border-bottom: 1px solid var(--o5-hair);
+}
+.st-brieflist dt {
+  padding-top: 5px;
+  font: 600 calc(11px * var(--text-scale, 1)) / 1.4 var(--font-ui);
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--text-3);
+}
+.st-brieflist dd {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: calc(20px * var(--text-scale, 1));
+  overflow-wrap: anywhere;
+}
+.st-go {
+  align-self: flex-start;
+  min-height: 52px;
+  padding: 0 26px;
+  border: 0;
+  border-radius: 0;
+  background: var(--text);
+  color: var(--bg) !important;
+  font: 600 calc(12px * var(--text-scale, 1)) / 1 var(--font-ui) !important;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  transition: background var(--dur-fast, 0.15s);
+}
+.st-go:hover {
+  background: var(--accent);
+}
+.st-making {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.st-bar {
+  height: 2px;
+  background: var(--o5-hair);
+  overflow: hidden;
+}
+.st-bar span {
+  display: block;
+  height: 100%;
+  background: var(--accent);
+  transition: width 600ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+.st-bar-busy {
+  animation: st-busy 1.6s ease-in-out infinite;
+}
+@keyframes st-busy {
+  0% {
+    transform: translateX(-100%);
+  }
+  100% {
+    transform: translateX(1000%);
+  }
+}
+.st-error {
+  margin: 0;
+  padding-left: 14px;
+  border-left: 2px solid var(--danger, #e5484d);
+  color: var(--text);
+}
+.st-result {
+  margin: 0;
+}
+.st-result :is(img, video) {
+  display: block;
+  width: 100%;
+  max-height: 64vh;
+  object-fit: contain;
+  background: #000;
+}
+.st-frames {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  gap: 10px;
+}
+.st-frames li {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  color: var(--text-3);
+  font: 600 11px / 1.3 var(--font-ui);
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+.st-frames img {
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  object-fit: cover;
+}
+
+/* Storyboard check: tap pictures to draw them again. */
+.st-frames button {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  width: 100%;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  letter-spacing: inherit;
+  text-transform: inherit;
+  text-align: left;
+}
+.st-frames button[aria-pressed='true'] img {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  opacity: 0.55;
+}
+.st-frames button[aria-pressed='true'] .st-num::after {
+  content: ' · draw again';
+  color: var(--accent);
+}
+.st-frames [aria-busy='true'] img,
+.st-frame-wait {
+  aspect-ratio: 16 / 9;
+  background: var(--o5-hair);
+  animation: st-pulse 1.4s ease-in-out infinite;
+}
+.st-review-go {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px 22px;
+}
+
+/* ---- the script desk: scene by scene, like a shooting script */
+.st-script {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+.st-script-meta {
+  margin: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 18px;
+  font: 600 11px / 1.4 var(--font-ui);
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--text-3);
+}
+.st-script-meta span:first-child {
+  color: var(--text-2);
+}
+.st-scenes {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  border-top: 1px solid var(--o5-hair);
+}
+.st-scene {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 18px 0 14px;
+  border-bottom: 1px solid var(--o5-hair);
+  transition: opacity 0.2s;
+}
+.st-scene[aria-busy='true'] {
+  opacity: 0.5;
+}
+.st-scene-head {
+  margin: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px 14px;
+}
+.st-scene-head span:first-child {
+  color: var(--accent);
+}
+.st-action {
+  margin: 0;
+  font-family: var(--font-display);
+  font-variation-settings: 'opsz' 36;
+  font-size: calc(clamp(20px, 3.4vw, 25px) * var(--text-scale, 1));
+  line-height: 1.32;
+  letter-spacing: -0.01em;
+  color: var(--text);
+}
+.st-ends {
+  margin: 0;
+  font: 400 var(--fs-sm, 14px) / 1.45 var(--font-ui);
+  color: var(--text-2);
+}
+.st-ends span {
+  margin-right: 6px;
+  font: 600 10.5px / 1 var(--font-ui);
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--text-3);
+}
+.st-says {
+  margin: 0;
+  padding-left: 14px;
+  border-left: 1px solid var(--accent);
+  font-family: var(--font-display);
+  font-style: italic;
+  font-size: calc(18px * var(--text-scale, 1));
+  color: var(--text-2);
+}
+.st-scene-tools {
+  margin: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0 20px;
+}
+.st-scene-tools button,
+.st-ghost,
+.st-scene-form button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 44px;
+  padding: 0;
+  border: 0;
+  background: none;
+  font: 600 calc(11px * var(--text-scale, 1)) / 1.3 var(--font-ui) !important;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--text-2) !important;
+  text-decoration: underline;
+  text-underline-offset: 5px;
+  text-decoration-color: var(--o5-hair);
+}
+.st-scene-tools button:hover:not(:disabled),
+.st-ghost:hover:not(:disabled) {
+  color: var(--accent) !important;
+}
+.st-scene-tools button:disabled,
+.st-ghost:disabled {
+  opacity: 0.4;
+}
+.st-scene-form {
+  display: grid;
+  gap: 4px;
+}
+.st-scene-form :is(input, textarea) {
+  min-width: 0;
+  margin-bottom: 10px;
+  padding: 6px 0 10px;
+  border: 0;
+  border-bottom: 1px solid var(--o5-hair);
+  border-radius: 0;
+  background: transparent;
+  color: var(--text);
+  font-family: var(--font-display);
+  font-size: calc(19px * var(--text-scale, 1));
+  line-height: 1.4;
+  resize: vertical;
+  outline: none;
+}
+.st-scene-form :is(input, textarea):focus {
+  border-bottom-color: var(--accent);
+}
+.st-scene-form button {
+  justify-self: start;
+}
+/* "This is the script" stays in reach at the foot of the page, with the orb resting on it. */
+.st-script-go {
+  position: sticky;
+  bottom: 0;
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  margin-top: -8px;
+  padding: 28px 0 10px;
+  background: linear-gradient(to bottom, transparent, var(--bg) 26px);
+}
+.st-script-go .st-go {
+  position: relative;
+  padding-right: 64px;
+}
+.st-script-go .st-choice-spot {
+  right: 6px;
+}
+
+/* ---- talk */
+.st-thread {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.st-said,
+.st-reply {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: calc(19px * var(--text-scale, 1));
+  line-height: 1.5;
+  white-space: pre-wrap;
+}
+.st-said {
+  align-self: flex-end;
+  max-width: 85%;
+  font-style: italic;
+  color: var(--text-2);
+  text-align: right;
+}
+.st-reply {
+  padding-left: 16px;
+  border-left: 1px solid var(--accent);
+}
+
+/* ---- bottom bar: back, home, save */
+.st-bottom {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  padding: 0 env(safe-area-inset-right, 0px) env(safe-area-inset-bottom, 0px) env(safe-area-inset-left, 0px);
+  border-top: 1px solid var(--o5-hair);
+  background: color-mix(in srgb, var(--bg) 80%, transparent);
+  -webkit-backdrop-filter: blur(18px) saturate(1.3);
+  backdrop-filter: blur(18px) saturate(1.3);
+}
+.st-bar-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 54px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  font: 600 calc(11px * var(--text-scale, 1)) / 1 var(--font-ui) !important;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--text-2) !important;
+  transition: color var(--dur-fast, 0.15s);
+}
+.st-bar-btn:disabled {
+  opacity: 0.3;
+  cursor: default;
+}
+.st-bar-btn:hover:not(:disabled) {
+  color: var(--accent) !important;
+}
+
+/* ---- drawers: the gallery and the options, sliding in from the right over a blur */
+.st-drawer-wrap {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+}
+.st-scrim {
+  position: absolute;
+  inset: 0;
+  border: 0;
+  background: color-mix(in srgb, var(--bg) 55%, transparent);
+  -webkit-backdrop-filter: blur(12px);
+  backdrop-filter: blur(12px);
+  animation: st-fade 300ms ease both;
+}
+.st-drawer {
+  position: absolute;
+  inset: 0 0 0 auto;
+  width: min(460px, 92vw);
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  overflow-y: auto;
+  padding: calc(env(safe-area-inset-top, 0px) + 18px) calc(env(safe-area-inset-right, 0px) + 22px) calc(env(safe-area-inset-bottom, 0px) + 22px) 24px;
+  color: var(--text);
+  background: var(--o5-glow), var(--surface, var(--bg));
+  border-left: 1px solid var(--o5-hair);
+  box-shadow: -30px 0 60px rgb(0 0 0 / 0.45);
+  animation: st-slide 520ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+@keyframes st-fade {
+  from {
+    opacity: 0;
+  }
+}
+@keyframes st-slide {
+  from {
+    transform: translateX(104%);
+  }
+}
+.st-drawer-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.st-drawer h3 {
+  margin: 0;
+  font-family: var(--font-display);
+  font-weight: 340;
+  font-size: calc(36px * var(--text-scale, 1));
+  letter-spacing: -0.03em;
+}
+.st-drawer h3 em {
+  font-weight: 300;
+  color: var(--accent);
+}
+.st-tabs {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 6px;
+}
+.st-tabs button {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 0;
+  border: 0;
+  background: transparent;
+  color: var(--text-3) !important;
+  font: 600 calc(9.5px * var(--text-scale, 1)) / 1.2 var(--font-ui) !important;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+.st-tabs button[aria-pressed='true'] {
+  color: var(--text) !important;
+}
+.st-tabs button[aria-pressed='true'] .st-ico {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+.st-grid {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px;
+}
+.st-grid :is(img, video) {
+  display: block;
+  width: 100%;
+  aspect-ratio: 3 / 4;
+  object-fit: cover;
+  background: #000;
+}
+
+@media (max-width: 560px) {
+  .st-q {
+    padding-right: 56px;
+  }
+  .st-bar-btn span {
+    font-size: 10px;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .st-drawer,
+  .st-scrim,
+  .st-predicting,
+  .st-bar-busy {
+    animation: none;
+  }
+}
+
+/* Fields keep the square hairline look when focused (no rounded focus ring); the line turns accent. */
+.st-root :is(input, textarea):focus-visible {
+  box-shadow: none;
+  border-radius: 0;
+  outline: none;
+}
+/* Square everywhere: beats Orbit 0.5's rounded fields (o5.css gives inputs --radius-md). */
+:root[data-skin='o5'] .st-root :is(input, textarea, select):not([type='range']):not([type='checkbox']) {
+  border-radius: 0;
+}
