@@ -1,0 +1,1029 @@
+/*
+ * OrbitDesign: the Orbit 0.5 ("o5") magazine skin, minus the overrides that only restyle Orbit's own apps.
+ * Source: orbit/src/styles/o5.css (copied rule for rule; nothing kept here was edited).
+ * Dropped as app-specific (every selector of the rule matched one of: .ai-, .ag-, .term-, .ed-, .sr-, .st-page, .st-section, .st-heading, .st-caption, [data-app='ai'], .meme-):
+ *   :root[data-skin='o5'] .ai-hello h2
+ *   :root[data-skin='o5'] .ai-hello p
+ *   :root[data-skin='o5'] .ai-suggest
+ *   :root[data-skin='o5'] .ai-suggest-btn
+ *   :root[data-skin='o5'] .ai-suggest-btn svg
+ *   :root[data-skin='o5'] .ai-suggest-btn:hover
+ *   :root[data-skin='o5'] .ai-composer-card
+ *   :root[data-skin='o5'] .ai-composer-card:focus-within
+ *   :root[data-skin='o5'] .ai-composer
+ *   :root[data-skin='o5'] .ai-tabs .segmented
+ *   :root[data-skin='o5'] .ai-side
+ *   :root[data-skin='o5'] .ai-banner
+ *   :root[data-skin='o5'] .ai-store-list
+ *   :root[data-skin='o5'] .ai-store-tags
+ *   :root[data-skin='o5'] .ai-store-tags-warn
+ *   :root[data-skin='o5'] .ai-store .ai-storage-row
+ *   :root[data-skin='o5'] .ai-store .ai-search input
+ *   :root[data-skin='o5'] .ai-store .ai-search input:focus
+ *   :root[data-skin='o5'] .ai-store .ai-pull
+ *   :root[data-skin='o5'] .ai-store .ai-pills .ai-pill
+ *   :root[data-skin='o5'] .ai-store .ai-pills
+ *   :root[data-skin='o5'] .ai-repo-name
+ *   :root[data-skin='o5'] .ai-user-text
+ *   :root[data-skin='o5'] .ai-composer-card :is(.ai-pill-toggle, .ai-model-chip)
+ *   :root[data-skin='o5'] .ai-composer-card .ai-pill-toggle[aria-pressed='true']
+ *   :root[data-skin='o5'] .ai-new
+ *   .o5-orb-btn[data-state='starting'] .ai-dot, .o5-orb-btn[data-state='downloading'] .ai-dot, .o5-orb-
+ *       btn[data-busy='true'] .ai-dot
+ *   :root[data-skin='o5'] .ai-layout
+ *   :root[data-skin='o5'] .ai-scroll
+ *   :root[data-skin='o5'] .ai-msg-assistant :is(.ai-body-text, .ag-body-text)
+ *   :root[data-skin='o5'] .ai-msg-assistant :is(.ai-body-text, .ag-body-text) :is(code, pre)
+ *   :root[data-skin='o5'] .ai-msg-from
+ *   :root[data-skin='o5'] .ai-avatar
+ *   :root[data-skin='o5'] .ai-composer-bar[data-tools='folded'] .o5-tool
+ *   :root[data-skin='o5'] .ai-composer-bar
+ *   :root[data-skin='o5'] .ai-composer-bar .ai-send
+ *   :root[data-skin='o5'] .ai-create
+ *   :root[data-skin='o5'] .ai-create-form
+ *   :root[data-skin='o5'] .ai-maker-picks
+ *   :root[data-skin='o5'] .ai-maker-chip
+ *   :root[data-skin='o5'] .ai-maker-chip[aria-checked='true']
+ *   :root[data-skin='o5'] .ai-makers .ai-banner.ai-banner
+ *   :root[data-skin='o5'] .ai-makers h3
+ *   :root[data-skin='o5'] .ai-makers ul
+ *   :root[data-skin='o5'] .ai-maker-row,
+ *   :root[data-skin='o5'] .ai-maker-row[data-installed='true']
+ *   :root[data-skin='o5'] .ai-maker-name
+ *   :root[data-skin='o5'] .ai-maker-row[data-installed='true'] .ai-maker-name
+ *   :root[data-skin='o5'] .ai-maker-tag
+ *   :root[data-skin='o5'] .ai-maker-ok
+ *   :root[data-skin='o5'][data-skin] .ai-maker-row .btn
+ *   :root[data-skin='o5'][data-skin] .ai-maker-row .btn:disabled
+ *   :root[data-skin='o5'] .ai-maker-row .btn svg
+ *   :root[data-skin='o5'] .ai-create :is(textarea, .ta-plain)
+ *   :root[data-skin='o5'] .ai-create :is(textarea, .ta-plain):focus
+ *   :root[data-skin='o5'] .ai-make
+ *   :root[data-skin='o5'] .ai-gallery
+ *   :root[data-skin='o5'] .ai-gallery li:first-child
+ *   :root[data-skin='o5'] .ai-gallery li:first-child .ai-tile
+ *   :root[data-skin='o5'] .ai-tile
+ *   :root[data-skin='o5'] .ai-jobs
+ *   :root[data-skin='o5'] .ai-job-line
+ *   :root[data-skin='o5'] .ai-job-line[data-slow]
+ *   :root[data-skin='o5'] .ai-job-notes
+ *   :root[data-skin='o5'] .ai-job
+ *   :root[data-skin='o5'] .ai-msg:not([data-open='true']) .ai-msg-actions
+ *   :root[data-skin='o5'] .ai-msg-assistant:last-child:not([data-open='false']) .ai-msg-actions
+ *   :root[data-skin='o5'] .ai-msg-actions
+ *   :root[data-skin='o5'] .ai-msg-actions .btn
+ *   :root[data-skin='o5'] .ai-msg-actions .btn:hover
+ *   :root[data-skin='o5'] .ai-msg-actions-user
+ *   :root[data-skin='o5'] .ai-msg
+ *   :root[data-skin='o5'] .ai-create .ai-create-form :is(textarea, .ta-plain):not([type])
+ *   :root[data-skin='o5'] .shell[data-keyboard='true'] .sr-helper
+ *   :root[data-skin='o5'] .st-page
+ *   :root[data-skin='o5'] .st-section
+ *   :root[data-skin='o5'] .st-heading,
+ *   :root[data-skin='o5'] .st-section:first-child > .st-heading
+ *   :root[data-skin='o5'] .st-heading::before
+ *   :root[data-skin='o5'] .st-caption
+ *   .ag-o5-head
+ *   .ag-root:not([data-compact='true']) .ag-o5-head
+ *   :root[data-skin='o5'] .ag-sidebar
+ *   :root[data-skin='o5'] .ag-root[data-compact='true'] :is(.ag-side-head, .ag-side-list, .ag-side-foot)
+ *   :root[data-skin='o5'] .ag-side-head .ag-pick
+ *   :root[data-skin='o5'] .ag-side-head .btn.primary.ag-new
+ *   :root[data-skin='o5'] .ag-sessions
+ *   :root[data-skin='o5'] .ag-session
+ *   :root[data-skin='o5'] .ag-session[data-selected]
+ *   :root[data-skin='o5'] .ag-session[data-selected] .ag-session-title
+ *   :root[data-skin='o5'] .ag-session-open
+ *   :root[data-skin='o5'] .ag-session:not([data-selected]) .ag-session-open:hover
+ *   :root[data-skin='o5'] .ag-session-title
+ *   :root[data-skin='o5'] .ag-badge
+ *   :root[data-skin='o5'] .ag-side-foot
+ *   :root[data-skin='o5'] .shell[data-keyboard='true'] .ed-tabs
+ *   :root[data-skin='o5'] .ed-tabs
+ *   :root[data-skin='o5'] .ed-tab
+ *   :root[data-skin='o5'] .ed-tab[data-active='true'] .ed-tab-name
+ *   :root[data-skin='o5'] .ag-root[data-compact='true'] .ag-sessions
+ *   :root[data-skin='o5'] .ai-banner
+ *   :root[data-skin='o5'] [data-app='ai'] .ai-banner
+ *   :root[data-skin='o5'] .ai-banner .ai-banner-kicker
+ *   :root[data-skin='o5'] .ai-banner-error .ai-banner-kicker
+ *   :root[data-skin='o5'] .ai-banner-starting .ai-banner-kicker, :root[data-skin='o5'] .ai-banner-
+ *       downloading .ai-banner-kicker
+ *   :root[data-skin='o5'] .ai-banner p:not(.ai-banner-kicker)
+ *   :root[data-skin='o5'] .ai-banner .segmented
+ *   :root[data-skin='o5'] .ai-banner .segmented button
+ *   :root[data-skin='o5'] .ai-banner .segmented button[aria-pressed='true']
+ *   :root[data-skin='o5'][data-skin] .ai-banner .btn
+ *   :root[data-skin='o5'][data-skin] .ai-banner .btn::after
+ *   :root[data-skin='o5'][data-skin] .ai-banner .btn:hover
+ *   :root[data-skin='o5'][data-skin] .ai-banner .btn:hover::after
+ *   :root[data-skin='o5'][data-skin] .ai-banner .btn:disabled
+ *   :root[data-skin='o5'] .ai-banner
+ *   :root[data-skin='o5'] .ai-banner p:not(.ai-banner-kicker)
+ *   :root[data-skin='o5'] .ai-banner .segmented
+ *   @media (max-width: 600px), (max-height: 520px) { … }
+ *   :root[data-skin='o5'] .term-keys
+ *   :root[data-skin='o5'] .term-key
+ *   :root[data-skin='o5'] .term-key:last-child
+ *   :root[data-skin='o5'] .term-key:active:not(:disabled)
+ *   :root[data-skin='o5'] .term-key[aria-pressed='true']
+ *   :root[data-skin='o5'] .ag-transcript-inner
+ *   :root[data-skin='o5'] .ag-msg-user
+ *   :root[data-skin='o5'] .ag-msg-user .ag-inline-code
+ *   :root[data-skin='o5'] .ag-msg-user .ag-link
+ *   :root[data-skin='o5'] .ag-msg-assistant
+ *   :root[data-skin='o5'] .ag-msg-head
+ *   :root[data-skin='o5'] .ag-msg-time
+ *   :root[data-skin='o5'] .ag-tag
+ *   :root[data-skin='o5'] .ag-msg-assistant :is(.ag-p, .ag-list, .ag-quote)
+ *   :root[data-skin='o5'] .ag-msg-assistant .ag-h
+ *   :root[data-skin='o5'] .ag-inline-code
+ *   :root[data-skin='o5'] .ag-code
+ *   :root[data-skin='o5'] .ag-code-head
+ *   :root[data-skin='o5'] .ag-code-body
+ *   :root[data-skin='o5'] .ag-textbtn
+ *   :root[data-skin='o5'] .ag-activity
+ *   :root[data-skin='o5'] .ag-activity-row
+ *   :root[data-skin='o5'] .ag-activity-title
+ *   :root[data-skin='o5'] .ag-activity-detail
+ *   :root[data-skin='o5'] .ag-composer
+ *   :root[data-skin='o5'] .ag-composer .ag-pick
+ *   :root[data-skin='o5'] .ag-composer .ag-pick-label
+ *   :root[data-skin='o5'] .ag-composer .ag-pick select
+ *   :root[data-skin='o5'] .ag-input
+ *   :root[data-skin='o5'] .ag-input:focus-visible
+ *   :root[data-skin='o5'] .ai-msg-user
+ *   :root[data-skin='o5'] .ai-user-text
+ *   :root[data-skin='o5'] :is(.ai-msg-assistant, .ag-msg-assistant):nth-child(1 of .ai-msg-assistant,
+ *       .ag-msg-assistant) :is(.ai-body-text, .ag-body-text) > p:first-child::first-letter
+ *   :root[data-skin='o5'] .ai-msg-assistant
+ *   :root[data-skin='o5'] .ai-msg-assistant > .ai-msg-from
+ *   @media (min-width: 1100px) { … }
+ *   :root[data-skin='o5'] .ed-tab[data-active='true']::before
+ *   :root[data-skin='o5'] .ed-dot
+ *   :root[data-skin='o5'] .ai-source-n
+ *   :root[data-skin='o5'] .ai-compare-tab[aria-selected='true']
+ *   :root[data-skin='o5'] .term-panbar span
+ * Mixed rules that list app classes next to generic ones (inside :is(...)) are kept whole; the app
+ * classes in them simply never match. Section comments were kept; comments that only introduced a
+ * dropped rule went with it.
+ */
+
+/*
+ * Orbit 0.5: an optional look on top of Orbit (Settings → Look). Full screen, editorial, quiet.
+ * No boxes, borders or tiles: type, space and depth do the work. Everything here is scoped to
+ * <html data-skin="o5">, so the classic look is untouched.
+ */
+
+/* ---------------------------------------------------------------- palette and type */
+:root[data-skin='o5'] {
+  --font-display: 'Fraunces Variable', 'Iowan Old Style', 'Palatino Linotype', Georgia, serif;
+  --font-ui: 'Inter Variable', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  --radius-sm: 999px;
+  --radius-md: 14px;
+  --radius-lg: 22px;
+  --ease-o5: cubic-bezier(0.22, 1, 0.36, 1);
+  --dur-o5: 520ms;
+  --o5-hair: color-mix(in srgb, var(--text) 12%, transparent);
+}
+:root[data-skin='o5'][data-theme='dark'] {
+  --bg: #0d0c0b;
+  --surface: #151311;
+  --surface-2: #1b1916;
+  --surface-3: #24211d;
+  --glass: rgb(13 12 11 / 0.72);
+  --glass-strong: rgb(13 12 11 / 0.9);
+  --glass-border: transparent;
+  --border: rgb(243 238 230 / 0.08);
+  --border-strong: rgb(243 238 230 / 0.16);
+  --text: #f3eee6;
+  --text-2: #c9c1b4;
+  --text-3: #8f877b;
+  --scrim: rgb(8 7 6 / 0.7);
+  --o5-glow: radial-gradient(90% 60% at 80% -10%, color-mix(in srgb, var(--accent) 22%, transparent), transparent 60%);
+}
+:root[data-skin='o5'][data-theme='light'] {
+  --bg: #f5f1e9;
+  --surface: #fbf8f2;
+  --surface-2: #f1ece2;
+  --surface-3: #e9e3d7;
+  --glass: rgb(245 241 233 / 0.78);
+  --glass-strong: rgb(245 241 233 / 0.94);
+  --glass-border: transparent;
+  --border: rgb(23 21 18 / 0.08);
+  --border-strong: rgb(23 21 18 / 0.16);
+  --text: #171512;
+  --text-2: #4a453d;
+  --text-3: #6d665b;
+  --scrim: rgb(245 241 233 / 0.6);
+  --o5-glow: radial-gradient(90% 60% at 80% -10%, color-mix(in srgb, var(--accent) 16%, transparent), transparent 60%);
+}
+:root[data-skin='o5'] body {
+  font-family: var(--font-ui);
+  letter-spacing: -0.005em;
+  background: var(--bg);
+  font-feature-settings: 'ss01', 'cv11';
+}
+:root[data-skin='o5'] .shell {
+  background: var(--o5-glow), var(--bg);
+}
+
+/* Shared editorial pieces */
+.o5-kicker {
+  margin: 0;
+  font: 600 calc(11px * var(--text-scale)) / 1.4 var(--font-ui);
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--text-3);
+}
+.o5-display {
+  margin: 0;
+  font-family: var(--font-display);
+  font-weight: 340;
+  font-variation-settings: 'opsz' 144;
+  letter-spacing: -0.035em;
+  line-height: 0.92;
+  font-size: clamp(56px, 15vw, 132px);
+  color: var(--text);
+}
+.o5-hero { font-size: clamp(64px, 17vw, 168px); font-style: italic; font-weight: 300; }
+.o5-dek {
+  margin: 0;
+  max-width: 34ch;
+  font-family: var(--font-display);
+  font-variation-settings: 'opsz' 24;
+  font-size: calc(clamp(19px, 2.6vw, 24px) * var(--text-scale));
+  line-height: 1.38;
+  color: var(--text-2);
+}
+.o5-go-hint {
+  font: 400 var(--fs-sm) / 1.3 var(--font-ui);
+  color: var(--text-3);
+  letter-spacing: 0;
+}
+
+/* ---------------------------------------------------------------- The Path (home) */
+.o5-path {
+  position: absolute;
+  inset: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  scroll-snap-type: y proximity;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+  perspective: 1400px;
+  perspective-origin: 50% 50%;
+  transition: opacity var(--dur-o5) var(--ease-o5), transform var(--dur-o5) var(--ease-o5), filter var(--dur-o5) var(--ease-o5);
+}
+/* On short screens (a phone on its side) a chapter is taller than the screen: snapping would keep
+   pulling it back to its top and leave its last links under the Index handle, out of reach. */
+@media (max-height: 520px) {
+  .o5-path { scroll-snap-type: none; }
+}
+.o5-path[data-hidden='true'] {
+  opacity: 0;
+  transform: scale(0.94);
+  filter: blur(6px);
+  pointer-events: none;
+}
+.o5-spread {
+  position: relative;
+  min-height: var(--app-height, 100dvh);
+  display: flex;
+  align-items: center;
+  padding: calc(var(--safe-top) + 56px) calc(var(--safe-right) + clamp(24px, 7vw, 96px)) calc(var(--safe-bottom) + 72px)
+    calc(var(--safe-left) + clamp(24px, 7vw, 96px));
+  scroll-snap-align: start;
+  transform-style: preserve-3d;
+}
+.o5-page {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: clamp(16px, 2.6vh, 28px);
+  width: 100%;
+  max-width: 980px;
+  margin: 0 auto;
+  will-change: transform, opacity;
+}
+/* Depth: pages sink back and fade as they leave the middle of the screen (--p from depth.ts). */
+:root[data-motion='full'] .o5-spread .o5-page {
+  transform: translate3d(0, calc(var(--p, 0) * -6vh), calc(var(--ap, 0) * -260px)) rotateX(calc(var(--p, 0) * 9deg));
+  opacity: calc(1 - var(--ap, 0) * 0.85);
+  filter: blur(calc(var(--ap, 0) * 3px));
+}
+:root[data-motion='lite'] .o5-spread .o5-page {
+  opacity: calc(1 - var(--ap, 0) * 0.7);
+}
+/* The big chapter number sits far behind the page and drifts slower: a second layer of depth. */
+.o5-numeral {
+  position: absolute;
+  right: calc(var(--safe-right) + 2vw);
+  top: 50%;
+  font-family: var(--font-display);
+  font-style: italic;
+  font-weight: 200;
+  font-variation-settings: 'opsz' 144;
+  font-size: clamp(220px, 58vw, 620px);
+  line-height: 0.8;
+  letter-spacing: -0.06em;
+  color: color-mix(in srgb, var(--text) 5%, transparent);
+  transform: translate3d(0, calc(-50% + var(--p, 0) * 22vh), -1px);
+  pointer-events: none;
+  user-select: none;
+}
+.o5-cover .o5-page { gap: clamp(20px, 3.5vh, 36px); }
+.o5-cue {
+  align-self: flex-start;
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  min-height: var(--tap);
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--text);
+  font: 500 var(--fs-md) / 1 var(--font-ui);
+  letter-spacing: 0.04em;
+  cursor: pointer;
+}
+.o5-cue svg { animation: o5-bob 2.4s var(--ease-o5) infinite; }
+@keyframes o5-bob { 50% { transform: translateY(5px); } }
+
+.o5-links { list-style: none; margin: clamp(8px, 2vh, 20px) 0 0; padding: 0; display: flex; flex-direction: column; }
+.o5-go {
+  width: 100%;
+  min-height: 64px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-areas: 'label arrow' 'hint arrow';
+  align-items: center;
+  column-gap: 16px;
+  padding: 14px 0;
+  border: 0;
+  border-bottom: 1px solid var(--o5-hair);
+  background: none;
+  color: var(--text);
+  text-align: left;
+  cursor: pointer;
+  transition: color var(--dur-fast), padding var(--dur-o5) var(--ease-o5);
+}
+.o5-links li:first-child .o5-go { border-top: 1px solid var(--o5-hair); }
+/* A link to an app carries its icon at the left. */
+.o5-go[data-art] { grid-template-columns: auto minmax(0, 1fr) auto; grid-template-areas: 'art label arrow' 'art hint arrow'; }
+.o5-go-art { grid-area: art; width: 44px; height: 44px; filter: drop-shadow(0 6px 14px rgb(0 0 0 / 0.2)); transition: transform var(--dur-o5) var(--ease-o5); }
+.o5-go:hover .o5-go-art, .o5-go:focus-visible .o5-go-art { transform: scale(1.06) rotate(-3deg); }
+.o5-go-label {
+  grid-area: label;
+  font-family: var(--font-display);
+  font-variation-settings: 'opsz' 48;
+  font-size: calc(clamp(26px, 4.4vw, 40px) * var(--text-scale));
+  font-weight: 380;
+  letter-spacing: -0.02em;
+  line-height: 1.1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.o5-go .o5-go-hint { grid-area: hint; }
+.o5-go > svg:not(.app-art) { grid-area: arrow; color: var(--text-3); transition: transform var(--dur-o5) var(--ease-o5), color var(--dur-fast); }
+.o5-go:hover > svg:not(.app-art), .o5-go:focus-visible > svg:not(.app-art) { transform: translateX(6px); color: var(--accent); }
+.o5-go:active { padding-left: 8px; }
+.o5-colophon {
+  padding: 12vh calc(var(--safe-right) + clamp(24px, 7vw, 96px)) calc(var(--safe-bottom) + 18vh) calc(var(--safe-left) + clamp(24px, 7vw, 96px));
+  font-family: var(--font-display);
+  font-style: italic;
+  font-size: var(--fs-lg);
+  color: var(--text-3);
+  max-width: 980px;
+  margin: 0 auto;
+}
+
+/* ---------------------------------------------------------------- the line at the bottom */
+.o5-handle {
+  position: absolute;
+  left: 50%;
+  bottom: var(--safe-bottom);
+  z-index: 40;
+  transform: translateX(-50%);
+  min-width: 160px;
+  min-height: var(--tap);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 0 24px 9px;
+  border: 0;
+  background: none;
+  color: var(--text);
+  cursor: pointer;
+  touch-action: none;
+  transition: opacity var(--dur-o5) var(--ease-o5), transform var(--dur-o5) var(--ease-o5);
+}
+.o5-handle-word {
+  font: 600 calc(11px * var(--text-scale)) / 1 var(--font-ui);
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: var(--text-2);
+}
+.o5-handle-line {
+  width: 128px;
+  height: 5px;
+  border-radius: 3px;
+  background: color-mix(in srgb, var(--text) 70%, transparent);
+  transition: width var(--dur-o5) var(--ease-o5), background var(--dur-fast);
+}
+.o5-handle[data-home='true'] { padding-bottom: 14px; }
+.o5-handle[data-home='true'] .o5-handle-line { width: 40px; height: 3px; background: var(--accent); }
+.o5-handle:hover .o5-handle-line, .o5-handle:focus-visible .o5-handle-line { width: 150px; }
+.o5-handle[data-home='false'] { opacity: 0.55; }
+.o5-handle[data-home='false']:hover, .o5-handle[data-home='false']:focus-visible { opacity: 1; }
+.o5-handle[data-hidden='true'] { opacity: 0; transform: translate(-50%, 20px); pointer-events: none; }
+
+/* ---------------------------------------------------------------- the index (menu) */
+.o5-index {
+  position: absolute;
+  inset: 0;
+  z-index: 60;
+  background: color-mix(in srgb, var(--bg) 82%, transparent);
+  -webkit-backdrop-filter: blur(28px) saturate(140%);
+  backdrop-filter: blur(28px) saturate(140%);
+  animation: o5-fade var(--dur-o5) var(--ease-o5) both;
+  perspective: 1200px;
+}
+@keyframes o5-fade { from { opacity: 0; } }
+.o5-index-scroll {
+  height: 100%;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: calc(var(--safe-top) + 12px) calc(var(--safe-right) + clamp(24px, 7vw, 96px)) calc(var(--safe-bottom) + 32px)
+    calc(var(--safe-left) + clamp(24px, 7vw, 96px));
+  display: flex;
+  flex-direction: column;
+  gap: clamp(20px, 4vh, 40px);
+}
+.o5-index-scroll > * { width: 100%; max-width: 980px; margin-left: auto; margin-right: auto; }
+.o5-index-head { display: flex; align-items: center; justify-content: space-between; min-height: 52px; }
+.o5-index-close, .o5-open-close {
+  width: var(--tap);
+  height: var(--tap);
+  display: grid;
+  place-items: center;
+  border: 0;
+  background: none;
+  color: var(--text);
+  cursor: pointer;
+  border-radius: 50%;
+}
+.o5-index-close:hover, .o5-open-close:hover { background: var(--o5-hair); }
+.o5-index-list { list-style: none; margin: 0; padding: 0; }
+.o5-index-list li { animation: o5-rise var(--dur-o5) var(--ease-o5) both; animation-delay: calc(var(--i, 0) * 45ms); }
+@keyframes o5-rise {
+  from { opacity: 0; transform: translate3d(0, 28px, -120px) rotateX(-18deg); }
+}
+.o5-index-go {
+  width: 100%;
+  min-height: 60px;
+  display: grid;
+  grid-template-columns: 3ch auto minmax(0, 1fr);
+  grid-template-areas: 'n art title' 'n art hint';
+  column-gap: clamp(12px, 3vw, 28px);
+  align-items: baseline;
+  padding: 10px 0;
+  border: 0;
+  background: none;
+  color: var(--text);
+  text-align: left;
+  cursor: pointer;
+}
+.o5-index-n { grid-area: n; font: 500 var(--fs-sm) / 1 var(--font-ui); color: var(--text-3); font-variant-numeric: tabular-nums; }
+.o5-index-title {
+  grid-area: title;
+  font-family: var(--font-display);
+  font-variation-settings: 'opsz' 96;
+  font-size: calc(clamp(38px, 8vw, 72px) * var(--text-scale));
+  font-weight: 340;
+  letter-spacing: -0.03em;
+  line-height: 1;
+  transition: color var(--dur-fast), transform var(--dur-o5) var(--ease-o5);
+}
+.o5-index-go .o5-go-hint { grid-area: hint; }
+/* Each app's icon beside its title (Home has none: its row keeps the column empty). */
+.o5-index-art { grid-area: art; align-self: center; width: clamp(36px, 7vw, 56px); height: auto; filter: drop-shadow(0 6px 14px rgb(0 0 0 / 0.22)); transition: transform var(--dur-o5) var(--ease-o5); }
+.o5-index-go:hover .o5-index-art, .o5-index-go:focus-visible .o5-index-art { transform: scale(1.06) rotate(-3deg); }
+.o5-index-go:hover .o5-index-title, .o5-index-go:focus-visible .o5-index-title { transform: translateX(8px); }
+.o5-index-go[aria-current] .o5-index-title { font-style: italic; color: var(--accent); }
+.o5-index-open ul { list-style: none; margin: 8px 0 0; padding: 0; display: flex; flex-wrap: wrap; gap: 4px 28px; }
+.o5-index-open li { display: flex; align-items: center; gap: 2px; }
+.o5-open-go {
+  min-height: var(--tap);
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: center;
+  border: 0;
+  background: none;
+  color: var(--text);
+  text-align: left;
+  cursor: pointer;
+  padding: 4px 0;
+}
+.o5-open-name { font-family: var(--font-display); font-size: calc(22px * var(--text-scale)); font-variation-settings: 'opsz' 36; }
+.o5-open-go[aria-current] .o5-open-name { font-style: italic; color: var(--accent); }
+.o5-index-switches { display: flex; flex-wrap: wrap; gap: 4px 24px; padding-top: 16px; border-top: 1px solid var(--o5-hair); }
+.o5-switch {
+  min-width: var(--tap);
+  justify-content: center;
+  min-height: var(--tap);
+  display: inline-flex;
+  align-items: center;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--text-2);
+  font: 500 var(--fs-md) / 1 var(--font-ui);
+  text-decoration: none;
+  cursor: pointer;
+}
+.o5-switch:hover, .o5-switch:focus-visible { color: var(--text); text-decoration: underline; text-underline-offset: 6px; }
+.o5-switch[aria-pressed='true'] { color: var(--text); }
+
+/* ---------------------------------------------------------------- apps in Orbit 0.5 */
+/* Headers: no bar, no border. Big quiet title; tucks away while you scroll down (chrome.ts). */
+:root[data-skin='o5'] .app-window { background: transparent; }
+:root[data-skin='o5'] .app-header {
+  background: color-mix(in srgb, var(--bg) 70%, transparent);
+  border-bottom: 0;
+  min-height: calc(var(--safe-top) + 60px);
+  max-height: calc(var(--safe-top) + 140px);
+  overflow: hidden;
+  transition: max-height var(--dur-o5) var(--ease-o5), opacity var(--dur-o5) var(--ease-o5), padding var(--dur-o5) var(--ease-o5),
+    min-height var(--dur-o5) var(--ease-o5);
+}
+:root[data-skin='o5'] .app-header h1 {
+  font-family: var(--font-display);
+  font-variation-settings: 'opsz' 72;
+  font-weight: 400;
+  font-size: calc(26px * var(--text-scale));
+  letter-spacing: -0.02em;
+}
+:root[data-skin='o5'] .app-header .subtitle { color: var(--text-3); font-size: var(--fs-xs); letter-spacing: 0.04em; }
+:root[data-skin='o5'] .app-window[data-chrome='hidden'] .app-header {
+  max-height: var(--safe-top);
+  min-height: var(--safe-top);
+  padding-top: var(--safe-top);
+  padding-bottom: 0;
+  opacity: 0;
+  pointer-events: none;
+}
+
+/* glass.css draws a rim and a sheen on headers: none here. */
+:root[data-skin='o5'] .app-header { box-shadow: none; background: color-mix(in srgb, var(--bg) 72%, transparent); }
+:root[data-skin='o5'] .glass, :root[data-skin='o5'] .sheet { --sheen: none; }
+
+:root[data-skin='o5'] [class*='-root'] [class*='side']:not(.o5-switch) { border-color: var(--o5-hair); }
+
+/* Buttons: ink, not tiles. Primary keeps a soft accent wash so the main action is still obvious. */
+:root[data-skin='o5'] .btn {
+  border-radius: 999px;
+  background: transparent;
+  border: 1px solid var(--o5-hair);
+  font-weight: 500;
+}
+:root[data-skin='o5'] .btn:hover { background: var(--o5-hair); }
+:root[data-skin='o5'] .btn.primary { background: var(--text); color: var(--bg); border-color: transparent; }
+:root[data-skin='o5'] .btn.ghost { border-color: transparent; }
+:root[data-skin='o5'] .icon-btn { border-radius: 50%; background: transparent; }
+
+/* Lists, cards, tiles, banners: no boxes. Hairlines only where rows need separating. */
+:root[data-skin='o5'] :is(.list, .widget, .glass, .banner, .ai-banner, .state, .cc-tile, .switcher-card) {
+  background: transparent;
+  border-color: transparent;
+  box-shadow: none;
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+:root[data-skin='o5'] .row { border-bottom-color: var(--o5-hair); }
+:root[data-skin='o5'] .segmented { background: transparent; border: 1px solid var(--o5-hair); border-radius: 999px; }
+:root[data-skin='o5'] .segmented button { border-radius: 999px; min-width: var(--tap); min-height: var(--tap); }
+:root[data-skin='o5'] .segmented button[aria-pressed='true'] { background: var(--text); color: var(--bg); box-shadow: none; }
+:root[data-skin='o5'] .chip { background: transparent; border: 1px solid var(--o5-hair); }
+:root[data-skin='o5'] :is(input, textarea, .ta-plain, select):not([type='range']):not([type='checkbox']) { border-radius: var(--radius-md); }
+:root[data-skin='o5'] .state h3 { font-family: var(--font-display); font-weight: 380; font-size: calc(30px * var(--text-scale)); letter-spacing: -0.02em; }
+:root[data-skin='o5'] :is(.settings-section h2, .list-title) { font-family: var(--font-display); font-weight: 400; letter-spacing: -0.01em; }
+
+/* Sheets: rise from the depth instead of sliding a card. */
+:root[data-skin='o5'] .sheet {
+  border: 0;
+  background: var(--glass-strong);
+  box-shadow: 0 -30px 80px rgb(0 0 0 / 0.35);
+}
+:root[data-skin='o5'] .sheet-header h2 { font-family: var(--font-display); font-weight: 400; font-size: calc(24px * var(--text-scale)); letter-spacing: -0.02em; }
+:root[data-skin='o5'][data-motion='full'] .sheet { animation: o5-sheet var(--dur-o5) var(--ease-o5) both; }
+@keyframes o5-sheet {
+  from { opacity: 0; transform: perspective(1200px) translate3d(0, 60px, -140px) rotateX(10deg); }
+}
+/* Whatever a sheet opens over goes soft, as the home does behind the index. */
+:root[data-skin='o5'] .sheet-scrim {
+  background: color-mix(in srgb, var(--bg) 46%, transparent);
+  -webkit-backdrop-filter: blur(14px) saturate(120%);
+  backdrop-filter: blur(14px) saturate(120%);
+}
+
+/* Page sheets (Sheet `page`): the store and the makers read like the home, a tall page whose
+   chapters sink back and blur as they scroll away (--p / --ap from useScrollDepth). */
+:root[data-skin='o5'] .sheet-scrim[data-page] {
+  background: color-mix(in srgb, var(--bg) 62%, transparent);
+  -webkit-backdrop-filter: blur(22px) saturate(120%);
+  backdrop-filter: blur(22px) saturate(120%);
+}
+:root[data-skin='o5'] .sheet[data-page] {
+  height: calc(100% - var(--safe-top) - 10px);
+  max-height: none;
+  background: var(--o5-glow), var(--bg);
+  box-shadow: 0 -30px 90px rgb(0 0 0 / 0.4);
+}
+@media (min-width: 700px) and (min-height: 500px) {
+  :root[data-skin='o5'] .sheet[data-page] {
+    width: min(860px, calc(100% - 48px));
+    height: calc(100% - 48px);
+  }
+}
+:root[data-skin='o5'] .sheet[data-page] .sheet-header h2 {
+  font: 600 calc(11px * var(--text-scale)) / 1.4 var(--font-ui);
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--text-3);
+}
+:root[data-skin='o5'] .sheet[data-page] .sheet-body {
+  flex: 1;
+  overflow-x: hidden;
+  overscroll-behavior: contain;
+  perspective: 1400px;
+  perspective-origin: 50% 50%;
+  padding: 0 clamp(20px, 6vw, 64px) calc(var(--safe-bottom) + 48px);
+}
+:root[data-skin='o5'] .mag { gap: clamp(48px, 10vh, 96px); }
+:root[data-skin='o5'] .mag-cover,
+:root[data-skin='o5'] .mag-chapter { gap: clamp(12px, 2vh, 20px); will-change: transform, opacity; transform-style: preserve-3d; }
+:root[data-skin='o5'] .mag-cover { padding-top: clamp(8px, 4vh, 40px); }
+:root[data-skin='o5'] .mag-title {
+  font-family: var(--font-display);
+  font-weight: 300;
+  font-style: italic;
+  font-variation-settings: 'opsz' 144;
+  letter-spacing: -0.035em;
+  line-height: 0.92;
+  font-size: clamp(56px, 15vw, 128px);
+}
+:root[data-skin='o5'] .mag-head {
+  font-family: var(--font-display);
+  font-weight: 340;
+  font-variation-settings: 'opsz' 144;
+  letter-spacing: -0.03em;
+  line-height: 0.95;
+  font-size: clamp(42px, 10vw, 84px);
+}
+:root[data-skin='o5'] .mag-dek {
+  max-width: 34ch;
+  font-family: var(--font-display);
+  font-variation-settings: 'opsz' 24;
+  font-size: calc(clamp(18px, 2.4vw, 22px) * var(--text-scale));
+  line-height: 1.38;
+}
+/* The chapter number sits far behind, like the home's. */
+:root[data-skin='o5'] .mag-numeral {
+  display: block;
+  position: absolute;
+  right: -2vw;
+  top: -0.12em;
+  font-family: var(--font-display);
+  font-style: italic;
+  font-weight: 200;
+  font-variation-settings: 'opsz' 144;
+  font-size: clamp(160px, 42vw, 380px);
+  line-height: 0.8;
+  letter-spacing: -0.06em;
+  color: color-mix(in srgb, var(--text) 5%, transparent);
+  transform: translate3d(0, calc(var(--p, 0) * 10vh), -1px);
+  pointer-events: none;
+  user-select: none;
+  z-index: -1;
+}
+/* The depth moves a chapter's contents, never the chapter itself, so measuring it (depth.ts)
+   always sees where it really is. */
+:root[data-skin='o5'][data-motion='full'] .sheet[data-page] [data-depth] > :not(.mag-numeral) {
+  transform: translate3d(0, calc(var(--p, 0) * -3vh), calc(var(--ap, 0) * -160px)) rotateX(calc(var(--p, 0) * 6deg));
+  opacity: calc(1 - var(--ap, 0) * 0.7);
+  filter: blur(calc(var(--ap, 0) * 2.5px));
+}
+:root[data-skin='o5'][data-motion='lite'] .sheet[data-page] [data-depth] > :not(.mag-numeral) { opacity: calc(1 - var(--ap, 0) * 0.55); }
+/* Contents: a quiet line of numbered chapters, as in a magazine. */
+:root[data-skin='o5'] .mag-contents { gap: 4px 22px; }
+:root[data-skin='o5'] .mag-contents button {
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: none;
+  font-family: var(--font-display);
+  font-size: calc(20px * var(--text-scale));
+}
+:root[data-skin='o5'] .mag-contents button:hover { font-style: italic; }
+:root[data-skin='o5'] .mag-contents-n { font: 500 var(--fs-xs) / 1 var(--font-ui); letter-spacing: 0.1em; color: var(--text-3); }
+:root[data-skin='o5'] .mag-contents svg { color: var(--text-3); }
+:root[data-skin='o5'] .mag-colophon { font-family: var(--font-display); font-style: italic; font-size: calc(17px * var(--text-scale)); color: var(--text-3); }
+/* Under "Talk" in the index: the two stores, as small underlined words. */
+.o5-index-subs { display: flex; flex-wrap: wrap; gap: 0 22px; padding: 0 0 8px calc(3ch + clamp(12px, 3vw, 28px)); }
+.o5-index-sub {
+  min-height: var(--tap);
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--text-2);
+  font-family: var(--font-display);
+  font-size: calc(19px * var(--text-scale));
+  text-decoration: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 6px;
+  cursor: pointer;
+}
+.o5-index-sub:hover, .o5-index-sub:focus-visible { color: var(--text); font-style: italic; }
+
+/* Conversations with depth: messages come up out of the page and sink away at the top edge. */
+@supports (animation-timeline: view()) {
+  :root[data-skin='o5'][data-motion='full'] :is(.ai-msg, .ag-msg, .sr-shot, .o5-go) {
+    animation: o5-depth linear both;
+    animation-timeline: view();
+    animation-range: entry 0% exit 100%;
+  }
+  @keyframes o5-depth {
+    0% { opacity: 0.2; transform: perspective(900px) translate3d(0, 26px, -90px) rotateX(-8deg); }
+    16%, 84% { opacity: 1; transform: none; }
+    100% { opacity: 0.25; transform: perspective(900px) translate3d(0, -10px, -110px) rotateX(10deg); }
+  }
+}
+:root[data-skin='o5'] :is(.ai-body-text, .ag-body-text) { font-size: calc(16.5px * var(--text-scale)); line-height: 1.62; }
+
+/* Overlays from the classic look still work (keyboard shortcuts); they lose their boxes too. */
+:root[data-skin='o5'] .cc-panel { border: 0; background: var(--glass-strong); }
+
+@media (prefers-reduced-motion: reduce) {
+  .o5-cue svg, .o5-index-list li, .o5-index { animation: none; }
+}
+:root[data-motion='off'] :is(.o5-cue svg, .o5-index-list li, .o5-index) { animation: none; }
+
+/* The classic look's raised 3D rims (motion.css) are boxes too: flat ink here. Doubled attribute
+   selectors outrank motion.css without !important. */
+:root[data-skin='o5'][data-skin] :is(.app-icon .glyph, .home .widget, .ai-card, .ai-suggest-btn, .ai-tile, .cc-tile, .btn, .icon-btn, .segmented button, button.chip, button.row, .ai-model-row, .ai-model-chip),
+:root[data-skin='o5'][data-skin] :is(.ai-suggest-btn, .ai-tile, .cc-tile, .btn, .icon-btn, .segmented button):active {
+  box-shadow: none;
+}
+
+/* ---------------------------------------------------------------- AI: Talk · Make, the orb */
+/* The bar: two words and the orb. Nothing else at the top. */
+.o5-ai-bar {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: calc(var(--safe-top) + 6px) calc(var(--safe-right) + clamp(16px, 5vw, 48px)) 6px calc(var(--safe-left) + clamp(16px, 5vw, 48px));
+  max-height: calc(var(--safe-top) + 80px);
+  overflow: hidden;
+  transition: max-height var(--dur-o5) var(--ease-o5), opacity var(--dur-o5) var(--ease-o5), padding var(--dur-o5) var(--ease-o5);
+}
+.o5-ai-title {
+  margin: 0;
+  display: flex;
+  align-items: center;
+  min-height: var(--tap);
+  color: var(--text);
+  font-family: var(--font-display);
+  font-variation-settings: 'opsz' 72;
+  font-size: calc(30px * var(--text-scale));
+  font-weight: 360;
+  font-style: italic;
+  letter-spacing: -0.02em;
+}
+.o5-orb-btn {
+  position: relative;
+  min-height: 44px;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 4px;
+  border: 0;
+  background: none;
+  color: var(--text-2);
+  font-family: var(--font-ui);
+  font-size: calc(11px * var(--text-scale, 1));
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+.o5-orb-btn:hover { color: var(--text); }
+@keyframes o5-breathe { 50% { transform: scale(0.82); opacity: 0.6; } }
+.o5-orb-menu { display: flex; flex-direction: column; gap: 12px; }
+.o5-orb-status { margin: 0; display: flex; align-items: center; gap: 8px; color: var(--text-2); font-size: var(--fs-sm); }
+.o5-orb-list { list-style: none; margin: 0; padding: 0; }
+.o5-orb-list .o5-go { min-height: 56px; padding: 10px 0; }
+.o5-orb-list .o5-go-label { font-size: calc(24px * var(--text-scale)); }
+.o5-orb-list .o5-go:disabled { opacity: 0.4; cursor: default; }
+
+:root[data-skin='o5'] .o5-hide { display: none !important; }
+:root:not([data-skin='o5']) .o5-tools-btn { display: none; }
+
+/* The keyboard is up: only the conversation and what you're typing. Everything else steps aside. */
+:root[data-skin='o5'] .shell[data-keyboard='true'] :is(.o5-ai-bar, .app-header, .ai-banner, .ai-tabs) {
+  max-height: 0;
+  min-height: 0;
+  padding-top: 0;
+  padding-bottom: 0;
+  opacity: 0;
+  pointer-events: none;
+  overflow: hidden;
+  border: 0;
+}
+:root[data-skin='o5'] .shell[data-keyboard='true'] .app-window { padding-top: var(--safe-top); }
+:root[data-skin='o5'] .app-window[data-chrome='hidden'] .o5-ai-bar { max-height: var(--safe-top); padding-top: var(--safe-top); padding-bottom: 0; opacity: 0; pointer-events: none; }
+
+.o5-step {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: clamp(28px, 7vh, 64px) 0 clamp(20px, 4vh, 36px);
+  border-bottom: 1px solid var(--o5-hair);
+  scroll-margin-top: 12px;
+}
+.o5-step-title, .o5-chapter-title {
+  margin: 0;
+  font-family: var(--font-display);
+  font-variation-settings: 'opsz' 96;
+  font-weight: 340;
+  font-size: calc(clamp(32px, 7vw, 54px) * var(--text-scale));
+  letter-spacing: -0.03em;
+  line-height: 1.02;
+}
+.o5-chapter-title { margin-top: clamp(32px, 8vh, 72px); }
+.o5-gallery-head { margin-top: clamp(32px, 8vh, 72px); display: flex; flex-direction: column; gap: 8px; }
+.o5-gallery-head .o5-chapter-title { margin-top: 0; }
+.o5-choices { display: flex; flex-direction: column; }
+.o5-choice {
+  display: grid;
+  gap: 2px;
+  min-height: 64px;
+  padding: 12px 0;
+  border: 0;
+  border-bottom: 1px solid var(--o5-hair);
+  background: none;
+  color: var(--text-3);
+  text-align: left;
+  cursor: pointer;
+  transition: color var(--dur-fast), padding var(--dur-o5) var(--ease-o5);
+}
+.o5-choice .o5-go-label { white-space: normal; }
+.o5-choice[aria-checked='true'] { color: var(--text); padding-left: 10px; }
+.o5-choice[aria-checked='true'] .o5-go-label { font-style: italic; }
+.o5-choice[aria-checked='true'] .o5-go-label::after { content: ' ✦'; color: var(--accent); font-style: normal; font-size: 0.6em; vertical-align: middle; }
+
+:root[data-skin='o5'][data-theme='dark'] { --code-bg: #171513; }
+.o5-choice { justify-items: start; }
+.o5-choice .o5-go-label, .o5-choice .o5-go-hint { grid-area: auto; }
+.o5-choice:last-child { border-bottom: 0; }
+
+/* ---------------------------------------------------------------- Settings: a contents page, then numbered chapters */
+.st-contents { display: flex; flex-direction: column; gap: 8px; padding: clamp(24px, 6vh, 56px) 0 8px; }
+.st-contents .o5-chapter-title { margin-top: 0; }
+.st-contents .o5-go-hint { font-variant-numeric: tabular-nums; letter-spacing: 0.14em; }
+:root[data-skin='o5'] .st-scroll { padding-left: calc(var(--safe-left) + clamp(18px, 6vw, 64px)); padding-right: calc(var(--safe-right) + clamp(18px, 6vw, 64px)); }
+
+:root[data-skin='o5'] :is(.ed-toolbar, .term-keys) { background: color-mix(in srgb, var(--bg) 88%, transparent); border-top: 1px solid var(--o5-hair); }
+
+/* ---------------------------------------------------------------- MagStyle: status labels
+   "Simulated", "Demo mode" and the like are section labels in small caps, not coloured pills. */
+:root[data-skin='o5'] span.chip {
+  min-height: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: none;
+  font: 600 calc(10.5px * var(--text-scale)) / 1.4 var(--font-ui);
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+}
+:root[data-skin='o5'] span.chip .dot { width: 5px; height: 5px; }
+
+/* ---------------------------------------------------------------- MagStyle: the Terminal
+   Ink on the page: the terminal takes the page's own warm black and ink (not navy), and the key
+   bar is a ruled line of typed keys rather than a row of boxes. */
+:root[data-skin='o5'] {
+  --term-bg: #0d0c0b;
+  --term-fg: #f3eee6;
+}
+
+/* ---------------------------------------------------------------- MagStyle: the folio
+   Inside an app the line at the bottom carries its folio, like the foot of a magazine page. */
+.o5-folio { font-size: calc(9.5px * var(--text-scale)); letter-spacing: 0.24em; color: var(--text-3); white-space: nowrap; }
+/* Just left of the line (which stays centred), level with it, so it never sits on a message box or
+   the terminal's keys. Phones have no room for it at the foot of the page. */
+.o5-folio { position: absolute; right: calc(50% + 64px + 16px); bottom: 7px; }
+@media (max-width: 700px) { .o5-folio { display: none; } }
+
+/* ---------------------------------------------------------------- MagStyle: chapter openers
+   Each time an app comes into view it opens on its chapter page for a moment: a big numeral, the
+   chapter kicker, the title and its line, then the page lifts away (the title faster than the rest,
+   for depth) and the app is underneath. Never in the way: it ignores taps. Lite: a quick fade. */
+.o5-opener {
+  position: absolute;
+  inset: 0;
+  z-index: 60;
+  display: grid;
+  align-content: center;
+  justify-items: start;
+  gap: 10px;
+  padding: max(24px, env(safe-area-inset-top)) clamp(24px, 8vw, 96px);
+  background: var(--o5-glow), var(--bg);
+  pointer-events: none;
+  overflow: hidden;
+  animation: o5-opener-out 0.95s var(--ease-o5) both;
+}
+.o5-opener-n {
+  position: absolute;
+  right: clamp(-12px, 2vw, 40px);
+  bottom: clamp(-40px, -4vh, 0px);
+  font-family: var(--font-display);
+  font-weight: 300;
+  font-variation-settings: 'opsz' 144;
+  font-size: clamp(220px, 52vmin, 520px);
+  line-height: 0.8;
+  letter-spacing: -0.06em;
+  color: color-mix(in srgb, var(--text) 7%, transparent);
+  animation: o5-opener-drift 0.95s var(--ease-o5) both;
+}
+.o5-opener-kicker { font: 600 calc(10px * var(--text-scale)) / 1 var(--font-ui); letter-spacing: 0.24em; text-transform: uppercase; color: var(--text-3); }
+.o5-opener-title {
+  font-family: var(--font-display);
+  font-weight: 330;
+  font-variation-settings: 'opsz' 144;
+  font-size: clamp(56px, 13vw, 128px);
+  line-height: 0.92;
+  letter-spacing: -0.04em;
+  color: var(--text);
+  animation: o5-opener-title 0.95s var(--ease-o5) both;
+}
+.o5-opener-line { font-family: var(--font-display); font-style: italic; font-size: calc(20px * var(--text-scale)); color: var(--text-2); animation: o5-opener-title 0.95s var(--ease-o5) 0.03s both; }
+@keyframes o5-opener-out {
+  0%, 52% { opacity: 1; transform: none; }
+  100% { opacity: 0; transform: translateY(-4%); }
+}
+@keyframes o5-opener-title {
+  0% { opacity: 0; transform: translateY(24px); }
+  28%, 52% { opacity: 1; transform: none; }
+  100% { opacity: 0; transform: translateY(-48px); }
+}
+@keyframes o5-opener-drift {
+  0% { transform: translateY(6%); }
+  100% { transform: translateY(-2%); }
+}
+:root[data-motion='lite'] .o5-opener { animation: o5-opener-quick 0.45s ease both; }
+:root[data-motion='lite'] :is(.o5-opener-title, .o5-opener-line, .o5-opener-n) { animation: none; }
+@keyframes o5-opener-quick { 0%, 40% { opacity: 1; } 100% { opacity: 0; } }
+:root[data-motion='off'] .o5-opener { display: none; }
+
+/* ---------------------------------------------------------------- MagStyle: the running head
+   When an app's own header tucks away as you read down the page, a running head takes its place
+   at the very top: "Orbit · 04 · Terminal", so you always know where you are. */
+.o5-runhead {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 55;
+  margin: 0;
+  padding: max(6px, env(safe-area-inset-top)) 16px 6px;
+  font: 600 calc(9.5px * var(--text-scale)) / 1.2 var(--font-ui);
+  letter-spacing: 0.24em;
+  text-transform: uppercase;
+  text-align: center;
+  color: var(--text-3);
+  background: var(--glass);
+  -webkit-backdrop-filter: blur(18px) saturate(1.2);
+  backdrop-filter: blur(18px) saturate(1.2);
+  pointer-events: none;
+  opacity: 0;
+  transform: translateY(-100%);
+  transition: opacity 0.25s ease, transform 0.35s var(--ease-o5);
+}
+.app-window[data-chrome='hidden'] .o5-runhead { opacity: 1; transform: none; }
+:root[data-motion='off'] .o5-runhead { transition: none; }
+
+/* ---------------------------------------------------------------- the last accent-filled controls
+   Orbit 0.5's one strong mark is ink on paper (like .btn.primary): send buttons, the active tab
+   rule, numbered sources and chosen options use the text colour, not a bright accent fill. */
+:root[data-skin='o5'] :is(.term-compose-send, .ag-send, .ai-send) {
+  background: var(--text) !important;
+  color: var(--bg) !important;
+  box-shadow: none;
+}
+:root[data-skin='o5'] .app-header { background: color-mix(in srgb, var(--bg) 90%, transparent); }
