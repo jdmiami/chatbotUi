@@ -627,18 +627,37 @@ export function createGate(cfg, log = console) {
           sound: b.sound,
           reviewStoryboard: Boolean(b.reviewStoryboard),
           lead: b.lead && typeof b.lead === 'object' ? { mode: b.lead.mode === 'ai' ? 'ai' : 'auto', description: String(b.lead.description || '') } : undefined,
+          // The member's own script, scene by scene (words only; the content rules check every line).
+          opening: String(b.opening || ''),
+          shots: (Array.isArray(b.shots) ? b.shots : [])
+            .slice(0, 12)
+            .filter((x) => x && typeof x === 'object')
+            .map((x) => ({ prompt: String(x.prompt || ''), end: String(x.end || ''), says: String(x.says || '') })),
           owner,
         });
         return send(res, 200, movieView(m));
       }
-      const movieMatch = /^\/_studio\/movies\/([A-Za-z0-9_-]+)(\/run)?$/.exec(path);
+      const movieMatch = /^\/_studio\/movies\/([A-Za-z0-9_-]+)(\/run|\/frames)?$/.exec(path);
       if (movies && movieMatch) {
         const m = await ownMovie(movieMatch[1]);
         if (!m) return send(res, 404, { error: 'No such film.' });
         if (!movieMatch[2] && req.method === 'GET') return send(res, 200, movieView(m));
-        if (movieMatch[2] && req.method === 'POST') {
+        if (movieMatch[2] === '/run' && req.method === 'POST') {
           const b = await body();
           return send(res, 200, movieView(await movies.run(m.id, { approve: Boolean(b.approve) })));
+        }
+        // The storyboard check: draw some pictures again (with new words, or the same ones), then
+        // carry on to the check again.
+        if (movieMatch[2] === '/frames' && req.method === 'POST') {
+          const b = await body();
+          const own = new Set((m.frames || []).map((f) => f.id));
+          const frames = (Array.isArray(b.frames) ? b.frames : [])
+            .filter((f) => f && own.has(String(f.id)))
+            .slice(0, 13)
+            .map((f) => (typeof f.prompt === 'string' && f.prompt.trim() ? { id: String(f.id), prompt: f.prompt } : { id: String(f.id), redo: true }));
+          if (!frames.length) return send(res, 400, { error: 'Pick a picture to draw again.' });
+          await movies.revise(m.id, { frames });
+          return send(res, 200, movieView(await movies.run(m.id)));
         }
       }
       if (path === '/_studio/chat' && req.method === 'POST') {

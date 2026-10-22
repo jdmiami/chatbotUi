@@ -4,8 +4,8 @@ import { studioAi, type MemberMovie } from './memberApi';
 import type { StudioDef } from './defs';
 import { briefOf, jobOf, promptOf } from './engine';
 import type { Project } from './projects';
-import { Headline } from './Sheets';
-import { orbSay, orbThink } from './orbGuide';
+import { Headline, OrbSpot } from './Sheets';
+import { orbNote, orbThink } from './orbGuide';
 
 const PHASE: Record<string, string> = {
   draft: 'Getting ready',
@@ -34,12 +34,12 @@ export const Make = forwardRef<HTMLElement, { studio: StudioDef; project: Projec
   const live = useRef(true);
   const current = useRef(project);
   current.current = project;
-  useEffect(
-    () => () => {
+  useEffect(() => {
+    live.current = true;
+    return () => {
       live.current = false;
-    },
-    [],
-  );
+    };
+  }, []);
 
   const update = useCallback((patch: Partial<Project>) => onChange({ ...current.current, ...patch }), [onChange]);
 
@@ -120,7 +120,7 @@ export const Make = forwardRef<HTMLElement, { studio: StudioDef; project: Projec
       await ready();
       const makers = await ai.studioMakers().catch(() => []);
       const installed = makers.filter((m) => m.installed).map((m) => m.id);
-      const job = jobOf(studio, project.kind, project.answers, installed);
+      const job = jobOf(studio, project.kind, project.answers, installed, project.script?.scenes ?? null);
       if (job.kind === 'movie') {
         const m = await ai.createMovie(job.draft);
         update({ movieId: m.id, status: 'making' });
@@ -144,27 +144,45 @@ export const Make = forwardRef<HTMLElement, { studio: StudioDef; project: Projec
     }
   };
 
+  // The storyboard check: tap pictures to have them drawn again.
+  const [redo, setRedo] = useState<Set<string>>(new Set());
+  const redraw = async () => {
+    if (!project.movieId || !redo.size) return;
+    try {
+      setMovie(await ai.redrawFrames(project.movieId, [...redo].map((id) => ({ id }))));
+      setRedo(new Set());
+    } catch (err) {
+      setNote((err as Error).message);
+    }
+  };
+
   const result = project.items.map((id) => items.get(id)).filter(Boolean) as StudioItem[];
-  const frames = movie?.phase === 'review' ? movie.frames.filter((f): f is { id: string; status: string; url: string } => Boolean(f.url)) : [];
+  const frames = movie?.phase === 'review' ? movie.frames : [];
+  const scenes = project.kind === 'movie' ? (project.script?.scenes ?? []) : [];
+  const frameName = (i: number) => (i === 0 ? 'Opening' : `Scene ${i} ends`);
   const what = project.kind === 'image' ? 'picture' : project.kind;
 
-  // The orb follows along: it glows while the studio works, reads out each new stage, and says when it's ready.
+  // The orb glows while the studio works. It keeps its words until you tap it, and sits on the
+  // one thing this screen wants from you next.
   useEffect(() => {
-    if (project.status !== 'making') return;
+    if (project.status !== 'making' || movie?.phase === 'review') return;
     orbThink(0.55);
     return () => orbThink(null);
-  }, [project.status]);
+  }, [project.status, movie?.phase]);
   useEffect(() => {
-    if (project.status === 'making' && note) orbSay(note);
-  }, [note]); // eslint-disable-line react-hooks/exhaustive-deps
+    if (movie?.phase === 'review') orbNote('Here is the storyboard: where each scene starts and ends. Tap any picture to draw it again, or film it as it is.', { label: 'Film it', id: 'film' });
+    else if (project.status === 'making') orbNote(note ?? 'Making it now.');
+    else if (project.status === 'done') orbNote(`Your ${what} is ready. It is in your gallery too.`);
+    else if (project.status === 'error') orbNote(project.error ?? 'It stopped. Try again.', { label: 'Try again', id: 'make' });
+    else orbNote(`Everything you picked, in one place. Tap “Make the ${what}” when it looks right.`, { label: `Make the ${what}`, id: 'make' });
+  }, [project.status, movie?.phase, note]); // eslint-disable-line react-hooks/exhaustive-deps
+  const acts = useRef<Record<string, () => void>>({});
+  acts.current = { film: () => void approve(), make: () => void make() };
   useEffect(() => {
-    if (project.status === 'done') orbSay(`Your ${what} is ready.`);
-    else if (project.status === 'error' && project.error) orbSay(project.error);
-    else if (project.status === 'draft') orbSay(`Here is your brief. Tap “Make the ${what}” when it looks right.`);
-  }, [project.status]); // eslint-disable-line react-hooks/exhaustive-deps
-  useEffect(() => {
-    if (movie?.phase === 'review') orbSay('Your storyboard is ready. Have a look, then tell me to film it.');
-  }, [movie?.phase]);
+    const on = (e: Event) => acts.current[(e as CustomEvent<string>).detail]?.();
+    window.addEventListener('orb:act', on);
+    return () => window.removeEventListener('orb:act', on);
+  }, []);
 
   return (
     <article className="st-sheet st-brief" ref={ref} aria-labelledby="st-brief-t">
@@ -172,12 +190,13 @@ export const Make = forwardRef<HTMLElement, { studio: StudioDef; project: Projec
         <span>The brief</span>
         <span className="st-num">{project.status === 'done' ? 'Finished' : project.status === 'making' ? 'Being made' : 'Ready'}</span>
       </p>
+      {/* The orb rests on what this screen wants next: the button, or the headline while it works. */}
       {project.status === 'done' ? (
         <Headline text={`Here is your *${what}.*`} id="st-brief-t" />
       ) : project.status === 'making' ? (
-        <Headline text={movie?.phase === 'review' ? 'Your *storyboard.*' : `Making your *${what}…*`} id="st-brief-t" />
+        <Headline text={movie?.phase === 'review' ? 'Your *storyboard.*' : `Making your *${what}…*`} id="st-brief-t" orb={movie?.phase !== 'review'} />
       ) : (
-        <Headline text="Here is your *brief.*" id="st-brief-t" />
+        <Headline text="Here is your *brief.*" id="st-brief-t" orb={false} />
       )}
 
       {result.length > 0 && (
@@ -188,29 +207,77 @@ export const Make = forwardRef<HTMLElement, { studio: StudioDef; project: Projec
 
       {frames.length > 0 && (
         <>
+          <p className="st-dek">Where each scene starts and ends. Tap a picture to draw it again.</p>
           <ol className="st-frames" aria-label="Storyboard">
             {frames.map((f, i) => (
               <li key={f.id}>
-                <img src={f.url} alt={`Scene ${i + 1}`} />
-                <span className="st-num">Scene {i + 1}</span>
+                {f.url ? (
+                  <button
+                    type="button"
+                    aria-pressed={redo.has(f.id)}
+                    onClick={() =>
+                      setRedo((r) => {
+                        const n = new Set(r);
+                        if (n.has(f.id)) n.delete(f.id);
+                        else n.add(f.id);
+                        return n;
+                      })
+                    }
+                  >
+                    <img src={f.url} alt={frameName(i)} />
+                    <span className="st-num">{frameName(i)}</span>
+                  </button>
+                ) : (
+                  <>
+                    <span className="st-frame-wait" aria-hidden />
+                    <span className="st-num">{frameName(i)} · drawing</span>
+                  </>
+                )}
               </li>
             ))}
           </ol>
-          <button type="button" className="st-go" onClick={() => void approve()}>
-            Looks right, film it
-          </button>
+          <div className="st-review-go st-script-go">
+            {redo.size > 0 ? (
+              <button type="button" className="st-go" onClick={() => void redraw()}>
+                Draw {redo.size === 1 ? 'it' : `these ${redo.size}`} again
+                <OrbSpot size={40} className="st-choice-spot" />
+              </button>
+            ) : (
+              <button type="button" className="st-go" onClick={() => void approve()}>
+                Looks right, film it
+                <OrbSpot size={40} className="st-choice-spot" />
+              </button>
+            )}
+          </div>
         </>
       )}
 
       {project.status !== 'done' && !frames.length && (
         <dl className="st-brieflist">
-          {briefOf(flow, project.answers).map((b) => (
-            <div key={b.key}>
-              <dt>{b.key}</dt>
-              <dd>{b.value}</dd>
-            </div>
-          ))}
+          {briefOf(flow, project.answers)
+            .filter((b) => b.key !== 'Script')
+            .map((b) => (
+              <div key={b.key}>
+                <dt>{b.key}</dt>
+                <dd>{b.value}</dd>
+              </div>
+            ))}
         </dl>
+      )}
+
+      {project.status === 'draft' && scenes.length > 0 && (
+        <ol className="st-scenes" aria-label="The script">
+          {scenes.map((s, i) => (
+            <li key={s.id} className="st-scene">
+              <p className="o5-kicker st-scene-head">
+                <span>Scene {String(i + 1).padStart(2, '0')}</span>
+                <span>{s.heading}</span>
+              </p>
+              <p className="st-action">{s.action}</p>
+              {s.says && <p className="st-says">{s.says}</p>}
+            </li>
+          ))}
+        </ol>
       )}
 
       {project.status === 'making' && !frames.length && (
@@ -226,9 +293,12 @@ export const Make = forwardRef<HTMLElement, { studio: StudioDef; project: Projec
       {project.status === 'error' && <p className="st-error" role="alert">{project.error}</p>}
 
       {(project.status === 'draft' || project.status === 'error') && (
-        <button type="button" className="st-go" onClick={() => void make()}>
-          {project.status === 'error' ? 'Try again' : `Make the ${what}`}
-        </button>
+        <div className="st-script-go">
+          <button type="button" className="st-go" onClick={() => void make()}>
+            {project.status === 'error' ? 'Try again' : `Make the ${what}`}
+            <OrbSpot size={40} className="st-choice-spot" />
+          </button>
+        </div>
       )}
     </article>
   );

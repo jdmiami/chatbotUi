@@ -114,6 +114,8 @@
 @keyframes orb-panel-in { from { opacity: 0; translate: 0 18px; scale: 0.97; } }
 .orb-panel-head { display: flex; align-items: center; justify-content: space-between; }
 .orb-panel-title { margin: 0; font-weight: 600; font-size: var(--fs-md, 1rem); }
+.orb-note { display: flex; flex-direction: column; gap: 10px; align-items: flex-start; font-size: var(--fs-md, 15px); color: var(--text); }
+.orb-note p { margin: 0; line-height: 1.45; }
 .orb-log { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; max-height: 32vh; overflow-y: auto; font-size: var(--fs-sm); }
 .orb-log li[data-who='you'] { align-self: flex-end; color: var(--text); background: var(--accent-soft); padding: 4px 10px; border-radius: 12px; }
 .orb-log li[data-who='orb'] { color: var(--text-2); }

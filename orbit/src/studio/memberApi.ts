@@ -109,6 +109,10 @@ export const studioAi = {
   async runMovie(id: string, opts: { approve?: boolean } = {}): Promise<MemberMovie> {
     return json<MemberMovie>(`/_studio/movies/${encodeURIComponent(id)}/run`, { method: 'POST', body: JSON.stringify(opts) });
   },
+  /** Draw storyboard pictures again (with new words, or the same), then back to the check. */
+  async redrawFrames(id: string, frames: { id: string; prompt?: string }[]): Promise<MemberMovie> {
+    return json<MemberMovie>(`/_studio/movies/${encodeURIComponent(id)}/frames`, { method: 'POST', body: JSON.stringify({ frames }) });
+  },
   /** The studio's writer, streamed (only while the studio is awake). */
   async chat(messages: ChatMessage[], onText: (d: string) => void, signal?: AbortSignal, maxTokens = 600): Promise<void> {
     const res = await call('/_studio/chat', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ messages, max_tokens: maxTokens }), signal });

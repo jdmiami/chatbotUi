@@ -228,6 +228,20 @@ function Orb() {
     return () => window.removeEventListener('orb:say', on);
   }, [say]);
 
+  // What a page wants you to know, kept quiet until you tap the orb (a studio: why it sits on the
+  // answer it would pick, with a button to go with it).
+  const [note, setNote] = useState<{ text: string; act?: { label: string; id: string } } | null>(null);
+  const noteRef = useRef(note);
+  noteRef.current = note;
+  useEffect(() => {
+    const on = (e: Event) => {
+      const d = (e as CustomEvent<{ text: string; act?: { label: string; id: string } } | null>).detail;
+      setNote(d && typeof d.text === 'string' && d.text.trim() ? d : null);
+    };
+    window.addEventListener('orb:note', on);
+    return () => window.removeEventListener('orb:note', on);
+  }, []);
+
   // Drawn where it starts from the very first paint, not in the corner until the first frame runs.
   useLayoutEffect(() => {
     if (body.current) body.current.style.transform = `translate3d(${x.value - R}px, ${y.value - R}px, 0)`;
@@ -1010,6 +1024,12 @@ function Orb() {
     }
     jelly.velocity += 2.5;
     kick();
+    // A page left it something to tell you (a studio: why it sits where it does): a tap shows that,
+    // with the ask box and the mic right there. Otherwise a tap talks.
+    if (noteRef.current && !listenRef.current) {
+      setPanel(true);
+      return;
+    }
     toggleVoice();
   };
 
@@ -1508,6 +1528,23 @@ function Orb() {
               <Icon name="close" size={18} />
             </button>
           </div>
+          {note && (
+            <div className="orb-note">
+              <p>{note.text}</p>
+              {note.act && (
+                <button
+                  type="button"
+                  className="btn primary"
+                  onClick={() => {
+                    window.dispatchEvent(new CustomEvent('orb:act', { detail: note.act!.id }));
+                    setPanel(false);
+                  }}
+                >
+                  {note.act.label}
+                </button>
+              )}
+            </div>
+          )}
           {lines.length > 0 && (
             <ol className="orb-log" aria-label="What happened">
               {lines.slice(-8).map((l, i) => (
@@ -1551,7 +1588,7 @@ function Orb() {
             </div>
           ) : (
             <>
-              {lines.length === 0 && (
+              {lines.length === 0 && !note && (
                 <div className="orb-suggest" aria-label="Ideas">
                   {SUGGESTIONS.map((s) => (
                     <button
