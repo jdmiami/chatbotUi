@@ -48,8 +48,8 @@ if it needs a network round trip. Throwing counts as `false`.
 
 ### `why` — optional string
 
-What the orb says when `ready()` is false. In Orbit a studio used: *"I think with the studio,
-and it’s resting right now. It wakes up when you make something."* Without it the orb says
+What the orb says when `ready()` is false. An app whose model sleeps between uses might say: *"I think with the server,
+and it’s resting right now. It wakes up when you ask for something."* Without it the orb says
 *"There is nothing for me to think with here yet."*
 
 ### `speak(text)` — optional
@@ -91,8 +91,8 @@ useEffect(() => {
 }, [site.name, step.title]);
 ```
 
-This is exactly how Orbit's studios did it (`StudioApp.tsx`); their text also told the model which
-of Orbit's agent verbs not to use, which does not apply here.
+The example app does the same (`example/src/App.tsx`, keyed on the view and the step). The source app's
+text also told the model which of its agent verbs not to use, which does not apply here.
 
 ## 3. Handing the orb a question from the page
 
@@ -104,7 +104,7 @@ import { orbRun } from 'orbit-design/orb';
 orbRun(`Explain “${selection}”`);   // the panel opens, the question runs through brain.chat
 ```
 
-(In Orbit this was the `orbit:orb-run` event, used by the Rewrite menu to ask for a picture of
+(In the source app this was the `orbit:orb-run` event, used by its Rewrite menu to ask for a picture of
 the selected text. The event is now `orb:run`.)
 
 To leave the orb something to say without a model at all, use a note:
@@ -263,12 +263,12 @@ export function localChatBrain({ base = 'http://localhost:11434', model = 'YOUR_
 
 ## 6. Worked adapter: the browser's own voice (`speak` / `listen`)
 
-These two functions are DOM-only ports of Orbit's `apps/ai/speech.ts` (speaking) and the
-browser-recognition branch of `shell/orb/listen.ts` (listening). Orbit's listening had a second
-branch that recorded audio and sent it to a transcription server when the browser had no
-recognition of its own; that branch is not included here (it needed Orbit's AI machine). You can
+These two functions are DOM-only ports of the source app's speaking module and the
+browser-recognition branch of its listening module; the package ships them as `src/ai/webSpeech.ts`. The source app's listening had a second
+branch that recorded audio and sent it to a speech-to-text server when the browser had no
+recognition of its own; that branch is not included here (it needed the source app's own server). You can
 add one by returning the same `{ finish, cancel }` handle around a `MediaRecorder` and your own
-transcription call.
+speech-to-text call.
 
 Combine them with one of the chat adapters above:
 
@@ -276,10 +276,12 @@ Combine them with one of the chat adapters above:
 const brain: OrbBrain = { ...httpChatBrain({ key }), ...webSpeech() };
 ```
 
+The same object can serve the guided flow's suggestions and the conversation: `setAssistant(assistantFromBrain(brain))` (`src/ai/bridge.ts`; `Assistant` and `setAssistant` are in `src/flow/adapter.ts`).
+
 ```ts
 import type { OrbBrain } from 'orbit-design/orb';
 
-// ---------------------------------------------------------------- speaking (from Orbit's speech.ts)
+// ---------------------------------------------------------------- speaking (from the source app's speaking module)
 
 export function canSpeak() {
   return typeof window !== 'undefined' && 'speechSynthesis' in window && typeof SpeechSynthesisUtterance !== 'undefined';
@@ -375,7 +377,7 @@ export function unlockSpeech() {
   speechSynthesis.speak(u);
 }
 
-// ---------------------------------------------------------------- listening (from Orbit's listen.ts, browser branch)
+// ---------------------------------------------------------------- listening (from the source app's listening module, browser branch)
 
 type Rec = {
   lang: string;
@@ -510,11 +512,11 @@ export function webSpeech(): Pick<OrbBrain, 'speak' | 'listen'> {
 
 Notes on the port:
 
-- `speak` is exactly what Orbit's orb did in `say()`: `createSpeaker().push(text); end()`, so a
+- `speak` is exactly what the source app's orb did in `say()`: `createSpeaker().push(text); end()`, so a
   whole reply is spoken sentence by sentence at rate 1.03 in the best local voice for the page's
-  language. One difference: Orbit's `bestVoice` also preferred a short list of named voices; that
+  language. One difference: the source app's `bestVoice` also preferred a short list of named voices; that
   list is left out here so no product names appear. Add your own `name` matches to `rank` if you want.
-- Orbit's `listen` also detected 1300 ms of silence after speech (level > 0.12) to stop its
+- The source app's `listen` also detected 1300 ms of silence after speech (level > 0.12) to stop its
   recording branch; the browser-recognition branch ends on its own (`continuous = false`), so the
   silence rule is not needed here.
 - Only attach `listen` when `canListen()` is true: the orb shows the mic and makes a tap start

@@ -1,12 +1,12 @@
 import { AnimatePresence, motion } from 'motion/react';
 import { SPRING, transitionFor, useMotionLevel } from '../motion';
-import type { Choice } from '../walkthrough/defs';
+import type { Choice } from '../flow/defs';
 import { OrbSpot } from './Sheets';
 
 /**
  * The answers to one question, each its own piece on a spring. They come in one after another out of
  * a blur; pick one and it lifts while the others leave one by one, and (with `layoutPrefix`) it then
- * flies on into the trail of answers above. Copied from Orbit Studios (src/studio/Choices.tsx), unchanged.
+ * flies on into the trail of answers above.
  */
 export function Choices({
   items,

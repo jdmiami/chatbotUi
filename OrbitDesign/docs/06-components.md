@@ -1,27 +1,29 @@
 # 06 · Components
 
-Every screen piece of an Orbit studio, as it exists in `src/components/` of this package. Each entry gives the purpose, the props, the DOM it renders (class names are the ones `src/styles/studio.css` expects), its states, the data attributes the orb reads, accessibility, and a usage snippet. Motion details are summarised and cross-referenced to `docs/05-motion.md`; the props that control motion are listed here.
+Every component exported from `src/components/index.ts`, in the order below. For each: what it is for, its props as the code declares them, the DOM it renders with every class name and data attribute, its states, the motion it exposes, accessibility, and a usage snippet taken from `example/src/App.tsx` where one exists.
 
-Where this document says "Orbit did X", it describes the source these components were copied from (`orbit/src/studio/*.tsx`). Nothing here calls a network or a model: writers come in through `setWriter()` (see `src/walkthrough/adapter.ts`) and the making of pictures is the app's own code.
+Nothing in `src/components` calls a network. An assistant reaches `Conversation` either through its `onSend` prop or through `setAssistant()` (`src/flow/adapter.ts`); the orb is reached only through window events (`src/orb/events.tsx`, `src/flow/orbGuide.ts`). The orb itself is documented in `docs/09-orb.md` and the springs, levels and scroll depth in `docs/05-motion.md`; this document points to them and does not restate them.
+
+**The `st-` prefix is historical; keep it, the CSS and the orb depend on it.** The class names and data attributes are the contract between these components, `src/styles/pages.css` and `src/orb`. Renaming one breaks the look or the orb's attention.
 
 ## Contents
 
 1. [Conventions](#1-conventions)
-2. [Sheets: OrbSpot, Headline, Rows, Row, Page](#2-sheets)
-3. [Home](#3-home)
-4. [Gate](#4-gate)
-5. [CharacterList](#5-characterlist)
-6. [Choices](#6-choices)
-7. [Walk](#7-walk)
-8. [ScriptDesk and SceneForm](#8-scriptdesk-and-sceneform)
-9. [Brief pieces (what Make was made of)](#9-brief-pieces)
-10. [Talk](#10-talk)
-11. [Drawer, the gallery and the options](#11-drawer)
-12. [Top bar, stage and bottom bar](#12-top-bar-stage-and-bottom-bar)
-13. [Toasts](#13-toasts)
-14. [Orbit 0.5 home and index: Path, IndexMenu, Handle, Step](#14-orbit-05-home-and-index)
-15. [Magazine helpers](#15-magazine-helpers)
-16. [SqIcon](#16-sqicon)
+2. [SqIcon](#2-sqicon)
+3. [OrbSpot](#3-orbspot)
+4. [Headline](#4-headline)
+5. [Page](#5-page)
+6. [Rows and Row](#6-rows-and-row)
+7. [Contents](#7-contents)
+8. [Gate](#8-gate)
+9. [Choices](#9-choices)
+10. [Walk](#10-walk)
+11. [Conversation](#11-conversation)
+12. [SummaryList, Go, Ghost, Progress, Result, ErrorLine](#12-summary-pieces)
+13. [Root, TopBar, Stage, BottomBar](#13-root-topbar-stage-bottombar)
+14. [Drawer, TABS, ContentsList, MediaGrid, Empty, OptionsDrawer](#14-drawers)
+15. [Toasts and toast](#15-toasts-and-toast)
+16. [useVisualViewport](#16-usevisualviewport)
 17. [Data attributes the orb reads](#17-data-attributes-the-orb-reads)
 
 ---
@@ -30,175 +32,340 @@ Where this document says "Orbit did X", it describes the source these components
 
 | Convention | Meaning |
 |---|---|
-| `*italic*` in a headline | `Headline` splits its `text` on `*`; every odd part is wrapped in `<em>`. "Where are *we?*" renders `<span>Where are </span><em>we?</em>`. The studio's masthead uses the same idea through `mark: [roman, italic]`. |
-| `o5-kicker` | The small uppercase running head from Orbit 0.5's magazine look (defined in `src/styles/o5.css`). Studio components add `st-kick` for the two-ended version (left: chapter, right: `st-num`). |
-| Square everything | Buttons, inputs and icons have no rounded corners (`.st-sq`, `.st-ico`, `strokeLinecap="square"`). |
-| `picked` | On every list of choices, `picked` is `null` at rest and the chosen label while the pick animation plays. While it is not null, the list is `disabled`. |
-| Motion level | Components read `useMotionLevel()` from `../motion`: `'full'` gives springs and blur, `'lite'` short tweens, `'off'` quick fades. See `docs/05-motion.md`. |
+| `*italic*` in a headline | `Headline` splits its `text` on `*`; every odd part becomes `<em>`, every even part `<span>`. `"Where *to?*"` renders `<span>Where </span><em>to?</em>`. The masthead uses the same idea through `mark: [roman, italic]` (see `TopBar`). |
+| `o5-kicker` | The small uppercase running head of the magazine skin (`src/styles/o5.css`). Pages add `st-kick` for the two-ended version: a `<span>` on the left, `<span class="st-num">` (tabular numerals) on the right. |
+| Square everything | Buttons, inputs and icons have no rounded corners (`.st-sq`, `.st-ico`, `strokeLinecap="square"`; `pages.css` forces `border-radius: 0` on fields under `data-skin='o5'`). |
+| `picked` | On every list of answers, `picked` is `null` at rest and the chosen label while the pick animation plays. While it is not null the list is `disabled`. The app owns this state and clears it after `settle()` (see `docs/07-layout-and-navigation.md` §4). |
+| Motion level | Components read `useMotionLevel()` from `../motion`: `'full'` gives springs and blur, `'lite'` short tweens, `'off'` quick fades, always through `transitionFor(level)`. See `docs/05-motion.md` §3. |
 | `delay` props | Seconds before the first item of a staggered list arrives. Items then follow at `+0.055 s` each. |
+| `Choice` | `{ label: string; hint?: string; value?: string; suits?: string[] }` from `src/flow/defs.ts`. Components show `label` and `hint`; `value` and `suits` belong to the engine. |
+| Copy | Every default string is in the code and in the tables below. Change it through the prop, not the file. |
 
 ---
 
-## 2. Sheets
+## 2. SqIcon
 
-File: `src/components/Sheets.tsx`.
-
-### OrbSpot
-
-A place kept for the orb. The orb sits centred on it, grown to `size` px. It is an empty span (nothing to read), and it is not `aria-hidden`, because the orb skips hidden elements.
+File: `src/components/icons.tsx`. Thin square-cut line drawings on a 24-unit grid, like the marks in a magazine's contents. No rounded corners anywhere.
 
 | Prop | Type | Default | Meaning |
 |---|---|---|---|
-| `size` | `number` | `52` | The orb's diameter on this spot, in px. |
-| `className` | `string` | `'st-orb-spot'` | Use `'st-choice-spot'` on an answer or a primary button. |
+| `name` | `IconName` | — | One of the names below. |
+| `framed` | `boolean` | `false` | Wrap the drawing in `<span class="st-ico">`, a 40 × 40 hairline square. |
+| `label` | `string` | — | With a label the icon is an image (`role="img" aria-label`); without one it is decoration (`aria-hidden="true"`). |
 
-DOM: `<span class="{className}" data-orb-spot="" data-orb-size="{size}" role="presentation"/>`.
+Size and stroke are fixed: the `<svg>` is `viewBox="0 0 24 24" width="20" height="20"`, the one `<path>` is `fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="square" strokeLinejoin="miter"`. The icon takes the text colour of its parent. There is no `size` prop; scale the parent's `font-size`/`color` or wrap it.
 
-### Headline
+`IconName` (every key of `PATHS`, in the file's order):
 
-The question or title of a page, in the display face, with the orb waiting beside it.
+| Name | Used by |
+|---|---|
+| `menu` | `TopBar` (the gallery button) |
+| `close` | `Drawer` (the close button) |
+| `back` | `BottomBar` |
+| `home` | `BottomBar` |
+| `save` | `BottomBar` |
+| `options` | `TopBar` (the options button); `TABS` "About" |
+| `picture` | `TABS` "Made" |
+| `video` | — |
+| `reel` | — |
+| `folder` | `TABS` "Drafts" (a folder shape) |
+| `person` | — |
+| `talk` | `Contents` (the "Talk it through" row); the example's conversation actions |
+| `mic` | `Conversation` (the mic button) |
+| `shuffle` | `Walk` ("Pick for me") |
+| `forward` | `Walk` ("Finish it for me"); the example's conversation actions |
+| `plus` | `Contents` (the "Start something new" row) |
+
+DOM:
+
+```html
+<svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true">            <!-- no label -->
+<svg viewBox="0 0 24 24" width="20" height="20" role="img" aria-label="{label}"> <!-- with a label -->
+  <path d="{PATHS[name]}" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="square" stroke-linejoin="miter"/>
+</svg>
+<span class="st-ico">{svg}</span>   <!-- framed -->
+```
+
+The exact path for each name is in the file and must not be redrawn. `.st-ico` (`pages.css`): 40 × 40, `display: grid; place-items: center`, hairline border, `color: var(--text-2)`; inside a pressed tab the frame and the stroke turn accent (`.st-tabs button[aria-pressed='true'] .st-ico`).
+
+Accessibility: an icon inside a button with visible text (the bottom bar, the shortcuts) is hidden from readers; an icon that is the whole button gets its name from the button's `aria-label` (the square buttons) rather than from `label`.
+
+```tsx
+<button type="button" onClick={onPickForMe}>
+  <SqIcon name="shuffle" /> Pick for me
+</button>
+```
+
+---
+
+## 3. OrbSpot
+
+Files: `src/components/Sheets.tsx` and, identically, `src/orb/events.tsx`. A place kept for the orb: it sits centred on it, grown to `size` px (`docs/09-orb.md` §8, priority 3). It is an empty span, so there is nothing to read; it is **not** `aria-hidden`, because the orb skips hidden elements.
+
+| Prop | Type | Default | Meaning |
+|---|---|---|---|
+| `size` | `number` | `52` | The orb's diameter on this spot, in px (`data-orb-size`). |
+| `className` | `string` | `'st-orb-spot'` | The class that positions and sizes it. Use `'st-choice-spot'` on an answer or on the `Go` button. |
+
+DOM:
+
+```html
+<span class="{className}" data-orb-spot="" data-orb-size="{size}" role="presentation"></span>
+```
+
+CSS (`pages.css`): `.st-orb-spot` is `position: absolute; top: 0; right: 4px; width: 52px; height: 52px` inside `.st-qwrap`; `.st-choice-spot` is `position: absolute; top: 50%; right: 6px; width: 40px; height: 40px; margin-top: -20px` inside an answer or the `Go` button (in the dock, `.st-dock .st-choice-spot { right: 6px }`).
+
+States: none of its own. Whether a spot exists is the whole signal: a screen that wants the orb somewhere else removes the headline's spot (`orb={false}`) and renders one there.
+
+---
+
+## 4. Headline
+
+File: `src/components/Sheets.tsx`. The question or title of a page, in the display face, with the orb waiting beside it.
 
 | Prop | Type | Default | Meaning |
 |---|---|---|---|
 | `text` | `string` | — | The headline; `*words*` become `<em>`. |
-| `id` | `string` | — | Id of the `<h2>`, used by the page's `aria-labelledby`. |
-| `orb` | `boolean` | `true` | Keep an `OrbSpot` (52 px) beside the headline. Screens turn it off when the orb should sit somewhere else (on the recommended answer, on the primary button, on the picked answer). |
+| `id` | `string` | — | Id of the `<h2>`; the page's `aria-labelledby` points at it. |
+| `orb` | `boolean` | `true` | Keep an `OrbSpot` (52 px) at the top right of the headline. Screens turn it off when the orb should sit somewhere else: on the recommended answer, on the picked answer, on the `Go` button, on a custom step's own control. |
 
 DOM:
 
 ```html
 <div class="st-qwrap">
-  <h2 class="st-q" id="{id}"><span>Where are </span><em>we?</em></h2>
+  <h2 class="st-q" id="{id}"><span>Where </span><em>to?</em></h2>
   <span class="st-orb-spot" data-orb-spot="" data-orb-size="52" role="presentation"></span> <!-- when orb -->
 </div>
 ```
 
-### Rows
+The split is `text.split('*')`: parts at odd indexes are `<em key={i}>`, the rest `<span key={i}>`. An unbalanced `*` leaves the tail in italics. CSS: `.st-q` keeps `padding-right: 64px` (56 px under 560 px wide) so the orb never covers the last word; `.st-q em` is italic, weight 300, in the accent.
 
-A list whose rows arrive one after another on a spring, out of a blur.
-
-| Prop | Type | Default | Meaning |
-|---|---|---|---|
-| `children` | `ReactNode[]` | — | One element per row (usually `Row`). Keys are the index. |
-| `label` | `string` | — | `aria-label` of the `<ol>`. |
-| `delay` | `number` | `0.12` | Seconds before the first row. |
-
-DOM: `<ol class="st-contents" aria-label="{label}"><li>…</li>…</ol>`. Motion: full → `initial {opacity 0, y 22, blur 10px}`, animate with `SPRING.bouncy` and `delay + i·0.055`; otherwise fade with `transitionFor(level)`.
-
-### Row
-
-One row of a contents page: a framed icon or a two-digit folio, a title, a line of meta.
-
-| Prop | Type | Default | Meaning |
-|---|---|---|---|
-| `icon` | `IconName` | — | Framed icon on the left. When absent, `n` is shown instead. |
-| `n` | `number` | — | Folio number, printed as `01`, `02`… (`aria-hidden`). |
-| `title` | `string` | — | |
-| `meta` | `string` | — | "Picture · Draft · Today". |
-| `onClick` | `() => void` | — | With it the row is a `<button class="st-row">` (`whileTap` scale 0.98); without, a `<div class="st-row st-row-static">`. |
-
-DOM inside: `<span class="st-ico">svg</span>` or `<span class="st-row-n" aria-hidden>01</span>`, then `<span class="st-row-t">`, `<span class="st-row-m">`.
-
-### Page (added in this package)
-
-A plain page in the studio's shape. Orbit wrote this markup inline for the Start, Brief and Talk screens.
-
-| Prop | Type | Default | Meaning |
-|---|---|---|---|
-| `id` | `string` | — | Headline id; the `<article>` is `aria-labelledby` it. |
-| `kick` | `string` | — | Left part of the running head ("Opening"). |
-| `num` | `string` | — | Right part (`st-num`), e.g. "Ready". |
-| `title` | `string` | — | Headline with `*italics*`. |
-| `orb` | `boolean` | `true` | Passed to `Headline`. |
-| `dek` | `string` | — | One line under the headline (`st-dek`). |
-| `className` | `string` | `''` | Added to `st-sheet` (`st-home`, `st-brief`, `st-talk`). |
-
-DOM: `<article class="st-sheet {className}" aria-labelledby="{id}"><p class="o5-kicker st-kick"><span>{kick}</span><span class="st-num">{num}</span></p>{Headline}<p class="st-dek">{dek}</p>{children}</article>`.
+Motion: none of its own; the enclosing screen or step animates. Accessibility: a real `<h2>`; one per screen, and it names the `<article>`.
 
 ```tsx
-<Page id="st-start-t" kick="Opening" title="What shall we *make?*" orb={picked === null} dek="Pick one. Every choice is a short walk, one question at a time.">
-  <Choices items={START} picked={picked} onPick={pick} delay={0.2} />
+{done ? <Headline text="Here is your *plan.*" id="st-summary-t" /> : saving ? <Headline text="Saving your *plan…*" id="st-summary-t" /> : <Headline text="Here is your *summary.*" id="st-summary-t" orb={false} />}
+```
+
+---
+
+## 5. Page
+
+File: `src/components/Sheets.tsx`. A plain page in the guide's shape: the running head, the headline, an optional dek, then whatever follows. The start, summary and conversation screens are all set this way (the example writes the summary's markup inline with the same classes).
+
+| Prop | Type | Default | Meaning |
+|---|---|---|---|
+| `id` | `string` | — | The headline's id; the `<article>` is `aria-labelledby` it. |
+| `kick` | `string` | — | The running head ("Opening", "The summary"). |
+| `num` | `string` | — | The right-hand part of the running head ("Ready", "3 of 8"). Omitted when absent. |
+| `title` | `string` | — | The headline; `*words*` are italic. |
+| `orb` | `boolean` | `true` | Passed to `Headline`. |
+| `dek` | `string` | — | One line under the headline (`st-dek`). |
+| `className` | `string` | `''` | Added after `st-sheet`. |
+| `children` | `ReactNode` | — | The body. |
+
+DOM:
+
+```html
+<article class="st-sheet {className}" aria-labelledby="{id}">
+  <p class="o5-kicker st-kick"><span>{kick}</span><span class="st-num">{num}</span></p>  <!-- st-num only with num -->
+  {Headline text={title} id={id} orb={orb}}
+  <p class="st-dek">{dek}</p>   <!-- only with dek -->
+  {children}
+</article>
+```
+
+CSS: `.st-sheet` is a column with `gap: 16px` and `padding: clamp(28px, 7vh, 64px) 0 calc(env(safe-area-inset-bottom, 0px) + 18vh)`, so the page ends well above the bottom bar and the keyboard. `.st-dek` is the display face at `clamp(18px, 2.4vw, 22px)`, `max-width: 34ch`, `color: var(--text-2)`.
+
+Motion: none of its own (the `Stage` moves the whole screen). Accessibility: `<article>` named by its headline.
+
+```tsx
+<Page id="st-start-t" kick="Opening" title="What shall we *plan?*" orb={picked === null} dek="Pick one. Every choice is a short walk, one question at a time.">
+  <Choices items={START} picked={picked} onPick={(l) => void pick(l)} delay={0.2} />
 </Page>
 ```
 
 ---
 
-## 3. Home
+## 6. Rows and Row
 
-The member's projects, as a magazine contents page.
+File: `src/components/Sheets.tsx`.
 
-| Prop | Type | Meaning |
-|---|---|---|
-| `studio` | `StudioDef` | For the welcome headline (`mark`). |
-| `projects` | `Project[]` | Newest first (`listProjects` sorts by `updatedAt`). |
-| `onOpen` | `(p: Project) => void` | Tap a project row. |
-| `onNew` | `() => void` | "Start something new". |
-| `onTalk` | `() => void` | "Talk with the writer". |
+### Rows
 
-Copy, exactly:
+A list whose rows come in one after another on a spring, out of a blur.
 
-| Element | With projects | Without |
-|---|---|---|
-| `st-num` | `"{n} project"` / `"{n} projects"` | `"New here"` |
-| Headline | `Your *projects*` | `Welcome to {mark[0]} *{mark[1]}*` |
-| `st-dek` | `Pick one up where you left it, or start something new.` | `Everything you make lives here, sorted by project. Start your first one.` |
+| Prop | Type | Default | Meaning |
+|---|---|---|---|
+| `children` | `ReactNode[]` | — | One element per row (usually `Row`). Keys are the index, so give the array a stable order. |
+| `label` | `string` | — | `aria-label` of the `<ol>`. |
+| `delay` | `number` | `0.12` | Seconds before the first row. |
 
-Rows (in `Rows label="Contents"`): `Row icon="plus" title="Start something new" meta="Picture, video or movie"`, `Row icon="talk" title="Talk with the writer" meta="Plan it in conversation"`, then one numbered row per project: title `p.title || "Untitled {picture|video|movie}"`, meta `"{Picture|Video|Movie} · {Draft|Being made|Finished|Stopped} · {whenOf(updatedAt)}"`.
+DOM: `<ol class="st-contents" aria-label="{label}"><li>…</li>…</ol>` (each `<li>` is a `motion.li`).
 
-DOM root: `<article class="st-sheet st-home" aria-labelledby="st-home-t">`. Headline id `st-home-t`, `orb` default (true).
+Motion (full): `initial { opacity: 0, y: 22, filter: blur(10px) }` → `animate { opacity: 1, y: 0, filter: blur(0px) }` with `{ ...SPRING.bouncy, delay: delay + i * 0.055 }`; lite/off: the same target with `transitionFor(level)`. See `docs/05-motion.md` §12.4.
+
+### Row
+
+One row of a contents list: a framed icon or a two-digit folio, a title and a line of meta. A button when it has `onClick`.
+
+| Prop | Type | Default | Meaning |
+|---|---|---|---|
+| `icon` | `IconName` | — | Framed icon on the left. When absent, `n` is shown instead. |
+| `n` | `number` | — | Folio, printed `String(n).padStart(2, '0')` (`01`, `02`…), `aria-hidden`. Give one or the other: with neither, the folio prints `undefined`. |
+| `title` | `string` | — | |
+| `meta` | `string` | — | `"A trip · Draft · Today"`. |
+| `onClick` | `() => void` | — | With it the row is a `<button type="button" class="st-row">` (`motion.button`, `whileTap { scale: 0.98 }`); without, a `<div class="st-row st-row-static">`. |
+
+DOM:
+
+```html
+<button type="button" class="st-row">            <!-- or <div class="st-row st-row-static"> -->
+  <span class="st-ico">svg</span>                 <!-- icon -->
+  <span class="st-row-n" aria-hidden>01</span>   <!-- or n -->
+  <span class="st-row-t">{title}</span>
+  <span class="st-row-m">{meta}</span>
+</button>
+```
+
+CSS: `.st-row` is a two-column grid (`44px minmax(0, 1fr)`), `min-height: 72px`, hairline below (and above the first row of a list); the first child spans both text rows. On hover the title turns accent. `.st-row-n` is the display face, italic, 26 px, in the accent.
+
+Accessibility: a tappable row is a real button whose name is the title and meta together; the folio is hidden.
+
+```tsx
+<Rows label="Contents">
+  {[
+    <Row key="new" icon="plus" title={newLabel} meta={newHint ?? flows.map((f) => f.label).join(' or ')} onClick={onNew} />,
+    ...(onTalk ? [<Row key="talk" icon="talk" title={talkLabel} meta={talkHint} onClick={onTalk} />] : []),
+    ...runs.map((r, i) => {
+      const flow = guide.flows[r.flowId];
+      return (
+        <Row
+          key={r.id}
+          n={i + 1}
+          title={r.title || `Untitled ${(flow?.label ?? 'run').toLowerCase().replace(/^(a|an|the) /, '')}`}
+          meta={`${flow?.label ?? r.flowId} · ${statusLabel[r.status]} · ${whenOf(r.updatedAt)}`}
+          onClick={() => onOpen(r)}
+        />
+      );
+    }),
+  ]}
+</Rows>
+```
+
+(`Sheets.tsx` also exports `statusLabel`, how a run's status reads on screen: `{ draft: 'Draft', done: 'Finished' }`.)
 
 ---
 
-## 4. Gate
+## 7. Contents
 
-The first page of an adult studio (`studio.adult === true`).
+File: `src/components/Sheets.tsx`. The contents page: the guide's welcome, a row to start something new, an optional row to talk it through, then every run as a numbered row. It is the usual first screen.
 
-| Prop | Type | Meaning |
+| Prop | Type | Default | Meaning |
+|---|---|---|---|
+| `guide` | `Guide` | — | For the welcome headline (`mark`) and the flows' labels. |
+| `runs` | `Run[]` | — | Newest first (`listRuns` sorts by `updatedAt`). |
+| `onOpen` | `(r: Run) => void` | — | Tap a run's row. |
+| `onNew` | `() => void` | — | The first row. |
+| `newLabel` | `string` | `'Start something new'` | The first row's title. |
+| `newHint` | `string` | — | The first row's meta. Default: the flows' labels joined with `' or '` (`"A trip or An evening"`). |
+| `onTalk` | `() => void` | — | With it, a second row opens a conversation. |
+| `talkLabel` | `string` | `'Talk it through'` | |
+| `talkHint` | `string` | `'Plan it in conversation'` | |
+
+Copy, exactly (`count = runs.length`):
+
+| Element | With runs | Without |
 |---|---|---|
-| `studio` | `StudioDef` | Name and `rules`. |
-| `picked` | `string \| null` | The label being picked (animation in flight). |
-| `onPick` | `(yes: boolean) => void` | `true` for "I am 18 or older". |
+| `st-num` | `"{count} draft"` / `"{count} drafts"` | `"New here"` |
+| Headline | `Your *drafts*` | `Welcome to {mark[0]} *{mark[1]}*` |
+| `st-dek` | `Pick one up where you left it, or start something new.` | `Everything you make lives here. Start your first one.` |
 
-DOM: `<article class="st-sheet" aria-labelledby="st-gate-t">`; kicker `Before we begin` / `st-num` `18+`; `Headline "Adults *only.*"` with `orb={picked === null}`; `st-dek`: `"{name} makes adult pictures, videos and films. Confirm you are 18 or older, and that you agree to the house rules."`; `<ul class="st-rules">` one `<li>` per rule; `Choices` with two items `{ label: 'I am 18 or older', hint: 'And I agree to the rules' }` and `{ label: 'Take me back', hint: 'Leave {name}' }`, `delay={0.3}`.
+Rows (`Rows label="Contents"`): `Row icon="plus"` (`newLabel`, `newHint`), then `Row icon="talk"` when `onTalk` is given, then one numbered row per run with title `r.title || "Untitled {flow label, lower-cased, leading a/an/the removed}"` and meta `"{flow.label} · {Draft|Finished} · {whenOf(updatedAt)}"` (`whenOf` from `src/flow/runs.ts`: `Today`, `Yesterday`, `{n} days ago`, else a short date).
 
-What the app does with the answer (Orbit's `confirmAdult`): set `picked`, wait `settle()`, clear it; on no → `history.back()` if `history.length > 1`, else `location.href = 'about:blank'`; on yes → `localStorage.setItem('orbit:studio:{studio.id}:adult', '1')` (ignored if storage throws) and go to `home`.
+DOM root: `<article class="st-sheet st-home" aria-labelledby="st-home-t">`, kicker `<span>Contents</span>`, headline id `st-home-t` with the orb spot (default), then `st-dek`, then the `Rows`. `.st-home` has no rule of its own in `pages.css`; it is a hook.
+
+Motion: the rows stagger (`Rows`, default `delay 0.12`). Accessibility: as `Page` and `Row`.
+
+```tsx
+if (view === 'contents') body = <Contents guide={guide} runs={runs} onOpen={open} onNew={() => setView('start')} onTalk={() => setView('talk')} />;
+```
 
 ---
 
-## 5. CharacterList
+## 8. Gate
 
-| Prop | Type | Meaning |
-|---|---|---|
-| `list` | `Character[]` | From `listCharacters(studio.id)`. |
+File: `src/components/Sheets.tsx`. An agreement gate: a page that asks one yes/no before anything else (house rules, an age check, terms). The orb waits beside the headline until a choice is made. The app decides when to show it and what to remember (`docs/07-layout-and-navigation.md` §8).
 
-Empty: `<p class="st-empty">Characters you describe in a walkthrough are kept here, to cast again.</p>`. Otherwise `Rows label="Characters"` of `Row icon="character" title={c.name} meta={c.description}` (static rows, no `onClick`).
+| Prop | Type | Default | Meaning |
+|---|---|---|---|
+| `title` | `string` | — | The headline; `*words*` are italic. |
+| `dek` | `string` | — | One line under the headline. |
+| `rules` | `string[]` | — | Shown as `<ul class="st-rules">` under the dek (omitted when empty). |
+| `yes` | `Choice` | — | The agreeing answer. |
+| `no` | `Choice` | — | The declining answer. |
+| `picked` | `string \| null` | — | The label just picked (lifts while the other leaves), or null. |
+| `onPick` | `(agreed: boolean) => void` | — | `true` when the label picked is `yes.label`. |
+| `kick` | `string` | `'Before we begin'` | The running head. |
+| `num` | `string` | — | The right-hand part of the running head ("Step 1", "v2"). |
+
+DOM:
+
+```html
+<article class="st-sheet" aria-labelledby="st-gate-t">
+  <p class="o5-kicker st-kick"><span>{kick}</span><span class="st-num">{num}</span></p>
+  {Headline text={title} id="st-gate-t" orb={picked === null}}
+  <p class="st-dek">{dek}</p>
+  <ul class="st-rules"><li>{rule}</li>…</ul>
+  {Choices items={[yes, no]} picked={picked} onPick={(l) => onPick(l === yes.label)} delay={0.3}}
+</article>
+```
+
+States: `picked === null` (both answers shown, orb on the headline) → `picked` set (the chosen answer lifts, the other leaves, the headline's spot is gone so the orb moves onto the chosen answer's spot).
+
+Motion: through `Choices` with `delay 0.3`. Accessibility: `<article>` named by `st-gate-t`; the rules are a real list; the two answers are buttons with `aria-pressed`.
+
+The example app has no gate. A minimal use:
+
+```tsx
+<Gate
+  title="Before we *begin.*"
+  dek="Two things to agree to."
+  rules={guide.rules ?? []}
+  yes={{ label: 'I agree', hint: 'And I am ready to start' }}
+  no={{ label: 'Take me back' }}
+  picked={picked}
+  onPick={(agreed) => void agree(agreed)}
+/>
+```
+
+(Not from the example; `agree` is the app's own handler, see `docs/07-layout-and-navigation.md` §8.)
 
 ---
 
-## 6. Choices
+## 9. Choices
 
-File: `src/components/Choices.tsx`. The answers to one question, each its own piece on a spring.
+File: `src/components/Choices.tsx`. The answers to one question, each its own piece on a spring. They come in one after another out of a blur; pick one and it lifts while the others leave one by one, and (with `layoutPrefix`) it then flies into the trail of answers above.
 
 | Prop | Type | Default | Meaning |
 |---|---|---|---|
 | `items` | `Choice[]` | — | The answers shown, in order. |
-| `picked` | `string \| null` | — | The label being picked. While set, only that item stays; the rest leave. |
+| `picked` | `string \| null` | — | The label being picked. While set, only that item stays (`shown = items.filter(c => c.label === picked)`); the rest exit. |
 | `onPick` | `(label: string) => void` | — | |
-| `layoutPrefix` | `string` | — | The picked item gets `layoutId={layoutPrefix}` so it can fly to a matching `layoutId` elsewhere (the trail uses `ans-{stepId}`). |
-| `delay` | `number` | `0.08` | Seconds before the first answer arrives. |
+| `layoutPrefix` | `string` | — | The picked item gets `layoutId={layoutPrefix}` so it can fly to a matching `layoutId` elsewhere (`Walk` uses `ans-{stepId}`). |
+| `delay` | `number` | `0.08` | Seconds before the first answer arrives (after the question). |
 | `label` | `string` | `'Answers'` | `aria-label` of the list. |
-| `recommended` | `string \| null` | — | The orb's pick: that item is marked and carries an `OrbSpot`. Only while `picked === null`. |
+| `recommended` | `string \| null` | — | The orb's pick: that item is marked and carries an `OrbSpot`, only while `picked === null`. |
 
 DOM:
 
 ```html
 <ul class="st-choices" aria-label="Answers">
-  <li>  <!-- motion.li -->
-    <button type="button" class="st-choice" data-rec aria-pressed="false" disabled?>
+  <li>  <!-- motion.li, key = label -->
+    <button type="button" class="st-choice" data-rec aria-pressed="false" disabled?>   <!-- motion.button -->
       <span class="st-rec">The orb’s pick</span>         <!-- only when recommended -->
       <span class="st-lb">{label}</span>
       <span class="st-ht">{hint}</span>                  <!-- only with a hint -->
-      <span class="st-choice-spot" data-orb-spot="" data-orb-size="40" role="presentation"/> <!-- chosen or recommended -->
+      <span class="st-choice-spot" data-orb-spot="" data-orb-size="40" role="presentation"></span> <!-- chosen or recommended -->
     </button>
   </li>
 </ul>
@@ -206,68 +373,72 @@ DOM:
 
 States:
 
-| State | How it shows |
-|---|---|
-| Rest | `aria-pressed="false"`, enabled. |
-| Recommended | `data-rec` set, `st-rec` label "The orb’s pick", an `OrbSpot(40)` so the orb sits on it. CSS: `.st-choice[data-rec]`. |
-| Picked (chosen) | `aria-pressed="true"`, scale 1.03 with `SPRING.playful`, `OrbSpot(40)`; the others exit left (`x: -36`, blur 12 px, `SPRING.smooth`, `delay i·0.04`). CSS: `.st-choice[aria-pressed='true'] .st-lb::after` draws the rule under it. |
-| Disabled | Every button is `disabled` while `picked !== null`. |
-| Orb hover/press | The orb sets `data-orb-hover` / `data-orb-pressed` on the button it is over or tapping (styled in studio.css); the component itself does not set these. |
+| State | Condition | How it shows |
+|---|---|---|
+| Rest | `picked === null`, not recommended | `aria-pressed="false"`, enabled, `color: var(--text-2)`; hover turns `var(--text)`. |
+| Recommended | `picked === null && recommended === label` | `data-rec=""`, `<span class="st-rec">The orb’s pick</span>` (accent, uppercase), an `OrbSpot(40, 'st-choice-spot')` so the orb sits on it. CSS `.st-choice[data-rec]` brightens the words. |
+| Chosen | `picked === label` | `aria-pressed="true"`, `OrbSpot(40)`; CSS: `padding-left: 12px`, the label italic with ` ✦` appended in the accent (`.st-choice[aria-pressed='true'] .st-lb::after`). |
+| Disabled | `picked !== null` | every button `disabled`. |
+| Orb hover / press | set by the orb, not here | `data-orb-hover` / `data-orb-pressed` on the control the dragged orb is over or was dropped on (`.st-choice[data-orb-hover]` matches the hover colour; see `docs/09-orb.md` §9). |
 
-Motion props: `delay`, `layoutPrefix`; level-aware via `useMotionLevel()`. Entrance (full): `{opacity 0, y 26, blur 10}` → `SPRING.bouncy` with `delay + i·0.055`; `whileTap` scale 0.97 while enabled. See `docs/05-motion.md`.
+Motion props: `delay`, `layoutPrefix`; level-aware through `useMotionLevel()`. In full: each `<li>` enters from `{ opacity: 0, y: 26, filter: blur(10px) }` with `{ ...SPRING.bouncy, delay: delay + i * 0.055 }`; the chosen one animates to `scale: 1.03` with `SPRING.playful`; the others exit to `{ opacity: 0, x: -36, filter: blur(12px) }` with `{ ...SPRING.smooth, delay: i * 0.04 }`; `layout="position"` lets the survivor slide; `whileTap { scale: 0.97 }` while enabled. Lite/off: fades with `transitionFor(level)`, no layout animation. The list is one `AnimatePresence initial custom={0}`. See `docs/05-motion.md` §12.1.
+
+Accessibility: a real `<ul>` with a name; each answer a `<button>` whose name is the label and hint; `aria-pressed` tells the state; the "The orb’s pick" kicker is read as part of the button.
 
 ```tsx
-<Choices items={offered} picked={picked} onPick={pick} layoutPrefix={`ans-${step.id}`} delay={0.3} recommended={rec?.label ?? null} />
+<Choices items={choices} picked={picked} onPick={onPick} layoutPrefix={`ans-${step.id}`} delay={done.length ? 0.3 : 0.12} recommended={recommended} />
 ```
 
 ---
 
-## 7. Walk
+## 10. Walk
 
-File: `src/components/Walk.tsx`. A walkthrough as one scroll: the trail of answers so far at the top, the current question in the middle.
+File: `src/components/Walk.tsx`. A flow as one scroll: the answers so far stacked small at the top (blurred as they leave the middle; tap one to go back to it) and the question you are on in the middle. A picked answer flies up into the stack; the next question comes in below it. It brings its own scroller, so `Stage` gets `walking`.
 
-| Prop | Type | Meaning |
-|---|---|---|
-| `flow` | `Flow` | The flow being walked. |
-| `answers` | `Answers` | So far. The trail is `stepsFor(flow, answers)` filtered to answered steps, in flow order. |
-| `step` | `StepDef` | The question on screen (`nextStep`). |
-| `n`, `total` | `number` | From `progressOf`: "3 of 8". |
-| `choices` | `Choice[]` | What to offer: `mergeChoices(predicted, step.choices)`. |
-| `predicting` | `boolean` | Show "The writer is thinking of more…". |
-| `picked` | `string \| null` | Pick animation in flight. |
-| `onPick` | `(label) => void` | A ready answer or your own words. |
-| `onPickForMe` | `() => void` | Shortcut. |
-| `onFinishForMe` | `() => void` | Shortcut. |
-| `onRevisit` | `(stepId) => void` | Tap an answered step in the trail. |
-| `recommended` | `string \| null` | Passed to `Choices`. When set, the headline has no orb spot (the orb sits on the answer). |
-| `desk` | `ReactNode` | A step that is not a list (the script desk) brings its own body; the own-words form, the shortcuts and the predicting line are hidden. |
+| Prop | Type | Default | Meaning |
+|---|---|---|---|
+| `flow` | `Flow` | — | The flow being walked. |
+| `answers` | `Answers` | — | So far. The trail is `stepsFor(flow, answers)` filtered to answered steps, in flow order. |
+| `step` | `Step` | — | The question on screen (`nextStep`). |
+| `n` | `number` | — | Where the flow is, for the running head ("3 of 7"). |
+| `total` | `number` | — | |
+| `choices` | `Choice[]` | — | The answers on offer (the assistant's suggestions merged over the step's own, `mergeChoices`). |
+| `suggesting` | `boolean` | `false` | Whether the assistant is still thinking of more answers; shows "Thinking of more…". |
+| `picked` | `string \| null` | — | The label just picked (it lifts while the others leave), or null. |
+| `onPick` | `(label: string) => void` | — | A ready answer or your own words. |
+| `onPickForMe` | `() => void` | — | The first shortcut. |
+| `onFinishForMe` | `() => void` | — | The second shortcut. |
+| `onRevisit` | `(stepId: string) => void` | — | Tap an earlier answer: go back to that question. |
+| `recommended` | `string \| null` | — | The orb's pick for this question; passed to `Choices`. When set the headline keeps no spot. |
+| `custom` | `ReactNode` | — | A custom step (one that is not a list of answers) brings its own body here; the app renders it. With it the answers, the own-words form, the shortcuts and the suggesting line are all hidden. |
 
 DOM:
 
 ```html
-<div class="st-scroll">                          <!-- the scroller; useScrollDepth(scroller, true, 'center') -->
-  <ol class="st-trail" aria-label="Your answers so far">   <!-- only when something is answered -->
+<div class="st-scroll">                                         <!-- ref: scroller; useScrollDepth(scroller, true, 'center') -->
+  <!-- LayoutGroup -->
+  <ol class="st-trail" aria-label="Your answers so far">        <!-- only when done.length > 0 -->
     <li data-depth="">
       <button type="button" class="st-trail-row" aria-label="{key}: {answer}. Change it">
         <span class="o5-kicker">{key}</span>
-        <span class="st-trail-ans">{answer}</span>   <!-- motion.span layoutId="ans-{stepId}" -->
+        <span class="st-trail-ans">{answer}</span>              <!-- motion.span layoutId="ans-{stepId}" -->
       </button>
     </li>
   </ol>
-  <section class="st-now" aria-labelledby="q-{stepId}">   <!-- motion.section keyed by step.id -->
-    <p class="o5-kicker st-kick"><span>{kick}</span><span class="st-num">{n} of {total}</span></p>
-    {Headline text=step.q id="q-{stepId}" orb={!busy && !recommended && !desk}}
-    <p class="st-dek">{dek}</p>
-    {desk ?? Choices …}
-    <p class="st-predicting">The writer is thinking of more…</p>      <!-- predicting && !busy && !desk -->
-    <form class="st-own">                                          <!-- !step.closed && !busy && !desk -->
+  <section class="st-now" aria-labelledby="q-{stepId}">         <!-- motion.section key=step.id, ref: now -->
+    <p class="o5-kicker st-kick"><span>{step.kick}</span><span class="st-num">{n} of {total}</span></p>
+    {Headline text={step.q} id="q-{stepId}" orb={!busy && !recommended && !custom}}
+    <p class="st-dek">{step.dek}</p>                             <!-- only with dek -->
+    {custom ?? Choices items={choices} picked={picked} onPick={onPick} layoutPrefix="ans-{stepId}" delay={done.length ? 0.3 : 0.12} recommended={recommended}}
+    <p class="st-predicting">Thinking of more…</p>              <!-- suggesting && !busy && !custom -->
+    <form class="st-own">                                        <!-- motion.form: !step.closed && !busy && !custom -->
       <label class="o5-kicker" for="own-{stepId}">Or in your own words</label>
       <input id="own-{stepId}" placeholder="Something else…" autocomplete="off" enterkeyhint="next">
       <button type="submit" disabled={!own.trim()}>Use this</button>
     </form>
-    <p class="st-shortcuts">                                       <!-- !busy && !desk -->
-      <button type="button">{shuffle icon} Pick for me</button>
-      <button type="button">{forward icon} Finish it for me</button>
+    <p class="st-shortcuts">                                     <!-- motion.p: !busy && !custom -->
+      <button type="button"><SqIcon name="shuffle"/> Pick for me</button>
+      <button type="button"><SqIcon name="forward"/> Finish it for me</button>
     </p>
   </section>
 </div>
@@ -275,212 +446,130 @@ DOM:
 
 Behaviour:
 
-- `busy = picked !== null`.
-- On every `step.id` change (`useLayoutEffect`): the own-words box is cleared and the scroller scrolls so the current section sits 20 % down: `scrollTo({ top: max(0, section.offsetTop − clientHeight·0.2), behavior: full ? 'smooth' : 'auto' })`.
-- `useScrollDepth(scroller, true, 'center')` sets `--p`/`--ap` on each `[data-depth]` trail row so CSS sinks and blurs the rows leaving the middle.
-- Own words: submitting a non-empty trimmed value calls `onPick(value)`.
-- `Choices` gets `layoutPrefix="ans-{stepId}"` and `delay = done.length ? 0.3 : 0.12`, so the picked answer flies to its `st-trail-ans` when the next step renders (both are inside one `LayoutGroup`).
+- `busy = picked !== null`; `done = stepsFor(flow, answers).filter((s) => s.id in answers)`.
+- On every `step.id` change (`useLayoutEffect`): the own-words box is cleared and the scroller scrolls so the current section sits 20 % down: `box.scrollTo({ top: Math.max(0, el.offsetTop - box.clientHeight * 0.2), behavior: full ? 'smooth' : 'auto' })`.
+- `useScrollDepth(scroller, true, 'center')` writes `--p`/`--ap` on each `[data-depth]` trail row; `pages.css` sinks, shrinks and blurs rows leaving the middle under `data-motion='full'` and only fades them under `'lite'` (`docs/05-motion.md` §9).
+- Own words: submitting a non-empty trimmed value calls `onPick(value)`; the app stores it verbatim.
+- The trail's answer and the picked answer share `layoutId="ans-{stepId}"` inside one `LayoutGroup`, so when the next step renders the picked answer flies to its row.
+- Where the orb goes: with `recommended`, onto the recommended answer's spot; while busy, onto the chosen answer's spot; with `custom`, there is no spot and no recommended answer, so the orb falls back to the custom body's `button[type="submit"]` (`docs/09-orb.md` §8, priority 4); otherwise it waits beside the headline.
 
-Motion (full): section enters `{opacity 0, y 40, blur 12}` → `SPRING.smooth` with `delay 0.18` when there is a trail; own-words form `{opacity 0, y 16, blur 8}` → `SPRING.smooth` `delay 0.5`; shortcuts fade in at `delay 0.6`; trail answers use `SPRING.default` for the layout flight. See `docs/05-motion.md`.
+States: a trail or none; the question at rest, busy (`picked` set), suggesting, closed (`step.closed`: no own-words form), custom (`custom` set).
 
----
+Motion (full): the section enters from `{ opacity: 0, y: 40, filter: blur(12px) }` with `{ ...SPRING.smooth, delay: done.length ? 0.18 : 0 }`; the own-words form from `{ opacity: 0, y: 16, filter: blur(8px) }` with `{ ...SPRING.smooth, delay: 0.5 }`; the shortcuts fade in with `{ ...SPRING.smooth, delay: 0.6 }`; trail answers use `SPRING.default` for the layout flight. Lite/off: fades with `transitionFor(level)`. `.st-predicting` pulses by CSS (`st-pulse`, off under reduced motion). See `docs/05-motion.md` §12.2.
 
-## 8. ScriptDesk and SceneForm
-
-File: `src/components/Script.tsx`. The film scene by scene, each one a five-second shot. Rendered as the `desk` of a step with `kind: 'script'`.
-
-### ScriptDesk
-
-| Prop | Type | Default | Meaning |
-|---|---|---|---|
-| `studio` | `StudioDef` | — | For the writer's system prompt. |
-| `answers` | `Answers` | — | For `castOf`, `anotherTake` and the writer's brief. |
-| `script` | `Project['script'] \| undefined` | — | `{ basis, scenes, by }`. `undefined` shows `<p class="st-predicting">Drafting the script…</p>` (the app drafts it when `scriptBasis(answers)` differs from `script.basis`). |
-| `awake` | `boolean` | — | Whether the writer can rewrite now (`writerAwake()`); shows the writer buttons. |
-| `onChange` | `(scenes, by) => void` | — | `by` is `'draft'`, `'writer'` or `'you'`. |
-| `onApprove` | `() => void` | — | "This is the script". |
-| `rewrites` | `Rewrite[]` | `DEFAULT_REWRITES` | Per-scene writer buttons: `{ label, how }`. The source's two: `More heat` → `"more intense and sensual, still tasteful and consenting"`, `Softer` → `"softer, more tender"`. |
-
-DOM:
-
-```html
-<div class="st-script">
-  <p class="st-script-meta">
-    <span>{answers.premise || 'Untitled'}</span>
-    <span>{n} scenes · about {n·5} seconds</span>
-    <span>{cast names joined ' & '}</span>
-    <span>First draft | Written with the writer | Your edit</span>
-  </p>
-  <ol class="st-scenes">
-    <li class="st-scene" aria-busy="false">       <!-- motion.li -->
-      <p class="o5-kicker st-scene-head"><span>Scene 01</span><span>{heading}</span></p>
-      <!-- reading: -->
-      <p class="st-action">{action}</p>
-      <p class="st-ends"><span>Ends on</span> {end}</p>
-      <p class="st-says">{says}</p>                    <!-- only when says -->
-      <p class="st-scene-tools">
-        <button>{shuffle} Another take | Writing…</button>
-        <button>More heat</button><button>Softer</button>   <!-- only when awake; from `rewrites` -->
-        <button>Edit</button>
-      </p>
-      <!-- or editing: SceneForm -->
-    </li>
-  </ol>
-  <p class="st-error" role="alert">{error}</p>
-  <div class="st-script-go">
-    <button class="st-go" disabled={working !== null || editing !== null}>This is the script {OrbSpot 40 st-choice-spot}</button>
-    <button class="st-ghost">Rewrite it all with the writer | The writer is writing…</button>   <!-- awake -->
-    <p class="st-ht">The studio’s writer can rewrite scenes once the studio is awake. This draft is ready to film as it is.</p>  <!-- not awake -->
-  </div>
-</div>
-```
-
-Behaviour:
-
-| Action | Awake | Not awake |
-|---|---|---|
-| Another take (scene i) | `rewriteScene(…, i, 'a fresh take on the same moment')` → `onChange(next, 'writer')` | `onChange(anotherTake(answers, scenes, i), script.by)` (the next beat variant, no writer) |
-| More heat / Softer | `rewriteScene(…, i, how)` | button not shown |
-| Edit | opens `SceneForm`; on Done, `onChange(…, 'you')` only if action, end or says changed | same |
-| Rewrite it all | `writeScript(studio, answers)`; empty result → error `The writer came back empty. Your draft is still here.` | not shown |
-
-- `working` is `i`, `'all'` or `null`; while not null every tool is disabled and the scene is `aria-busy`. The orb glows: `orbThink(0.7)` while working, `orbThink(null)` after.
-- Errors (except `AbortError`) show `err.message || 'The writer could not answer. Your draft is still here.'`. With no writer set the adapter throws `No writer is plugged in. Your draft is still here.`
-- Unmounting aborts the in-flight request.
-
-Motion: scenes enter `{opacity 0, y 22, blur 8}` → `SPRING.bouncy`, `delay 0.15 + i·0.07`.
-
-### SceneForm
-
-| Prop | Type | Meaning |
-|---|---|---|
-| `scene` | `Scene` | Initial values. |
-| `onDone` | `(s: Scene) => void` | On submit: `action` trimmed (falls back to the old action when empty), `end` and `says` trimmed. |
-
-DOM: `<form class="st-scene-form">` with labelled fields `act-{id}` (textarea, 3 rows, "What we see"), `end-{id}` (input, "It ends on"), `says-{id}` (input, "What is said", placeholder `Mara, softly: "Stay."`), `<button type="submit">Done</button>`.
-
----
-
-## 9. Brief pieces
-
-File: `src/components/Brief.tsx`. Orbit's `Make.tsx` was one component that showed the brief, woke its machine, started the job, polled it and showed the result. The network part belongs to the app; these are the pieces it was drawn with. The headline and kicker come from `Page`.
-
-### How Make composed them (for a faithful re-make)
-
-| `project.status` | Kicker `st-num` | Headline | Orb spot on headline | Body |
-|---|---|---|---|---|
-| `draft` | `Ready` | `Here is your *brief.*` | no (`orb={false}`; the orb sits on the Go button) | `BriefList` (answers minus `Script`), `ScriptPreview` if a movie has a script, `Go "Make the {picture|video|movie}"` |
-| `making` | `Being made` | `Making your *{what}…*` (or `Your *storyboard.*` in review) | yes, except in review | `Making` (progress bar) or, in review, `Storyboard` + `Go` (`Draw it again` / `Draw these {n} again` when some are selected, else `Looks right, film it`) |
-| `done` | `Finished` | `Here is your *{what}.*` | yes | `Result` |
-| `error` | `Ready` | `Here is your *brief.*` | no | `BriefList`, `ErrorLine`, `Go "Try again"` |
-
-`what` is `'picture'` for images, else the kind. Making notes Orbit showed: `Warming up the studio. The first one of the day takes a few minutes.`, `Warming up the studio: loading its tools.`, `In line: {n} ahead of you.`, `About {m} min left.`, `Making it now.`, and the `PHASE` names for films. The orb notes it sent are in `docs/08-walkthrough-prd.md` §9.
-
-### BriefList
-
-`items: { key: string; value: string }[]` → `<dl class="st-brieflist"><div><dt>{key}</dt><dd>{value}</dd></div>…</dl>`. Orbit passed `briefOf(flow, answers).filter(b => b.key !== 'Script')`.
-
-### Go
-
-The one button a screen wants pressed next, with a place for the orb on it.
-
-| Prop | Type | Default | Meaning |
-|---|---|---|---|
-| `label` | `string` | — | |
-| `onClick` | `() => void` | — | |
-| `disabled` | `boolean` | — | |
-| `review` | `boolean` | `false` | Adds `st-review-go` (the storyboard check's variant). |
-| `children` | `ReactNode` | — | A `Ghost` button or a hint line beside it. |
-
-DOM: `<div class="st-script-go [st-review-go]"><button type="button" class="st-go">{label}<span class="st-choice-spot" data-orb-spot data-orb-size="40"/></button>{children}</div>`.
-
-### Ghost
-
-`<button type="button" class="st-ghost">{label}</button>`; props `label`, `onClick`, `disabled`.
-
-### Making
-
-| Prop | Type | Default | Meaning |
-|---|---|---|---|
-| `progress` | `number \| null` | — | 0–100, or null while unknown (bar gets `st-bar-busy`, a sweeping animation). |
-| `note` | `string \| null` | — | Shown in `st-dek`; `null` shows `Starting…`. |
-| `hint` | `string \| null` | `You can leave this page. It keeps going, and it will be in your gallery when it is done.` | `st-ht` line; `null` hides it. |
-| `idle` | `number` | `8` | Bar width (%) while progress is unknown. Orbit used 20 once a film had started. |
-
-DOM: `<div class="st-making" role="status"><div class="st-bar" aria-hidden><span style="width:{p}%" class="st-bar-busy?"/></div><p class="st-dek">…</p><p class="st-ht">…</p></div>`.
-
-### Storyboard
-
-| Prop | Type | Default | Meaning |
-|---|---|---|---|
-| `frames` | `{ id: string; url: string \| null }[]` | — | `url` null while a picture is still being drawn. |
-| `selected` | `Set<string>` | — | Ids marked to draw again. |
-| `onToggle` | `(id) => void` | — | |
-| `dek` | `string \| null` | `Where each scene starts and ends. Tap a picture to draw it again.` | |
-| `nameOf` | `(i) => string` | `frameName` | `Opening`, then `Scene {i} ends`. |
-
-DOM: optional `<p class="st-dek">`, then `<ol class="st-frames" aria-label="Storyboard">`; each `<li>` holds `<button type="button" aria-pressed={selected}><img src alt="{name}"><span class="st-num">{name}</span></button>` or, while drawing, `<span class="st-frame-wait" aria-hidden/><span class="st-num">{name} · drawing</span>`.
-
-### Result
-
-`kind: 'image' | 'video'`, `url`, `alt` → `<figure class="st-result">` with `<img>` (alt = the prompt in Orbit) or `<video controls playsinline loop>`.
-
-### ScriptPreview
-
-`scenes: Scene[]` → `<ol class="st-scenes" aria-label="The script">` of `<li class="st-scene">` with `st-scene-head` (`Scene 01`, heading), `st-action`, optional `st-says`. Read-only (no tools, no "Ends on").
-
-### ErrorLine
-
-`<p class="st-error" role="alert">{children}</p>`.
-
-### PHASE
-
-The on-screen names of a film's phases: `draft: Getting ready`, `story: Writing the story`, `lead: Casting the lead`, `storyboard: Drawing the storyboard`, `review: Storyboard ready for you`, `shots: Filming the scenes`, `final: Cutting the film`, `done: Finished`, `stopped: Stopped`, `error: Stopped`.
+Accessibility: the trail is a named list of buttons, each telling the key, the answer and that tapping changes it; the question is a `<section>` named by its `<h2>`; the own-words field has a visible `<label>`; `enterkeyhint="next"`.
 
 ```tsx
-<Page id="st-brief-t" kick="The brief" num="Ready" title="Here is your *brief.*" orb={false} className="st-brief">
-  <BriefList items={briefOf(flow, project.answers).filter((b) => b.key !== 'Script')} />
-  <Go label="Make the picture" onClick={make} />
-</Page>
+<Walk
+  flow={flow}
+  answers={run.answers}
+  step={step}
+  n={n}
+  total={total}
+  choices={offered}
+  recommended={rec?.label ?? null}
+  custom={
+    step.custom === 'notes' ? (
+      <form
+        className="st-own"
+        onSubmit={(e) => {
+          e.preventDefault();
+          takeNotes(notes);
+        }}
+      >
+        <label className="o5-kicker" htmlFor="st-notes">
+          Your notes
+        </label>
+        <textarea id="st-notes" rows={4} value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Anything at all…" />
+        <button type="submit">{notes.trim() ? 'Use these' : 'Nothing to add'}</button>
+      </form>
+    ) : undefined
+  }
+  suggesting={suggesting}
+  picked={picked}
+  onPick={(l) => void pick(l)}
+  onPickForMe={pickForMe}
+  onFinishForMe={() => void finishForMe()}
+  onRevisit={revisit}
+/>
 ```
 
 ---
 
-## 10. Talk
+## 11. Conversation
 
-File: `src/components/Talk.tsx`. A conversation with the studio's writer, typed or spoken; at any point it becomes a walkthrough seeded with what was said. `forwardRef<HTMLElement>` to the `<article>`.
+File: `src/components/Conversation.tsx`. A conversation, typed or spoken: a thread, ready openers and follow-ups as answers on springs, and the actions an app wants to offer from what was said. `forwardRef<HTMLElement>` to the `<article>`.
 
 | Prop | Type | Default | Meaning |
 |---|---|---|---|
-| `studio` | `StudioDef` | — | `writer` (system prompt), `talk.starters`, `talk.followUps`. |
-| `onMake` | `(kind: 'image'\|'video'\|'movie', seed: string) => void` | — | Seed = the last thing you said, first 120 characters. |
-| `onSend` | `(text, history: ChatMessage[], signal?) => Promise<string>` | — | Answer one turn with the whole reply. `history` starts with the system message and holds the turns before this one. |
-| `mic` | `Mic` | — | The mic slot: `{ canListen(): boolean; listen(handlers): { finish(); cancel() } }`. No mic → no mic button. |
-| `onWake` | `() => void` | — | Called when the adapter's writer is not awake (so the app can start waking it). |
+| `title` | `string` | — | The headline; `*words*` are italic. |
+| `kicker` | `string` | — | The running head over the headline. |
+| `num` | `string` | — | The right-hand part of the running head. |
+| `starters` | `Choice[]` | — | Ready openers, shown while nothing has been said. |
+| `followUps` | `Choice[]` | — | Ready ways to carry on, shown after each reply. |
+| `system` | `string` | `'Talk like a helpful companion: short replies, one idea at a time, and offer two or three directions to take it.'` | The assistant's instructions for this conversation (the first, system message). |
+| `onSend` | `(text: string, history: ChatMessage[], signal?: AbortSignal) => Promise<string>` | — | Answer one turn with the whole reply. |
+| `mic` | `Mic` | — | The mic slot (below). Without it there is no mic button. |
+| `onWake` | `() => void` | — | Called when the adapter's assistant is not awake; the app may start waking it. |
+| `actions` | `ConversationAction[]` | `[]` | Buttons under the thread once something has been said. |
+| `placeholder` | `string` | `'Say what you have in mind…'` | The box's placeholder. |
 
-Without `onSend`, Talk streams through the adapter's `Writer` (`getWriter().chat(...)`). With neither it shows `No writer is plugged in yet.` and keeps your words in the box.
+The two slots:
 
-The system message is `"{studio.writer}\nTalk like a creative partner: short replies, one idea at a time, and offer two or three directions to take it."`
+```ts
+/** A microphone, if the app has one: the "mic slot". Without it there is no mic button. */
+export interface Mic {
+  /** Whether this device can listen at all. */
+  canListen(): boolean;
+  /**
+   * Start listening. `onLevel` gets the mic level (0…1) for the orb's glow; `onPartial` the words so
+   * far; `onDone(text)` once you stop talking (or `finish()`); `onError` with a plain message.
+   */
+  listen(h: { onLevel: (v: number) => void; onPartial: (text: string) => void; onDone: (text: string) => void; onError: (message: string) => void }): {
+    /** Stop listening and use what was heard so far. */
+    finish(): void;
+    /** Stop and throw it away. */
+    cancel(): void;
+  };
+}
+
+/** A button under the thread once something has been said ("Plan it", "Save this"). */
+export interface ConversationAction {
+  label: string;
+  icon?: IconName;
+  /** Called with the last thing you said (up to 120 characters), so the app can start from it. */
+  onClick: (seed: string) => void;
+}
+```
+
+**`onSend` vs the Assistant adapter.** Either give `onSend` (the whole reply at once), or set an `Assistant` through `setAssistant()` (streamed, `src/flow/adapter.ts`). With neither, sending shows `No assistant is plugged in yet.` and keeps your words in the box. The two paths differ in what they are handed:
+
+| Path | Messages given | Reply |
+|---|---|---|
+| `onSend(v, [first, ...msgs], signal)` | the system message, then the turns **before** this one; `v` is the new text, passed separately | resolved string, shown at once |
+| `a.chat([first, ...history], onText, signal)` | the system message, then every turn **including** the new one | streamed; each piece appends to the reply |
+
+Before the adapter is used: `getAssistant()` null → error `No assistant is plugged in yet.`; `!a.awake()` → `onWake?.()` then error `The assistant is waking up. Try again in a couple of minutes.` (the error carries `status: 503`).
 
 DOM:
 
 ```html
 <article class="st-sheet st-talk" aria-labelledby="st-talk-t">
-  <p class="o5-kicker st-kick"><span>Talk</span><span class="st-num">The writer</span></p>
-  {Headline "What are you *in the mood for?*" | "Talking with the *writer*"}      <!-- empty thread | after -->
+  <p class="o5-kicker st-kick"><span>{kicker}</span><span class="st-num">{num}</span></p>
+  {Headline text={title} id="st-talk-t"}                                         <!-- orb spot, always -->
   <div class="st-thread" aria-live="polite">
-    <p class="st-said">{you}</p> <p class="st-reply">{writer or …}</p> …
-    <div/>  <!-- scroll anchor -->
+    <p class="st-said">{you}</p> <p class="st-reply">{reply or …}</p> …           <!-- one <p> per message, key = index -->
+    <div></div>                                                                   <!-- scroll anchor -->
   </div>
-  <p class="st-error" role="alert">{error}</p>
-  {Choices items=starters|followUps label="Moods"|"Where to take it" delay=0.2|0.1}   <!-- !busy; key = msgs.length -->
-  <p class="st-shortcuts" aria-label="Make it">                                       <!-- seed && !busy -->
-    <button>{picture} Make it a picture</button><button>{video} A video</button><button>{movie} A movie</button>
+  <p class="st-error" role="alert">{error}</p>                                    <!-- only with an error -->
+  {Choices items={msgs.length ? followUps : starters} label="Ways to start"|"Where to take it" delay={0.2|0.1}}  <!-- !busy; key = msgs.length -->
+  <p class="st-shortcuts" aria-label="Next">                                      <!-- seed && !busy && actions.length > 0 -->
+    <button type="button"><SqIcon name={icon}/> {label}</button>…
   </p>
   <form class="st-own">
     <label class="o5-kicker" for="st-talk-in">Say it or type it | Listening…</label>
-    <input id="st-talk-in" placeholder="A slow-burn story about…" autocomplete="off" enterkeyhint="send">
-    <button type="button" class="st-mic" aria-pressed={hearing} aria-label="Speak|Stop listening">{mic}</button>  <!-- mic?.canListen() -->
+    <input id="st-talk-in" placeholder="{placeholder}" autocomplete="off" enterkeyhint="send">
+    <button type="button" class="st-mic" aria-pressed={!!hearing} aria-label="Speak|Stop listening"><SqIcon name="mic"/></button>  <!-- mic?.canListen() -->
     <button type="submit" disabled={!text.trim() || busy}>Send</button>
   </form>
 </article>
@@ -488,205 +577,482 @@ DOM:
 
 Behaviour:
 
-- Starters: picking one says `I'm in the mood for: {label lower-cased} ({hint lower-cased}).` for you. Follow-ups send their label as typed. Either way the pick lifts for `520 ms` (full), `200 ms` (lite) or `0` before sending.
-- A new turn calls `orbHome()`; the thread scrolls to its end on each change.
-- Sending: an empty assistant message is added at once and filled as text streams. On failure with nothing received, the empty reply is removed and your words are put back in the box; the error's message is shown. Aborts are silent.
-- Mic: `onLevel` drives `orbThink(level)`; `onPartial` fills the box; `onDone` sends; `onError` shows the message. Orbit's mic (Web Speech or MediaRecorder) is not in this package.
+- **Starters and follow-ups.** While the thread is empty the `Choices` are `starters` (`label="Ways to start"`, `delay 0.2`); after that, `followUps` (`label="Where to take it"`, `delay 0.1`). The list is keyed by `msgs.length`, so it re-enters after every turn, and it is hidden while `busy`. Picking one (`choose`): ignored while a pick is in flight or busy; `orbHome()`; `picked` is set for `520 ms` (full), `200 ms` (lite) or `0` (off), then cleared; a starter is sent as `` `Let's start with: ${label.toLowerCase()}${hint ? ` (${hint.toLowerCase()})` : ''}.` ``, a follow-up as its label.
+- **Sending** (`send`): ignored when empty or busy. The box is cleared, the error removed, your turn and an empty assistant turn are added at once, `busy` is set and an `AbortController` made. Streamed text fills the assistant turn as it arrives.
+- **The empty-reply rule.** On failure with nothing received (`!reply`), the thread is put back to what it was before the send (`setMsgs(msgs)`, which removes both your turn and the empty reply) and your words go back into the box (`setText(v)`); the error's message is shown. If some text had arrived it stays. An `AbortError` is silent. Unmounting aborts the request in flight.
+- An empty assistant turn renders as `…`; the thread scrolls to its anchor on every change (`scrollIntoView({ block: 'end', behavior: 'smooth' })`); every change in `msgs.length` calls `orbHome()`.
+- **The mic slot.** The mic button shows only when `mic?.canListen()`. Tap: if already hearing, `hearing.finish()`; else `mic.listen({...})` with `onLevel → orbThink(v)`, `onPartial → setText(t)`, `onDone → setHearing(null); orbThink(null); send(t)`, `onError → setHearing(null); setError(m)`. While hearing the label reads `Listening…` and the button is `aria-pressed="true"` (accent, `.st-mic[aria-pressed='true']`). No microphone code is in the package; `src/ai/webSpeech.ts` is one way to fill the slot.
+- **The actions slot.** `seed` is the last thing you said, first 120 characters. When there is a seed, nothing is busy and `actions` is not empty, a `<p class="st-shortcuts" aria-label="Next">` shows one button per action; pressing it calls `onClick(seed)`.
+
+States: empty thread (starters) · after a reply (follow-ups, actions) · busy (no answers, Send disabled, the reply filling) · error (`st-error`) · hearing.
+
+Motion: through `Choices`; the thread itself does not animate. See `docs/05-motion.md` §12.6.
+
+Accessibility: the thread is `aria-live="polite"` so replies are read as they land; errors are `role="alert"`; the field has a visible label; the mic button reports its state with `aria-pressed` and changes its name; `enterkeyhint="send"`.
+
+```tsx
+<Conversation
+  title="Where shall we *go?*"
+  kicker="Talk"
+  num={guide.name}
+  starters={guide.starters ?? []}
+  followUps={guide.followUps ?? []}
+  placeholder="A week somewhere warm…"
+  actions={[
+    { label: 'Plan a trip from this', icon: 'forward', onClick: (seed) => startFlow('trip', seed) },
+    { label: 'Just an evening', icon: 'talk', onClick: (seed) => startFlow('evening', seed) },
+  ]}
+  // No AI in the sample: a canned reply. Replace with an Assistant (setAssistant) or your own onSend.
+  onSend={async (text) => {
+    await wait(600);
+    return `“${text.slice(0, 60)}” — good. Picture the season first: spring, summer or autumn? Then tell me who is coming, or tap “Plan a trip from this”.`;
+  }}
+/>
+```
 
 ---
 
-## 11. Drawer
+## 12. Summary pieces
 
-File: `src/components/Drawer.tsx`. Drawers slide in from the right over a blur. Orbit had two, Gallery and Options; here one generic `Drawer` with optional tabs, plus the shelf pieces.
+File: `src/components/Summary.tsx`. The summary and what comes after it, as presentational pieces. The app composes them around whatever it does with the finished answers; nothing here talks to a network.
 
-### Drawer
+### SummaryList
+
+Every answer under its name, in order (from `summaryOf(flow, answers)`).
+
+| Prop | Type | Meaning |
+|---|---|---|
+| `items` | `{ key: string; value: string }[]` | |
+
+DOM: `<dl class="st-summary"><div><dt>{key}</dt><dd>{value}</dd></div>…</dl>`. CSS: each `<div>` is a grid `minmax(96px, 30%) minmax(0, 1fr)` with a hairline below; `<dt>` uppercase 11 px, `<dd>` the display face at 20 px.
+
+### Go
+
+The one button a screen wants pressed next, in a band that stays in reach at the foot of the page, with a place for the orb on it. `children` go beside it (a `Ghost` button or a line of hint).
 
 | Prop | Type | Default | Meaning |
 |---|---|---|---|
-| `label` | `string` | — | `aria-label` of the dialog (`"{studio.name}: your gallery"`, `"Options"`). |
-| `title` | `ReactNode` | — | The `<h3>`; italic half in `<em>` (`Your <em>gallery</em>`, `House <em>rules</em>`). |
-| `onClose` | `() => void` | — | Escape, the scrim and the close button. |
-| `closeLabel` | `string` | `'Close'` | |
-| `scrimLabel` | `string` | `'Close'` | Orbit: `Close the gallery` / `Close options`. |
-| `tabs` | `DrawerTab[]` | — | `{ id, label, icon }`. With tabs the children sit in `<div class="st-shelf">`. |
-| `tab`, `onTab` | | | The pressed tab and the change handler. |
-| `tabsLabel` | `string` | `'Shelves'` | |
+| `label` | `string` | — | |
+| `onClick` | `() => void` | — | |
+| `disabled` | `boolean` | — | |
+| `children` | `ReactNode` | — | Beside the button, inside the dock. |
 
 DOM:
 
 ```html
-<div class="st-drawer-wrap" role="dialog" aria-modal="true" aria-label="{label}">
-  <button type="button" class="st-scrim" aria-label="{scrimLabel}"/>
-  <aside class="st-drawer">
-    <div class="st-drawer-head"><h3>{title}</h3><button class="st-sq st-sq-ink" aria-label="Close">{close}</button></div>
-    <nav class="st-tabs" aria-label="Shelves"><button aria-pressed><span class="st-ico">svg</span><span>Projects</span></button>…</nav>
-    <div class="st-shelf">{children}</div>
-  </aside>
+<div class="st-dock">
+  <button type="button" class="st-go" disabled?>{label}<span class="st-choice-spot" data-orb-spot="" data-orb-size="40" role="presentation"></span></button>
+  {children}
 </div>
 ```
 
-The entrance is CSS (`st-fade` 300 ms on the scrim, `st-slide` 520 ms on the aside); there is no exit animation. Focus is not trapped (Orbit's gallery did not trap it either).
+CSS: `.st-dock` is `position: sticky; bottom: 0; z-index: 2` with a gradient to the page background so the button never floats over text; `.st-go` is ink on paper (`background: var(--text); color: var(--bg)`), 52 px tall, uppercase 12 px, accent on hover, `padding-right: 64px` in the dock for the orb.
 
-### The gallery, as Orbit filled it
+### Ghost
 
-`SHELVES` (in order): `projects` (icon `project`), `pictures` (`picture`), `videos` (`video`), `movies` (`movie`), `characters` (`character`). The gallery button in the top bar opens the `projects` shelf.
+A second, quieter action beside the primary one ("Start again").
 
-| Shelf | Content |
+| Prop | Type |
 |---|---|
-| projects | `ContentsList` of projects (title `p.title || 'Untitled'`, meta `Picture|Video|Movie`), or `Empty`: `No projects yet. Start one from Home.` Tapping a row closes the drawer and opens the project. |
-| characters | `CharacterList(listCharacters(studio.id))`. |
-| pictures / videos / movies | The member's items from the app's store, filtered: pictures = `kind === 'image' && !movie`, videos = `kind === 'video' && !movie`, movies = joined films. Loading: `Opening your gallery…`; nothing: `Nothing here yet.`; load error: `Your pictures and films show here while the studio is awake. Start something and it wakes up.` Shown in `MediaGrid`. |
+| `label` | `string` |
+| `onClick` | `() => void` |
+| `disabled` | `boolean` |
 
-### ContentsList, MediaGrid, Empty
+DOM: `<button type="button" class="st-ghost">{label}</button>`: underlined uppercase 11 px, 44 px tall, 40 % opacity when disabled.
 
-- `ContentsList rows=[{id,title,meta,onClick}]` → `<ol class="st-contents">` of `<button class="st-row">` with `st-row-n` folio, `st-row-t`, `st-row-m` (no entrance motion in a drawer).
-- `MediaGrid items=[{id, kind, url, alt}]` → `<ul class="st-grid">` of `<img loading="lazy">` or `<video muted playsinline loop controls preload="metadata">`.
-- `Empty` → `<p class="st-empty">`.
+### Progress
 
-### OptionsDrawer
+While the app works: a bar (known progress in %, or a busy sweep when `progress` is null), the current note and a line saying you can leave.
 
-`rules: string[]`, `note` (default `Tap the orb any time to ask it something, or hold it to talk.`), `onClose`. Title `House <em>rules</em>`, `<ul class="st-rules">`, then `<p class="st-dek">{note}</p>`.
+| Prop | Type | Default | Meaning |
+|---|---|---|---|
+| `progress` | `number \| null` | — | 0..100, or null while nothing is known yet. |
+| `note` | `string \| null` | — | Shown in `st-dek`; `null` shows `Starting…`. |
+| `hint` | `string \| null` | `'You can leave this page. It keeps going, and it will be in your drafts when it is done.'` | The `st-ht` line; `null` hides it. |
+| `idle` | `number` | `8` | The bar's width (%) while progress is unknown. |
+
+DOM:
+
+```html
+<div class="st-making" role="status">
+  <div class="st-bar" aria-hidden><span style="width: {progress ?? idle}%" class="st-bar-busy?"></span></div>
+  <p class="st-dek">{note ?? 'Starting…'}</p>
+  <p class="st-ht">{hint}</p>   <!-- unless hint is null -->
+</div>
+```
+
+States: known progress (the bar's width tweens over 600 ms) · unknown (`st-bar-busy`, a sweep by CSS keyframes `st-busy`, off under reduced motion). Accessibility: `role="status"`, so the note is announced as it changes; the bar is decoration.
+
+### Result
+
+What came out: a picture (`kind: 'image'`), a video with controls (`kind: 'video'`), or anything else the app renders as `children` (a list, a map, a document).
+
+| Prop | Type | Default | Meaning |
+|---|---|---|---|
+| `kind` | `'image' \| 'video'` | — | |
+| `url` | `string` | — | |
+| `alt` | `string` | `''` | The image's alt text. |
+| `children` | `ReactNode` | — | Rendered when `kind`/`url` do not give an image or a video. |
+
+DOM: `<figure class="st-result">` with `<img src alt>`, or `<video src controls playsinline loop>`, or the children. CSS: media is `width: 100%; max-height: 64vh; object-fit: contain; background: #000`.
+
+### ErrorLine
+
+One line of error, announced: `<p class="st-error" role="alert">{children}</p>` (a 2 px accent-red rule on the left).
+
+Motion: none of their own; the summary screen is moved by the `Stage`. The pieces as the example composes them:
+
+```tsx
+<article className="st-sheet st-summary-page" aria-labelledby="st-summary-t">
+  <p className="o5-kicker st-kick">
+    <span>The summary</span>
+    <span className="st-num">{run.status === 'done' ? 'Finished' : saving ? 'Saving' : 'Ready'}</span>
+  </p>
+  {done ? <Headline text="Here is your *plan.*" id="st-summary-t" /> : saving ? <Headline text="Saving your *plan…*" id="st-summary-t" /> : <Headline text="Here is your *summary.*" id="st-summary-t" orb={false} />}
+  {done && <Result kind="image" url={result} alt={resultOf(flow, run.answers)} />}
+  {!done && <SummaryList items={summaryOf(flow, run.answers)} />}
+  {saving && <Progress progress={null} note={note} />}
+  {run.status === 'draft' && !saving && <Go label="Save the plan" onClick={() => void save()} />}
+</article>
+```
+
+Note the orb: while the run is a draft the headline has no spot (`orb={false}`) and the orb sits on the `Go` button; while saving and once done it returns to the headline.
 
 ---
 
-## 12. Top bar, stage and bottom bar
+## 13. Root, TopBar, Stage, BottomBar
 
-File: `src/components/Bars.tsx`. Extracted from Orbit's `StudioApp`. What each button does per view is specified in `docs/07-layout-and-navigation.md`.
+File: `src/components/Bars.tsx`. The frame of every screen: a top bar (the masthead and two square buttons), the stage in the middle (the only part that moves) and a bottom bar (Back, Home, Save draft). The screen logic that decides what each button does stays in the app: `docs/07-layout-and-navigation.md` §5 and §6.
 
 ### Root
 
-`<div class="st-root" data-view="{view}">` — fixed, full screen, a three-row grid (top bar, stage, bottom bar). Props: `view: string`, `children`.
+The fixed, full-screen root: top bar, stage and bottom bar in a three-row grid.
+
+| Prop | Type | Meaning |
+|---|---|---|
+| `view` | `string` | Written as `data-view`, a CSS hook for the current screen. |
+| `children` | `ReactNode` | The bars, the stage, the drawers, the toasts. |
+
+DOM: `<div class="st-root" data-view="{view}">…</div>`. CSS: `position: fixed; inset: 0; display: grid; grid-template-rows: auto minmax(0, 1fr) auto`, the page background (`var(--o5-glow), var(--bg)`); every button inside inherits font and colour and loses the tap highlight; `:focus-visible` is a 2 px accent outline, offset 3 px.
 
 ### TopBar
 
 | Prop | Type | Default | Meaning |
 |---|---|---|---|
-| `kicker` | `string` | — | `<small>` over the masthead (`studio.kicker`, e.g. "An Orbit studio · 18+"). |
-| `mark` | `[string, string]` | — | Masthead: `<b>{mark[0]} <i>{mark[1]}</i></b>`. |
-| `actions` | `boolean` | `true` | Show the two square buttons. Orbit hid them on the gate. |
-| `onOptions`, `onGallery` | `() => void` | — | |
+| `kicker` | `string` | — | The small line over the masthead ("A sample guide"). |
+| `mark` | `[string, string]` | — | The masthead: the roman half and the italic half ("Com", "pass"). |
+| `actions` | `boolean` | `true` | Show the two square buttons (hide them on a gate). |
+| `onOptions` | `() => void` | — | The first square. |
+| `onGallery` | `() => void` | — | The second square. |
 | `optionsLabel` | `string` | `'Options'` | `aria-label` of the first square (icon `options`). |
-| `galleryLabel` | `string` | `'Your gallery'` | `aria-label` of the second (icon `menu`). |
-| `label` | `string` | `'Studio'` | `aria-label` of the `<nav>`. |
+| `galleryLabel` | `string` | `'Your gallery'` | `aria-label` of the second square (icon `menu`). |
+| `label` | `string` | `'Site'` | The `<nav>`'s accessible name. |
 
-DOM: `<header class="st-top"><div class="st-flag"><small/><b>… <i/></b></div><nav class="st-top-actions" aria-label="Studio"><button class="st-sq" aria-label="Options"/><button class="st-sq" aria-label="Your gallery"/></nav></header>`.
+DOM:
+
+```html
+<header class="st-top">
+  <div class="st-flag"><small>{kicker}</small><b>{mark[0]} <i>{mark[1]}</i></b></div>
+  <nav class="st-top-actions" aria-label="Site">                                   <!-- when actions -->
+    <button type="button" class="st-sq" aria-label="Options"><SqIcon name="options"/></button>
+    <button type="button" class="st-sq" aria-label="Your gallery"><SqIcon name="menu"/></button>
+  </nav>
+</header>
+```
+
+CSS: a flex row, hairline below, padded `calc(env(safe-area-inset-top, 0px) + 10px)` on top and the gutter plus the side safe areas left and right; `.st-flag b` is the display face at 26 px, `.st-flag i` italic in the accent; `.st-sq` is a 44 × 44 hairline square. The masthead is not a button.
 
 ### Stage
 
+One screen at a time. When `screenKey` changes the old screen leaves (sinking into a blur) before the next rises in (`AnimatePresence mode="wait"`). A walking screen brings its own scroller; every other screen is wrapped in one column (`.st-scroll`).
+
 | Prop | Type | Default | Meaning |
 |---|---|---|---|
-| `screenKey` | `string` | — | When it changes, the old screen leaves before the new one enters. Orbit used `` `${screen}|${project?.id ?? ''}` `` where `screen` is the view, except that a `walk` view with no question left counts as `make`. |
-| `walking` | `boolean` | `false` | A `Walk` brings its own `st-scroll`; anything else is wrapped in `<div class="st-scroll">`. |
+| `screenKey` | `string` | — | When it changes, the old screen exits fully before the new one enters. The example uses `` `${screen}|${run?.id ?? ''}` `` (`docs/07-layout-and-navigation.md` §3). |
+| `walking` | `boolean` | `false` | `true` when the child is a `Walk` (it has its own `st-scroll`). |
+| `children` | `ReactNode` | — | The screen. |
 
-DOM: `<main class="st-stage" id="st-stage"><div class="st-view">…</div></main>` inside `AnimatePresence mode="wait" initial={false}`. Motion (full): enter `{opacity 0, y 28, blur 14}` → `SPRING.smooth`; exit `{opacity 0, y −18, blur 14}` with `{...SPRING.smooth, stiffness: 260}`. Lite/off: fades via `transitionFor(level)`.
+DOM:
+
+```html
+<main class="st-stage" id="st-stage">
+  <!-- AnimatePresence mode="wait" initial={false} -->
+  <div class="st-view">                 <!-- motion.div key={screenKey} -->
+    <div class="st-scroll">…</div>      <!-- unless walking -->
+  </div>
+</main>
+```
+
+Motion (full): enter from `{ opacity: 0, y: 28, filter: blur(14px) }` with `SPRING.smooth`; exit to `{ opacity: 0, y: -18, filter: blur(14px) }` with `{ ...SPRING.smooth, stiffness: 260 }`. Lite/off: opacity only, `transitionFor(level)`. `initial={false}` means the first screen does not animate in. See `docs/05-motion.md` §12.3.
+
+CSS: `.st-stage` is `position: relative; min-height: 0; overflow: hidden`; `.st-view` is `position: absolute; inset: 0; will-change: transform, opacity, filter` (so the leaving and arriving screens overlap); `.st-scroll` is `height: 100%; overflow-y: auto; overflow-x: hidden; overscroll-behavior: contain` with the side gutters, and its children are centred at `max-width: var(--st-col)` (760 px).
+
+Accessibility: one `<main>`; the landmark's content is the current screen's `<article>`.
 
 ### BottomBar
 
-| Prop | Type | Default |
-|---|---|---|
-| `canBack`, `canHome`, `canSave` | `boolean` | — |
-| `onBack`, `onHome`, `onSave` | `() => void` | — |
-| `backLabel`, `homeLabel`, `saveLabel` | `string` | `'Back'`, `'Home'`, `'Save draft'` |
+| Prop | Type | Default | Meaning |
+|---|---|---|---|
+| `canBack`, `canHome`, `canSave` | `boolean` | — | Enable each button. |
+| `onBack`, `onHome`, `onSave` | `() => void` | — | |
+| `backLabel` | `string` | `'Back'` | |
+| `homeLabel` | `string` | `'Home'` | |
+| `saveLabel` | `string` | `'Save draft'` | |
 
-DOM: `<footer class="st-bottom">` with three `<button type="button" class="st-bar-btn" disabled?>{icon} <span>{label}</span></button>` (icons `back`, `home`, `save`). Disabled buttons are 30 % opacity. Orbit hid the whole bar on the gate.
+DOM:
+
+```html
+<footer class="st-bottom">
+  <button type="button" class="st-bar-btn" disabled?><SqIcon name="back"/> <span>Back</span></button>
+  <button type="button" class="st-bar-btn" disabled?><SqIcon name="home"/> <span>Home</span></button>
+  <button type="button" class="st-bar-btn" disabled?><SqIcon name="save"/> <span>Save draft</span></button>
+</footer>
+```
+
+CSS: three equal columns, hairline above, translucent (`color-mix(in srgb, var(--bg) 80%, transparent)` with `backdrop-filter: blur(18px) saturate(1.3)`), padded for the bottom and side safe areas; buttons 54 px tall, uppercase 11 px (10 px under 560 px wide), 30 % opacity when disabled, accent on hover.
+
+Motion: the bars never animate between views. Accessibility: a `<footer>` of three real buttons with visible text; disabled, not hidden, when they do nothing.
 
 ```tsx
 <Root view={view}>
-  <TopBar kicker={studio.kicker} mark={studio.mark} actions={view !== 'gate'} onOptions={() => setOptions(true)} onGallery={() => setShelf('projects')} />
-  <Stage screenKey={`${screen}|${project?.id ?? ''}`} walking={walking}>{body}</Stage>
-  {view !== 'gate' && <BottomBar canBack={canBack} canHome={view !== 'home'} canSave={canSave} onBack={goBack} onHome={goHome} onSave={saveDraft} />}
+  <TopBar kicker={guide.kicker} mark={guide.mark} onOptions={() => setOptions(true)} onGallery={() => setTab('drafts')} />
+  <Stage screenKey={`${screen}|${run?.id ?? ''}`} walking={walking}>
+    {body}
+  </Stage>
+  <BottomBar canBack={canBack} canHome={view !== 'contents'} canSave={Boolean(canSave)} onBack={goBack} onHome={goHome} onSave={saveDraft} />
+  …
   <Toasts />
 </Root>
 ```
 
 ---
 
-## 13. Toasts
+## 14. Drawers
 
-File: `src/components/Toasts.tsx`. A self-contained store (`useSyncExternalStore`, no state library).
+File: `src/components/Drawer.tsx`. Drawers slide in from the right over a blur: the gallery (with tabs across the top) and the options. One generic `Drawer` plus the pieces it is usually filled with. Escape and the scrim close it.
 
-| Export | Meaning |
-|---|---|
-| `toast(text, tone = 'info')` | Shows a toast for `TOAST_MS` (3200 ms). Tones: `'info' \| 'error' \| 'success'`. Returns the id. |
-| `dismissToast(id)` | Early dismissal (a tap does this). |
-| `useToasts()` | The current list. |
-| `<Toasts/>` | `<div class="toasts" role="status" aria-live="polite">` of `<div class="toast glass">` with inline `borderColor: var(--danger)` + `color` for errors, `borderColor: var(--success)` for success. |
-
-Orbit's one studio toast: `toast('Saved. It is waiting in your projects.', 'success')` from "Save draft". The `.toasts`/`.toast` styles are in `src/styles/base.css` (copied from Orbit's global stylesheet), not in `studio.css`.
-
----
-
-## 14. Orbit 0.5 home and index
-
-These four live in Orbit's shell (`orbit/src/shell/o5/`) and are **not copied** into this package, because they are wired to Orbit's app registry and shell store. They are documented so a new app can build the same screens.
-
-### Path (the home)
-
-A single vertical walk through everything, like a magazine: a cover, numbered chapters, a colophon.
-
-- Root: `<main class="o5-path" data-hidden aria-hidden inert aria-label="Home">` (the `hidden` prop sets all three), with `useScrollDepth(scroller, !hidden)` (mode `'center'`).
-- Cover: `<section class="o5-spread o5-cover" data-depth aria-labelledby="o5-hello">` → `o5-page` → `o5-kicker` ("Orbit 0.5 · {weekday, day month}"), `<h1 class="o5-display o5-hero" id="o5-hello">` greeting (`Good night.` < 5 h, `Good morning.` < 12, `Good afternoon.` < 18, else `Good evening.`), `o5-dek` status line, `<button class="o5-cue">Begin {down icon}</button>` scrolling to the first chapter.
-- Chapter: `<section class="o5-spread" id data-depth aria-labelledby="{id}-t">` → `<span class="o5-numeral" aria-hidden>01</span>`, `<div class="o5-page">` with `o5-kicker` ("01 — Title", the dash `aria-hidden`), `<h2 class="o5-display" id="{id}-t">`, `o5-dek`, `<ul class="o5-links">`.
-- Link (`Go`): `<li><button class="o5-go" data-art?><AppArt class="o5-go-art" size=44/><span class="o5-go-label"/><span class="o5-go-hint"/><Icon forward 20/></button></li>`.
-- Colophon: `<footer class="o5-colophon"><p>That's everything. The line at the bottom of the screen opens the index from anywhere.</p></footer>`.
-- Orbit's chapters: 01 Continue, 02 Talk, 03 Make, 04 Build, 05 Desktops, 06 Tune.
-
-### IndexMenu (the one menu)
-
-A full-screen contents page: `<div class="o5-index" role="dialog" aria-modal="true" aria-label="Index">` → `o5-index-scroll` → `<header class="o5-index-head">` (`o5-kicker` "Index", `<button class="o5-index-close" aria-label="Close the index">`), optional `<section class="o5-index-open" aria-label="Open now">` (rows `o5-open-go` with `aria-current`, `o5-open-name`, `o5-go-hint`, and `o5-open-close` `aria-label="Close {app}"`), `<nav aria-label="Everything"><ol class="o5-index-list">` with `<li style="--i: n">` → `<button class="o5-index-go" aria-current?>` → `o5-index-n` ("00" is Home), `AppArt o5-index-art 48`, `o5-index-title`, `o5-go-hint`; `<footer class="o5-index-switches" aria-label="Quick settings">` with `o5-switch` buttons (Dark/Light with `aria-pressed`, "Motion · Auto|Full|Lite|Off" cycling full→lite→reduce→system→full, Classic look, Switch workspace link). Focus is trapped with a `keydown` capture on Tab; the close button is focused on open; focus returns on close. `folioOf(app)` gives `"04 · Terminal"` from the entry's position.
-
-### Handle
-
-Orbit 0.5 has no dock: one thin line at the bottom. `<button class="o5-handle" data-home={activeApp === null} data-hidden={keyboardOpen || index open} aria-label="Index" | "Index. Swipe up to go home." aria-expanded={index open}>` with `<span class="o5-handle-word">Index</span>` on the home, or the folio `<span class="o5-handle-word o5-folio" aria-hidden>04 · Terminal</span>` inside an app, and `<span class="o5-handle-line" aria-hidden/>`. Tap opens the index; inside an app, swipe up goes home. It hides while the keyboard is open.
-
-### Step
-
-One step of an app's own walk-through: `<section class="o5-step" id aria-labelledby="{id}-t"><p class="o5-kicker">{n}</p><h3 class="o5-step-title" id="{id}-t">{title}</h3>{children}</section>`; with `on={false}` it renders only the children. `nextStep(on, id)` scrolls `#id` into view (`smooth`, `start`) on the next frame.
-
----
-
-## 15. Magazine helpers
-
-From `orbit/src/ui/Magazine.tsx` (not copied; Orbit-specific `Icon`). Pieces for pages that read like the home screen:
-
-| Helper | DOM |
-|---|---|
-| `MagCover { kicker, title, dek?, children? }` | `<header class="mag-cover" data-depth><p class="o5-kicker"/><h2 class="mag-title"/><p class="mag-dek"/>{children}</header>` |
-| `MagContents { chapters: {id,title}[] }` | `<nav class="mag-contents" aria-label="Contents">` of `<button><span class="mag-contents-n">01</span> {title}{down icon 14}</button>` that scrolls `#id` into view. |
-| `MagChapter { n, id, title, dek?, children }` | `<section class="mag-chapter" id data-depth aria-labelledby="{id}-t"><span class="mag-numeral" aria-hidden>01</span><p class="o5-kicker">01 — Title</p><h3 class="mag-head" id="{id}-t"/><p class="mag-dek"/>{children}</section>` |
-
-They rely on `useScrollDepth(body, true, 'edges')` from the enclosing sheet (Orbit's `Sheet page`), which gives `[data-depth]` children `--p`/`--ap`.
-
-Orbit's `ui/components.tsx` (IconButton, AppHeader, Sheet with the drag-to-dismiss grip, ConfirmSheet, PromptSheet, Toggle, Segmented, EmptyState) belongs to the classic app shell and is not part of the studio screens; the studio's drawers replace `Sheet`.
-
----
-
-## 16. SqIcon
-
-File: `src/components/icons.tsx`. Thin square-cut line drawings on a 24-unit grid: `stroke="currentColor"`, `strokeWidth 1.5`, `strokeLinecap="square"`, `strokeLinejoin="miter"`, rendered `20×20`.
+### Drawer
 
 | Prop | Type | Default | Meaning |
 |---|---|---|---|
-| `name` | `IconName` | — | `menu close back home save options picture video movie project character talk mic shuffle forward plus`. |
-| `framed` | `boolean` | `false` | Wrap in `<span class="st-ico">` (a hairline square). |
-| `label` | `string` | — | With a label: `role="img" aria-label`; without: `aria-hidden="true"`. |
+| `label` | `string` | — | The dialog's accessible name ("Compass: your gallery"). |
+| `title` | `ReactNode` | — | The heading; put the italic half in `<em>` (`<>Your <em>gallery</em></>`). |
+| `onClose` | `() => void` | — | Escape, the scrim and the close button. |
+| `closeLabel` | `string` | `'Close'` | `aria-label` of the close button. |
+| `scrimLabel` | `string` | `'Close'` | `aria-label` of the scrim. |
+| `tabs` | `DrawerTab<T>[]` | — | `{ id: T; label: string; icon: IconName }[]` across the top; omit for a plain drawer. |
+| `tab` | `T` | — | The pressed tab. |
+| `onTab` | `(id: T) => void` | — | |
+| `tabsLabel` | `string` | `'Tabs'` | `aria-label` of the tab `<nav>`. |
+| `children` | `ReactNode` | — | With tabs, wrapped in `<div class="st-shelf">`; without, rendered as is. |
 
-The exact path for each name is in the file and must not be redrawn.
+DOM:
+
+```html
+<div class="st-drawer-wrap" role="dialog" aria-modal="true" aria-label="{label}">
+  <button type="button" class="st-scrim" aria-label="{scrimLabel}"></button>
+  <aside class="st-drawer">
+    <div class="st-drawer-head">
+      <h3>{title}</h3>
+      <button type="button" class="st-sq st-sq-ink" aria-label="{closeLabel}"><SqIcon name="close"/></button>
+    </div>
+    <nav class="st-tabs" aria-label="Tabs">                                     <!-- when tabs -->
+      <button type="button" aria-pressed={tab === id}><span class="st-ico">svg</span><span>{label}</span></button>…
+    </nav>
+    <div class="st-shelf">{children}</div>                                     <!-- when tabs; else children directly -->
+  </aside>
+</div>
+```
+
+Behaviour: a `keydown` listener on `window` calls `onClose()` on `Escape` for as long as the drawer is mounted. Opening and closing are the app's conditional render; there is no exit animation. Focus is not trapped and not moved; the orb hides itself behind any `aria-modal="true"` dialog (`docs/09-orb.md` §8).
+
+CSS: `.st-drawer-wrap` is `position: fixed; inset: 0; z-index: 60`; `.st-scrim` blurs the page (`backdrop-filter: blur(12px)`, `st-fade` 300 ms); `.st-drawer` is `width: min(460px, 92vw)` on the right, scrolls on its own, padded for the top, right and bottom safe areas, slides in with `st-slide` 520 ms (both animations off under reduced motion); the `<h3>` is the display face at 36 px with `<em>` in the accent; `.st-tabs` is an auto-fit grid of column buttons whose pressed one is `var(--text)` with an accent frame. `.st-shelf` and `.st-sq-ink` have no rules in `pages.css`; they are hooks.
+
+Accessibility: `role="dialog" aria-modal="true"` with a name; the scrim is a labelled button, so a reader can close the drawer; tabs report `aria-pressed`.
+
+### TABS
+
+An example set of tabs for the gallery drawer. Define your own the same way.
+
+```ts
+export type Tab = 'drafts' | 'items' | 'about';
+export const TABS: DrawerTab<Tab>[] = [
+  { id: 'drafts', label: 'Drafts', icon: 'folder' },
+  { id: 'items', label: 'Made', icon: 'picture' },
+  { id: 'about', label: 'About', icon: 'options' },
+];
+```
+
+### ContentsList
+
+A numbered contents list inside a tab (the drafts tab). Rows arrive without motion here.
+
+| Prop | Type | Meaning |
+|---|---|---|
+| `rows` | `{ id: string; title: string; meta: string; onClick: () => void }[]` | |
+| `label` | `string` | `aria-label` of the `<ol>`. |
+
+DOM: `<ol class="st-contents" aria-label="{label}"><li><button type="button" class="st-row"><span class="st-row-n" aria-hidden>01</span><span class="st-row-t">{title}</span><span class="st-row-m">{meta}</span></button></li>…</ol>`.
+
+### MediaGrid
+
+Pictures and videos, two across, 3:4.
+
+| Prop | Type |
+|---|---|
+| `items` | `{ id: string; kind: 'image' \| 'video'; url: string; alt?: string }[]` |
+
+DOM: `<ul class="st-grid"><li><img src alt loading="lazy"></li>` or `<li><video src muted playsinline loop controls preload="metadata"></li>…</ul>`. Missing `alt` becomes `""`.
+
+### Empty
+
+"Nothing here yet." → `<p class="st-empty">{children}</p>` (italic, `var(--text-3)`).
+
+### OptionsDrawer
+
+The options drawer: the house rules and one line about the orb.
+
+| Prop | Type | Default | Meaning |
+|---|---|---|---|
+| `rules` | `string[]` | — | One `<li>` each. |
+| `note` | `string` | `'Tap the orb any time to ask it something, or hold it to talk.'` | The `st-dek` line under the rules. |
+| `onClose` | `() => void` | — | |
+
+Renders `Drawer` with `label="Options"`, `title={<>House <em>rules</em></>}`, `scrimLabel="Close options"`, and children `<ul class="st-rules"><li>{rule}</li>…</ul><p class="st-dek">{note}</p>`. `.st-rules li` has a 7 px accent square on the left and a hairline below.
+
+```tsx
+{tab && (
+  <Drawer label={`${guide.name}: your gallery`} title={<>Your <em>gallery</em></>} onClose={() => setTab(null)} tabs={TABS} tab={tab} onTab={setTab}>
+    {tab === 'drafts' ? (
+      runs.length ? (
+        <ContentsList rows={runs.map((r) => ({ id: r.id, title: r.title || 'Untitled', meta: guide.flows[r.flowId]?.label ?? r.flowId, onClick: () => (setTab(null), open(r)) }))} />
+      ) : (
+        <Empty>No drafts yet. Start one from the contents page.</Empty>
+      )
+    ) : tab === 'items' ? (
+      made.length ? (
+        <MediaGrid items={made.map((r) => ({ id: r.id, kind: 'image', url: r.result as string, alt: r.title }))} />
+      ) : (
+        <Empty>Nothing made yet. Finish a plan and save it.</Empty>
+      )
+    ) : (
+      <>
+        <ul className="st-rules">
+          {(guide.rules ?? []).map((r) => (
+            <li key={r}>{r}</li>
+          ))}
+        </ul>
+        <p className="st-dek">{guide.name} is a sample of the OrbitDesign look: one question at a time, with the orb beside the answer it would pick.</p>
+      </>
+    )}
+  </Drawer>
+)}
+{options && <OptionsDrawer rules={guide.rules ?? []} onClose={() => setOptions(false)} />}
+```
+
+---
+
+## 15. Toasts and toast
+
+File: `src/components/Toasts.tsx`. Transient status messages, announced politely to screen readers. A self-contained store (`useSyncExternalStore`, no state library): `toast()` from anywhere, `<Toasts/>` once near the root.
+
+| Export | Meaning |
+|---|---|
+| `toast(text, tone = 'info'): number` | Shows a message for `TOAST_MS`; returns its id. `tone` is `'info' \| 'error' \| 'success'` (`ToastTone`). |
+| `TOAST_MS` | `3200` ms. |
+| `dismissToast(id)` | Early dismissal (a tap does this). Ignored for an unknown id. |
+| `useToasts(): Toast[]` | The current list (`{ id: number; text: string; tone: ToastTone }`), for tests or a custom view. |
+| `<Toasts/>` | The view. |
+
+DOM:
+
+```html
+<div class="toasts" role="status" aria-live="polite">
+  <div class="toast glass" style="…">{text}</div>   <!-- one per toast; click dismisses -->
+</div>
+```
+
+Inline style by tone: `error` → `borderColor: var(--danger); color: var(--danger)`; `success` → `borderColor: var(--success)`; `info` → none. The styles are in `src/styles/base.css` (`.toasts`: `position: absolute; left: 50%; top: calc(var(--safe-top) + 60px); z-index: 90; width: min(420px, calc(100% - 24px)); pointer-events: none`; `.toast`: padded, `var(--radius-md)`, enters with `sheet-up`) and `src/styles/glass.css` (`.glass`), not in `pages.css`. Rendered inside `.st-root` (fixed), the stack sits under the top bar.
+
+Motion: the CSS `sheet-up` entrance; see `docs/05-motion.md` §12.11. Accessibility: one live region; every toast is read once as it is added; a toast is not focusable and goes away by itself.
+
+```tsx
+const saveDraft = () => {
+  if (run) keep(run);
+  toast('Saved. It is waiting in your drafts.', 'success');
+  goHome();
+};
+```
+
+---
+
+## 16. useVisualViewport
+
+File: `src/components/useVisualViewport.ts`. Tracks the *visual* viewport, which on phones shrinks when the on-screen keyboard opens (the layout viewport does not).
+
+| Parameter | Type | Meaning |
+|---|---|---|
+| `onChange` | `(v: { width: number; height: number; keyboardOpen: boolean }) => void` | Optional; called after every update. |
+
+What it sets on `<html>` (`document.documentElement.style`), rounded to whole px:
+
+| Variable | Value |
+|---|---|
+| `--app-height` | the visible height, less the floating keyboard bar when one is reserved |
+| `--vv-offset-top` | how far the browser has scrolled the visual viewport |
+| `--keyboard-inset` | the keyboard height plus the reserved bar |
+
+Rules, from the code:
+
+```ts
+const visible = vv?.height ?? window.innerHeight;
+const offsetTop = vv?.offsetTop ?? 0;
+const layoutHeight = window.innerHeight;
+const keyboard = Math.max(0, layoutHeight - visible - offsetTop);
+// A soft keyboard is at least ~150px; smaller differences are browser chrome changing.
+const editing = isEditableFocused();
+const keyboardOpen = keyboard > 150 || (editing && isCoarsePointer() && visible < layoutHeight * 0.75);
+```
+
+- **The 150 px rule.** The keyboard counts as open when the visual viewport is more than 150 px shorter than the layout viewport, or when an editable element is focused on a coarse pointer and the visible height is under 75 % of the layout height.
+- **The floating bar.** On phones whose browser floats a bar (autofill, hide keyboard) above the keyboard (`floatingKeyboardBar`, detected from the user agent in the file), `FLOATING_BAR = 76` px is taken off `--app-height` and added to `--keyboard-inset` while the keyboard is open.
+- **The unshift rule.** Some phone browsers scroll even `overflow: hidden` boxes to reveal a focused input under the keyboard, which leaves part of the app shifted out of view. A capturing `scroll` listener puts such boxes straight back:
+
+```ts
+const unshift = (e: Event) => {
+  const el = e.target;
+  if (!(el instanceof HTMLElement) || el.scrollTop === 0) return;
+  if (getComputedStyle(el).overflowY === 'hidden') el.scrollTop = 0;
+};
+document.addEventListener('scroll', unshift, true);
+```
+
+- Updates run once on mount and on `visualViewport` `resize` and `scroll`, `window` `resize` and `orientationchange`, and `document` `focusin` and `focusout`, coalesced to one per animation frame. Everything is removed on unmount.
+- `isEditableFocused()` is true for `contentEditable`, `INPUT` or `TEXTAREA`; `isCoarsePointer()` is `matchMedia('(pointer: coarse)')`.
+
+Note: `pages.css` does not consume these variables. `.st-root` is `position: fixed; inset: 0`, and `tokens.css` sets `--app-height: 100dvh` and `--keyboard-inset: 0px` as defaults. An app that wants the frame pinned above the keyboard gives `.st-root` `height: var(--app-height); transform: translateY(var(--vv-offset-top))` itself (see `docs/07-layout-and-navigation.md` §11). The example app calls the hook with no callback.
+
+```tsx
+export function App() {
+  useVisualViewport();
+```
 
 ---
 
 ## 17. Data attributes the orb reads
 
-Set by these components; consumed by `src/orb` (see Orbit's `attention.ts` for the order of what matters).
+Set by these components; consumed by `src/orb` (`docs/09-orb.md` §8 for the order of what matters, §9 for the full list).
 
 | Attribute | Where | Meaning |
 |---|---|---|
-| `data-orb-spot=""` | `OrbSpot` | A place kept for the orb; it sits centred on it. (`data-orb-spot="stage"` is a different, voice-mode use; not set by any studio component.) |
-| `data-orb-size="{px}"` | `OrbSpot` | The orb's size on that spot: 52 beside a headline, 40 on an answer or primary button. |
-| `data-orb-focus` | not set by these components | Orbit's other apps mark "the thing you're on" with it; the studio uses spots instead. The orb goes to `[data-orb-focus]` before a spot. |
+| `data-orb-spot=""` | `OrbSpot` (in `Headline`, `Choices`, `Go`) | A place kept for the orb; it sits centred on it. (`data-orb-spot="stage"` is a different, voice-mode use; no component here sets it.) |
+| `data-orb-size="{px}"` | `OrbSpot` | The orb's size on that spot: 52 beside a headline, 40 on an answer or the `Go` button. |
+| `data-orb-focus` | not set by these components | An app may mark "the thing you're on" with it; the orb goes there before any spot. These screens use spots instead. |
 | `data-rec` | `Choices` | The orb's pick; the recommended answer also carries a spot so the orb sits on it. |
-| `data-orb-hover`, `data-orb-pressed` | set by the orb | On the control the orb is over or tapping (`.st-choice[data-orb-hover]`). |
-| `data-depth=""` | `Walk` trail rows, `Path` spreads, Magazine pieces | `useScrollDepth` writes `--p`/`--ap` on them. |
+| `data-orb-hover`, `data-orb-pressed` | set by the orb | On the control the orb is over or was dropped on (`.st-choice[data-orb-hover]`). |
+| `data-depth=""` | `Walk` trail rows | `useScrollDepth` writes `--p`/`--ap` on them; `pages.css` sinks and blurs them. |
 | `data-view` | `Root` | The current view, for CSS hooks. |
+| `data-orb-context` | set by the app on `<html>` | A plain-language line about where the person is, appended to the orb's own requests (the example sets it; `docs/07-layout-and-navigation.md` §12). |
+| `aria-modal="true"` | `Drawer` | The orb hides while such a dialog is open. |
 
-The orb is reached only through window events (`orb:note`, `orb:energy`, `orb:home`, `orb:act`), see `src/walkthrough/orbGuide.ts` and `docs/08-walkthrough-prd.md` §9.
+The orb is reached only through window events (`orb:say`, `orb:energy`, `orb:home`, `orb:note`, `orb:run`; it answers with `orb:act`), wrapped by `orbSay`, `orbThink`, `orbHome`, `orbNote`, `orbRun` and `onOrbAct` in `src/orb/events.tsx` (the four a flow needs are re-exported from `src/flow/orbGuide.ts`). `Conversation` calls `orbHome()` and `orbThink()` itself; everything else is the app's doing. See `docs/09-orb.md` §12.

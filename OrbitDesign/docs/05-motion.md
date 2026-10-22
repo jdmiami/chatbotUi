@@ -1,9 +1,9 @@
 # 05 · Motion
 
-One physical world for every screen. Every animation in Orbit follows the rules below. If a motion
+One physical world for every screen. Every animation in the Orbit look follows the rules below. If a motion
 doesn't explain a change or confirm a touch, it is cut.
 
-This document is the complete motion language, copied value for value from Orbit's source. The
+This document is the complete motion language, copied value for value from the source app. The
 portable code lives in `src/motion/`; the file map is in §0. Colours, typography and the orb's own
 physics are covered by other documents (see §14).
 
@@ -11,7 +11,7 @@ physics are covered by other documents (see §14).
 
 ## 0. What is where
 
-| Package file (`src/motion/`) | Copied from (Orbit `src/`) | What it is |
+| Package file (`src/motion/`) | Copied from (the source app) | What it is |
 |---|---|---|
 | `springs.ts` | `motion/springs.ts` | `ios()`, the six named springs, `transitionFor()` |
 | `level.ts` | `motion/level.ts` | `MotionPref`, `MotionLevel`, `resolveLevel()`, the frame probe and its cache |
@@ -25,20 +25,20 @@ physics are covered by other documents (see §14).
 | `depth.ts` | `shell/o5/depth.ts` | `useScrollDepth()` → `--p` / `--ap` on every `[data-depth]` |
 | `chrome.ts` | `shell/o5/chrome.ts` | `useChromeOnScroll()` → `data-chrome` on the app window |
 | `motion.css` | `styles/motion.css` | Spring easings, durations, depth shadows, presses, keyframes, Lite/Off overrides (verbatim) |
-| `depth.css` | `styles/o5.css` + `studio/studio.css` (extracts) | Every rule that consumes `--p` / `--ap` / `data-chrome` |
+| `depth.css` | `styles/o5.css` + the page stylesheet (extracts; the page rules are also in `src/styles/pages.css`) | Every rule that consumes `--p` / `--ap` / `data-chrome` |
 | `index.ts` | — | Re-exports everything |
 
 What changed in the copies (nothing else did):
 
-- `level.ts` declares `MotionPref` locally instead of importing it from Orbit's shell store. The type is identical: `'system' | 'full' | 'lite' | 'reduce'`.
-- `feedback.ts` no longer reads `useShell.getState().settings`; call `configureFeedback({ sound, haptics })`. Both default to `false`, as in Orbit's settings.
-- `morph.ts` takes its two Orbit-specific selectors from `configureMorph()`; the defaults are Orbit's own strings.
+- `level.ts` declares `MotionPref` locally instead of importing it from the source app's shell store. The type is identical: `'system' | 'full' | 'lite' | 'reduce'`.
+- `feedback.ts` no longer reads `useShell.getState().settings`; call `configureFeedback({ sound, haptics })`. Both default to `false`, as in the source app's settings.
+- `morph.ts` takes its two app-specific selectors from `configureMorph()`; the defaults are the source app's own strings.
 - `chrome.ts` takes the window selector as an optional second argument, default `'.app-window'`.
 - `MotionProvider` takes `pref`, `tilt` and `tiltGranted` as props instead of reading them from the store.
 
 ---
 
-## 1. Principles (from Orbit's `docs/MOTION.md`)
+## 1. Principles (from the source app's motion notes)
 
 ### 1.1 Light
 
@@ -65,7 +65,7 @@ on more blur. Nothing moves between layers except by lifting (press/drag) or by 
 - **Lift**: holding something raises it one layer (shadow grows, scale 1.02). Letting go drops it back with the `bouncy` spring.
 - **Press**: tapping pushes it *down* (shadow shrinks, scale 0.95), like a real button, then springs back.
 
-Note on the table versus the CSS: the parallax column is the design intent as written in MOTION.md.
+Note on the table versus the CSS: the parallax column is the design intent as written in the source app's motion notes.
 The CSS actually shipped (§4.3) moves the far layer by `-14px`, the classic home grid by `2px`, and
 the dock by `3px` horizontally / `2px` vertically; layers 3 and 4 have no parallax rule in the CSS.
 The shadow offsets do take the tilt (`--sx` / `--sy`), which is where most of the "higher layers
@@ -84,7 +84,7 @@ take more tilt" feeling comes from. Both are recorded here; the CSS is what runs
 - **Messages**: yours rise from the message box; replies grow from the avatar.
 - **Toasts** drop from under the status pill.
 
-### 1.4 Storyboards (what each motion explains, what was cut)
+### 1.4 Screen by screen (what each motion explains, what was cut)
 
 **Home screen.** Icons pop in once, left to right (`playful`), so you see the layout settle.
 Cards tilt toward your finger and catch the light. *Cut:* the constant floating of icons and the
@@ -147,13 +147,13 @@ export function ios(response: number, damping: number) {
 | Name | Response (s) | Damping | Stiffness (computed) | Friction / `damping` (computed) | Mass | Used for |
 |---|---|---|---|---|---|---|
 | `snappy` | 0.30 | 0.86 | 438.65 | 36.02 | 1 | presses, toggles, small controls; the app window shrinking back into its icon |
-| `smooth` | 0.50 | 1.00 | 157.91 | 25.13 | 1 | fades of large areas, things leaving; the studio's screen crossfade and question entrance |
+| `smooth` | 0.50 | 1.00 | 157.91 | 25.13 | 1 | fades of large areas, things leaving; the page look's screen crossfade and question entrance |
 | `default` | 0.55 | 0.825 | 130.51 | 18.85 | 1 | app windows opening (SwiftUI's default spring); the page turn; the answer's `layoutId` flight into the trail |
 | `bouncy` | 0.50 | 0.70 | 157.91 | 17.59 | 1 | sheets, cards and messages arriving; staggered rows and answers |
 | `playful` | 0.45 | 0.58 | 194.96 | 16.20 | 1 | the status pill, icons popping in; the picked answer lifting |
 | `flick` | 0.40 | 0.80 | 246.74 | 25.13 | 1 | anything let go mid-drag (keeps the finger's speed): the sheet springing back, the swipe-home drag |
 
-MOTION.md rounds these to 439/36, 158/25, 131/19, 158/18, 195/16 and 247/25. The code uses the
+The source app's motion notes round these to 439/36, 158/25, 131/19, 158/18, 195/16 and 247/25. The code uses the
 unrounded values.
 
 The same curves exist for CSS as `linear()` easings with a settle duration (§4.1), and the
@@ -187,13 +187,13 @@ export function resolveLevel(pref: MotionPref, osReduce: boolean, probe: 'full' 
 }
 ```
 
-`osReduce` is `matchMedia('(prefers-reduced-motion: reduce)')`, followed live. Orbit's default
-setting is `motion: 'full'` (and a stored `'system'` that the person never explicitly picked is
+`osReduce` is `matchMedia('(prefers-reduced-motion: reduce)')`, followed live. The source app's default
+setting was `motion: 'full'` (and a stored `'system'` that the person never explicitly picked is
 migrated to `'full'`), so the probe only matters for people who choose Auto.
 
 ### 3.2 The frame probe (`measureFrames`)
 
-Safari can't tell a page about Low Power Mode or the device's speed, so Orbit measures:
+Safari can't tell a page about Low Power Mode or the device's speed, so the probe measures:
 
 - Sample `requestAnimationFrame` timestamps for **550 ms** (`measureFrames(ms = 550)`).
 - Drop the **first 3** timestamps (page still loading), compute the gaps between the rest, drop the first (always 0) gap, sort.
@@ -234,17 +234,17 @@ The provider writes `document.documentElement.dataset.motion = level` on every c
 scopes with `:root[data-motion='full']`, `:root[data-motion='lite']`, `:root[data-motion='off']` and
 `:root:not([data-motion='full'])`. See §4.4 for the Off and Lite blocks.
 
-Orbit's settings hook also writes a second attribute, outside the motion package, which the host app
-should reproduce if it uses Orbit's token durations (`--dur-fast` 140 ms, `--dur-med` 240 ms):
+The source app's settings hook also wrote a second attribute, outside the motion package, which the host app
+should reproduce if it uses the token durations (`--dur-fast` 140 ms, `--dur-med` 240 ms):
 
 ```ts
-// hooks/useApplySettings.ts (Orbit)
+// useApplySettings (the source app; quoted in docs/02-tokens.md §14)
 root.dataset.reduceMotion = settings.motion === 'system' ? '' : settings.motion === 'reduce' ? 'true' : 'false';
 if (settings.motion === 'system') delete root.dataset.reduceMotion;
 ```
 
 ```css
-/* tokens.css (Orbit) */
+/* tokens.css */
 @media (prefers-reduced-motion: reduce) {
   :root:not([data-reduce-motion='false']) { --dur-fast: 0ms; --dur-med: 0ms; }
 }
@@ -263,7 +263,7 @@ media query in charge.
 - `pref` (default `'system'`), `tilt` (default `false`), `tiltGranted` (default `false`).
 - Tilt runs only while `level === 'full' && tilt`; `startTilt({ askOnTap: Boolean(tiltGranted) })` is started and its stop function returned from the effect.
 - `useMotionLevel()` returns the level (context default `'full'` outside a provider).
-- `useMotionLevel() === 'off'` is exactly Orbit's `useReducedMotion()` (`pref === 'reduce' || (pref === 'system' && osReduce)`), since the probe never yields `off`.
+- `useMotionLevel() === 'off'` is exactly the source app's `useReducedMotion()` (`pref === 'reduce' || (pref === 'system' && osReduce)`), since the probe never yields `off`.
 
 ---
 
@@ -309,8 +309,8 @@ The iOS springs of §2 sampled into CSS curves (duration = time to settle):
 | `--dur-bouncy` | 0.8s | `--spring-bouncy` |
 | `--dur-playful` | 0.79s | `--spring-playful` |
 
-There is no `--dur-flick`; the flick spring is only used by script (`springValue`). Other
-duration/ease tokens motion.css refers to come from Orbit's token layer: `--dur-fast: 140ms`,
+There is no `--dur-flick`; the flick spring is only used from JavaScript (`springValue`). Other
+duration/ease tokens motion.css refers to come from the token layer (tokens.css): `--dur-fast: 140ms`,
 `--dur-med: 240ms`, `--ease-out: cubic-bezier(0.2, 0.8, 0.2, 1)`; and Orbit 0.5's house ease
 `--ease-o5: cubic-bezier(0.22, 1, 0.36, 1)`, `--dur-o5: 520ms` (o5.css; also declared in `depth.css`).
 
@@ -337,7 +337,7 @@ duration/ease tokens motion.css refers to come from Orbit's token layer: `--dur-
 }
 ```
 
-`--lit` is the inset rim highlight from Orbit's `glass.css` (the colour layer). Without it the
+`--lit` is the inset rim highlight from `glass.css` (the colour layer). Without it the
 whole `box-shadow` is invalid and falls back to none, so the colour layer must define it.
 
 Who sits on which layer (selectors as shipped):
@@ -401,7 +401,7 @@ The sheen (a radial highlight whose centre slides with the tilt):
 ```
 
 So a press goes *down* at `snappy` (0.43 s curve, 0.1 s for colours) and comes *back* at `playful`
-(0.79 s curve). Buttons press to scale 0.92; icons in the grid and dock to 0.8. (MOTION.md says
+(0.79 s curve). Buttons press to scale 0.92; icons in the grid and dock to 0.8. (the source app's motion notes say
 0.95; the CSS shipped 0.92 / 0.8.)
 
 ### 4.5 Every keyframe
@@ -436,7 +436,7 @@ Where each is used:
 | `.home-grid .app-icon` | full | `mo-icon-pop var(--dur-playful) var(--spring-playful) both`, delay `calc(var(--i, 0) * 55ms + 100ms)` |
 | `.home .widget` | full | `mo-fade-up 0.6s var(--ease-soft) both`; `:nth-child(1/2/3)` delays 0.45s / 0.52s / 0.59s |
 | `.home-grid .app-icon` | lite | `mo-fade-up 0.25s var(--ease-soft) both`, delay `calc(var(--i, 0) * 25ms)` |
-| `.app-window` | full | `transition: left var(--dur-med) var(--ease-out), right var(--dur-med) var(--ease-out)` (script animates the rest) |
+| `.app-window` | full | `transition: left var(--dur-med) var(--ease-out), right var(--dur-med) var(--ease-out)` (JavaScript animates the rest) |
 | `.home` | full | `transition: transform var(--dur-default) var(--spring-default), opacity 0.3s var(--ease-soft), filter 0.3s ease` |
 | `.home[data-hidden='true']` | full | `transform: scale(0.92); filter: brightness(0.7)` (an app is in front: home is further away) |
 | `.sheet:not([data-grown])` | full | `mo-sheet-in var(--dur-bouncy) var(--spring-bouncy) backwards` |
@@ -470,7 +470,7 @@ Where each is used:
 ### 4.7 Lite and Off overrides
 
 Lite has no blanket rule; each selector gets its own shorter animation (the `lite` rows above:
-`mo-fade-up 0.25s`, 20–25 ms staggers, `opacity`-only transitions). Script-side, Lite is the
+`mo-fade-up 0.25s`, 20–25 ms staggers, `opacity`-only transitions). On the JavaScript side, Lite is the
 180 ms tween of §3.3.
 
 Off is a blanket rule, then a designed cross-fade for the things that appear:
@@ -557,7 +557,7 @@ Callers always pass `SPRING.flick` and convert pointer velocity from px/ms to px
 ## 6. Feedback (`feedback.ts`)
 
 Optional sound and vibration for key moments. Both are off until switched on:
-`configureFeedback({ sound: true, haptics: true })` (Orbit: Settings; defaults `false`/`false`).
+`configureFeedback({ sound: true, haptics: true })` (a settings screen; defaults `false`/`false`).
 Sounds are sine notes made with the Web Audio API; no files.
 
 | Cue | Notes `[start Hz, end Hz, seconds, volume]`, played in a row | Vibration (`navigator.vibrate`) |
@@ -580,7 +580,7 @@ clicked instead, which gives a light tap on iOS 17.4+.
 API: `cue(name)` plays sound and/or buzz according to the config; `tick()` is vibration only, the
 `tap` pattern, for the orb passing over something it can press.
 
-Who calls what in Orbit: `send` on sending a chat message; `done` when a reply or a picture
+Who calls what in the source app: `send` on sending a chat message; `done` when a reply or a picture
 finishes; `error` on failure (unless the person stopped it); `pop` when a switch is turned on in
 Settings and when the orb opens/lands; `tap` when the orb presses; `tick()` as the orb hovers.
 
@@ -602,14 +602,14 @@ offsets, the sheen position and parallax.
 Permission flow (iPhone/iPad Safari): `tiltNeedsPermission()` is true when
 `DeviceOrientationEvent.requestPermission` exists. `requestTiltPermission()` must run from a tap and
 resolves `true` on `'granted'` (or when no permission is needed; `false` on error). With
-`askOnTap: true` (Orbit: `settings.tiltGranted`), the first `pointerup` of the visit asks again
-silently. In Orbit the Settings "Tilt effects" toggle asks the first time, from its own tap:
+`askOnTap: true` (the source app: `settings.tiltGranted`), the first `pointerup` of the visit asks again
+silently. In the source app the Settings "Tilt effects" toggle asked the first time, from its own tap:
 `requestTiltPermission().then((ok) => updateSettings({ tilt: true, tiltGranted: ok || settings.tiltGranted }))`;
 the toggle shows as on only when `settings.tilt && (!tiltNeedsPermission() || tiltGranted)`. The
 setting defaults to `tilt: true`.
 
 `recentTap(withinMs = 700)` is a side service of the same module: a capturing `pointerdown`
-listener remembers where the last tap landed, so sheets can grow from it (§12.13).
+listener records where the last tap landed, so sheets can grow from it (§12.12).
 
 ### 7.2 Per-card tilt (`useTilt(maxDeg = 7)`)
 
@@ -627,7 +627,7 @@ and `data-tilting='false'`. Does nothing unless the level is `full`. The CSS (§
 `perspective(700px) rotateX(--rx) rotateY(--ry)` with `transition: transform 0.6s var(--ease-bounce)`
 at rest and `0.08s linear` while tilting; outside Full the transform is `none`.
 
-Orbit's classic home uses `useTilt(5)` on its three glass widgets.
+The source app's classic home uses `useTilt(5)` on its three glass widgets.
 
 ---
 
@@ -675,7 +675,7 @@ focused field mid-animation. `morphOut` first forces `visibility: visible; opaci
 - `homeCancel(el, up, velocity)` springs `up → 0` with `SPRING.flick`, `velocity × 1000` (px/ms → px/s), applying `dragPose` each frame; on a finished spring it calls `cancelMorph`.
 - `flyFromDrag` (inside `morphOut`): interpolates pose `a` (the drag pose) to pose `b` (the icon frame) on a 0→1 spring, `SPRING.flick`, with initial velocity `min(8, v × 1000 / dist)` where `dist = max(40, hypot(Δtx, Δty))`; opacity fades `(1 − t) / 0.2` clamped, so the window is gone by 80 % of the way.
 
-The thresholds that decide fling versus cancel live in the Dock (§12.10).
+The thresholds that decide fling versus cancel live in the Dock (§12.9).
 
 ### 8.2 Turning the page (Orbit 0.5, app → app)
 
@@ -727,8 +727,8 @@ for (const child of el.querySelectorAll<HTMLElement>('[data-depth]')) {
 }
 ```
 
-`'center'` is for pages a screen tall (the Orbit 0.5 home, the studio walkthrough); `'edges'` for
-shorter sections (page sheets: Stats, Make, any `Sheet` with `page`) that must stay crisp while fully
+`'center'` is for pages a screen tall (the Orbit 0.5 home, the page look's flow); `'edges'` for
+shorter sections (page sheets: any `Sheet` with `page`) that must stay crisp while fully
 in view.
 
 Every rule that consumes `--p` / `--ap` (all copied into `depth.css`):
@@ -741,7 +741,7 @@ Every rule that consumes `--p` / `--ap` (all copied into `depth.css`):
 | Page sheet `.sheet[data-page] [data-depth] > :not(.mag-numeral)` | full (`data-skin='o5'`) | `translate3d(0, calc(var(--p) * -3vh), calc(var(--ap) * -160px)) rotateX(calc(var(--p) * 6deg))` | `calc(1 - var(--ap) * 0.7)` | `blur(calc(var(--ap) * 2.5px))` |
 | | lite | — | `calc(1 - var(--ap) * 0.55)` | — |
 | Page sheet numeral `.mag-numeral` | any (`data-skin='o5'`) | `translate3d(0, calc(var(--p) * 10vh), -1px)`, `z-index: -1` | — | — |
-| Studio trail `.st-scroll [data-depth] > *` | full | `translate3d(0, calc(var(--p) * -2vh), 0) scale(calc(1 - var(--ap) * 0.06))`, `transform-origin: 0 50%` | `calc(1 - var(--ap) * 0.62)` | `blur(calc(var(--ap) * 3px))` |
+| Page trail `.st-scroll [data-depth] > *` | full | `translate3d(0, calc(var(--p) * -2vh), 0) scale(calc(1 - var(--ap) * 0.06))`, `transform-origin: 0 50%` | `calc(1 - var(--ap) * 0.62)` | `blur(calc(var(--ap) * 3px))` |
 | | lite | — | `calc(1 - var(--ap) * 0.5)` | — |
 
 Supporting rules: the home scroller `.o5-path` has `perspective: 1400px; perspective-origin: 50% 50%`,
@@ -763,8 +763,8 @@ Also in o5.css (not driven by `--p`, but the same idea for lists): where
 
 `useChromeOnScroll(enabled, windowSelector = '.app-window')` tucks an app's header away as you
 read down and brings it back as you come up. It sets `data-chrome="shown" | "hidden"` on the
-closest `windowSelector` ancestor of the element that scrolled. Orbit enables it only in the 0.5
-look (`useChromeOnScroll(o5)` in the Shell).
+closest `windowSelector` ancestor of the element that scrolled. The source app enabled it only in the 0.5
+look (`useChromeOnScroll(o5)` in its Shell).
 
 Rules, with the exact numbers:
 
@@ -795,7 +795,7 @@ to the transform/opacity rule, bounded to one element.
 ## 11. The Orbit 0.5 house ease
 
 Everything in the 0.5 look that is not a spring uses one ease and one duration:
-`--ease-o5: cubic-bezier(0.22, 1, 0.36, 1)`, `--dur-o5: 520ms`. The studio copies the same numbers
+`--ease-o5: cubic-bezier(0.22, 1, 0.36, 1)`, `--dur-o5: 520ms`. pages.css copies the same numbers
 inline (`520ms cubic-bezier(0.22, 1, 0.36, 1)`). It appears in the handle, the index, the home path,
 the opener, link hovers and the headers. Treat it as a seventh, CSS-only curve: a strong ease-out
 with no overshoot.
@@ -808,7 +808,7 @@ Conventions in every recipe: `full = level === 'full'`; at Lite/Off the `initial
 collapse to `{ opacity: 0 }` and the transition is `transitionFor(level)` (§3.3). Stagger indices
 `i` are zero-based. `y`, `x` are px. Blur values are the `filter: 'blur(Npx)'` strings.
 
-### 12.1 `studio/Choices.tsx` — answers arriving, one lifting, the rest leaving, the flight into the trail
+### 12.1 `components/Choices.tsx` — answers arriving, one lifting, the rest leaving, the flight into the trail
 
 Props: `items`, `picked` (label or `null`), `onPick`, `layoutPrefix?`, `delay = 0.08`, `label = 'Answers'`, `recommended?`.
 
@@ -844,17 +844,17 @@ list unmounts, the chosen `li` shares its `layoutId` with the trail entry and fl
 Ambiguity: `custom={0}` on `AnimatePresence` and `custom={i}` on the items are passed, but the exit
 objects are literals, not variant functions, so `custom` has no effect in the code as shipped.
 
-Callers and their `delay`: Walk `done.length ? 0.3 : 0.12`; the Start screen `0.2`; the 18+ Gate
-`0.3`; Talk `msgs.length ? 0.1 : 0.2`.
+Callers and their `delay`: Walk `done.length ? 0.3 : 0.12`; the Start screen `0.2`; the `Gate`
+`0.3`; the Conversation `msgs.length ? 0.1 : 0.2`.
 
-### 12.2 `studio/Walk.tsx` — the trail, the current step, scroll-to-20 %, `useScrollDepth('center')`
+### 12.2 `components/Walk.tsx` — the trail, the current step, scroll-to-20 %, `useScrollDepth('center')`
 
 Structure: `<div class="st-scroll" ref={scroller}><LayoutGroup>` → `<ol class="st-trail">` of
 answered steps (each `<li data-depth="">` → `button.st-trail-row` → `motion.span.st-trail-ans`
 with `layoutId = ans-${s.id}` and `transition = full ? SPRING.default : transitionFor(level)`) →
 `motion.section.st-now` keyed by `step.id`.
 
-- `useScrollDepth(scroller, true, 'center')`: the trail rows sink/blur per the studio rule in §9 (`-2vh`, scale `1 − 0.06·ap`, opacity `1 − 0.62·ap`, blur `3px·ap`). `.st-trail` has `padding-top: 16vh`; `.st-now` has `min-height: 80%` and bottom padding `safe-bottom + 30vh` so the question can sit at the top fifth.
+- `useScrollDepth(scroller, true, 'center')`: the trail rows sink/blur per the page rule in §9 (`-2vh`, scale `1 − 0.06·ap`, opacity `1 − 0.62·ap`, blur `3px·ap`). `.st-trail` has `padding-top: 16vh`; `.st-now` has `min-height: 80%` and bottom padding `safe-bottom + 30vh` so the question can sit at the top fifth.
 - Scroll on every new step (`useLayoutEffect` on `step.id`): `box.scrollTo({ top: max(0, section.offsetTop − box.clientHeight × 0.2), behavior: full ? 'smooth' : 'auto' })`. The question lands 20 % down the screen with the last answers peeking above it. The "own words" field is cleared at the same time.
 - The current step section: `initial = full ? { opacity: 0, y: 40, filter: 'blur(12px)' } : { opacity: 0 }`; `animate = { opacity: 1, y: 0, filter: 'blur(0px)', transition: full ? { ...SPRING.smooth, delay: done.length ? 0.18 : 0 } : transitionFor(level) }`.
 - Inside it: `<Choices … layoutPrefix={ans-${step.id}} delay={done.length ? 0.3 : 0.12} />`.
@@ -868,12 +868,12 @@ the new section rises 40 px out of a 12 px blur on `smooth` after 180 ms → its
 the shortcuts fade in at 600 ms → meanwhile the scroller smooth-scrolls so the section sits 20 %
 down. On the first step the section has no delay and the answers start at 120 ms.
 
-### 12.3 `studio/StudioApp.tsx` — screen crossfade with blur and y, and `settle()`
+### 12.3 `components/Bars.tsx` `Stage`, and the example app's `settle()` — screen crossfade with blur and y
 
 ```tsx
 <AnimatePresence mode="wait" initial={false}>
   <motion.div
-    key={`${screen}|${project?.id ?? ''}`}
+    key={screenKey}   /* the example app passes `${screen}|${run?.id ?? ''}` */
     className="st-view"
     initial={full ? { opacity: 0, y: 28, filter: 'blur(14px)' } : { opacity: 0 }}
     animate={{ opacity: 1, y: 0, filter: 'blur(0px)', transition: full ? SPRING.smooth : transitionFor(level) }}
@@ -884,7 +884,7 @@ down. On the first step the section has no delay and the answers start at 120 ms
 - `mode="wait"`: the old screen finishes leaving before the new one enters. `initial={false}`: the first screen does not animate in.
 - Leaving: up 18 px into a 14 px blur on `smooth` with its stiffness raised to 260 (damping stays 25.13, mass 1 → a damping ratio of about 0.78 and a response of about 0.39 s instead of 0.5 s: quicker, nearly critical).
 - Entering: rises 28 px out of a 14 px blur on plain `smooth`.
-- `screen` is the view name, except that the walk view without a current step shows the make screen; a changed `project.id` also crossfades.
+- `screen` is the view name, except that the walk view without a current step shows the summary screen; a changed `run.id` also crossfades.
 
 `settle()` — the wait between a pick and the state change that moves on:
 
@@ -896,13 +896,13 @@ const settle = () => wait(full ? 560 : level === 'lite' ? 200 : 0);
 `pick(label)`: ignore if already picked → `orbHome()` (the orb comes back to tap the answer) →
 `setPicked(label)` → `await settle()` (560 ms Full / 200 Lite / 0 Off: time for the other answers to
 leave one by one) → `setPicked(null)` → commit the answer (`after`), which advances the step (or
-switches to the make screen when the flow is finished), or on the Start screen starts the chosen
-kind. The 18+ gate uses the same `settle()`.
+switches to the summary screen when the flow is finished), or on the Start screen starts the chosen
+flow. The `Gate` uses the same `settle()`.
 
 Orb timing: on every step change `orbHome()` runs at once and again after `full ? 650 : 120` ms
 (see the orb document for what `orbHome` does).
 
-### 12.4 `studio/Sheets.tsx` — `Rows` stagger, `Row` press
+### 12.4 `components/Sheets.tsx` — `Rows` stagger, `Row` press
 
 `Rows({ children, label, delay = 0.12 })` → `<ol class="st-contents">` of `motion.li` (`key = i`):
 
@@ -910,28 +910,18 @@ Orb timing: on every step change `orbHome()` runs at once and again after `full 
 - `animate = { opacity: 1, y: 0, filter: 'blur(0px)', transition: full ? { ...SPRING.bouncy, delay: delay + i * 0.055 } : transitionFor(level) }`
 
 A clickable `Row` is a `motion.button.st-row` with `whileTap={{ scale: 0.98 }}` at every level (it
-is not gated by `full`). `Home` and `CharacterList` use the default delay 0.12.
+is not gated by `full`). `Contents` uses the default delay 0.12.
 
 `Headline` keeps an `OrbSpot` (52 px) at its right for the orb to sit on; a choice keeps a 40 px one.
 
-### 12.5 `studio/Script.tsx` — scenes
-
-Each scene is a `motion.li.st-scene` (`key = s.id`):
-
-- `initial = full ? { opacity: 0, y: 22, filter: 'blur(8px)' } : { opacity: 0 }`
-- `animate = { opacity: 1, y: 0, filter: 'blur(0px)', transition: full ? { ...SPRING.bouncy, delay: 0.15 + i * 0.07 } : transitionFor(level) }`
-
-CSS: `.st-scene { transition: opacity 0.2s }`, dimmed while `aria-busy='true'`. The orb thinks
-(`orbThink(0.7)`) while the writer works. No exit animation; edits re-render in place.
-
-### 12.6 `studio/Talk.tsx` — conversation with ready answers
+### 12.5 `components/Conversation.tsx` — conversation with ready answers
 
 - `Choices` is mounted with `key={msgs.length}` so each turn's answers animate in afresh; `delay = msgs.length ? 0.1 : 0.2`; it is hidden while busy.
-- `choose(label)`: `orbHome()` → `setPicked(label)` → wait `level === 'full' ? 520 : level === 'lite' ? 200 : 0` ms → `setPicked(null)` → send. Note the 520 ms here versus `settle()`'s 560 ms in StudioApp; both are as shipped.
+- `choose(label)`: `orbHome()` → `setPicked(label)` → wait `level === 'full' ? 520 : level === 'lite' ? 200 : 0` ms → `setPicked(null)` → send. Note the 520 ms here versus `settle()`'s 560 ms in the example app; both are as shipped.
 - New messages: `end.scrollIntoView({ block: 'end', behavior: 'smooth' })`; `orbHome()` on every change of `msgs.length`.
 - Messages themselves (`.st-said` / `.st-reply`) have no entrance animation.
 
-### 12.7 `shell/o5/Path.tsx` — the home as a magazine
+### 12.6 `shell/o5/Path.tsx` — the home as a magazine
 
 - `<main ref={scroller} class="o5-path" data-hidden={hidden}>`; `useScrollDepth(scroller, !hidden)` in `'center'` mode. Every `<section class="o5-spread" data-depth>` (the cover and six chapters) gets the §9 home rule: `−6vh × p`, `−260px × ap` in z, `rotateX(9deg × p)`, opacity `1 − 0.85·ap`, blur `3px·ap`; the chapter numeral behind it drifts `22vh × p`.
 - Hidden behind an app: `opacity: 0; transform: scale(0.94); filter: blur(6px)`, transitioned over `--dur-o5` with `--ease-o5`; `inert` and `aria-hidden`.
@@ -940,7 +930,7 @@ CSS: `.st-scene { transition: opacity 0.2s }`, dimmed while `aria-busy='true'`. 
 - Jumping to a chapter: `scrollIntoView({ behavior: 'smooth', block: 'start' })`; the scroller snaps `y proximity`.
 - Reduced motion / Off: `.o5-cue svg` animation off.
 
-### 12.8 `shell/o5/IndexMenu.tsx` — the full-screen index
+### 12.7 `shell/o5/IndexMenu.tsx` — the full-screen index
 
 - `.o5-index { animation: o5-fade var(--dur-o5) var(--ease-o5) both; perspective: 1200px; backdrop-filter: blur(28px) saturate(140%) }`, `@keyframes o5-fade { from { opacity: 0 } }`.
 - Each `li` in `.o5-index-list` carries `style={{ '--i': n }}`: `0` for Home, `i + 1` for the entries, and runs `o5-rise var(--dur-o5) var(--ease-o5) both` with `animation-delay: calc(var(--i, 0) * 45ms)`; `@keyframes o5-rise { from { opacity: 0; transform: translate3d(0, 28px, -120px) rotateX(-18deg); } }`.
@@ -951,7 +941,7 @@ CSS: `.st-scene { transition: opacity 0.2s }`, dimmed while `aria-busy='true'`. 
 Timing in words: the index fades in over 520 ms while its rows rise 28 px from 120 px back and an
 18° backward lean, one every 45 ms (Home at 0 ms, the 14th app at 630 ms).
 
-### 12.9 `shell/o5/Handle.tsx` — the line at the bottom
+### 12.8 `shell/o5/Handle.tsx` — the line at the bottom
 
 A single `button.o5-handle` with `data-home` and `data-hidden`:
 
@@ -960,9 +950,9 @@ A single `button.o5-handle` with `data-home` and `data-hidden`:
 - On the home (`data-home='true'`): `padding-bottom: 14px`; the line is `40px × 3px` in the accent colour and the word "Index" shows.
 - In an app (`data-home='false'`): `opacity: 0.55`, `1` on hover; the folio ("04 · Terminal") replaces the word.
 - `data-hidden='true'` (keyboard open or the index showing): `opacity: 0; transform: translate(-50%, 20px); pointer-events: none`.
-- It takes `useSwipeHome` from the Dock (§12.10) so swiping it up goes home with the same physics; `touch-action: none`.
+- It takes `useSwipeHome` from the Dock (§12.9) so swiping it up goes home with the same physics; `touch-action: none`.
 
-### 12.10 `shell/Dock.tsx` — the dock and `useSwipeHome`
+### 12.9 `shell/Dock.tsx` — the dock and `useSwipeHome`
 
 The dock itself: layer 2 (`--depth-2`), parallax `3px × tx, 2px × ty` at Full, `touch-action: none`.
 While the keyboard is open it slides away: `.dock { transition: transform var(--dur-med) var(--ease-out), opacity var(--dur-med) var(--ease-out) }`,
@@ -977,16 +967,16 @@ While the keyboard is open it slides away: `.dock { transition: transform var(--
 4. On release: `speed = 0` if `pointercancel` or the last sample is older than **80 ms**, else `v`. If not cancelled and (`speed > 0.45` px/ms **or** `up > el.offsetHeight × 0.22`): `homeFling(el, up, max(0, speed))` then `goHome()` (the window flies into its icon, §8.1). Otherwise `homeCancel(el, up, −speed)` (spring back on `flick`).
 5. The next click is swallowed (`onClickCapture`) so the release does not also tap a dock item.
 
-### 12.11 `shell/Toasts.tsx` — toasts
+### 12.10 `components/Toasts.tsx` — toasts
 
-Plain `div.toast.glass` elements in `div.toasts[role=status][aria-live=polite]`, no script motion:
+Plain `div.toast.glass` elements in `div.toasts[role=status][aria-live=polite]`, no JavaScript motion:
 
 - Base: `.toasts` is centred at `top: calc(var(--safe-top) + 60px)` (or `calc(var(--island-top) + 8px)` under the Glass Island), width `min(420px, 100% − 24px)`, gap 8 px. `.toast { animation: sheet-up var(--dur-med) var(--ease-out) }` (240 ms, from `translateY(24px)`, opacity 0).
 - Full: `.toast { animation: mo-toast-in var(--dur-playful) var(--spring-playful) both }` — drops from under the status pill: from `translateY(-14px) scale(0.92)`, opacity 0, over 0.79 s on `playful`. Layer 4 shadow.
 - Off: `mo-xfade 0.15s ease-out both`.
-- Lifetime: the shell store dismisses a toast after **3200 ms**; a click dismisses it at once. There is no exit animation.
+- Lifetime: the toast store dismisses a toast after **3200 ms** (`TOAST_MS`); a click dismisses it at once. There is no exit animation.
 
-### 12.12 `shell/AppHost.tsx` — app open / close / switch
+### 12.11 `shell/AppHost.tsx` — app open / close / switch
 
 Every open app is rendered exactly once as `section.app-window[data-app][data-placement]` and never
 re-parented; only `placement` changes (`'full' | 'hidden' | 'split-left' | 'split-right'`). A
@@ -1002,14 +992,14 @@ re-parented; only `placement` changes (`'full' | 'hidden' | 'split-left' | 'spli
 - `turning = o5 && lastApp !== null && activeApp !== null && lastApp !== activeApp` — in the 0.5 look, going straight from one app to another turns the page (§8.2) instead of growing from an icon.
 - A window mounts already in place (first open) and is treated as coming from `hidden`, so it morphs in.
 - Interruptible: a newer morph cancels the live one from wherever it is (`live` map in morph.ts).
-- Behind it, the classic home sinks: `.home[data-hidden='true'] { transform: scale(0.92); filter: brightness(0.7) }` on `--dur-default --spring-default` (§4.5); the 0.5 home blurs (§12.7).
+- Behind it, the classic home sinks: `.home[data-hidden='true'] { transform: scale(0.92); filter: brightness(0.7) }` on `--dur-default --spring-default` (§4.5); the 0.5 home blurs (§12.6).
 - The 0.5 chapter opener (title card) runs on each open at Full/Lite (`opener` counter), ignores taps, and clears itself on `animationend`:
   `.o5-opener { animation: o5-opener-out 0.95s var(--ease-o5) both }` — `0%, 52% { opacity: 1 } 100% { opacity: 0; transform: translateY(-4%) }`;
   `.o5-opener-n { animation: o5-opener-drift 0.95s }` — `translateY(6%) → translateY(-2%)`;
   `.o5-opener-title`, `.o5-opener-line` (`+0.03s`): `o5-opener-title 0.95s` — `0% { opacity: 0; translateY(24px) } 28%, 52% { opacity: 1 } 100% { opacity: 0; translateY(-48px) }`;
   Lite: `o5-opener-quick 0.45s ease` (`0%, 40% { opacity: 1 } 100% { opacity: 0 }`), children not animated; Off: `display: none`.
 
-### 12.13 `ui/components.tsx` `Sheet` — growing from the tap, drag to dismiss (uses `SPRING.bouncy`, `springValue`)
+### 12.12 `ui/components.tsx` `Sheet` — growing from the tap, drag to dismiss (uses `SPRING.bouncy`, `springValue`)
 
 Not in the list above but it is the remaining `SPRING`/`springValue` user, and the reference for §1.3 "sheets grow out of the button":
 
@@ -1020,7 +1010,7 @@ Not in the list above but it is the remaining `SPRING`/`springValue` user, and t
 - CSS entrance when not grown: Full `.sheet:not([data-grown]) { animation: mo-sheet-in var(--dur-bouncy) var(--spring-bouncy) backwards }` (from `translateY(60px) scale(0.98)`, opacity 0); 0.5 look `o5-sheet var(--dur-o5) var(--ease-o5) both` (from `perspective(1200px) translate3d(0, 60px, -140px) rotateX(10deg)`, opacity 0); base `sheet-up var(--dur-med) var(--ease-out)`; Off `mo-xfade 0.15s`. Scrim: `fade-in var(--dur-med) var(--ease-out)`, 0.3 s at Full.
 - A `page` sheet runs `useScrollDepth(body, true, 'edges')` for its `[data-depth]` chapters (§9).
 
-### 12.14 Classic home (CSS only, for completeness)
+### 12.13 Classic home (CSS only, for completeness)
 
 Icons `mo-icon-pop` on `playful` with `--i × 55ms + 100ms` (Full) / `mo-fade-up 0.25s` with `--i × 25ms` (Lite);
 widgets `mo-fade-up 0.6s --ease-soft` at 0.45 / 0.52 / 0.59 s; widgets tilt with `useTilt(5)`.
@@ -1048,12 +1038,12 @@ widgets `mo-fade-up 0.6s --ease-soft` at 0.45 / 0.52 / 0.59 s; widgets tilt with
    from the icon/tile/tap for windows, sheets and viewers, from above (y −14) for toasts.
    Departures go the other way (y −18 on a screen leaving, x −36 for a rejected answer).
 
-5. Stagger lists at 55 ms (bouncy) — 70 ms for script scenes, 45 ms for the index and gallery,
+5. Stagger lists at 55 ms (bouncy) — 45 ms for the index and gallery,
    40 ms for things leaving. First item after a delay (0.08–0.3 s) so the heading reads first.
 
 6. Everything is interruptible. A new state must take over from wherever the old animation is:
    use layoutId / AnimatePresence for React, the `live` map pattern (cancel then replace) for
-   script, and read the current transform back before grabbing (the sheet). Never await an
+   JavaScript, and read the current transform back before grabbing (the sheet). Never await an
    animation before accepting input.
 
 7. Respect the level, always:
@@ -1089,6 +1079,6 @@ widgets `mo-fade-up 0.6s --ease-soft` at 0.45 / 0.52 / 0.59 s; widgets tilt with
 
 ## 14. Cross-references
 
-- **The orb's own physics** (`shell/orb/physics.ts`, `OrbCursor`): a separate set of springs defined by `response` and `dampingRatio` with `damping = 2 · ratio · ω` (not the `4π·d/r` form used here), momentum projection, rubber-banding and squash-and-stretch. The orb calls `cue('tap' | 'pop' | 'done' | 'error')` and `tick()` from this package, and the studio's `orbHome()` / `orbThink()` timings in §12.3, §12.5 and §12.6 belong to it. See the orb document.
+- **The orb's own physics** (`shell/orb/physics.ts`, `OrbCursor`): a separate set of springs defined by `response` and `dampingRatio` with `damping = 2 · ratio · ω` (not the `4π·d/r` form used here), momentum projection, rubber-banding and squash-and-stretch. The orb calls `cue('tap' | 'pop' | 'done' | 'error')` and `tick()` from this package, and the example app's `orbHome()` / `orbThink()` timings in §12.3 and §12.5 belong to it. See the orb document.
 - **Colours, glass and typography** (`--lit`, `--accent`, `--surface-*`, `--dur-fast`, `--dur-med`, `--ease-out`, the `o5` skin): the styles document. `motion.css` needs `--lit` for its shadows.
-- **MOTION.md** in Orbit is the source of §1; §2–§12 are read from the code and CSS, which win wherever the two differ (noted inline: press scale, parallax pixels).
+- **The source app's motion notes** are the source of §1; §2–§12 are read from the code and CSS, which win wherever the two differ (noted inline: press scale, parallax pixels).

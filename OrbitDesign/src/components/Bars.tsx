@@ -4,10 +4,10 @@ import { SPRING, transitionFor, useMotionLevel } from '../motion';
 import { SqIcon } from './icons';
 
 /**
- * The frame of a studio screen, extracted from Orbit's StudioApp: a top bar (the masthead and two
- * square buttons), the stage in the middle (the only part that moves) and a bottom bar (Back, Home,
- * Save draft). The screen logic that decides what each button does stays in the app; see
- * docs/07-layout-and-navigation.md for the exact rules.
+ * The frame of every screen: a top bar (the masthead and two square buttons), the stage in the
+ * middle (the only part that moves) and a bottom bar (Back, Home, Save draft). The screen logic
+ * that decides what each button does stays in the app; see docs/07-layout-and-navigation.md for
+ * the exact rules.
  */
 
 /** The fixed, full-screen root: top bar, stage and bottom bar in a three-row grid. */
@@ -27,11 +27,11 @@ export function TopBar({
   onGallery,
   optionsLabel = 'Options',
   galleryLabel = 'Your gallery',
-  label = 'Studio',
+  label = 'Site',
 }: {
-  /** The small line over the masthead ("An Orbit studio · 18+"). */
+  /** The small line over the masthead ("A sample guide"). */
   kicker: string;
-  /** The masthead: the roman half and the italic half ("After", "Dark"). */
+  /** The masthead: the roman half and the italic half ("Com", "pass"). */
   mark: [string, string];
   /** Show the two square buttons (hidden on the gate). */
   actions?: boolean;

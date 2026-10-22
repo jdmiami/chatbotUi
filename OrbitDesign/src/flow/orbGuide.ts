@@ -1,13 +1,12 @@
 /**
- * The orb as the studio's guide. It is quiet: it sits on the thing a screen wants from you (the
- * answer it would pick, the button that moves you on), glows while the studio works, and keeps what
- * it would say until you tap it. These are the only ways the walkthrough reaches the orb: window
- * events, so the orb (src/orb) and the screens never import each other.
- * Copied from Orbit Studios (src/studio/orbGuide.ts), unchanged.
+ * The orb as the guide. It is quiet: it sits on the thing a screen wants from you (the answer it
+ * would pick, the button that moves you on), glows while the app works, and keeps what it would
+ * say until you tap it. These are the only ways a flow reaches the orb: window events, so the orb
+ * (src/orb) and the screens never import each other.
  */
 
 /**
- * What the orb would tell you here, kept until you tap it (it never talks on its own in a studio).
+ * What the orb would tell you here, kept until you tap it (it never talks on its own in a flow).
  * `act` adds a button to its panel; pressing it sends `orb:act` with the id.
  */
 export function orbNote(text: string | null, act?: { label: string; id: string }) {

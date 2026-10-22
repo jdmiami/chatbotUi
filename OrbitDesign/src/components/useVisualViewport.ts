@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 
 /**
  * Tracks the *visual* viewport, which on iOS Safari shrinks when the on-screen keyboard opens
@@ -7,10 +7,13 @@ import { useEffect } from 'react';
  *   --vv-offset-top   how far iOS has scrolled the visual viewport (keeps the shell pinned)
  *   --keyboard-inset  approximate keyboard height
  * and calls `onChange` (optional) with the size and a `keyboardOpen` flag.
- * Copied from Orbit (src/hooks/useVisualViewport.ts); the store became a callback.
+ * The source app's hook, with its store replaced by a callback.
  */
 export function useVisualViewport(onChange?: (v: { width: number; height: number; keyboardOpen: boolean }) => void) {
-  const setViewport = onChange ?? (() => {});
+  // The latest callback, read inside the effect, so a new function each render never re-subscribes.
+  const latest = useRef(onChange);
+  latest.current = onChange;
+  const setViewport = (v: { width: number; height: number; keyboardOpen: boolean }) => latest.current?.(v);
 
   useEffect(() => {
     const root = document.documentElement;
@@ -69,7 +72,7 @@ export function useVisualViewport(onChange?: (v: { width: number; height: number
       document.removeEventListener('focusin', update);
       document.removeEventListener('focusout', update);
     };
-  }, [setViewport]);
+  }, []);
 }
 
 /** Height of Safari 26's floating bar above the iPhone keyboard (AutoFill, hide keyboard), with its margin. */

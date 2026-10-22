@@ -9,8 +9,8 @@
  *   orb:act     detail: string (the act id)       ← sent BY the orb when the note's button is pressed
  *   orb:run     detail: string                    → open the panel and ask the adapter this
  *
- * In Orbit, `orbNote`, `orbThink` and `orbHome` lived in studio/orbGuide.ts and `OrbSpot` in
- * studio/Sheets.tsx; `orb:run` was called `orbit:orb-run`.
+ * The same helpers are exported from src/flow (orbGuide.ts) and src/components (OrbSpot), so a
+ * page never has to import the orb itself. In Orbit, `orb:run` was called `orbit:orb-run`.
  */
 
 export interface OrbAct {
@@ -31,7 +31,7 @@ export function orbSay(line: string) {
 }
 
 /**
- * What the orb would tell you here, kept until you tap it (it never talks on its own in a studio).
+ * What the orb would tell you here, kept until you tap it (it never talks on its own in a guided flow).
  * `act` adds a button to its panel; pressing it sends `orb:act` with the id.
  */
 export function orbNote(text: string | null, act?: OrbAct) {

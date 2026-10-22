@@ -1,11 +1,11 @@
 import { forwardRef, useEffect, useRef, useState } from 'react';
 import { useMotionLevel } from '../motion';
-import { getWriter, type ChatMessage } from '../walkthrough/adapter';
-import type { MakeKind, StudioDef } from '../walkthrough/defs';
-import { orbHome, orbThink } from '../walkthrough/orbGuide';
+import { getAssistant, type ChatMessage } from '../flow/adapter';
+import type { Choice } from '../flow/defs';
+import { orbHome, orbThink } from '../flow/orbGuide';
 import { Headline } from './Sheets';
 import { Choices } from './Choices';
-import { SqIcon } from './icons';
+import { SqIcon, type IconName } from './icons';
 
 /** A microphone, if the app has one: the "mic slot". Without it there is no mic button. */
 export interface Mic {
@@ -23,28 +23,51 @@ export interface Mic {
   };
 }
 
+/** A button under the thread once something has been said ("Plan it", "Save this"). */
+export interface ConversationAction {
+  label: string;
+  icon?: IconName;
+  /** Called with the last thing you said (up to 120 characters), so the app can start from it. */
+  onClick: (seed: string) => void;
+}
+
 /**
- * How Talk reaches a writer. Either give `onSend` (the whole reply at once), or set a Writer through
- * the adapter (streamed). With neither, sending shows an error and keeps your words in the box.
+ * How the conversation reaches an assistant. Either give `onSend` (the whole reply at once), or set
+ * an Assistant through the adapter (streamed). With neither, sending shows an error and keeps your
+ * words in the box.
  */
-export interface TalkProps {
-  studio: StudioDef;
-  /** Start a walkthrough from what was said (the last thing you typed, up to 120 characters). */
-  onMake: (kind: Exclude<MakeKind, 'talk'>, seed: string) => void;
+export interface ConversationProps {
+  /** The headline; *words between asterisks* are italic. */
+  title: string;
+  /** The running head over the headline. */
+  kicker: string;
+  /** The right-hand part of the running head. */
+  num?: string;
+  /** Ready openers, shown while nothing has been said. */
+  starters: Choice[];
+  /** Ready ways to carry on, shown after each reply. */
+  followUps: Choice[];
+  /** The assistant's instructions for this conversation (the first, system message). */
+  system?: string;
   /** Answer one turn: the text just sent, the whole history before it, and an abort signal. Resolve with the reply. */
   onSend?: (text: string, history: ChatMessage[], signal?: AbortSignal) => Promise<string>;
   /** The mic slot (see Mic). */
   mic?: Mic;
-  /** Called when the adapter's writer is not awake; the app may start waking it. */
+  /** Called when the adapter's assistant is not awake; the app may start waking it. */
   onWake?: () => void;
+  /** Buttons under the thread once something has been said. */
+  actions?: ConversationAction[];
+  placeholder?: string;
 }
 
 /**
- * Talk: a conversation with the studio's writer, typed or spoken. At any point it can become a
- * walkthrough, already started from what you talked about.
- * Copied from Orbit Studios (src/studio/Talk.tsx); the writer and the mic are now props/adapters.
+ * A conversation, typed or spoken: a thread, ready openers and follow-ups as answers on springs,
+ * and the actions an app wants to offer from what was said.
  */
-export const Talk = forwardRef<HTMLElement, TalkProps>(function Talk({ studio, onMake, onSend, mic, onWake }, ref) {
+export const Conversation = forwardRef<HTMLElement, ConversationProps>(function Conversation(
+  { title, kicker, num, starters, followUps, system = 'Talk like a helpful companion: short replies, one idea at a time, and offer two or three directions to take it.', onSend, mic, onWake, actions = [], placeholder = 'Say what you have in mind…' },
+  ref,
+) {
   const [msgs, setMsgs] = useState<ChatMessage[]>([]);
   const [text, setText] = useState('');
   const [busy, setBusy] = useState(false);
@@ -68,7 +91,7 @@ export const Talk = forwardRef<HTMLElement, TalkProps>(function Talk({ studio, o
     setMsgs([...history, { role: 'assistant', content: '' }]);
     setBusy(true);
     ctrl.current = new AbortController();
-    const system: ChatMessage = { role: 'system', content: `${studio.writer}\nTalk like a creative partner: short replies, one idea at a time, and offer two or three directions to take it.` };
+    const first: ChatMessage = { role: 'system', content: system };
     let reply = '';
     const onText = (d: string) => {
       reply += d;
@@ -76,15 +99,15 @@ export const Talk = forwardRef<HTMLElement, TalkProps>(function Talk({ studio, o
     };
     try {
       if (onSend) {
-        onText(await onSend(v, [system, ...msgs], ctrl.current.signal));
+        onText(await onSend(v, [first, ...msgs], ctrl.current.signal));
       } else {
-        const w = getWriter();
-        if (!w) throw new Error('No writer is plugged in yet.');
-        if (!w.awake()) {
+        const a = getAssistant();
+        if (!a) throw new Error('No assistant is plugged in yet.');
+        if (!a.awake()) {
           onWake?.();
-          throw Object.assign(new Error('The writer is waking up with the studio. Try again in a couple of minutes.'), { status: 503 });
+          throw Object.assign(new Error('The assistant is waking up. Try again in a couple of minutes.'), { status: 503 });
         }
-        await w.chat([system, ...history], onText, ctrl.current.signal);
+        await a.chat([first, ...history], onText, ctrl.current.signal);
       }
     } catch (err) {
       if ((err as Error).name === 'AbortError') return;
@@ -106,8 +129,8 @@ export const Talk = forwardRef<HTMLElement, TalkProps>(function Talk({ studio, o
     setPicked(label);
     await new Promise((r) => setTimeout(r, level === 'full' ? 520 : level === 'lite' ? 200 : 0));
     setPicked(null);
-    const hint = studio.talk.starters.find((c) => c.label === label)?.hint;
-    void send(starter ? `I'm in the mood for: ${label.toLowerCase()}${hint ? ` (${hint.toLowerCase()})` : ''}.` : label);
+    const hint = starters.find((c) => c.label === label)?.hint;
+    void send(starter ? `Let's start with: ${label.toLowerCase()}${hint ? ` (${hint.toLowerCase()})` : ''}.` : label);
   };
 
   const micTap = () => {
@@ -139,10 +162,10 @@ export const Talk = forwardRef<HTMLElement, TalkProps>(function Talk({ studio, o
   return (
     <article className="st-sheet st-talk" ref={ref} aria-labelledby="st-talk-t">
       <p className="o5-kicker st-kick">
-        <span>Talk</span>
-        <span className="st-num">The writer</span>
+        <span>{kicker}</span>
+        {num && <span className="st-num">{num}</span>}
       </p>
-      {msgs.length === 0 ? <Headline text="What are you *in the mood for?*" id="st-talk-t" /> : <Headline text="Talking with the *writer*" id="st-talk-t" />}
+      <Headline text={title} id="st-talk-t" />
       <div className="st-thread" aria-live="polite">
         {msgs.map((m, i) => (
           <p key={i} className={m.role === 'user' ? 'st-said' : 'st-reply'}>
@@ -159,24 +182,20 @@ export const Talk = forwardRef<HTMLElement, TalkProps>(function Talk({ studio, o
       {!busy && (
         <Choices
           key={msgs.length}
-          items={msgs.length ? studio.talk.followUps : studio.talk.starters}
+          items={msgs.length ? followUps : starters}
           picked={picked}
           onPick={(label) => void choose(label, msgs.length === 0)}
-          label={msgs.length ? 'Where to take it' : 'Moods'}
+          label={msgs.length ? 'Where to take it' : 'Ways to start'}
           delay={msgs.length ? 0.1 : 0.2}
         />
       )}
-      {seed && !busy && (
-        <p className="st-shortcuts" aria-label="Make it">
-          <button type="button" onClick={() => onMake('image', seed)}>
-            <SqIcon name="picture" /> Make it a picture
-          </button>
-          <button type="button" onClick={() => onMake('video', seed)}>
-            <SqIcon name="video" /> A video
-          </button>
-          <button type="button" onClick={() => onMake('movie', seed)}>
-            <SqIcon name="movie" /> A movie
-          </button>
+      {seed && !busy && actions.length > 0 && (
+        <p className="st-shortcuts" aria-label="Next">
+          {actions.map((a) => (
+            <button key={a.label} type="button" onClick={() => a.onClick(seed)}>
+              {a.icon && <SqIcon name={a.icon} />} {a.label}
+            </button>
+          ))}
         </p>
       )}
       <form
@@ -189,7 +208,7 @@ export const Talk = forwardRef<HTMLElement, TalkProps>(function Talk({ studio, o
         <label className="o5-kicker" htmlFor="st-talk-in">
           {hearing ? 'Listening…' : 'Say it or type it'}
         </label>
-        <input id="st-talk-in" value={text} onChange={(e) => setText(e.target.value)} placeholder="A slow-burn story about…" autoComplete="off" enterKeyHint="send" />
+        <input id="st-talk-in" value={text} onChange={(e) => setText(e.target.value)} placeholder={placeholder} autoComplete="off" enterKeyHint="send" />
         {mic?.canListen() && (
           <button type="button" className="st-mic" aria-pressed={!!hearing} aria-label={hearing ? 'Stop listening' : 'Speak'} onClick={micTap}>
             <SqIcon name="mic" />

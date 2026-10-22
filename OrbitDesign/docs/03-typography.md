@@ -1,6 +1,6 @@
 # 03 · Typography
 
-Two typefaces, one text scale, and a small set of type styles that every screen is built from. All values are copied from `orbit/src/studio/studio.css` (the studio look), `orbit/src/styles/o5.css` (the magazine skin) and `orbit/src/styles/global.css` (the classic components); the file is named in each table.
+Two typefaces, one text scale, and a small set of type styles that every screen is built from. All values are those of the package's `src/styles/pages.css` (the page look), `src/styles/o5.css` (the magazine skin) and `src/styles/base.css` (the classic components; the tables call it global.css, its name in the source app); the file is named in each table.
 
 ## 1. The typefaces
 
@@ -9,17 +9,17 @@ Two typefaces, one text scale, and a small set of type styles that every screen 
 | Display (serif) | `'Fraunces Variable'` | `@fontsource-variable/fraunces` 5.3.0 (Fraunces v38) | `opsz.css` (upright) and `opsz-italic.css` (italic) | `ital` 0–1, `opsz` 9–144 (default 14), `wght` 100–900 (default 400), `SOFT` 0–100, `WONK` 0–1 |
 | UI (sans) | `'Inter Variable'` | `@fontsource-variable/inter` 5.3.0 (Inter v20) | `index.css` (the `wght` file set, upright only) | `ital` 0–1, `opsz` 14–32 (default 14), `wght` 100–900 |
 
-Each `@font-face` these files add declares `font-weight: 100 900`, `font-display: swap`, a `woff2-variations` source and a `unicode-range` subset (Fraunces: latin, latin-ext, vietnamese; Inter: latin, latin-ext, cyrillic, cyrillic-ext, greek, greek-ext, vietnamese). The `opsz` file set is what makes `font-variation-settings: 'opsz' …` take effect on Fraunces. Inter's `index.css` is the `wght` set; Orbit never sets an italic or an optical size on Inter. Orbit imports no Inter italic file; browsers synthesise any italic Inter.
+Each `@font-face` these files add declares `font-weight: 100 900`, `font-display: swap`, a `woff2-variations` source and a `unicode-range` subset (Fraunces: latin, latin-ext, vietnamese; Inter: latin, latin-ext, cyrillic, cyrillic-ext, greek, greek-ext, vietnamese). The `opsz` file set is what makes `font-variation-settings: 'opsz' …` take effect on Fraunces. Inter's `index.css` is the `wght` set; the package never sets an italic or an optical size on Inter. No Inter italic file is imported; browsers synthesise any italic Inter.
 
 ### How they are loaded
 
-Dynamically, so the fonts only download for the magazine look. In a studio site, `orbit/src/studio/StudioApp.tsx` (inside the theme `useEffect`):
+Dynamically, so the fonts only download for the magazine look. In the source app's page look (inside its theme `useEffect`):
 
 ```ts
 void Promise.all([import('@fontsource-variable/fraunces/opsz.css'), import('@fontsource-variable/fraunces/opsz-italic.css'), import('@fontsource-variable/inter/index.css')]).catch(() => {});
 ```
 
-In Orbit proper, `orbit/src/hooks/useApplySettings.ts` does the same when the skin is `o5`:
+The source app's settings hook (`useApplySettings`) did the same when the skin is `o5`:
 
 ```ts
 let fontsLoading: Promise<unknown> | null = null;
@@ -35,7 +35,7 @@ function loadEditorialFonts() {
 }
 ```
 
-This package exposes the same three imports as `loadFonts()` in `src/styles/fonts.ts`.
+This package exposes the same three imports as `loadFonts()` in `src/styles/fonts.ts`; the example app calls it once in `example/src/main.tsx`.
 
 ### Fallbacks
 
@@ -46,7 +46,7 @@ The families are named through two variables (o5.css, `:root[data-skin='o5']`):
 --font-ui: 'Inter Variable', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
 ```
 
-Outside the o5 skin, `--font-ui` is the system stack from tokens.css (`-apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif`) and `--font-display` is **undefined**: studio.css reads `var(--font-display)` with no fallback, so without `data-skin="o5"` those rules are invalid at computed-value time and the element inherits the body font. Orbit's own apps write `var(--font-display, inherit)` or `var(--font-display, serif)` for that reason.
+Outside the o5 skin, `--font-ui` is the system stack from tokens.css (`-apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif`) and `--font-display` is **undefined**: pages.css reads `var(--font-display)` with no fallback, so without `data-skin="o5"` those rules are invalid at computed-value time and the element inherits the body font. The source app's other stylesheets write `var(--font-display, inherit)` or `var(--font-display, serif)` for that reason.
 
 ## 2. Body defaults
 
@@ -99,19 +99,19 @@ o5.css adds, for the magazine skin:
 }
 ```
 
-(`ss01` and `cv11` are Inter's stylistic set 1 and character variant 11.) studio.css sets `.st-root { color: var(--text); font-family: var(--font-ui); }` and `.st-root button { font: inherit; color: inherit; cursor: pointer; -webkit-tap-highlight-color: transparent; }`.
+(`ss01` and `cv11` are Inter's stylistic set 1 and character variant 11.) pages.css sets `.st-root { color: var(--text); font-family: var(--font-ui); }` and `.st-root button { font: inherit; color: inherit; cursor: pointer; -webkit-tap-highlight-color: transparent; }`.
 
 ## 3. The text scale
 
-`--text-scale` is `1` on `:root` (tokens.css). Orbit's Settings → Text size writes it inline on `<html>`: `root.style.setProperty('--text-scale', String(settings.textScale))` (`useApplySettings.ts`). A studio site never runs that hook, so there it is always `1`. Every size that should follow the user's setting is written as a multiplication:
+`--text-scale` is `1` on `:root` (tokens.css). The source app's Settings → Text size wrote it inline on `<html>`: `root.style.setProperty('--text-scale', String(settings.textScale))` (its `useApplySettings` hook, quoted in `docs/02-tokens.md` §14). An app built on this package has no such hook unless it adds one (the orb's pinch can also write it, `docs/09-orb.md`), so there it is `1`. Every size that should follow the user's setting is written as a multiplication:
 
 - the token sizes: `--fs-xs: calc(12px * var(--text-scale))`, `--fs-sm: calc(13px * …)`, `--fs-md: calc(15px * …)`, `--fs-lg: calc(17px * …)`, `--fs-xl: calc(22px * …)`, `--fs-2xl: calc(28px * …)`;
-- fixed sizes: `calc(22px * var(--text-scale))`; studio.css writes `var(--text-scale, 1)` with a fallback, o5.css writes `var(--text-scale)` without;
+- fixed sizes: `calc(22px * var(--text-scale))`; pages.css writes `var(--text-scale, 1)` with a fallback, o5.css writes `var(--text-scale)` without;
 - fluid sizes: `calc(clamp(min, vw, max) * var(--text-scale))`, so the clamp is computed first and then scaled.
 
-Sizes written as plain `px` (for example `.st-rec`, `.st-frames li`, `.st-script-meta`, `.st-row-n`, `.o5-display`, `.o5-numeral`) do **not** scale.
+Sizes written as plain `px` (for example `.st-rec`, `.st-row-n`, `.o5-display`, `.o5-numeral`) do **not** scale.
 
-## 4. Type styles: the studio look (studio.css)
+## 4. Type styles: the page look (pages.css)
 
 Column key: size is the exact `font-size` (ts = `var(--text-scale, 1)`); weight; tracking = `letter-spacing`; lh = `line-height`; opsz = `font-variation-settings`; case = `text-transform`.
 
@@ -121,7 +121,7 @@ Column key: size is the exact `font-size` (ts = `var(--text-scale, 1)`); weight;
 |---|---|---|---|---|---|---|---|---|---|---|
 | Headline / question | `.st-q` | `var(--font-display)` | `calc(clamp(36px, 8.4vw, 64px) * ts)` | `340` | `-0.035em` | `1` | `'opsz' 120` | — | inherits `--text` | `margin: 0; padding-right: 64px; text-wrap: balance;` (`padding-right: 56px` at `max-width: 560px`) |
 | Headline emphasis | `.st-q em` | inherits | inherits | `300` | | | | | `var(--accent)` | `font-style: italic` |
-| Kicker (running head) | `.o5-kicker` (o5.css) | `var(--font-ui)` | `calc(11px * var(--text-scale))` | `600` | `0.18em` | `1.4` | — | `uppercase` | `var(--text-3)` | `margin: 0`. In the studio it carries `.st-kick` (`display: flex; justify-content: space-between; gap: 12px`) with a `.st-num` span (`font-variant-numeric: tabular-nums`) at the right |
+| Kicker (running head) | `.o5-kicker` (o5.css) | `var(--font-ui)` | `calc(11px * var(--text-scale))` | `600` | `0.18em` | `1.4` | — | `uppercase` | `var(--text-3)` | `margin: 0`. On a page it carries `.st-kick` (`display: flex; justify-content: space-between; gap: 12px`) with a `.st-num` span (`font-variant-numeric: tabular-nums`) at the right |
 | Dek (standfirst) | `.st-dek` | `var(--font-display)` | `calc(clamp(18px, 2.4vw, 22px) * ts)` | (400) | — | `1.38` | `'opsz' 24` | — | `var(--text-2)` | `margin: 0; max-width: 34ch` |
 | Masthead kicker | `.st-flag small` | `var(--font-ui)` | `calc(10.5px * ts)` | `600` | `0.18em` | `1.3` | — | `uppercase` | `var(--text-3)` | |
 | Masthead | `.st-flag b` | `var(--font-display)` | `calc(26px * ts)` | `340` | `-0.02em` | `1.05` | `'opsz' 72` | — | inherits | |
@@ -144,12 +144,12 @@ Column key: size is the exact `font-size` (ts = `var(--text-scale, 1)`); weight;
 |---|---|---|---|---|---|---|---|---|---|
 | Own-words input | `.st-own input` | `var(--font-display)` | `calc(22px * ts)` | (400) | — | — | — | `var(--text)`; placeholder `var(--text-3)` italic | `padding: 6px 0 10px`; underlined (see `docs/04`) |
 | Text button (own words, shortcuts) | `.st-own button, .st-shortcuts button` | `var(--font-ui)` | `calc(11px * ts)` | `600` | `0.16em` | `1.3` | `uppercase` | `var(--text-2) !important`; `var(--accent) !important` on hover (not disabled) | `font: … !important`; `text-decoration: underline; text-decoration-color: var(--o5-hair); text-underline-offset: 6px`; `min-height: 44px` |
-| Text button (script desk) | `.st-scene-tools button, .st-ghost, .st-scene-form button` | `var(--font-ui)` | `calc(11px * ts)` | `600` | `0.16em` | `1.3` | `uppercase` | `var(--text-2) !important`; hover `var(--accent) !important` | underline offset `5px`, colour `var(--o5-hair)`; disabled `opacity: 0.4` |
+| Text button (secondary action) | `.st-ghost` | `var(--font-ui)` | `calc(11px * ts)` | `600` | `0.16em` | `1.3` | `uppercase` | `var(--text-2) !important`; hover `var(--accent) !important` | underline offset `5px`, colour `var(--o5-hair)`; disabled `opacity: 0.4` |
 | Primary button | `.st-go` | `var(--font-ui)` | `calc(12px * ts)` | `600` | `0.18em` | `1` | `uppercase` | `var(--bg) !important` on `background: var(--text)` | `font: … !important`; see `docs/04` |
 | Bottom bar button | `.st-bar-btn` | `var(--font-ui)` | `calc(11px * ts)` | `600` | `0.16em` | `1` | `uppercase` | `var(--text-2) !important`; hover `var(--accent) !important`; disabled `opacity: 0.3` | `.st-bar-btn span { font-size: 10px }` at `max-width: 560px` |
 | Drawer tab | `.st-tabs button` | `var(--font-ui)` | `calc(9.5px * ts)` | `600` | `0.12em` | `1.2` | `uppercase` | `var(--text-3) !important`; `var(--text) !important` when `[aria-pressed='true']` | |
 
-### Contents rows, rules, brief
+### Contents rows, rules, summary
 
 | Style | Selector | Family | Size | Weight | Tracking | lh | opsz | Case | Colour |
 |---|---|---|---|---|---|---|---|---|---|
@@ -158,23 +158,16 @@ Column key: size is the exact `font-size` (ts = `var(--text-scale, 1)`); weight;
 | Row meta | `.st-row-m` | `var(--font-ui)` | `var(--fs-sm, 14px)` | `400` | — | `1.35` | — | — | `var(--text-3)` |
 | Empty line | `.st-empty` | `var(--font-display)` | inherits | | | | | | `var(--text-3)`, italic; `padding: 18px 0` |
 | House rule | `.st-rules li` | `var(--font-display)` | `calc(17px * ts)` | | | | | | `var(--text-2)` |
-| Brief key | `.st-brieflist dt` | `var(--font-ui)` | `calc(11px * ts)` | `600` | `0.18em` | `1.4` | — | `uppercase` | `var(--text-3)`; `padding-top: 5px` |
-| Brief value | `.st-brieflist dd` | `var(--font-display)` | `calc(20px * ts)` | | | | | | inherits; `overflow-wrap: anywhere` |
-| Frame caption | `.st-frames li` | `var(--font-ui)` | `11px` (not scaled) | `600` | `0.14em` | `1.3` | — | `uppercase` | `var(--text-3)` |
+| Summary key | `.st-summary dt` | `var(--font-ui)` | `calc(11px * ts)` | `600` | `0.18em` | `1.4` | — | `uppercase` | `var(--text-3)`; `padding-top: 5px` |
+| Summary value | `.st-summary dd` | `var(--font-display)` | `calc(20px * ts)` | | | | | | inherits; `overflow-wrap: anywhere` |
 | Error | `.st-error` | inherits | inherits | | | | | | `var(--text)`; `border-left: 2px solid var(--danger, #e5484d); padding-left: 14px` |
 
-### The script desk and Talk
+### The conversation and the drawer
 
 | Style | Selector | Family | Size | Weight | Tracking | lh | opsz | Case | Colour | Notes |
 |---|---|---|---|---|---|---|---|---|---|---|
-| Script meta line | `.st-script-meta` | `var(--font-ui)` | `11px` (not scaled) | `600` | `0.14em` | `1.4` | — | `uppercase` | `var(--text-3)`; first `span` `var(--text-2)` | `gap: 4px 18px` |
-| Scene heading | `.st-scene-head` (an `.o5-kicker`) | as kicker | | | | | | | first `span` `var(--accent)` | `gap: 2px 14px` |
-| Scene action | `.st-action` | `var(--font-display)` | `calc(clamp(20px, 3.4vw, 25px) * ts)` | (400) | `-0.01em` | `1.32` | `'opsz' 36` | — | `var(--text)` | |
-| "Ends on" | `.st-ends` | `var(--font-ui)` | `var(--fs-sm, 14px)` | `400` | — | `1.45` | — | — | `var(--text-2)` | its label `.st-ends span`: `600 10.5px / 1 var(--font-ui)`, `0.16em`, uppercase, `var(--text-3)`, `margin-right: 6px` |
-| Says (dialogue) | `.st-says` | `var(--font-display)` | `calc(18px * ts)` | | | | | | `var(--text-2)` | italic; `padding-left: 14px; border-left: 1px solid var(--accent)` |
-| Scene form fields | `.st-scene-form :is(input, textarea)` | `var(--font-display)` | `calc(19px * ts)` | | | `1.4` | | | `var(--text)` | underlined (see `docs/04`) |
 | You said | `.st-said` | `var(--font-display)` | `calc(19px * ts)` | | | `1.5` | | | `var(--text-2)` | italic; `align-self: flex-end; max-width: 85%; text-align: right; white-space: pre-wrap` |
-| Writer's reply | `.st-reply` | `var(--font-display)` | `calc(19px * ts)` | | | `1.5` | | | inherits | `padding-left: 16px; border-left: 1px solid var(--accent); white-space: pre-wrap` |
+| Assistant's reply | `.st-reply` | `var(--font-display)` | `calc(19px * ts)` | | | `1.5` | | | inherits | `padding-left: 16px; border-left: 1px solid var(--accent); white-space: pre-wrap` |
 | Drawer title | `.st-drawer h3` | `var(--font-display)` | `calc(36px * ts)` | `340` | `-0.03em` | — | — | — | inherits | `margin: 0`; its `em`: `font-weight: 300; color: var(--accent)` |
 
 ## 5. Type styles: the magazine skin's shared pieces (o5.css)
@@ -245,10 +238,10 @@ These are unscoped classes (usable anywhere once o5.css is loaded); the `:root[d
 
 ## 7. The italic-emphasis convention
 
-Questions and titles mark the word that matters with asterisks in the data; the `Headline` component turns every odd-numbered part into an `<em>`, which `.st-q em` sets in italic, weight 300, in the accent colour. From `orbit/src/studio/Sheets.tsx`:
+Questions and titles mark the word that matters with asterisks in the data; the `Headline` component turns every odd-numbered part into an `<em>`, which `.st-q em` sets in italic, weight 300, in the accent colour. From `src/components/Sheets.tsx`:
 
 ```tsx
-/** "Where are *we?*": words between asterisks are set in italics, the magazine way. The orb waits beside it. */
+/** "Where *to?*": words between asterisks are set in italics, the magazine way. The orb waits beside it. */
 export function Headline({ text, id, orb = true }: { text: string; id?: string; orb?: boolean }) {
   const parts = text.split('*');
   return (
@@ -270,12 +263,12 @@ export function Headline({ text, id, orb = true }: { text: string; id?: string; 
 }
 ```
 
-`StepDef.q` in `defs.ts` documents it: "The question, as the orb asks it. *Words between asterisks* are set in italics." Examples from `afterdark.ts`: `'Who is *in it?*'`, `'What is the *mood?*'`, `'Where are *we?*'`, `'How *dressed?*'`, `'Quick film or *director’s cut?*'`, `'Here is the *script.*'`; from `StudioApp.tsx`: `"What shall we *make?*"`; from `Sheets.tsx`: `'Your *projects*'`, `` `Welcome to ${studio.mark[0]} *${studio.mark[1]}*` ``, `"Adults *only.*"`; from `Make.tsx`: `` `Here is your *${what}.*` ``, `` `Making your *${what}…*` ``; from `Talk.tsx`: `"What are you *in the mood for?*"`. Note the punctuation sits inside the asterisks. The same text is given to the orb with the asterisks stripped: `step.q.replace(/\*/g, '')`.
+`Step.q` in `src/flow/defs.ts` documents it: "The question, as the orb asks it. *Words between asterisks* are set in italics." Examples from the Compass guide (`src/flow/guides/example.ts`): `'Where *to?*'`, `'When do we *go?*'`, `'Who is *coming?*'`, `'How *fast?*'`, `'How much to *spend?*'`, `'What *shape* should the plan take?'`; from the example app (`example/src/App.tsx`): `"What shall we *plan?*"`, `"Here is your *plan.*"`, `"Saving your *plan…*"`, `"Here is your *summary.*"`, `"Where shall we *go?*"`; from `Sheets.tsx`: `'Your *drafts*'`, `` `Welcome to ${guide.mark[0]} *${guide.mark[1]}*` ``. Note the punctuation sits inside the asterisks. The same text is given to the orb with the asterisks stripped: `step.q.replace(/\*/g, '')`.
 
-The same idea, written in markup rather than data, appears in the masthead (`<b>{studio.mark[0]} <i>{studio.mark[1]}</i></b>` with `.st-flag i { font-style: italic; font-weight: 300; color: var(--accent); }`) and the drawer titles (`<h3>Your <em>gallery</em></h3>`, `.st-drawer h3 em { font-weight: 300; color: var(--accent); }`).
+The same idea, written in markup rather than data, appears in the masthead (`<b>{mark[0]} <i>{mark[1]}</i></b>` in `Bars.tsx`, with `.st-flag i { font-style: italic; font-weight: 300; color: var(--accent); }`) and the drawer titles (`<h3>Your <em>gallery</em></h3>`, `.st-drawer h3 em { font-weight: 300; color: var(--accent); }`).
 
 A related convention: the selected or current item goes italic rather than getting a highlight box: `.st-choice[aria-pressed='true'] .st-lb { font-style: italic }` (plus the accent `✦`), `.o5-index-go[aria-current] .o5-index-title { font-style: italic; color: var(--accent); }`, `.o5-choice[aria-checked='true'] .o5-go-label { font-style: italic; }`, `.o5-open-go[aria-current] .o5-open-name { font-style: italic; color: var(--accent); }`, `.st-trail-ans` is italic throughout (it is an answer already given). Accent is used only for italics, hairline-sized marks and the primary button's hover: never as a fill behind text, except in the classic skin's `.btn.primary`.
 
 ## 8. Optical sizes used
 
-Fraunces' `opsz` axis is set per role; the values in use are `144` (display, numerals, magazine titles), `120` (`.st-q`), `96` (index and chapter titles, greeting), `72` (masthead, app header, AI bar), `48` (answers, link labels, contents rows), `36` (scene action, open-app name), `24` (deks), `18` (serif body copy in the AI apps). Inter is never given an `opsz`.
+Fraunces' `opsz` axis is set per role; the values in use are `144` (display, numerals, magazine titles), `120` (`.st-q`), `96` (index and chapter titles, greeting), `72` (masthead, app header, AI bar), `48` (answers, link labels, contents rows), `36` (open-app name), `24` (deks), `18` (serif body copy in the source app's chat). Inter is never given an `opsz`.
