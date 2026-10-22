@@ -4,6 +4,9 @@ import { studioAi } from './memberApi';
 import { canListen, listen, type Listening } from '../shell/orb/listen';
 import type { MakeKind, StudioDef } from './defs';
 import { Headline } from './Sheets';
+import { Choices } from './Choices';
+import { orbHome } from './orbGuide';
+import { useMotionLevel } from '../motion/MotionProvider';
 import { SqIcon } from './icons';
 
 /**
@@ -16,10 +19,14 @@ export const Talk = forwardRef<HTMLElement, { studio: StudioDef; onMake: (kind: 
   const [busy, setBusy] = useState(false);
   const [hearing, setHearing] = useState<Listening | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [picked, setPicked] = useState<string | null>(null);
+  const level = useMotionLevel();
   const end = useRef<HTMLDivElement>(null);
   const ctrl = useRef<AbortController | null>(null);
   useEffect(() => () => ctrl.current?.abort(), []);
   useEffect(() => end.current?.scrollIntoView({ block: 'end', behavior: 'smooth' }), [msgs]);
+  // A new turn brings the orb back to its place, wherever it was thrown.
+  useEffect(() => orbHome(), [msgs.length]);
 
   const send = async (said: string) => {
     const v = said.trim();
@@ -40,6 +47,11 @@ export const Talk = forwardRef<HTMLElement, { studio: StudioDef; onMake: (kind: 
       await studioAi.chat(all, onText, ctrl.current.signal);
     } catch (err) {
       if ((err as Error).name === 'AbortError') return;
+      // Nothing came back: take the empty reply away and keep your words, ready to send again.
+      if (!reply) {
+        setMsgs(msgs);
+        setText(v);
+      }
       // Resting: wake the studio for the writer, and say so.
       if ((err as { status?: number }).status === 503) {
         void studioAi.power('start').catch(() => {});
@@ -48,6 +60,17 @@ export const Talk = forwardRef<HTMLElement, { studio: StudioDef; onMake: (kind: 
     } finally {
       setBusy(false);
     }
+  };
+
+  /** A ready answer: it lifts, the others leave, and it is said for you. */
+  const choose = async (label: string, starter: boolean) => {
+    if (picked !== null || busy) return;
+    orbHome();
+    setPicked(label);
+    await new Promise((r) => setTimeout(r, level === 'full' ? 520 : level === 'lite' ? 200 : 0));
+    setPicked(null);
+    const hint = studio.talk.starters.find((c) => c.label === label)?.hint;
+    void send(starter ? `I'm in the mood for: ${label.toLowerCase()}${hint ? ` (${hint.toLowerCase()})` : ''}.` : label);
   };
 
   const mic = () => {
@@ -91,6 +114,16 @@ export const Talk = forwardRef<HTMLElement, { studio: StudioDef; onMake: (kind: 
         <div ref={end} />
       </div>
       {error && <p className="st-error" role="alert">{error}</p>}
+      {!busy && (
+        <Choices
+          key={msgs.length}
+          items={msgs.length ? studio.talk.followUps : studio.talk.starters}
+          picked={picked}
+          onPick={(label) => void choose(label, msgs.length === 0)}
+          label={msgs.length ? 'Where to take it' : 'Moods'}
+          delay={msgs.length ? 0.1 : 0.2}
+        />
+      )}
       {seed && !busy && (
         <p className="st-shortcuts" aria-label="Make it">
           <button type="button" onClick={() => onMake('image', seed)}>

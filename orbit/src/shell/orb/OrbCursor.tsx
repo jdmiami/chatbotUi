@@ -376,6 +376,24 @@ function Orb() {
     moveTo(p.x, p.y, SPRINGS.land);
   }, [refocus, moveTo]);
 
+  // A page can call it home: after you drag or throw it, the next step of what you're doing brings
+  // it back to its place beside what matters (it never pulls it out of your finger or a box you type in).
+  useEffect(() => {
+    const on = () => {
+      if (mode.current === 'caret') {
+        if (caretMode.current === 'parked' || caretMode.current === 'tucked') caretMode.current = 'follow';
+        return;
+      }
+      if (mode.current !== 'parked' && mode.current !== 'tucked') return;
+      mode.current = 'follow';
+      spot.current = null;
+      lastFocus.current = null;
+      refocus();
+    };
+    window.addEventListener('orb:home', on);
+    return () => window.removeEventListener('orb:home', on);
+  }, [refocus]);
+
   // ---- the text cursor: while you type in a box, the orb becomes its caret
   const [caretOn, setCaretOn] = useState(false);
   const caretMode = useRef<Mode | null>(null); // the mode to go back to
