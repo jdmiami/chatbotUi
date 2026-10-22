@@ -29,6 +29,12 @@ import {
 } from './agent';
 import { canListen, listen, type Listening } from './listen';
 
+/** A page can tell the orb where it is and what it is for (a studio sets this), on <html data-orb-context>. */
+function withPageContext(prompt: string): string {
+  const extra = document.documentElement.dataset.orbContext;
+  return extra ? `${prompt}\n\n${extra}` : prompt;
+}
+
 const SIZE = 56;
 const R = SIZE / 2;
 /** Flying to something it is about to touch: quick, purposeful, barely any overshoot. */
@@ -1163,7 +1169,7 @@ function Orb() {
           temperature: 0.3,
           signal,
           messages: [
-            { role: 'system', content: EXPLAIN_PROMPT },
+            { role: 'system', content: withPageContext(EXPLAIN_PROMPT) },
             { role: 'user', content: pictures.length ? [{ type: 'text', text: question }, ...pictures.map((url) => ({ type: 'image_url' as const, image_url: { url } }))] : question },
           ],
         },
@@ -1213,7 +1219,7 @@ function Orb() {
         let text = '';
         await ask(
           [
-            { role: 'system', content: PLANNER_PROMPT },
+            { role: 'system', content: withPageContext(PLANNER_PROMPT) },
             {
               role: 'user',
               content: `Goal: ${goal}\nDone so far: ${history.length ? history.join('; ') : 'nothing yet'}\n\n${describe(items, useShell.getState().activeApp)}\n\nText on screen:\n${screenText(document.body, 1500) || '(none)'}`,
