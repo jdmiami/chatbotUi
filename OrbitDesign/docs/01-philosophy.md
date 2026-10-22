@@ -25,7 +25,7 @@ In practice:
 
 ### 2. One thing at a time
 
-Each screen asks one question or shows one result. The walkthrough never shows a form; it shows a
+Each screen asks one question or shows one result. A guided flow never shows a form; it shows a
 question, a short list of ready answers, and a line for your own words. Everything you already
 answered stacks small above it (the *trail*) and can be tapped to go back.
 
@@ -107,10 +107,11 @@ status codes, no "machine", "model", "prompt" or "token". Something is "resting"
 ## What is deliberately not here
 
 - No AI, no network calls, no accounts. The package is presentation, motion and an engine for
-  guided walkthroughs. Where Orbit used a model (predicted answers, rewriting a scene, the orb's
-  explanations), the package has an empty slot with a documented contract.
-- No app-specific screens (terminal, editor, gallery of a particular studio). The example studio
-  in `src/walkthrough/studios/example.ts` is a safe, neutral sample.
+  guided flows. Where the original app used a model (suggested answers, the orb's explanations),
+  the package has an empty slot with a documented contract.
+- No domain. The system came out of one product, but nothing in it belongs to that product: no
+  screens, words or data from it remain. The sample guide in `src/flow/guides/example.ts` (a
+  trip planner called Compass) exists only to show every piece working together; replace it.
 
 ## How the documents fit together
 
@@ -122,8 +123,8 @@ status codes, no "machine", "model", "prompt" or "token". Something is "resting"
 | `04-surfaces-and-skins.md` | Hairlines, glass, the magazine skin, element recipes, icons, layout grid |
 | `05-motion.md` | Springs, levels, depth scroll, every component's motion recipe |
 | `06-components.md` | Each component: props, DOM, states, accessibility |
-| `07-layout-and-navigation.md` | Screens, bars, transitions, the trail, drafts |
-| `08-walkthrough-prd.md` | The walkthrough engine as a functional spec, re-implementable anywhere |
+| `07-layout-and-navigation.md` | Screens, bars, transitions, the trail, saved runs |
+| `08-guided-flows-prd.md` | The guided-flow engine as a functional spec, re-implementable anywhere |
 | `09-orb.md` | The orb: physics, modes, attention, caret, gestures, events, panel |
 | `10-ai-adapter.md` | The one slot where any AI plugs in, with worked adapters |
 | `11-checklist.md` | What to verify before shipping a screen |

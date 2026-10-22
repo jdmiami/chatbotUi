@@ -2,19 +2,19 @@
 
 Every CSS custom property Orbit's look is built from, with the exact value and the exact selector under which it applies. Values are copied from the source files named in each table; nothing is rounded.
 
-Source files (and the order Orbit loads them in `orbit/src/main.tsx`, which decides who wins at equal specificity):
+Source files (and the order they are loaded in, given in `src/styles/README.md` and followed by `example/src/main.tsx`, which decides who wins at equal specificity):
 
-| Order | File | In this package | Defines |
-|---|---|---|---|
-| 1 | `orbit/src/styles/tokens.css` | `src/styles/tokens.css` | fonts, text scale and sizes, radii, spacing, safe areas, viewport, timings, accents, dark and light palettes, wallpapers |
-| 2 | `orbit/src/styles/global.css` | `src/styles/base.css` | no tokens (uses them) |
-| 3 | `orbit/src/styles/motion.css` | motion package (`docs/05-motion.md`) | springs and durations, `--sx`/`--sy`, `--depth-1`…`--depth-4`, `--island-top` |
-| 4 | `orbit/src/styles/glass.css` | `src/styles/glass.css` | `--glass-tint`, `--glass-tint-strong`, `--glass-edge`, `--glass-sheen`, `--glass-blur`, `--lit`, `--sheen` |
-| 5 | `orbit/src/styles/o5.css` | `src/styles/o5.css` | the o5 skin: `--font-display`, new `--font-ui`, new radii, `--ease-o5`, `--dur-o5`, `--o5-hair`, `--o5-glow`, the warm palettes, `--term-bg`/`--term-fg`, `--code-bg` |
-| 6 | `orbit/src/styles/orb.css` | orb package (`docs/09-orb.md`) | `--orb-x`, `--orb-y` (the orb's position) |
-| 7 | `orbit/src/studio/studio.css` | `src/styles/studio.css` | `--st-gutter`, `--st-col` |
+| Order | Package file | Defines |
+|---|---|---|
+| 1 | `src/styles/tokens.css` | fonts, text scale and sizes, radii, spacing, safe areas, viewport, timings, accents, dark and light palettes, wallpapers |
+| 2 | `src/styles/base.css` (the source app's global.css) | no tokens (uses them) |
+| 3 | `src/motion/motion.css` (the motion package, `docs/05-motion.md`) | springs and durations, `--sx`/`--sy`, `--depth-1`…`--depth-4`, `--island-top` |
+| 4 | `src/styles/glass.css` | `--glass-tint`, `--glass-tint-strong`, `--glass-edge`, `--glass-sheen`, `--glass-blur`, `--lit`, `--sheen` |
+| 5 | `src/styles/o5.css` | the o5 skin: `--font-display`, new `--font-ui`, new radii, `--ease-o5`, `--dur-o5`, `--o5-hair`, `--o5-glow`, the warm palettes, `--term-bg`/`--term-fg`, `--code-bg` |
+| 6 | `src/orb/orb.css` (the orb package, `docs/09-orb.md`) | `--orb-x`, `--orb-y` (the orb's position) |
+| 7 | `src/styles/pages.css` | `--st-gutter`, `--st-col` |
 
-Values written to `<html>` from JavaScript (inline `style`) beat every stylesheet rule: `--text-scale` (Orbit's settings), `--app-height`, `--vv-offset-top`, `--keyboard-inset` (the viewport hook), and a studio's `--accent`, `--st-*` and `--orb-*` (see "The studio theme").
+Values written to `<html>` from JavaScript (inline `style`) beat every stylesheet rule: `--text-scale` (a settings screen, if the app has one), `--app-height`, `--vv-offset-top`, `--keyboard-inset` (the viewport hook), and an app's `--accent`, `--st-*` and `--orb-*` (see "The app theme").
 
 Selector specificity, for reading the tables: `:root` = (0,1,0); `:root[data-theme='dark']` = (0,2,0); `:root[data-skin='o5'][data-theme='dark']` = (0,3,0). Higher wins; equal specificity, the later file wins.
 
@@ -25,7 +25,7 @@ Selector specificity, for reading the tables: `:root` = (0,1,0); `:root[data-the
 | `--font-ui` | `-apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif` | `:root` | tokens.css | body and UI text, classic look |
 | `--font-ui` | `'Inter Variable', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif` | `:root[data-skin='o5']` | o5.css | UI text, magazine look |
 | `--font-mono` | `ui-monospace, 'SF Mono', SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace` | `:root` | tokens.css | code, terminal, `.kbd`, `.mono` |
-| `--font-display` | `'Fraunces Variable', 'Iowan Old Style', 'Palatino Linotype', Georgia, serif` | `:root[data-skin='o5']` | o5.css | headlines, deks, answers, serif body in the magazine look. **Not defined outside the o5 skin**; studio.css uses `var(--font-display)` with no fallback, so without `data-skin="o5"` those elements inherit the body font. |
+| `--font-display` | `'Fraunces Variable', 'Iowan Old Style', 'Palatino Linotype', Georgia, serif` | `:root[data-skin='o5']` | o5.css | headlines, deks, answers, serif body in the magazine look. **Not defined outside the o5 skin**; pages.css uses `var(--font-display)` with no fallback, so without `data-skin="o5"` those elements inherit the body font. |
 
 See `docs/03-typography.md` for how the faces are loaded.
 
@@ -33,15 +33,15 @@ See `docs/03-typography.md` for how the faces are loaded.
 
 | Token | Value | Selector | File | For |
 |---|---|---|---|---|
-| `--text-scale` | `1` | `:root` | tokens.css | user text size. Orbit's `useApplySettings` overwrites it inline: `root.style.setProperty('--text-scale', String(settings.textScale))`. A studio never calls that hook, so in a studio it stays `1`. |
+| `--text-scale` | `1` | `:root` | tokens.css | user text size. The source app's settings hook (§14) overwrote it inline: `root.style.setProperty('--text-scale', String(settings.textScale))`. The example app has no such hook, so there it stays `1`. |
 | `--fs-xs` | `calc(12px * var(--text-scale))` | `:root` | tokens.css | captions, labels, chips |
 | `--fs-sm` | `calc(13px * var(--text-scale))` | `:root` | tokens.css | hints, small text, `.btn.small` |
 | `--fs-md` | `calc(15px * var(--text-scale))` | `:root` | tokens.css | body (`html, body { font-size: var(--fs-md) }`), `.btn` |
 | `--fs-lg` | `calc(17px * var(--text-scale))` | `:root` | tokens.css | app header `h1`, sheet `h2`, `.state h3` |
 | `--fs-xl` | `calc(22px * var(--text-scale))` | `:root` | tokens.css | switcher `h2`, boot card `h1` |
-| `--fs-2xl` | `calc(28px * var(--text-scale))` | `:root` | tokens.css | the AI app's greeting (`orbit/src/apps/ai/ai.css`); nothing in the files copied into this package uses it |
+| `--fs-2xl` | `calc(28px * var(--text-scale))` | `:root` | tokens.css | a greeting in the source app; nothing in this package uses it |
 
-Note that studio.css reads `var(--fs-sm, 14px)` with a `14px` fallback (the token itself is 13px × scale); the fallback only applies if tokens.css is not loaded.
+Note that pages.css reads `var(--fs-sm, 14px)` with a `14px` fallback (the token itself is 13px × scale); the fallback only applies if tokens.css is not loaded.
 
 ## 3. Radii
 
@@ -53,7 +53,7 @@ Note that studio.css reads `var(--fs-sm, 14px)` with a `14px` fallback (the toke
 | `--radius-xl` | `26px` | (inherits `26px`) | `.sheet`, `.dock`, `.cc-panel`, `.boot-card` |
 | `--radius-icon` | `22.5%` | (inherits) | app icon tiles (`.glyph`) |
 
-The studio look sets `border-radius: 0` on its own elements explicitly (see `docs/04`), so these only affect classic components that appear inside it (sheets, `.btn`, chips).
+The page look sets `border-radius: 0` on its own elements explicitly (see `docs/04`), so these only affect classic components that appear inside it (sheets, `.btn`, chips).
 
 ## 4. Spacing, touch target, shell metrics
 
@@ -68,8 +68,8 @@ All on `:root` in tokens.css.
 | `--space-4` | `16px` | widget padding, sheet body padding |
 | `--space-5` | `24px` | boot card padding, home stack gap |
 | `--space-6` | `32px` | `.state` vertical padding |
-| `--dock-height` | `64px` | Orbit's dock (not used by the studio look) |
-| `--dock-gap` | `10px` | Orbit's dock |
+| `--dock-height` | `64px` | the source app's dock (not used by the page look) |
+| `--dock-gap` | `10px` | the source app's dock |
 
 ## 5. Safe areas and the viewport
 
@@ -84,7 +84,7 @@ All on `:root` in tokens.css.
 | `--vv-offset-top` | no stylesheet default; read as `var(--vv-offset-top, 0px)` | set inline by `useVisualViewport()` | how far iOS scrolled the visual viewport (`.shell { transform: translateY(var(--vv-offset-top, 0px)) }`) |
 | `--island-top` | `calc(env(safe-area-inset-top, 0px) + 44px)`; `calc(env(safe-area-inset-top, 0px) + 40px)` at `(max-height: 520px)` | `.shell[data-island='true']` motion.css | the status pill strip (Orbit shell only) |
 
-studio.css does not read `--safe-*`; it uses `env(safe-area-inset-*, 0px)` directly (see `docs/04`).
+pages.css does not read `--safe-*`; it uses `env(safe-area-inset-*, 0px)` directly (see `docs/04`).
 
 ## 6. Timings and easings (tokens.css and o5.css only; the springs are in `docs/05-motion.md`)
 
@@ -98,7 +98,7 @@ studio.css does not read `--safe-*`; it uses `env(safe-area-inset-*, 0px)` direc
 | `--dur-o5` | `520ms` | `:root[data-skin='o5']` | o5.css |
 | `--dur-fast`, `--dur-med` | `0ms` | `@media (prefers-reduced-motion: reduce) { :root:not([data-reduce-motion='false']) }` and `:root[data-reduce-motion='true']` | tokens.css |
 
-studio.css reads `var(--dur-fast, 0.15s)` (fallback 0.15s) and hard-codes `520ms cubic-bezier(0.22, 1, 0.36, 1)` (the same curve and time as `--dur-o5`/`--ease-o5`) for its padding and drawer transitions.
+pages.css reads `var(--dur-fast, 0.15s)` (fallback 0.15s) and hard-codes `520ms cubic-bezier(0.22, 1, 0.36, 1)` (the same curve and time as `--dur-o5`/`--ease-o5`) for its padding and drawer transitions.
 
 ## 7. Accent
 
@@ -131,7 +131,7 @@ Light theme darkens them for contrast, `:root[data-theme='light'][data-accent='�
 | `rose` | `#c92d55` | `#ad1f45` | (unchanged) |
 | `sky` | `#156fb8` | `#0f5b99` | (unchanged) |
 
-A studio does not set `data-accent`; it writes `--accent` inline from its theme's `orbA` (see "The studio theme"). `--accent-strong`, `--accent-soft` and `--on-accent` then keep the `:root` defaults above (`#5161f5`, `rgb(108 124 255 / 0.18)`, `#ffffff`): nothing in studio.css reads them, but classic components inside a studio (`.btn.primary:hover`, `.icon-btn:active`) would.
+An app built on the page look does not set `data-accent`; it writes `--accent` inline from its theme's `orbA` (see "The app theme"). `--accent-strong`, `--accent-soft` and `--on-accent` then keep the `:root` defaults above (`#5161f5`, `rgb(108 124 255 / 0.18)`, `#ffffff`): nothing in pages.css reads them, but classic components inside such a page (`.btn.primary:hover`, `.icon-btn:active`) would.
 
 ## 8. Theme palettes
 
@@ -172,7 +172,7 @@ o5-only tokens:
 
 | Token | o5 (both themes, `:root[data-skin='o5']`) | o5 dark | o5 light | For |
 |---|---|---|---|---|
-| `--o5-hair` | `color-mix(in srgb, var(--text) 12%, transparent)` | | | every hairline: row separators, `.st-top`/`.st-bottom` borders, `.st-sq` border, underlines of text buttons, the input underline, the progress bar track, the frame placeholder |
+| `--o5-hair` | `color-mix(in srgb, var(--text) 12%, transparent)` | | | every hairline: row separators, `.st-top`/`.st-bottom` borders, `.st-sq` border, underlines of text buttons, the input underline, the progress bar track |
 | `--o5-glow` | | `radial-gradient(90% 60% at 80% -10%, color-mix(in srgb, var(--accent) 22%, transparent), transparent 60%)` | `radial-gradient(90% 60% at 80% -10%, color-mix(in srgb, var(--accent) 16%, transparent), transparent 60%)` | the accent glow at the top right of the page: `.shell`, `.st-root`, `.st-drawer`, `.o5-opener`, `.sheet[data-page]` paint `var(--o5-glow), var(--bg)` |
 
 Because both derive from `--text` and `--accent`, retheming those two retunes the hairline and the glow automatically.
@@ -223,24 +223,24 @@ radial-gradient(60% 50% at 50% 55%, #18204a 0%, transparent 70%), linear-gradien
 
 In the o5 skin the wallpaper is replaced: `:root[data-skin='o5'] .shell { background: var(--o5-glow), var(--bg); }`.
 
-## 12. Orb colours and studio variables
+## 12. Orb colours and page variables
 
 | Token | Value | Set by | Read by |
 |---|---|---|---|
-| `--orb-a` | the studio theme's `orbA` (After Dark: `#ffd0e6`) | `StudioApp` inline on `<html>` | **nothing in `orbit/src`** reads `--orb-a` (searched every `.css`, `.ts`, `.tsx`); see `docs/09-orb.md` for the orb's own colours |
-| `--orb-b` | the theme's `orbB` (After Dark: `#6b2a5c`) | `StudioApp` inline | nothing in `orbit/src` |
+| `--orb-a` | the app theme's `orbA` (Compass: `#cfe8f5`) | the example app (`example/src/App.tsx`) inline on `<html>` | **nothing in the package** reads `--orb-a` (searched every `.css`, `.ts`, `.tsx` under `src/`); see `docs/09-orb.md` for the orb's own colours |
+| `--orb-b` | the theme's `orbB` (Compass: `#1f5570`) | the example app inline | nothing in the package |
 | `--orb-x`, `--orb-y` | `-100px`, `-100px` | orb.css `:root`; updated by the orb cursor | orb.css (position of the orb's panel) |
-| `--st-gutter` | `calc(clamp(18px, 6vw, 64px))` | `:root[data-studio]` studio.css | `.st-top` and `.st-scroll` side padding |
-| `--st-col` | `760px` | `:root[data-studio]` studio.css | `max-width` of `.st-scroll > *`, `.st-trail`, `.st-now` |
-| `--st-paper`, `--st-ink`, `--st-ink2`, `--st-accent`, `--st-desk`, `--st-desk2` | the theme's `paper`, `ink`, `ink2`, `accent`, `desk`, `desk2` | `StudioApp` inline | **nothing in `orbit/src`** reads them. They are published for future use; the visible colours of a studio page come from the o5 dark palette plus `--accent` (next section). |
+| `--st-gutter` | `calc(clamp(18px, 6vw, 64px))` | `:root[data-guide]` pages.css | `.st-top` and `.st-scroll` side padding |
+| `--st-col` | `760px` | `:root[data-guide]` pages.css | `max-width` of `.st-scroll > *`, `.st-trail`, `.st-now` |
+| `--st-paper`, `--st-ink`, `--st-ink2`, `--st-accent`, `--st-desk`, `--st-desk2` | the theme's `paper`, `ink`, `ink2`, `accent`, `desk`, `desk2` | the example app inline | **nothing in the package** reads them. They are published for future use; the visible colours of a page come from the o5 dark palette plus `--accent` (next section). |
 
-## 13. Runtime variables set by scripts (for completeness)
+## 13. Runtime variables set from JavaScript (for completeness)
 
 | Variable | Set by | Read by |
 |---|---|---|
 | `--tx`, `--ty` (−1…1) | motion package tilt | `--sheen`, `--sx`/`--sy`, the widget highlight, parallax |
 | `--rx`, `--ry` | motion package `useTilt` | `.tilt` |
-| `--p`, `--ap` | motion package scroll depth (`useScrollDepth`) | `[data-depth] > *` in studio.css and o5.css (sink-back and blur) |
+| `--p`, `--ap` | motion package scroll depth (`useScrollDepth`) | `[data-depth] > *` in pages.css and o5.css (sink-back and blur) |
 | `--i` | set per list item in JSX | staggered animation delays |
 | `--ta-rows` | `TextArea` component | `.ta-plain { min-height: calc(var(--ta-rows, 2) * 1.5em + 16px) }` |
 
@@ -248,17 +248,17 @@ In the o5 skin the wallpaper is replaced: `:root[data-skin='o5'] .shell { backgr
 
 Attributes on `<html>` (`document.documentElement.dataset.*`):
 
-| Attribute | Values | Set by (Orbit) | Set by (a studio site) |
+| Attribute | Values | Set by (the source app) | Set by (the example app) |
 |---|---|---|---|
-| `data-theme` | `dark`, `light` | `useApplySettings` from Settings (`system` resolves with `(prefers-color-scheme: dark)`) | `StudioApp`: always `dark` |
-| `data-skin` | `classic`, `o5` | `useApplySettings` (`settings.skin ?? 'classic'`) | `StudioApp`: always `o5` |
-| `data-studio` | the studio id (`afterdark`) | — | `StudioApp` |
+| `data-theme` | `dark`, `light` | `useApplySettings` from Settings (`system` resolves with `(prefers-color-scheme: dark)`) | the example app: always `dark` |
+| `data-skin` | `classic`, `o5` | `useApplySettings` (`settings.skin ?? 'classic'`) | the example app: always `o5` |
+| `data-guide` | the guide id (`compass`) | — | the example app |
 | `data-accent` | `indigo`, `teal`, `amber`, `rose`, `sky` | `useApplySettings` | not set |
 | `data-wallpaper` | `orbit`, `dusk`, `aurora`, `graphite` | `useApplySettings` | not set |
 | `data-reduce-motion` | `true`, `false`, absent (`system`) | `useApplySettings` | not set |
 | `data-motion` | `full`, `lite`, `off` | `MotionProvider` (`document.documentElement.dataset.motion = level`) | same provider (main.tsx wraps both) |
 
-The Orbit shell's applier, `orbit/src/hooks/useApplySettings.ts`, verbatim:
+The source app's applier (its `useApplySettings` hook; not part of this package), verbatim:
 
 ```ts
 useEffect(() => {
@@ -279,26 +279,26 @@ useEffect(() => {
 }, [settings, systemDark]);
 ```
 
-(`orbit/index.html` ships `<meta name="theme-color" content="#0b1020" />`; a studio does not update it.)
+(The source app's `index.html` ships `<meta name="theme-color" content="#0b1020" />`; the example app does not update it.)
 
 Precedence, highest first, for any one token:
 
-1. Inline style on `<html>` (`root.style.setProperty`): `--text-scale`, `--app-height`, `--vv-offset-top`, `--keyboard-inset`, and in a studio `--accent`, `--st-*`, `--orb-*`.
+1. Inline style on `<html>` (`root.style.setProperty`): `--text-scale`, `--app-height`, `--vv-offset-top`, `--keyboard-inset`, and in an app built on the page look `--accent`, `--st-*`, `--orb-*`.
 2. `:root[data-skin='o5'][data-theme='dark' | 'light']` (0,3,0): the o5 palettes, `--o5-glow`, o5 `--code-bg`.
 3. `:root[data-theme='light'][data-accent='…']` (0,3,0, tokens.css, earlier file): light accents.
 4. `:root[data-skin='o5']` (0,2,0, o5.css): fonts, radii, `--o5-hair`, `--ease-o5`, `--dur-o5`, `--term-bg`, `--term-fg`.
-5. `:root[data-theme='light']` (0,2,0; tokens.css for the palette, glass.css and motion.css for glass and depth), `:root[data-theme='dark']`, `:root[data-accent='…']`, `:root[data-wallpaper='…']`, `:root[data-reduce-motion='true']`, `:root[data-studio]`.
+5. `:root[data-theme='light']` (0,2,0; tokens.css for the palette, glass.css and motion.css for glass and depth), `:root[data-theme='dark']`, `:root[data-accent='…']`, `:root[data-wallpaper='…']`, `:root[data-reduce-motion='true']`, `:root[data-guide]`.
 6. `:root` (0,1,0): the defaults.
 
 Where two selectors tie, the later file wins. Example: `--glass-border` is set by `:root[data-theme='light']` (tokens.css, (0,2,0)) and would tie with a `:root[data-skin='o5']` rule, so o5.css puts its palettes on `:root[data-skin='o5'][data-theme='light']` (0,3,0), which beats tokens.css's light palette outright. `--font-ui`, on the other hand, is on plain `:root` in tokens.css (0,1,0) and on `:root[data-skin='o5']` in o5.css (0,2,0): o5 wins by specificity alone.
 
-## 15. The studio theme
+## 15. The app theme
 
-A studio site is one `StudioDef` (`orbit/src/studio/defs.ts`); its colours are the `theme` field:
+An app built on the package is one `Guide` (`src/flow/defs.ts`); its colours are the `theme` field:
 
 ```ts
-export interface StudioTheme {
-  /** Paper, ink and accent; the desk is always dark. */
+/** The colours of a guide: paper, ink and accent for the page; the desk is always dark. */
+export interface Theme {
   paper: string;
   ink: string;
   ink2: string;
@@ -310,71 +310,61 @@ export interface StudioTheme {
 }
 ```
 
-The code that applies it, `orbit/src/studio/StudioApp.tsx` lines 72–94, verbatim:
+The code that applies it, from the example app (`example/src/App.tsx`), verbatim:
 
 ```ts
-// The studio's look: its colours on <html>, a dark desk, the magazine faces.
+// The guide's colours on <html> (docs/02-tokens.md, "The guide's theme").
 useEffect(() => {
   const root = document.documentElement;
   root.dataset.theme = 'dark';
   root.dataset.skin = 'o5';
-  root.dataset.studio = studio.id;
-  const t = studio.theme;
-  const vars: Record<string, string> = {
-    '--st-paper': t.paper,
-    '--st-ink': t.ink,
-    '--st-ink2': t.ink2,
-    '--st-accent': t.accent,
-    '--st-desk': t.desk,
-    '--st-desk2': t.desk2,
-    // On the dark page the accent is the orb's light tone; the deep one is for the paper drawers.
-    '--accent': t.orbA,
-    '--orb-a': t.orbA,
-    '--orb-b': t.orbB,
-  };
+  root.dataset.guide = guide.id;
+  const t = guide.theme;
+  const vars: Record<string, string> = { '--st-paper': t.paper, '--st-ink': t.ink, '--st-ink2': t.ink2, '--st-accent': t.accent, '--st-desk': t.desk, '--st-desk2': t.desk2, '--accent': t.orbA, '--orb-a': t.orbA, '--orb-b': t.orbB };
   for (const [k, v] of Object.entries(vars)) root.style.setProperty(k, v);
-  document.title = studio.name;
-  void Promise.all([import('@fontsource-variable/fraunces/opsz.css'), import('@fontsource-variable/fraunces/opsz-italic.css'), import('@fontsource-variable/inter/index.css')]).catch(() => {});
-}, [studio]);
+  document.title = guide.name;
+}, []);
 ```
+
+(On the dark page the accent is the orb's light tone, `orbA`. The fonts are fetched separately by `loadFonts()` from `src/styles/fonts.ts`, called once in `example/src/main.tsx`; see `docs/03-typography.md`.)
 
 What each field maps to:
 
 | Field | CSS variable written | Consumed by |
 |---|---|---|
-| `paper` | `--st-paper` | nothing in `orbit/src` (the comment above says the deep accent is "for the paper drawers", but studio.css paints `.st-drawer` with `var(--o5-glow), var(--surface, var(--bg))`) |
+| `paper` | `--st-paper` | nothing in the package (the source app's comment called the deep accent "for the paper drawers", but pages.css paints `.st-drawer` with `var(--o5-glow), var(--surface, var(--bg))`) |
 | `ink` | `--st-ink` | nothing |
 | `ink2` | `--st-ink2` | nothing |
 | `accent` | `--st-accent` | nothing |
 | `desk` | `--st-desk` | nothing; the page background is o5's `--bg` (`#0d0c0b`), not `desk` |
 | `desk2` | `--st-desk2` | nothing |
-| `orbA` | `--accent` **and** `--orb-a` | `--accent` is read everywhere: headline italics (`.st-q em`), masthead italic (`.st-flag i`), the ✦ mark, `.st-rec`, hover colours, `.st-go:hover`, the progress bar fill, `.st-bar span`, `.st-says`/`.st-reply` rules, focus outlines, `.st-rules li::before`, `.st-tabs` active icon, and `--o5-glow` through `color-mix` |
-| `orbB` | `--orb-b` | nothing in `orbit/src` |
+| `orbA` | `--accent` **and** `--orb-a` | `--accent` is read everywhere: headline italics (`.st-q em`), masthead italic (`.st-flag i`), the ✦ mark, `.st-rec`, hover colours, `.st-go:hover`, the progress bar fill, `.st-bar span`, the `.st-reply` rule, focus outlines, `.st-rules li::before`, `.st-tabs` active icon, and `--o5-glow` through `color-mix` |
+| `orbB` | `--orb-b` | nothing in the package |
 
-The worked example, `orbit/src/studio/studios/afterdark.ts`:
+The worked example, Compass (`src/flow/guides/example.ts`):
 
 ```ts
 theme: {
-  paper: '#f1e6e3',
-  ink: '#1f1320',
-  ink2: '#634f5f',
-  accent: '#7a2d68',
-  desk: '#0e0a0e',
-  desk2: '#1a121a',
-  orbA: '#ffd0e6',
-  orbB: '#6b2a5c',
+  paper: '#f4efe6',
+  ink: '#1d2430',
+  ink2: '#5b6472',
+  accent: '#2a6f8f',
+  desk: '#0b1016',
+  desk2: '#141c25',
+  orbA: '#cfe8f5',
+  orbB: '#1f5570',
 },
 ```
 
-So an After Dark page, resolved, is: `--bg #0d0c0b`, `--surface #151311`, `--text #f3eee6`, `--text-2 #c9c1b4`, `--text-3 #8f877b`, `--border rgb(243 238 230 / 0.08)`, `--o5-hair color-mix(in srgb, #f3eee6 12%, transparent)`, `--accent #ffd0e6`, `--o5-glow radial-gradient(90% 60% at 80% -10%, color-mix(in srgb, #ffd0e6 22%, transparent), transparent 60%)`, fonts Fraunces Variable / Inter Variable. The masthead reads "After *Dark*" from `mark: ['After', 'Dark']` with `kicker: 'An Orbit studio · 18+'`.
+So a Compass page, resolved, is: `--bg #0d0c0b`, `--surface #151311`, `--text #f3eee6`, `--text-2 #c9c1b4`, `--text-3 #8f877b`, `--border rgb(243 238 230 / 0.08)`, `--o5-hair color-mix(in srgb, #f3eee6 12%, transparent)`, `--accent #cfe8f5`, `--o5-glow radial-gradient(90% 60% at 80% -10%, color-mix(in srgb, #cfe8f5 22%, transparent), transparent 60%)`, fonts Fraunces Variable / Inter Variable. The masthead reads "Com*pass*" from `mark: ['Com', 'pass']` with `kicker: 'A sample guide'`.
 
 ## 16. How to retheme: the variables to change for a new brand
 
-The magazine look is designed so that a new site changes very little. Set these on `<html>` (inline, as `StudioApp` does, or in a stylesheet loaded after o5.css under a selector of specificity (0,3,0) or higher):
+The magazine look is designed so that a new site changes very little. Set these on `<html>` (inline, as the example app does, or in a stylesheet loaded after o5.css under a selector of specificity (0,3,0) or higher):
 
-| # | Variable | What it drives | After Dark value |
+| # | Variable | What it drives | Compass value |
 |---|---|---|---|
-| 1 | `--accent` | every italic emphasis, hover, the ✦, the progress fill, the glow (via `--o5-glow`) | `#ffd0e6` (= `orbA`) |
+| 1 | `--accent` | every italic emphasis, hover, the ✦, the progress fill, the glow (via `--o5-glow`) | `#cfe8f5` (= `orbA`) |
 | 2 | `--bg` | the page and the text colour of the primary button | `#0d0c0b` (o5 dark default) |
 | 3 | `--text` | ink, the primary button fill, and the hairline (via `--o5-hair`, 12% of it) | `#f3eee6` (o5 dark default) |
 | 4 | `--text-2` | deks, resting answers, text buttons | `#c9c1b4` |
@@ -385,6 +375,6 @@ The magazine look is designed so that a new site changes very little. Set these 
 
 Optional ninth and tenth: `--o5-glow` if the glow should not be derived from the accent (the default is `radial-gradient(90% 60% at 80% -10%, color-mix(in srgb, var(--accent) 22%, transparent), transparent 60%)`), and `--accent-strong`/`--accent-soft`/`--on-accent` if classic components (`.btn.primary`, `.icon-btn`) appear on the page.
 
-After Dark itself changes only #1; everything else is the o5 dark default. A light-paper site would set `data-theme="light"` instead and get `--bg #f5f1e9`, `--text #171512`, `--text-2 #4a453d`, `--text-3 #6d665b`, `--surface #fbf8f2` and the 16% glow from o5.css, then set its own `--accent` (pick one dark enough to read on `#f5f1e9`; the light accents in §7 show the contrast Orbit considers enough on `#eef1f7`).
+Compass itself changes only #1; everything else is the o5 dark default. A light-paper site would set `data-theme="light"` instead and get `--bg #f5f1e9`, `--text #171512`, `--text-2 #4a453d`, `--text-3 #6d665b`, `--surface #fbf8f2` and the 16% glow from o5.css, then set its own `--accent` (pick one dark enough to read on `#f5f1e9`; the light accents in §7 show the contrast Orbit considers enough on `#eef1f7`).
 
-The shape of a theme object for a new site is the `StudioTheme` above; only `orbA` has a visible effect today, so give it the colour you want as `--accent`.
+The shape of a theme object for a new site is the `Theme` above; only `orbA` has a visible effect today, so give it the colour you want as `--accent`.

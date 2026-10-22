@@ -2,9 +2,9 @@ import { useEffect, type ReactNode } from 'react';
 import { SqIcon, type IconName } from './icons';
 
 /**
- * Drawers slide in from the right over a blur: the gallery (with its shelves as tabs) and the
- * options. Extracted from Orbit's StudioApp (Gallery, Options) as one generic Drawer plus the shelf
- * pieces it was filled with. Escape and the scrim close it.
+ * Drawers slide in from the right over a blur: the gallery (with tabs across the top) and the
+ * options. One generic Drawer plus the pieces it is usually filled with. Escape and the scrim
+ * close it.
  */
 
 export interface DrawerTab<T extends string = string> {
@@ -22,17 +22,17 @@ export function Drawer<T extends string = string>({
   tabs,
   tab,
   onTab,
-  tabsLabel = 'Shelves',
+  tabsLabel = 'Tabs',
   children,
 }: {
-  /** The dialog's accessible name ("After Dark: your gallery"). */
+  /** The dialog's accessible name ("Compass: your gallery"). */
   label: string;
   /** The heading; put the italic half in <em> (e.g. <>Your <em>gallery</em></>). */
   title: ReactNode;
   onClose: () => void;
   closeLabel?: string;
   scrimLabel?: string;
-  /** Shelves across the top; omit for a plain drawer. */
+  /** Tabs across the top; omit for a plain drawer. */
   tabs?: DrawerTab<T>[];
   tab?: T;
   onTab?: (id: T) => void;
@@ -70,14 +70,12 @@ export function Drawer<T extends string = string>({
   );
 }
 
-/** The gallery's five shelves, as Orbit had them. */
-export type Shelf = 'projects' | 'pictures' | 'videos' | 'movies' | 'characters';
-export const SHELVES: DrawerTab<Shelf>[] = [
-  { id: 'projects', label: 'Projects', icon: 'project' },
-  { id: 'pictures', label: 'Pictures', icon: 'picture' },
-  { id: 'videos', label: 'Videos', icon: 'video' },
-  { id: 'movies', label: 'Movies', icon: 'movie' },
-  { id: 'characters', label: 'Characters', icon: 'character' },
+/** An example set of tabs for the gallery drawer: drafts, things made, and about. Define your own the same way. */
+export type Tab = 'drafts' | 'items' | 'about';
+export const TABS: DrawerTab<Tab>[] = [
+  { id: 'drafts', label: 'Drafts', icon: 'folder' },
+  { id: 'items', label: 'Made', icon: 'picture' },
+  { id: 'about', label: 'About', icon: 'options' },
 ];
 
 /** "Nothing here yet." */
@@ -85,7 +83,7 @@ export function Empty({ children }: { children: ReactNode }) {
   return <p className="st-empty">{children}</p>;
 }
 
-/** A numbered contents list inside a shelf (the gallery's Projects shelf). Rows arrive without motion here. */
+/** A numbered contents list inside a tab (the drafts tab). Rows arrive without motion here. */
 export function ContentsList({ rows, label }: { rows: { id: string; title: string; meta: string; onClick: () => void }[]; label?: string }) {
   return (
     <ol className="st-contents" aria-label={label}>
@@ -115,7 +113,7 @@ export function MediaGrid({ items }: { items: { id: string; kind: 'image' | 'vid
   );
 }
 
-/** The options drawer as Orbit had it: the house rules and one line about the orb. */
+/** The options drawer: the house rules and one line about the orb. */
 export function OptionsDrawer({ rules, note = 'Tap the orb any time to ask it something, or hold it to talk.', onClose }: { rules: string[]; note?: string; onClose: () => void }) {
   return (
     <Drawer

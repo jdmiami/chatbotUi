@@ -1,7 +1,7 @@
 /*
  * depth.css: the CSS that consumes --p / --ap (written by useScrollDepth in depth.ts) and
  * data-chrome (written by useChromeOnScroll in chrome.ts). Copied rule for rule from Orbit's
- * src/styles/o5.css and src/studio/studio.css; only the selectors tie them to Orbit's class names.
+ * o5.css and its page stylesheet (here src/styles/pages.css); only the selectors tie them to Orbit's class names.
  * --ease-o5 / --dur-o5 are Orbit 0.5's house ease (o5.css :root). See docs/05-motion.md §10–11.
  */
 
@@ -56,7 +56,7 @@
 }
 :root[data-skin='o5'][data-motion='lite'] .sheet[data-page] [data-depth] > :not(.mag-numeral) { opacity: calc(1 - var(--ap, 0) * 0.55); }
 
-/* ---- The studio walkthrough (studio.css): the trail of answers above the question. */
+/* ---- The guided flow (pages.css): the trail of answers above the question. */
 /* Depth: what leaves the middle sinks back and blurs, so one thing is in focus at a time. */
 :root[data-motion='full'] .st-scroll [data-depth] > * {
   transform: translate3d(0, calc(var(--p, 0) * -2vh), 0) scale(calc(1 - var(--ap, 0) * 0.06));

@@ -3,8 +3,8 @@
  * OrbitDesign: the two typefaces of the magazine look.
  *
  * Fraunces Variable (display, the `opsz` file set, upright and italic) and Inter Variable (UI).
- * These are the same three imports Orbit runs in orbit/src/studio/StudioApp.tsx (and, for the
- * Orbit 0.5 look, in orbit/src/hooks/useApplySettings.ts). They are dynamic imports so the fonts
+ * These are the same three imports Orbit runs for its magazine-look sites (and, for the Orbit 0.5
+ * look, in orbit/src/hooks/useApplySettings.ts). They are dynamic imports so the fonts
  * only download when the magazine look is wanted; Vite turns each into a <link rel="stylesheet">.
  *
  * The @font-face rules they add declare `font-family: 'Fraunces Variable'` and

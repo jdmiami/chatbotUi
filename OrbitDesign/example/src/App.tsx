@@ -1,86 +1,87 @@
 /**
- * Postcard: a whole studio screen flow in the Orbit style, with no network and no AI. It follows
- * docs/07-layout-and-navigation.md to the letter (the Views, the bars, the trail, drafts) and shows
- * the orb sitting on what each screen wants next. "Making" is pretended with a timer and a drawn
- * picture, so every screen can be seen.
+ * Compass: a whole app in the Orbit style, with no network and no AI. It follows
+ * docs/07-layout-and-navigation.md to the letter (the views, the bars, the trail, drafts) and shows
+ * the orb sitting on what each screen wants next. "Saving the plan" is pretended with a timer and a
+ * drawn picture, so every screen can be seen.
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   BottomBar,
-  BriefList,
   Choices,
+  Contents,
   ContentsList,
+  Conversation,
   Drawer,
   Empty,
   Go,
   Headline,
-  Home,
-  Making,
+  MediaGrid,
   OptionsDrawer,
   Page,
+  Progress,
   Result,
   Root,
-  SHELVES,
-  ScriptDesk,
-  ScriptPreview,
   Stage,
-  Talk,
+  SummaryList,
+  TABS,
   Toasts,
   TopBar,
   Walk,
   toast,
   useVisualViewport,
-  type Shelf,
+  type Tab,
 } from 'orbit-design/components';
 import { useMotionLevel } from 'orbit-design/motion';
 import {
-  POSTCARD,
-  SCRIPT_OK,
+  COMPASS,
+  CUSTOM_DONE,
   answer,
+  assistantAwake,
   back as backOne,
-  briefOf,
-  draftScript,
   finishAll,
-  keepCharacter,
-  listProjects,
+  listRuns,
   mergeChoices,
-  newProject,
+  newRun,
   nextStep,
   onOrbAct,
   orbHome,
   orbNote,
   orbThink,
   pickFor,
-  predictChoices,
   progressOf,
-  promptOf,
   recommend,
-  saveProject,
-  scriptBasis,
+  resultOf,
+  saveRun,
   stepsFor,
-  writerAwake,
+  suggestChoices,
+  summaryOf,
+  wantsSuggestions,
   type Answers,
   type Choice,
-  type MakeKind,
-  type Project,
-  type Scene,
-} from 'orbit-design/walkthrough';
+  type Run,
+} from 'orbit-design/flow';
 
-type View = 'home' | 'start' | 'walk' | 'make' | 'talk';
-const studio = POSTCARD;
+type View = 'contents' | 'start' | 'walk' | 'summary' | 'talk';
+const guide = COMPASS;
+const flows = Object.values(guide.flows);
 
-const START: Choice[] = [
-  { label: 'Talk it through', hint: 'Plan it with the writer first' },
-  { label: 'A postcard', hint: 'One frame, in under a minute' },
-  { label: 'A video', hint: 'A moving moment, with sound' },
-  { label: 'A short film', hint: 'A story, a script, then the film' },
-];
-const START_KIND: Record<string, MakeKind> = { 'Talk it through': 'talk', 'A postcard': 'image', 'A video': 'video', 'A short film': 'movie' };
+const TALK = 'Talk it through';
+const START: Choice[] = [{ label: TALK, hint: 'Plan it in conversation first' }, ...flows.map((f) => ({ label: f.label, hint: f.hint }))];
 const wait = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
-const titleOf = (p: Project) => (p.kind === 'movie' ? (p.answers.premise ?? '') : [p.answers.world, p.answers.light].filter(Boolean).join(' · '));
+/** A run's title: its first two answers that are part of the result ("A harbour town · High summer"). */
+const titleOf = (r: Run) => {
+  const f = guide.flows[r.flowId];
+  return f
+    ? stepsFor(f, r.answers)
+        .filter((s) => !s.meta && !s.custom && r.answers[s.id])
+        .slice(0, 2)
+        .map((s) => r.answers[s.id])
+        .join(' · ')
+    : '';
+};
 
-/** A stand-in for a made picture: a drawn gradient, so the result screen can be seen offline. */
-function pretendPicture(seed: string): string {
+/** A stand-in for a saved plan: a drawn gradient with the summary on it, so the result screen can be seen offline. */
+function pretendPlan(seed: string, lines: { key: string; value: string }[]): string {
   const c = document.createElement('canvas');
   c.width = 640;
   c.height = 400;
@@ -88,10 +89,13 @@ function pretendPicture(seed: string): string {
   let h = 0;
   for (const ch of seed) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
   const grad = g.createLinearGradient(0, 0, 640, 400);
-  grad.addColorStop(0, `hsl(${h % 360} 40% 30%)`);
-  grad.addColorStop(1, `hsl(${(h + 60) % 360} 50% 70%)`);
+  grad.addColorStop(0, `hsl(${h % 360} 40% 24%)`);
+  grad.addColorStop(1, `hsl(${(h + 60) % 360} 50% 60%)`);
   g.fillStyle = grad;
   g.fillRect(0, 0, 640, 400);
+  g.fillStyle = 'rgba(255,255,255,0.92)';
+  g.font = '600 13px sans-serif';
+  lines.slice(0, 7).forEach((l, i) => g.fillText(`${l.key.toUpperCase()}  ${l.value}`.slice(0, 70), 32, 48 + i * 34));
   return c.toDataURL('image/png');
 }
 
@@ -99,43 +103,45 @@ export function App() {
   useVisualViewport();
   const level = useMotionLevel();
   const full = level === 'full';
-  const [view, setView] = useState<View>('home');
-  const [projects, setProjects] = useState(() => listProjects(studio.id));
-  const [project, setProject] = useState<Project | null>(null);
+  const [view, setView] = useState<View>('contents');
+  const [runs, setRuns] = useState(() => listRuns(guide.id));
+  const [run, setRun] = useState<Run | null>(null);
   const [picked, setPicked] = useState<string | null>(null);
-  const [predicted, setPredicted] = useState<Choice[]>([]);
-  const [predicting, setPredicting] = useState(false);
-  const [shelf, setShelf] = useState<Shelf | null>(null);
+  const [suggested, setSuggested] = useState<Choice[]>([]);
+  const [suggesting, setSuggesting] = useState(false);
+  const [tab, setTab] = useState<Tab | null>(null);
   const [options, setOptions] = useState(false);
   const [note, setNote] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
   const [result, setResult] = useState<string | null>(null);
+  const [notes, setNotes] = useState('');
 
-  // The studio's colours on <html> (docs/02-tokens.md, "The studio theme").
+  // The guide's colours on <html> (docs/02-tokens.md, "The guide's theme").
   useEffect(() => {
     const root = document.documentElement;
     root.dataset.theme = 'dark';
     root.dataset.skin = 'o5';
-    root.dataset.studio = studio.id;
-    const t = studio.theme;
+    root.dataset.guide = guide.id;
+    const t = guide.theme;
     const vars: Record<string, string> = { '--st-paper': t.paper, '--st-ink': t.ink, '--st-ink2': t.ink2, '--st-accent': t.accent, '--st-desk': t.desk, '--st-desk2': t.desk2, '--accent': t.orbA, '--orb-a': t.orbA, '--orb-b': t.orbB };
     for (const [k, v] of Object.entries(vars)) root.style.setProperty(k, v);
-    document.title = studio.name;
+    document.title = guide.name;
   }, []);
 
-  const flow = project ? studio.flows[project.kind] : null;
-  const step = view === 'walk' && flow && project ? nextStep(flow, project.answers) : null;
-  const stepKey = `${view}|${step?.id ?? ''}|${project?.id ?? ''}`;
+  const flow = run ? guide.flows[run.flowId] : null;
+  const step = view === 'walk' && flow && run ? nextStep(flow, run.answers) : null;
+  const stepKey = `${view}|${step?.id ?? ''}|${run?.id ?? ''}`;
 
-  // Predictions (only with a writer set and awake; otherwise the ready answers stand alone).
+  // Suggestions (only with an assistant set and awake; otherwise the ready answers stand alone).
   useEffect(() => {
-    setPredicted([]);
-    if (!step || !flow || !project) return;
+    setSuggested([]);
+    if (!step || !flow || !run) return;
     let on = true;
-    setPredicting(writerAwake() && step.predict !== false && !step.closed && Object.keys(project.answers).some((k) => k !== 'cut'));
-    void predictChoices(studio, flow, step, project.answers).then((list) => {
+    setSuggesting(assistantAwake() && wantsSuggestions(flow, step, run.answers));
+    void suggestChoices(guide, flow, step, run.answers).then((list) => {
       if (!on) return;
-      setPredicted(list);
-      setPredicting(false);
+      setSuggested(list);
+      setSuggesting(false);
     });
     return () => {
       on = false;
@@ -143,15 +149,15 @@ export function App() {
   }, [stepKey]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // The orb's pick, and the note it keeps until tapped (docs/09-orb.md, "Notes").
-  const offered = step ? mergeChoices(predicted, step.choices) : [];
-  const rec = step && flow && project && step.kind !== 'script' ? recommend(flow, project.answers, step, offered, predicted) : null;
+  const offered = step ? mergeChoices(suggested, step.choices) : [];
+  const rec = step && flow && run && !step.custom ? recommend(flow, run.answers, step, offered, suggested) : null;
   useEffect(() => {
-    if (view === 'walk' && step?.kind === 'script') return orbNote('This draft follows your choices, one five-second shot per scene. Change any scene, or film it as it is.', { label: 'This is the script', id: 'approve-script' });
+    if (view === 'walk' && step?.custom) return orbNote('Write anything the plan should remember, or go on without.', { label: 'Go on without notes', id: 'skip-notes' });
     if (view === 'walk' && rec) return orbNote(`I’d go with “${rec.label}”. ${rec.why}`, { label: `Go with “${rec.label}”`, id: 'pick' });
     const lines: Partial<Record<View, string>> = {
-      start: 'Pick what to make. A short film walks you through the story, the script and the storyboard.',
-      talk: 'Pick a mood, or say your own.',
-      home: projects.length ? 'Pick a project up, or start something new.' : 'Tap “Start something new” and I’ll walk you through it.',
+      start: 'Pick what to plan. Each one is a short walk, one question at a time.',
+      talk: 'Pick a way to start, or say your own.',
+      contents: runs.length ? 'Pick a draft up, or start something new.' : 'Tap “Start something new” and I’ll walk you through it.',
     };
     orbNote(lines[view] ?? null);
   }, [stepKey, rec?.label]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -163,37 +169,35 @@ export function App() {
     return () => clearTimeout(t);
   }, [stepKey]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => {
-    orbThink(predicting ? 0.7 : null);
+    orbThink(suggesting ? 0.7 : null);
     return () => orbThink(null);
-  }, [predicting]);
+  }, [suggesting]);
   // What the orb's brain (if any) would be told about this screen.
   useEffect(() => {
-    document.documentElement.dataset.orbContext = `You are the guide inside ${studio.name}. ${studio.writer} The member is on the ${view} screen${step ? `, at the question "${step.q.replace(/\*/g, '')}"` : ''}.`;
+    document.documentElement.dataset.orbContext = `You are the guide inside ${guide.name}, an app that plans a trip or an evening one question at a time. The person is on the ${view} screen${step ? `, at the question "${step.q.replace(/\*/g, '')}"` : ''}.`;
     return () => void delete document.documentElement.dataset.orbContext;
   }, [stepKey]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const settle = () => wait(full ? 560 : level === 'lite' ? 200 : 0);
-  const keep = useCallback((p: Project) => {
-    const saved = saveProject(studio.id, { ...p, title: titleOf(p) || p.title });
-    setProject(saved);
-    setProjects(listProjects(studio.id));
+  const keep = useCallback((r: Run) => {
+    const saved = saveRun(guide.id, { ...r, title: titleOf(r) || r.title });
+    setRun(saved);
+    setRuns(listRuns(guide.id));
     return saved;
   }, []);
 
-  const startKind = (kind: MakeKind, seed?: string) => {
-    if (kind === 'talk') return setView('talk');
-    const p = newProject(kind);
-    if (seed) p.answers = kind === 'movie' ? { premise: seed } : {};
-    setProject(keep(p));
+  /** Start a flow; `seed` (from a conversation) is kept as the first draft of the notes. */
+  const startFlow = (flowId: string, seed = '') => {
+    setNotes(seed);
+    setResult(null);
+    setRun(keep(newRun(flowId)));
     setView('walk');
   };
 
-  const after = (p: Project, answers: Answers) => {
-    const f = studio.flows[p.kind];
-    if (answers.script && p.script?.basis !== scriptBasis(answers)) p = { ...p, script: { basis: scriptBasis(answers), scenes: draftScript(answers), by: 'draft' } };
-    for (const s of stepsFor(f, answers)) if (s.key === 'Traveller' && answers[s.id] && !(s.id in p.answers)) keepCharacter(studio.id, `${s.key} · ${titleOf({ ...p, answers }) || studio.name}`, answers[s.id]);
-    const saved = keep({ ...p, answers });
-    if (!nextStep(f, answers)) setView('make');
+  const after = (r: Run, answers: Answers) => {
+    const f = guide.flows[r.flowId];
+    const saved = keep({ ...r, answers });
+    if (!nextStep(f, answers)) setView('summary');
     return saved;
   };
 
@@ -204,115 +208,130 @@ export function App() {
       setPicked(label);
       await settle();
       setPicked(null);
-      return startKind(START_KIND[label]);
+      if (label === TALK) return setView('talk');
+      const f = flows.find((x) => x.label === label);
+      return f && startFlow(f.id);
     }
-    if (!project || !flow || !step) return;
+    if (!run || !flow || !step) return;
     setPicked(label);
     await settle();
     setPicked(null);
-    after(project, answer(flow, project.answers, step.id, label));
+    after(run, answer(flow, run.answers, step.id, label));
   };
 
-  // The script step: drafted from the answers, again whenever the answers it came from change.
-  useEffect(() => {
-    if (step?.kind !== 'script' || !project) return;
-    const basis = scriptBasis(project.answers);
-    if (project.script?.basis !== basis) keep({ ...project, script: { basis, scenes: draftScript(project.answers), by: 'draft' } });
-  }, [stepKey]); // eslint-disable-line react-hooks/exhaustive-deps
-  const changeScript = (scenes: Scene[], by: NonNullable<Project['script']>['by']) => project?.script && keep({ ...project, script: { ...project.script, scenes, by } });
-  const approveScript = () => {
-    if (!project || !flow || !step || step.kind !== 'script') return;
+  // The custom step (notes): the app renders a text box and answers with its value, or goes on without.
+  const takeNotes = (text: string) => {
+    if (!run || !flow || !step?.custom) return;
     orbHome();
-    after(project, answer(flow, project.answers, step.id, `${project.script?.scenes.length ?? ''} scenes, ${SCRIPT_OK.toLowerCase()}`.trim()));
+    setNotes('');
+    after(run, answer(flow, run.answers, step.id, text.trim() || CUSTOM_DONE));
   };
 
   // The orb's panel buttons.
   const acts = useRef<Record<string, () => void>>({});
-  acts.current = { pick: () => rec && void pick(rec.label), 'approve-script': approveScript, make: () => void make() };
+  acts.current = { pick: () => rec && void pick(rec.label), 'skip-notes': () => takeNotes(''), save: () => void save() };
   useEffect(() => onOrbAct((id) => acts.current[id]?.()), []);
 
   const revisit = (stepId: string) => {
-    if (!project || !flow) return;
-    const order = stepsFor(flow, project.answers).map((s) => s.id);
+    if (!run || !flow) return;
+    const order = stepsFor(flow, run.answers).map((s) => s.id);
     const cut = order.indexOf(stepId);
-    keep({ ...project, answers: Object.fromEntries(Object.entries(project.answers).filter(([k]) => order.indexOf(k) < cut)) });
+    keep({ ...run, answers: Object.fromEntries(Object.entries(run.answers).filter(([k]) => order.indexOf(k) < cut)) });
   };
-  const pickForMe = () => (step?.kind === 'script' ? approveScript() : step && void pick(pickFor(step, offered)));
-  const finishForMe = () => project && flow && after(project, finishAll(flow, project.answers));
+  const pickForMe = () => (step?.custom ? takeNotes('') : step && void pick(pickFor(step, offered)));
+  const finishForMe = () => run && flow && after(run, finishAll(flow, run.answers));
 
   const goBack = () => {
-    if (view === 'walk' && project && flow) {
-      if (!Object.keys(project.answers).length) return setView('start');
-      return keep({ ...project, answers: backOne(flow, project.answers) });
+    if (view === 'walk' && run && flow) {
+      if (!Object.keys(run.answers).length) return setView('start');
+      return keep({ ...run, answers: backOne(flow, run.answers) });
     }
-    if (view === 'make' && project && flow && project.status === 'draft') {
-      keep({ ...project, answers: backOne(flow, project.answers) });
+    if (view === 'summary' && run && flow && run.status === 'draft') {
+      keep({ ...run, answers: backOne(flow, run.answers) });
       return setView('walk');
     }
-    if (view === 'start' || view === 'talk' || view === 'make') setView('home');
+    if (view === 'start' || view === 'talk' || view === 'summary') setView('contents');
   };
-  const goHome = () => view !== 'home' && setView('home');
+  const goHome = () => view !== 'contents' && setView('contents');
   const saveDraft = () => {
-    if (project) keep(project);
-    toast('Saved. It is waiting in your projects.', 'success');
+    if (run) keep(run);
+    toast('Saved. It is waiting in your drafts.', 'success');
     goHome();
   };
-  const open = (p: Project) => {
-    setProject(p);
-    setResult(null);
-    setView(p.status === 'draft' && nextStep(studio.flows[p.kind], p.answers) ? 'walk' : 'make');
+  const open = (r: Run) => {
+    setRun(r);
+    setResult(typeof r.result === 'string' ? r.result : null);
+    setView(r.status === 'draft' && nextStep(guide.flows[r.flowId], r.answers) ? 'walk' : 'summary');
   };
 
-  /** Pretend to make it: a progress bar for a moment, then a drawn picture. A real app calls its own service here. */
-  const make = async () => {
-    if (!project || !flow) return;
-    keep({ ...project, status: 'making', error: null });
+  /** Pretend to save the plan: a progress bar for a moment, then a drawn picture. A real app calls its own service here. */
+  const save = async () => {
+    if (!run || !flow || saving) return;
+    setSaving(true);
     orbThink(0.55);
-    const notes = ['Warming up the studio.', 'Making it now.', 'Nearly there.'];
+    const notes = ['Putting it together.', 'Checking the dates.', 'Nearly there.'];
     for (const n of notes) {
       setNote(n);
       await wait(full ? 900 : 300);
     }
     orbThink(null);
     setNote(null);
-    setResult(pretendPicture(promptOf(studio, flow, project.answers)));
-    keep({ ...project, status: 'done', items: ['pretend'] });
+    const picture = pretendPlan(resultOf(flow, run.answers), summaryOf(flow, run.answers));
+    setResult(picture);
+    setSaving(false);
+    keep({ ...run, status: 'done', result: picture });
   };
 
-  // The brief screen's note for the orb.
+  // The summary screen's note for the orb.
   useEffect(() => {
-    if (view !== 'make' || !project) return;
-    const what = project.kind === 'image' ? 'postcard' : project.kind === 'video' ? 'video' : 'film';
-    if (project.status === 'making') orbNote(note ?? 'Making it now.');
-    else if (project.status === 'done') orbNote(`Your ${what} is ready.`);
-    else orbNote(`Everything you picked, in one place. Tap “Make the ${what}” when it looks right.`, { label: `Make the ${what}`, id: 'make' });
-  }, [view, project?.status, note]); // eslint-disable-line react-hooks/exhaustive-deps
+    if (view !== 'summary' || !run) return;
+    if (saving) orbNote(note ?? 'Putting it together.');
+    else if (run.status === 'done') orbNote('Your plan is ready. It is in your drafts too.');
+    else orbNote('Everything you picked, in one place. Tap “Save the plan” when it looks right.', { label: 'Save the plan', id: 'save' });
+  }, [view, run?.status, saving, note]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const canBack = view !== 'home';
-  const canSave = (view === 'walk' || view === 'make') && project?.status === 'draft';
+  // Not while a plan is being saved: backing out mid-save would let the save overwrite the new answers.
+  const canBack = view !== 'contents' && !saving;
+  const canSave = (view === 'walk' || view === 'summary') && run?.status === 'draft' && !saving;
   let body: React.ReactNode = null;
   let walking = false;
-  if (view === 'home') body = <Home studio={studio} projects={projects} onOpen={open} onNew={() => setView('start')} onTalk={() => startKind('talk')} />;
+  if (view === 'contents') body = <Contents guide={guide} runs={runs} onOpen={open} onNew={() => setView('start')} onTalk={() => setView('talk')} />;
   else if (view === 'start')
     body = (
-      <Page id="st-start-t" kick="Opening" title="What shall we *make?*" orb={picked === null} dek="Pick one. Every choice is a short walk, one question at a time.">
+      <Page id="st-start-t" kick="Opening" title="What shall we *plan?*" orb={picked === null} dek="Pick one. Every choice is a short walk, one question at a time.">
         <Choices items={START} picked={picked} onPick={(l) => void pick(l)} delay={0.2} />
       </Page>
     );
-  else if (view === 'walk' && step && project && flow) {
-    const { n, total } = progressOf(flow, project.answers);
+  else if (view === 'walk' && step && run && flow) {
+    const { n, total } = progressOf(flow, run.answers);
     walking = true;
     body = (
       <Walk
         flow={flow}
-        answers={project.answers}
+        answers={run.answers}
         step={step}
         n={n}
         total={total}
         choices={offered}
         recommended={rec?.label ?? null}
-        desk={step.kind === 'script' ? <ScriptDesk studio={studio} answers={project.answers} script={project.script?.basis === scriptBasis(project.answers) ? project.script : undefined} awake={writerAwake()} onChange={changeScript} onApprove={approveScript} /> : undefined}
-        predicting={predicting}
+        custom={
+          step.custom === 'notes' ? (
+            <form
+              className="st-own"
+              onSubmit={(e) => {
+                e.preventDefault();
+                takeNotes(notes);
+              }}
+            >
+              <label className="o5-kicker" htmlFor="st-notes">
+                Your notes
+              </label>
+              <textarea id="st-notes" rows={4} value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Anything at all…" />
+              <button type="submit">{notes.trim() ? 'Use these' : 'Nothing to add'}</button>
+            </form>
+          ) : undefined
+        }
+        suggesting={suggesting}
         picked={picked}
         onPick={(l) => void pick(l)}
         onPickForMe={pickForMe}
@@ -320,58 +339,78 @@ export function App() {
         onRevisit={revisit}
       />
     );
-  } else if ((view === 'make' || view === 'walk') && project && flow) {
-    const what = project.kind === 'image' ? 'postcard' : project.kind === 'video' ? 'video' : 'film';
-    const done = project.status === 'done' && result;
+  } else if ((view === 'summary' || view === 'walk') && run && flow) {
+    const done = run.status === 'done' && result;
     body = (
-      <article className="st-sheet st-brief" aria-labelledby="st-brief-t">
+      <article className="st-sheet st-summary-page" aria-labelledby="st-summary-t">
         <p className="o5-kicker st-kick">
-          <span>The brief</span>
-          <span className="st-num">{project.status === 'done' ? 'Finished' : project.status === 'making' ? 'Being made' : 'Ready'}</span>
+          <span>The summary</span>
+          <span className="st-num">{run.status === 'done' ? 'Finished' : saving ? 'Saving' : 'Ready'}</span>
         </p>
-        {done ? <Headline text={`Here is your *${what}.*`} id="st-brief-t" /> : project.status === 'making' ? <Headline text={`Making your *${what}…*`} id="st-brief-t" /> : <Headline text="Here is your *brief.*" id="st-brief-t" orb={false} />}
-        {done && <Result kind="image" url={result} alt={promptOf(studio, flow, project.answers)} />}
-        {!done && <BriefList items={briefOf(flow, project.answers).filter((b) => b.key !== 'Script')} />}
-        {project.status === 'draft' && project.kind === 'movie' && project.script && <ScriptPreview scenes={project.script.scenes} />}
-        {project.status === 'making' && <Making progress={null} note={note} />}
-        {project.status === 'draft' && <Go label={`Make the ${what}`} onClick={() => void make()} />}
+        {done ? <Headline text="Here is your *plan.*" id="st-summary-t" /> : saving ? <Headline text="Saving your *plan…*" id="st-summary-t" /> : <Headline text="Here is your *summary.*" id="st-summary-t" orb={false} />}
+        {done && <Result kind="image" url={result} alt={resultOf(flow, run.answers)} />}
+        {!done && <SummaryList items={summaryOf(flow, run.answers)} />}
+        {saving && <Progress progress={null} note={note} />}
+        {run.status === 'draft' && !saving && <Go label="Save the plan" onClick={() => void save()} />}
       </article>
     );
   } else if (view === 'talk')
     body = (
-      <Talk
-        studio={studio}
-        onMake={(k, seed) => startKind(k, seed)}
-        // No AI in the sample: a canned reply. Replace with a Writer (setWriter) or your own onSend.
+      <Conversation
+        title="Where shall we *go?*"
+        kicker="Talk"
+        num={guide.name}
+        starters={guide.starters ?? []}
+        followUps={guide.followUps ?? []}
+        placeholder="A week somewhere warm…"
+        actions={[
+          { label: 'Plan a trip from this', icon: 'forward', onClick: (seed) => startFlow('trip', seed) },
+          { label: 'Just an evening', icon: 'talk', onClick: (seed) => startFlow('evening', seed) },
+        ]}
+        // No AI in the sample: a canned reply. Replace with an Assistant (setAssistant) or your own onSend.
         onSend={async (text) => {
           await wait(600);
-          return `“${text.slice(0, 60)}” — lovely. Picture the light first: is it morning, dusk or neon? Then tell me who is there, or tap “Make it a postcard”.`;
+          return `“${text.slice(0, 60)}” — good. Picture the season first: spring, summer or autumn? Then tell me who is coming, or tap “Plan a trip from this”.`;
         }}
       />
     );
-  const screen = view === 'walk' && !walking ? 'make' : view;
+  const screen = view === 'walk' && !walking ? 'summary' : view;
+  const made = runs.filter((r) => typeof r.result === 'string');
 
   return (
     <Root view={view}>
-      <TopBar kicker={studio.kicker} mark={studio.mark} onOptions={() => setOptions(true)} onGallery={() => setShelf('projects')} />
-      <Stage screenKey={`${screen}|${project?.id ?? ''}`} walking={walking}>
+      <TopBar kicker={guide.kicker} mark={guide.mark} onOptions={() => setOptions(true)} onGallery={() => setTab('drafts')} />
+      <Stage screenKey={`${screen}|${run?.id ?? ''}`} walking={walking}>
         {body}
       </Stage>
-      <BottomBar canBack={canBack} canHome={view !== 'home'} canSave={Boolean(canSave)} onBack={goBack} onHome={goHome} onSave={saveDraft} />
-      {shelf && (
-        <Drawer label={`${studio.name}: your gallery`} title={<>Your <em>gallery</em></>} onClose={() => setShelf(null)} tabs={SHELVES} tab={shelf} onTab={setShelf}>
-          {shelf === 'projects' ? (
-            projects.length ? (
-              <ContentsList rows={projects.map((p) => ({ id: p.id, title: p.title || 'Untitled', meta: p.kind, onClick: () => (setShelf(null), open(p)) }))} />
+      <BottomBar canBack={canBack} canHome={view !== 'contents'} canSave={Boolean(canSave)} onBack={goBack} onHome={goHome} onSave={saveDraft} />
+      {tab && (
+        <Drawer label={`${guide.name}: your gallery`} title={<>Your <em>gallery</em></>} onClose={() => setTab(null)} tabs={TABS} tab={tab} onTab={setTab}>
+          {tab === 'drafts' ? (
+            runs.length ? (
+              <ContentsList rows={runs.map((r) => ({ id: r.id, title: r.title || 'Untitled', meta: guide.flows[r.flowId]?.label ?? r.flowId, onClick: () => (setTab(null), open(r)) }))} />
             ) : (
-              <Empty>No projects yet. Start one from Home.</Empty>
+              <Empty>No drafts yet. Start one from the contents page.</Empty>
+            )
+          ) : tab === 'items' ? (
+            made.length ? (
+              <MediaGrid items={made.map((r) => ({ id: r.id, kind: 'image', url: r.result as string, alt: r.title }))} />
+            ) : (
+              <Empty>Nothing made yet. Finish a plan and save it.</Empty>
             )
           ) : (
-            <Empty>Nothing here yet.</Empty>
+            <>
+              <ul className="st-rules">
+                {(guide.rules ?? []).map((r) => (
+                  <li key={r}>{r}</li>
+                ))}
+              </ul>
+              <p className="st-dek">{guide.name} is a sample of the OrbitDesign look: one question at a time, with the orb beside the answer it would pick.</p>
+            </>
           )}
         </Drawer>
       )}
-      {options && <OptionsDrawer rules={studio.rules} onClose={() => setOptions(false)} />}
+      {options && <OptionsDrawer rules={guide.rules ?? []} onClose={() => setOptions(false)} />}
       <Toasts />
     </Root>
   );

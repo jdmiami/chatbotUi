@@ -58,7 +58,7 @@ export interface OrbCursorProps {
   askPrompt?: string;
 }
 
-/** A page can tell the orb where it is and what it is for (a studio sets this), on <html data-orb-context>. */
+/** A page can tell the orb where it is and what it is for (a guided-flow app sets this), on <html data-orb-context>. */
 function withPageContext(prompt: string): string {
   const extra = document.documentElement.dataset.orbContext;
   return extra ? `${prompt}\n\n${extra}` : prompt;
@@ -228,7 +228,7 @@ export function OrbCursor({ brain, settings, onTextScale, hidden: hiddenProp = f
     if (spoken) brainRef.current?.speak?.(text);
   }, []);
 
-  // A page can have it say one line (a walkthrough: what to do on this step). It also goes to
+  // A page can have it say one line (a guided flow: what to do on this step). It also goes to
   // whatever the page marks with data-orb-focus.
   useEffect(() => {
     const on = (e: Event) => {
@@ -239,8 +239,8 @@ export function OrbCursor({ brain, settings, onTextScale, hidden: hiddenProp = f
     return () => window.removeEventListener('orb:say', on);
   }, [say]);
 
-  // What a page wants you to know, kept quiet until you tap the orb (a studio: why it sits on the
-  // answer it would pick, with a button to go with it).
+  // What a page wants you to know, kept quiet until you tap the orb (a guided flow: why it sits on
+  // the answer it would pick, with a button to go with it).
   const [note, setNote] = useState<OrbNote | null>(null);
   const noteRef = useRef(note);
   noteRef.current = note;
@@ -1038,7 +1038,7 @@ export function OrbCursor({ brain, settings, onTextScale, hidden: hiddenProp = f
     }
     jelly.velocity += 2.5;
     kick();
-    // A page left it something to tell you (a studio: why it sits where it does): a tap shows that,
+    // A page left it something to tell you (a guided flow: why it sits where it does): a tap shows that,
     // with the ask box and the mic right there. Otherwise a tap talks.
     if (noteRef.current && !listenRef.current) {
       setPanel(true);

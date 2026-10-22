@@ -60,7 +60,7 @@ stop feeling like Orbit.
 ## Words
 
 - [ ] Labels read as spoken sentences. No "Submit", "OK", "Error 500".
-- [ ] Busy states say what is happening ("The writer is thinking of more…", "Warming up the studio").
+- [ ] Busy states say what is happening ("Thinking of more…", "Getting ready…").
 - [ ] Errors say what happened and what to do, in one line, in `.st-error`.
 - [ ] Nothing in the interface names a vendor, a model, a machine or a token.
 
@@ -77,5 +77,5 @@ stop feeling like Orbit.
 
 - [ ] Typecheck passes.
 - [ ] Screenshots at the four sizes above, at Motion Full, saved with the change.
-- [ ] If the screen adds a step to a walkthrough, the engine tests cover its `when`, its `meta`
+- [ ] If the screen adds a step to a guided flow, the engine tests cover its `when`, its `meta`
       flag and its `suits` words.

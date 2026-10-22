@@ -1,17 +1,15 @@
 import { motion } from 'motion/react';
 import type { ReactNode } from 'react';
 import { SPRING, transitionFor, useMotionLevel } from '../motion';
-import type { StudioDef } from '../walkthrough/defs';
-import type { Character, Project } from '../walkthrough/projects';
-import { whenOf } from '../walkthrough/projects';
+import type { Choice, Guide, Run } from '../flow/defs';
+import { whenOf } from '../flow/runs';
 import { Choices } from './Choices';
 import { SqIcon, type IconName } from './icons';
 
 /**
- * The sheets: the small pieces every studio screen is set from (a place for the orb, the italic
- * headline, rows that arrive one by one) and the three whole pages that need no network: Home, the
- * Gate and the character list. Copied from Orbit Studios (src/studio/Sheets.tsx); `Row` is now
- * exported and `Page` was added at the end.
+ * The sheets: the small pieces every page is set from (a place for the orb, the italic headline,
+ * rows that arrive one by one) and the whole pages that need no network: the contents page, an
+ * agreement gate and a plain page with a running head.
  */
 
 /**
@@ -22,7 +20,7 @@ export function OrbSpot({ size = 52, className = 'st-orb-spot' }: { size?: numbe
   return <span className={className} data-orb-spot="" data-orb-size={size} role="presentation" />;
 }
 
-/** "Where are *we?*": words between asterisks are set in italics, the magazine way. The orb waits beside it. */
+/** "Where *to?*": words between asterisks are set in italics, the magazine way. The orb waits beside it. */
 export function Headline({ text, id, orb = true }: { text: string; id?: string; orb?: boolean }) {
   const parts = text.split('*');
   return (
@@ -60,11 +58,11 @@ export function Row({ icon, n, title, meta, onClick }: { icon?: IconName; n?: nu
     <>
       {icon ? (
         <SqIcon name={icon} framed />
-      ) : (
+      ) : n != null ? (
         <span className="st-row-n" aria-hidden>
           {String(n).padStart(2, '0')}
         </span>
-      )}
+      ) : null}
       <span className="st-row-t">{title}</span>
       <span className="st-row-m">{meta}</span>
     </>
@@ -78,74 +76,125 @@ export function Row({ icon, n, title, meta, onClick }: { icon?: IconName; n?: nu
   );
 }
 
-export const KIND_NAME: Record<Project['kind'], string> = { image: 'Picture', video: 'Video', movie: 'Movie' };
-export const STATUS: Record<Project['status'], string> = { draft: 'Draft', making: 'Being made', done: 'Finished', error: 'Stopped' };
+/** How a run's status reads on screen. */
+export const statusLabel: Record<Run['status'], string> = { draft: 'Draft', done: 'Finished' };
 
-/** Home: the member's projects, as a magazine contents page. */
-export function Home({ studio, projects, onOpen, onNew, onTalk }: { studio: StudioDef; projects: Project[]; onOpen: (p: Project) => void; onNew: () => void; onTalk: () => void }) {
+/**
+ * The contents page: the guide's welcome, a row to start something new, an optional row to talk it
+ * through, then every run as a numbered row. The meta of a run is its flow's label, its status and
+ * when it was last touched.
+ */
+export function Contents({
+  guide,
+  runs,
+  onOpen,
+  onNew,
+  newLabel = 'Start something new',
+  newHint,
+  onTalk,
+  talkLabel = 'Talk it through',
+  talkHint = 'Plan it in conversation',
+}: {
+  guide: Guide;
+  runs: Run[];
+  onOpen: (r: Run) => void;
+  onNew: () => void;
+  /** The first row's title. */
+  newLabel?: string;
+  /** The first row's meta (default: the flows' labels, "A trip or An evening"). */
+  newHint?: string;
+  /** With it, a second row opens a conversation. */
+  onTalk?: () => void;
+  talkLabel?: string;
+  talkHint?: string;
+}) {
+  const flows = Object.values(guide.flows);
+  const count = runs.length;
   return (
     <article className="st-sheet st-home" aria-labelledby="st-home-t">
       <p className="o5-kicker st-kick">
         <span>Contents</span>
-        <span className="st-num">{projects.length ? `${projects.length} project${projects.length === 1 ? '' : 's'}` : 'New here'}</span>
+        <span className="st-num">{count ? `${count} draft${count === 1 ? '' : 's'}` : 'New here'}</span>
       </p>
-      <Headline text={projects.length ? 'Your *projects*' : `Welcome to ${studio.mark[0]} *${studio.mark[1]}*`} id="st-home-t" />
-      <p className="st-dek">{projects.length ? 'Pick one up where you left it, or start something new.' : 'Everything you make lives here, sorted by project. Start your first one.'}</p>
+      <Headline text={count ? 'Your *drafts*' : `Welcome to ${guide.mark[0]} *${guide.mark[1]}*`} id="st-home-t" />
+      <p className="st-dek">{count ? 'Pick one up where you left it, or start something new.' : 'Everything you make lives here. Start your first one.'}</p>
       <Rows label="Contents">
         {[
-          <Row key="new" icon="plus" title="Start something new" meta="Picture, video or movie" onClick={onNew} />,
-          <Row key="talk" icon="talk" title="Talk with the writer" meta="Plan it in conversation" onClick={onTalk} />,
-          ...projects.map((p, i) => (
-            <Row
-              key={p.id}
-              n={i + 1}
-              title={p.title || `Untitled ${KIND_NAME[p.kind].toLowerCase()}`}
-              meta={`${KIND_NAME[p.kind]} · ${STATUS[p.status]} · ${whenOf(p.updatedAt)}`}
-              onClick={() => onOpen(p)}
-            />
-          )),
+          <Row key="new" icon="plus" title={newLabel} meta={newHint ?? flows.map((f) => f.label).join(' or ')} onClick={onNew} />,
+          ...(onTalk ? [<Row key="talk" icon="talk" title={talkLabel} meta={talkHint} onClick={onTalk} />] : []),
+          ...runs.map((r, i) => {
+            const flow = guide.flows[r.flowId];
+            return (
+              <Row
+                key={r.id}
+                n={i + 1}
+                title={r.title || `Untitled ${(flow?.label ?? 'run').toLowerCase().replace(/^(a|an|the) /, '')}`}
+                meta={`${flow?.label ?? r.flowId} · ${statusLabel[r.status]} · ${whenOf(r.updatedAt)}`}
+                onClick={() => onOpen(r)}
+              />
+            );
+          }),
         ]}
       </Rows>
     </article>
   );
 }
 
-/** 18+: the first page of an adult studio. */
-export function Gate({ studio, picked, onPick }: { studio: StudioDef; picked: string | null; onPick: (yes: boolean) => void }) {
+/**
+ * An agreement gate: a page that asks one yes/no before anything else (house rules, an age check,
+ * terms). The orb waits beside the headline until a choice is made. The app decides when to show it
+ * and what to remember.
+ */
+export function Gate({
+  title,
+  dek,
+  rules,
+  yes,
+  no,
+  picked,
+  onPick,
+  kick = 'Before we begin',
+  num,
+}: {
+  /** The headline; *words between asterisks* are italic. */
+  title: string;
+  dek?: string;
+  /** Shown as a list under the dek. */
+  rules?: string[];
+  /** The agreeing answer. */
+  yes: Choice;
+  /** The declining answer. */
+  no: Choice;
+  /** The label just picked (lifts while the other leaves), or null. */
+  picked: string | null;
+  onPick: (agreed: boolean) => void;
+  kick?: string;
+  /** The right-hand part of the running head ("Step 1", "v2"). */
+  num?: string;
+}) {
   return (
     <article className="st-sheet" aria-labelledby="st-gate-t">
       <p className="o5-kicker st-kick">
-        <span>Before we begin</span>
-        <span className="st-num">18+</span>
+        <span>{kick}</span>
+        {num && <span className="st-num">{num}</span>}
       </p>
-      <Headline text="Adults *only.*" id="st-gate-t" orb={picked === null} />
-      <p className="st-dek">{studio.name} makes adult pictures, videos and films. Confirm you are 18 or older, and that you agree to the house rules.</p>
-      <ul className="st-rules">
-        {studio.rules.map((r) => (
-          <li key={r}>{r}</li>
-        ))}
-      </ul>
-      <Choices
-        items={[
-          { label: 'I am 18 or older', hint: 'And I agree to the rules' },
-          { label: 'Take me back', hint: `Leave ${studio.name}` },
-        ]}
-        picked={picked}
-        onPick={(l) => onPick(l === 'I am 18 or older')}
-        delay={0.3}
-      />
+      <Headline text={title} id="st-gate-t" orb={picked === null} />
+      {dek && <p className="st-dek">{dek}</p>}
+      {rules && rules.length > 0 && (
+        <ul className="st-rules">
+          {rules.map((r) => (
+            <li key={r}>{r}</li>
+          ))}
+        </ul>
+      )}
+      <Choices items={[yes, no]} picked={picked} onPick={(l) => onPick(l === yes.label)} delay={0.3} />
     </article>
   );
 }
 
-export function CharacterList({ list }: { list: Character[] }) {
-  if (!list.length) return <p className="st-empty">Characters you describe in a walkthrough are kept here, to cast again.</p>;
-  return <Rows label="Characters">{list.map((c) => <Row key={c.id} icon="character" title={c.name} meta={c.description} />)}</Rows>;
-}
-
 /**
- * A plain page in the studio's shape (added for the package): the running head, the headline and
- * whatever follows. The Start, Brief and Talk screens are all set this way.
+ * A plain page in the guide's shape: the running head, the headline and whatever follows. The
+ * start, summary and conversation screens are all set this way.
  */
 export function Page({
   id,
@@ -159,7 +208,7 @@ export function Page({
 }: {
   /** The headline's id (the article is labelled by it). */
   id: string;
-  /** The running head ("Opening", "The brief"). */
+  /** The running head ("Opening", "The summary"). */
   kick: string;
   /** The right-hand part of the running head ("Ready", "3 of 8"). */
   num?: string;

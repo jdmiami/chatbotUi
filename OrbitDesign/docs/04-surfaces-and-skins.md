@@ -1,15 +1,15 @@
 # 04 · Surfaces and skins
 
-How a screen is built: the two skins, the depth and glass system, the hairline-and-space system of the magazine look, every element recipe with its exact CSS, the icon set, the layout grid and the phone/tablet rules. CSS is quoted verbatim from `orbit/src/styles/global.css` (global), `orbit/src/styles/glass.css` (glass), `orbit/src/styles/motion.css` (motion), `orbit/src/styles/o5.css` (o5) and `orbit/src/studio/studio.css` (studio). Markup is quoted from the `.tsx` files named. Where a statement is a consequence of the cascade rather than a single rule, it is marked **derived**.
+How a screen is built: the two skins, the depth and glass system, the hairline-and-space system of the magazine look, every element recipe with its exact CSS, the icon set, the layout grid and the phone/tablet rules. CSS is quoted verbatim from the package's `src/styles/base.css` (called global.css below, its name in the source app), `src/styles/glass.css` (glass), `src/motion/motion.css` (motion), `src/styles/o5.css` (o5) and `src/styles/pages.css` (pages). Markup is quoted from the `.tsx` files named, in `src/components/` or the example app (`example/src/App.tsx`). Where a statement is a consequence of the cascade rather than a single rule, it is marked **derived**.
 
 ## 1. The two skins
 
 | | Classic ("liquid glass") | o5 (Orbit 0.5, the magazine) |
 |---|---|---|
-| Switch | `<html data-skin="classic">` (or any value other than `o5`; Orbit's default is `settings.skin ?? 'classic'`) | `<html data-skin="o5">`; a studio site always sets it |
+| Switch | `<html data-skin="classic">` (or any value other than `o5`; the source app's default was `settings.skin ?? 'classic'`) | `<html data-skin="o5">`; the example app always sets it |
 | Fonts | system UI stack | Fraunces Variable + Inter Variable |
 | Surfaces | tinted, blurred panes with a lit rim and a sliding sheen; cards, tiles, pills | no boxes: transparent backgrounds, hairlines between rows, type and space carry the structure |
-| Corners | `8 / 12 / 18 / 26px` radii, `22.5%` icon tiles | `999px` pills for buttons, `14 / 22px` for the few remaining boxes; the studio look is square (`border-radius: 0`) everywhere |
+| Corners | `8 / 12 / 18 / 26px` radii, `22.5%` icon tiles | `999px` pills for buttons, `14 / 22px` for the few remaining boxes; the page look is square (`border-radius: 0`) everywhere |
 | Primary action | accent fill (`.btn.primary { background: var(--accent); color: var(--on-accent) }`) | ink on paper (`background: var(--text); color: var(--bg)`) |
 | Background | wallpaper gradients | flat `--bg` with an accent glow at the top right (`--o5-glow`) |
 | Selection | highlight backgrounds | italics, an accent `✦`, an underline |
@@ -162,7 +162,7 @@ One light, above and to the left. Every shadow begins with `var(--lit)` (the ins
 .toast { box-shadow: var(--depth-4); }
 ```
 
-Pressing pushes a surface into the page: `box-shadow: var(--depth-1-pressed)` (see `docs/05-motion.md`). The classic tokens `--shadow-1` and `--shadow-2` (tokens.css) are the older, tilt-free shadows. global.css still writes them on `.glass` (`--shadow-1`) and `.sheet` (`--shadow-2`), but with the files loaded in Orbit's order every pane ends up with a depth shadow instead: glass.css gives `.glass:not(.dock):not(.toast)` `--depth-3`, and motion.css (loaded before glass.css but after global.css) gives `.dock` `--depth-2`, `.sheet` `--depth-3` and `.toast` `--depth-4`, all at the same (0,1,0) specificity and later than global.css. **Derived:** `--shadow-1` therefore only survives on `.segmented button[aria-pressed='true']` and `.app-icon .glyph`, and `--shadow-2` on `.switcher-card`.
+Pressing pushes a surface into the page: `box-shadow: var(--depth-1-pressed)` (see `docs/05-motion.md`). The classic tokens `--shadow-1` and `--shadow-2` (tokens.css) are the older, tilt-free shadows. global.css still writes them on `.glass` (`--shadow-1`) and `.sheet` (`--shadow-2`), but with the files loaded in the package's order (`src/styles/README.md`) every pane ends up with a depth shadow instead: glass.css gives `.glass:not(.dock):not(.toast)` `--depth-3`, and motion.css (loaded before glass.css but after global.css) gives `.dock` `--depth-2`, `.sheet` `--depth-3` and `.toast` `--depth-4`, all at the same (0,1,0) specificity and later than global.css. **Derived:** `--shadow-1` therefore only survives on `.segmented button[aria-pressed='true']` and `.app-icon .glyph`, and `--shadow-2` on `.switcher-card`.
 
 ### Glass (glass.css, whole file)
 
@@ -243,7 +243,7 @@ The older `.glass` in global.css, which glass.css and motion.css override proper
 
 ### Hairlines
 
-One token, `--o5-hair: color-mix(in srgb, var(--text) 12%, transparent)`, drawn as `1px solid` (or as a 2px track for the progress bar). It is the only line in the magazine look: `.st-top { border-bottom }`, `.st-bottom { border-top }`, `.st-sq { border }`, `.st-ico { border }`, every list row's `border-bottom` plus the first row's `border-top`, the `.st-own input` and `.st-scene-form` underlines, the `text-decoration-color` of text buttons, `.st-bar` (track), `.st-frame-wait`, `.st-scenes { border-top }`, `.st-drawer { border-left }`, `.st-brieflist > div`, `.st-rules li`. Hover and focus turn a line to `--text-3` (`.st-sq:hover`) or to the accent (`input:focus`).
+One token, `--o5-hair: color-mix(in srgb, var(--text) 12%, transparent)`, drawn as `1px solid` (or as a 2px track for the progress bar). It is the only line in the magazine look: `.st-top { border-bottom }`, `.st-bottom { border-top }`, `.st-sq { border }`, `.st-ico { border }`, every list row's `border-bottom` plus the first row's `border-top`, the `.st-own input` underline, the `text-decoration-color` of text buttons, `.st-bar` (track), `.st-drawer { border-left }`, `.st-summary > div`, `.st-rules li`. Hover and focus turn a line to `--text-3` (`.st-sq:hover`) or to the accent (`input:focus`).
 
 ### The glow and the dark desk
 
@@ -252,26 +252,26 @@ One token, `--o5-hair: color-mix(in srgb, var(--text) 12%, transparent)`, drawn 
 :root[data-skin='o5'][data-theme='light'] { --o5-glow: radial-gradient(90% 60% at 80% -10%, color-mix(in srgb, var(--accent) 16%, transparent), transparent 60%); }
 ```
 
-It is layered over the flat background wherever a page is painted: `.st-root { background: var(--o5-glow), var(--bg); }`, `.st-drawer { background: var(--o5-glow), var(--surface, var(--bg)); }`, `.o5-opener { background: var(--o5-glow), var(--bg); }`, `:root[data-skin='o5'] .sheet[data-page] { background: var(--o5-glow), var(--bg); }`, `:root[data-skin='o5'] .shell { background: var(--o5-glow), var(--bg); }`. The studio's "dark desk" is the o5 dark palette (`--bg #0d0c0b`), forced by `root.dataset.theme = 'dark'`; the `desk`/`desk2` fields of the theme are published as `--st-desk`/`--st-desk2` but no stylesheet reads them (`docs/02-tokens.md` §15).
+It is layered over the flat background wherever a page is painted: `.st-root { background: var(--o5-glow), var(--bg); }`, `.st-drawer { background: var(--o5-glow), var(--surface, var(--bg)); }`, `.o5-opener { background: var(--o5-glow), var(--bg); }`, `:root[data-skin='o5'] .sheet[data-page] { background: var(--o5-glow), var(--bg); }`, `:root[data-skin='o5'] .shell { background: var(--o5-glow), var(--bg); }`. The page look's "dark desk" is the o5 dark palette (`--bg #0d0c0b`), forced by `root.dataset.theme = 'dark'`; the `desk`/`desk2` fields of the theme are published as `--st-desk`/`--st-desk2` but no stylesheet reads them (`docs/02-tokens.md` §15).
 
-Translucent strips over the page use `color-mix` with the background plus a blur: `.st-bottom` (80 %, `blur(18px) saturate(1.3)`), `.st-scrim` (55 %, `blur(12px)`), `.o5-index` (82 %, `blur(28px) saturate(140%)`), `.st-script-go` (a `linear-gradient(to bottom, transparent, var(--bg) 26px)` fade behind the sticky button), the o5 `.sheet-scrim` (46 %, `blur(14px) saturate(120%)`) and `.sheet-scrim[data-page]` (62 %, `blur(22px) saturate(120%)`).
+Translucent strips over the page use `color-mix` with the background plus a blur: `.st-bottom` (80 %, `blur(18px) saturate(1.3)`), `.st-scrim` (55 %, `blur(12px)`), `.o5-index` (82 %, `blur(28px) saturate(140%)`), `.st-dock` (a `linear-gradient(to bottom, transparent, var(--bg) 26px)` fade behind the sticky button), the o5 `.sheet-scrim` (46 %, `blur(14px) saturate(120%)`) and `.sheet-scrim[data-page]` (62 %, `blur(22px) saturate(120%)`).
 
-## 3. Element recipes (studio.css unless marked)
+## 3. Element recipes (pages.css unless marked)
 
-Each recipe gives the markup as the components render it and the rules that style it. Classes prefixed `st-` are the studio look; `o5-kicker` comes from o5.css.
+Each recipe gives the markup as the components render it and the rules that style it. Classes prefixed `st-` are the page look (the prefix is historical); `o5-kicker` comes from o5.css.
 
 ### 3.1 The root and its bars
 
-Markup (`StudioApp.tsx`):
+Markup (`Bars.tsx`: `Root`, `TopBar`, `Stage`, `BottomBar`, composed by the example app):
 
 ```tsx
 <div className="st-root" data-view={view}>
   <header className="st-top">
     <div className="st-flag">
-      <small>{studio.kicker}</small>
-      <b>{studio.mark[0]} <i>{studio.mark[1]}</i></b>
+      <small>{kicker}</small>
+      <b>{mark[0]} <i>{mark[1]}</i></b>
     </div>
-    <nav className="st-top-actions" aria-label="Studio">
+    <nav className="st-top-actions" aria-label="Site">
       <button type="button" className="st-sq" aria-label="Options"><SqIcon name="options" /></button>
       <button type="button" className="st-sq" aria-label="Your gallery"><SqIcon name="menu" /></button>
     </nav>
@@ -290,7 +290,7 @@ Markup (`StudioApp.tsx`):
 ```
 
 ```css
-:root[data-studio] {
+:root[data-guide] {
   --st-gutter: calc(clamp(18px, 6vw, 64px));
   --st-col: 760px;
 }
@@ -414,7 +414,7 @@ Bottom bar:
 }
 ```
 
-**Derived, focus:** global.css's `:focus-visible { box-shadow: var(--focus-ring); border-radius: var(--radius-sm); }` still matches inside `.st-root`, so a keyboard-focused button shows both the accent outline and the two-ring box shadow (`0 0 0 3px var(--bg), 0 0 0 5px var(--accent)`); the `border-radius: var(--radius-sm)` (999px under o5) loses, at equal specificity, to the later `border-radius: 0` that `.st-sq`, `.st-choice`, `.st-trail-row`, `.st-row`, `.st-go` and `.st-bar-btn` each set; `.st-tabs button` sets none, so its focus ring is pill-shaped. Fields are the exception: studio.css removes the ring (see 3.6).
+**Derived, focus:** global.css's `:focus-visible { box-shadow: var(--focus-ring); border-radius: var(--radius-sm); }` still matches inside `.st-root`, so a keyboard-focused button shows both the accent outline and the two-ring box shadow (`0 0 0 3px var(--bg), 0 0 0 5px var(--accent)`); the `border-radius: var(--radius-sm)` (999px under o5) loses, at equal specificity, to the later `border-radius: 0` that `.st-sq`, `.st-choice`, `.st-trail-row`, `.st-row`, `.st-go` and `.st-bar-btn` each set; `.st-tabs button` sets none, so its focus ring is pill-shaped. Fields are the exception: pages.css removes the ring (see 3.6).
 
 ### 3.2 The page column
 
@@ -450,14 +450,14 @@ Bottom bar:
 }
 ```
 
-o5.css also has `:root[data-skin='o5'] .st-scroll { padding-left: calc(var(--safe-left) + clamp(18px, 6vw, 64px)); padding-right: calc(var(--safe-right) + clamp(18px, 6vw, 64px)); }` (written for Orbit's Settings app, which uses the same class name). It is more specific than `.st-scroll`, so under the skin it is the rule that sets the side padding; the value is the same number as studio.css's, since `--safe-left` is `env(safe-area-inset-left, 0px)` and `--st-gutter` is `clamp(18px, 6vw, 64px)`.
+o5.css also has `:root[data-skin='o5'] .st-scroll { padding-left: calc(var(--safe-left) + clamp(18px, 6vw, 64px)); padding-right: calc(var(--safe-right) + clamp(18px, 6vw, 64px)); }` (written for the source app's Settings app, which uses the same class name). It is more specific than `.st-scroll`, so under the skin it is the rule that sets the side padding; the value is the same number as pages.css's, since `--safe-left` is `env(safe-area-inset-left, 0px)` and `--st-gutter` is `clamp(18px, 6vw, 64px)`.
 
-A screen is an `<article class="st-sheet">` holding, in order: kicker, headline, dek, then its own content (`Sheets.tsx`, `Talk.tsx`, `Make.tsx`, `StudioApp.tsx`):
+A screen is an `<article class="st-sheet">` holding, in order: kicker, headline, dek, then its own content (`Sheets.tsx`'s `Page`, `Conversation.tsx`, `Summary.tsx`, the example app):
 
 ```tsx
 <article className="st-sheet" aria-labelledby="st-start-t">
   <p className="o5-kicker st-kick"><span>Opening</span></p>
-  <Headline text="What shall we *make?*" id="st-start-t" orb={picked === null} />
+  <Headline text="What shall we *plan?*" id="st-start-t" orb={picked === null} />
   <p className="st-dek">Pick one. Every choice is a short walk, one question at a time.</p>
   <Choices items={START} picked={picked} onPick={(l) => void pick(l)} delay={0.2} />
 </article>
@@ -519,7 +519,7 @@ A screen is an `<article class="st-sheet">` holding, in order: kicker, headline,
 }
 ```
 
-The kicker's right-hand `<span class="st-num">` carries the count ("3 of 12", "18+", "Finished"). `.st-orb-spot` is the empty `<span data-orb-spot>` the orb rests on (`docs/09-orb.md`); the headline keeps `padding-right: 64px` (`56px` under 560px wide) for it.
+The kicker's right-hand `<span class="st-num">` carries the count ("3 of 12", "Finished"). `.st-orb-spot` is the empty `<span data-orb-spot>` the orb rests on (`docs/09-orb.md`); the headline keeps `padding-right: 64px` (`56px` under 560px wide) for it.
 
 ### 3.4 Answers between hairlines (at rest; the springs are in `docs/05-motion.md`)
 
@@ -629,11 +629,11 @@ Markup (`Choices.tsx`):
 }
 ```
 
-The o5 equivalent in Orbit's apps is `.o5-choices`/`.o5-choice` (o5.css): the same hairline list with `min-height: 64px`, `padding: 12px 0`, `color: var(--text-3)`, `[aria-checked='true']` → `color: var(--text); padding-left: 10px`, italic label and `' ✦'` at `0.6em`; and the home's link rows `.o5-go` (`min-height: 64px`, `padding: 14px 0`, hairline above the first and below each, arrow at the right that slides `6px` and turns accent on hover).
+The o5 equivalent in the source app is `.o5-choices`/`.o5-choice` (o5.css): the same hairline list with `min-height: 64px`, `padding: 12px 0`, `color: var(--text-3)`, `[aria-checked='true']` → `color: var(--text); padding-left: 10px`, italic label and `' ✦'` at `0.6em`; and the home's link rows `.o5-go` (`min-height: 64px`, `padding: 14px 0`, hairline above the first and below each, arrow at the right that slides `6px` and turns accent on hover).
 
 ### 3.5 Your own words: one underlined line, and the text buttons
 
-Markup (`Walk.tsx`; `Talk.tsx` adds a `.st-mic` button between input and submit):
+Markup (`Walk.tsx`; `Conversation.tsx` adds a `.st-mic` button between input and submit):
 
 ```tsx
 <form className="st-own">
@@ -659,7 +659,7 @@ Markup (`Walk.tsx`; `Talk.tsx` adds a `.st-mic` button between input and submit)
 .st-own label {
   grid-column: 1 / -1;
 }
-.st-own input {
+.st-own :is(input, textarea) {
   min-width: 0;
   padding: 6px 0 10px;
   border: 0;
@@ -669,13 +669,15 @@ Markup (`Walk.tsx`; `Talk.tsx` adds a `.st-mic` button between input and submit)
   color: var(--text);
   font-family: var(--font-display);
   font-size: calc(22px * var(--text-scale, 1));
+  line-height: 1.4;
+  resize: vertical;
   outline: none;
   transition: border-color var(--dur-fast, 0.15s);
 }
-.st-own input:focus {
+.st-own :is(input, textarea):focus {
   border-bottom-color: var(--accent);
 }
-.st-own input::placeholder {
+.st-own :is(input, textarea)::placeholder {
   color: var(--text-3);
   font-style: italic;
 }
@@ -715,41 +717,37 @@ Markup (`Walk.tsx`; `Talk.tsx` adds a `.st-mic` button between input and submit)
 }
 ```
 
-The same ghost text button, used in the script desk (`.st-scene-tools button`, `.st-ghost`, `.st-scene-form button`): identical except `text-underline-offset: 5px` and the declaration order (`text-decoration-color` after the offset); hover `var(--accent) !important`, disabled `opacity: 0.4`. See 3.11 for the rule.
-
-### 3.6 Fields: square, underlined, no focus ring
-
-Scene form fields:
+The same ghost text button as a standalone secondary action, `.st-ghost` (the `Ghost` component in `Summary.tsx`, placed beside the primary button in the dock, 3.9): identical except `text-underline-offset: 5px` and the declaration order (`text-decoration-color` after the offset); hover `var(--accent) !important`, disabled `opacity: 0.4`:
 
 ```css
-.st-scene-form {
-  display: grid;
-  gap: 4px;
-}
-.st-scene-form :is(input, textarea) {
-  min-width: 0;
-  margin-bottom: 10px;
-  padding: 6px 0 10px;
+/* ---- a quieter action beside the primary one */
+.st-ghost {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 44px;
+  padding: 0;
   border: 0;
-  border-bottom: 1px solid var(--o5-hair);
-  border-radius: 0;
-  background: transparent;
-  color: var(--text);
-  font-family: var(--font-display);
-  font-size: calc(19px * var(--text-scale, 1));
-  line-height: 1.4;
-  resize: vertical;
-  outline: none;
+  background: none;
+  font: 600 calc(11px * var(--text-scale, 1)) / 1.3 var(--font-ui) !important;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--text-2) !important;
+  text-decoration: underline;
+  text-underline-offset: 5px;
+  text-decoration-color: var(--o5-hair);
 }
-.st-scene-form :is(input, textarea):focus {
-  border-bottom-color: var(--accent);
+.st-ghost:hover:not(:disabled) {
+  color: var(--accent) !important;
 }
-.st-scene-form button {
-  justify-self: start;
+.st-ghost:disabled {
+  opacity: 0.4;
 }
 ```
 
-Focus-ring removal and the square override of o5's rounded fields (end of studio.css):
+### 3.6 Fields: square, underlined, no focus ring
+
+Focus-ring removal and the square override of o5's rounded fields (end of pages.css):
 
 ```css
 /* Fields keep the square hairline look when focused (no rounded focus ring); the line turns accent. */
@@ -764,7 +762,7 @@ Focus-ring removal and the square override of o5's rounded fields (end of studio
 }
 ```
 
-Remember global.css's touch rule: `@media (pointer: coarse) { input, textarea, .ta-plain, select { font-size: max(16px, var(--fs-md)); } }` (0,0,1) is beaten by `.st-own input` (0,1,1) and `.st-scene-form :is(input, textarea)` (0,1,1), whose sizes (22px, 19px × scale) are above 16px anyway.
+Remember global.css's touch rule: `@media (pointer: coarse) { input, textarea, .ta-plain, select { font-size: max(16px, var(--fs-md)); } }` (0,0,1) is beaten by `.st-own input` (0,1,1), whose size (22px × scale) is above 16px anyway.
 
 ### 3.7 The trail (answers so far)
 
@@ -790,7 +788,7 @@ Markup (`Walk.tsx`):
 ```
 
 ```css
-/* ---- the walkthrough: the answers so far stacked small above the question you're on */
+/* ---- the flow: the answers so far stacked small above the question you're on */
 .st-trail {
   list-style: none;
   margin: 0;
@@ -848,7 +846,7 @@ Markup (`Walk.tsx`):
 
 ### 3.8 Contents rows
 
-Markup (`Sheets.tsx` `Rows`/`Row`; also the gallery's project list in `StudioApp.tsx`):
+Markup (`Sheets.tsx` `Rows`/`Row`; also the drawer's list of runs, `ContentsList` in `Drawer.tsx`):
 
 ```tsx
 <ol className="st-contents" aria-label="Contents">
@@ -856,7 +854,7 @@ Markup (`Sheets.tsx` `Rows`/`Row`; also the gallery's project list in `StudioApp
     <button type="button" className="st-row">
       <SqIcon name="plus" framed />              {/* or: <span className="st-row-n" aria-hidden>01</span> */}
       <span className="st-row-t">Start something new</span>
-      <span className="st-row-m">Picture, video or movie</span>
+      <span className="st-row-m">A trip or An evening</span>
     </button>
   </li>
 </ol>
@@ -865,7 +863,7 @@ Markup (`Sheets.tsx` `Rows`/`Row`; also the gallery's project list in `StudioApp
 A non-interactive row is `<div className="st-row st-row-static">` (no `.st-row-static` rule exists).
 
 ```css
-/* ---- contents (home, projects, characters) */
+/* ---- contents (the drafts page, lists in drawers) */
 .st-contents {
   list-style: none;
   margin: 8px 0 0;
@@ -955,41 +953,41 @@ A non-interactive row is `<div className="st-row st-row-static">` (no `.st-row-s
 }
 ```
 
-**Derived, a name collision:** o5.css (written for Orbit's Settings app) also defines, unscoped, `.st-contents { display: flex; flex-direction: column; gap: 8px; padding: clamp(24px, 6vh, 56px) 0 8px; }`. Both rules match the studio's list; studio.css comes later, so its `margin` and `padding` win, but o5.css's `display: flex; flex-direction: column; gap: 8px` are not overridden and remain in effect. The studio's contents list is therefore a flex column with an 8px gap between rows (on top of each row's own padding). Keep that file order to reproduce the look (see `src/styles/README.md`).
+**Derived, a name collision:** o5.css (written for the source app's Settings app) also defines, unscoped, `.st-contents { display: flex; flex-direction: column; gap: 8px; padding: clamp(24px, 6vh, 56px) 0 8px; }`. Both rules match the page's list; pages.css comes later, so its `margin` and `padding` win, but o5.css's `display: flex; flex-direction: column; gap: 8px` are not overridden and remain in effect. The page's contents list is therefore a flex column with an 8px gap between rows (on top of each row's own padding). Keep that file order to reproduce the look (see `src/styles/README.md`).
 
-### 3.9 The brief and the primary button
+### 3.9 The summary and the primary button
 
-Markup (`Make.tsx`):
+Markup (`Summary.tsx`: `SummaryList` and `Go`):
 
 ```tsx
-<dl className="st-brieflist">
+<dl className="st-summary">
   <div><dt>{b.key}</dt><dd>{b.value}</dd></div>
 </dl>
-<div className="st-script-go">
-  <button type="button" className="st-go">Make the picture<OrbSpot size={40} className="st-choice-spot" /></button>
+<div className="st-dock">
+  <button type="button" className="st-go">Save the plan<OrbSpot size={40} className="st-choice-spot" /></button>
 </div>
 ```
 
 ```css
-/* ---- brief and making */
-.st-brieflist {
+/* ---- the summary, and progress while the app works */
+.st-summary {
   margin: 8px 0 0;
 }
-.st-brieflist > div {
+.st-summary > div {
   display: grid;
   grid-template-columns: minmax(96px, 30%) minmax(0, 1fr);
   gap: 12px;
   padding: 12px 0;
   border-bottom: 1px solid var(--o5-hair);
 }
-.st-brieflist dt {
+.st-summary dt {
   padding-top: 5px;
   font: 600 calc(11px * var(--text-scale, 1)) / 1.4 var(--font-ui);
   letter-spacing: 0.18em;
   text-transform: uppercase;
   color: var(--text-3);
 }
-.st-brieflist dd {
+.st-summary dd {
   margin: 0;
   font-family: var(--font-display);
   font-size: calc(20px * var(--text-scale, 1));
@@ -1016,8 +1014,8 @@ Markup (`Make.tsx`):
 The sticky holder that keeps it in reach at the foot of a long page, with the orb's place on its right:
 
 ```css
-/* "This is the script" stays in reach at the foot of the page, with the orb resting on it. */
-.st-script-go {
+/* The dock: the primary action stays in reach at the foot of the page, with the orb resting on it. */
+.st-dock {
   position: sticky;
   bottom: 0;
   z-index: 2;
@@ -1029,24 +1027,18 @@ The sticky holder that keeps it in reach at the foot of a long page, with the or
   padding: 28px 0 10px;
   background: linear-gradient(to bottom, transparent, var(--bg) 26px);
 }
-.st-script-go .st-go {
+.st-dock .st-go {
   position: relative;
   padding-right: 64px;
 }
-.st-script-go .st-choice-spot {
+.st-dock .st-choice-spot {
   right: 6px;
-}
-.st-review-go {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 12px 22px;
 }
 ```
 
-### 3.10 Progress bar, error, result, frames
+### 3.10 Progress bar, error, result
 
-Markup (`Make.tsx`):
+Markup (`Summary.tsx`: `Progress`, `ErrorLine`, `Result`):
 
 ```tsx
 <div className="st-making" role="status">
@@ -1054,12 +1046,8 @@ Markup (`Make.tsx`):
   <p className="st-dek">{note ?? 'Starting…'}</p>
   <p className="st-ht">You can leave this page. …</p>
 </div>
-<p className="st-error" role="alert">{project.error}</p>
+<p className="st-error" role="alert">{error}</p>
 <figure className="st-result"><img src={url} alt={…} /></figure>
-<ol className="st-frames" aria-label="Storyboard">
-  <li><button type="button" aria-pressed={redo.has(f.id)}><img src={f.url} alt="Opening" /><span className="st-num">Opening</span></button></li>
-  <li><span className="st-frame-wait" aria-hidden /><span className="st-num">Scene 1 ends · drawing</span></li>
-</ol>
 ```
 
 ```css
@@ -1106,204 +1094,14 @@ Markup (`Make.tsx`):
   object-fit: contain;
   background: #000;
 }
-.st-frames {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
-  gap: 10px;
-}
-.st-frames li {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  color: var(--text-3);
-  font: 600 11px / 1.3 var(--font-ui);
-  letter-spacing: 0.14em;
-  text-transform: uppercase;
-}
-.st-frames img {
-  width: 100%;
-  aspect-ratio: 16 / 9;
-  object-fit: cover;
-}
-
-/* Storyboard check: tap pictures to draw them again. */
-.st-frames button {
-  position: relative;
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  width: 100%;
-  padding: 0;
-  border: 0;
-  background: none;
-  color: inherit;
-  font: inherit;
-  letter-spacing: inherit;
-  text-transform: inherit;
-  text-align: left;
-}
-.st-frames button[aria-pressed='true'] img {
-  outline: 2px solid var(--accent);
-  outline-offset: 2px;
-  opacity: 0.55;
-}
-.st-frames button[aria-pressed='true'] .st-num::after {
-  content: ' · draw again';
-  color: var(--accent);
-}
-.st-frames [aria-busy='true'] img,
-.st-frame-wait {
-  aspect-ratio: 16 / 9;
-  background: var(--o5-hair);
-  animation: st-pulse 1.4s ease-in-out infinite;
-}
 ```
 
-### 3.11 The script desk
+### 3.11 The conversation thread
 
-Markup (`Script.tsx`):
-
-```tsx
-<div className="st-script">
-  <p className="st-script-meta"><span>{premise}</span><span>{n} scenes · about {n * 5} seconds</span><span>{cast}</span><span>{BY[script.by]}</span></p>
-  <ol className="st-scenes">
-    <motion.li className="st-scene" aria-busy={…}>
-      <p className="o5-kicker st-scene-head"><span>Scene 01</span><span>{s.heading}</span></p>
-      <p className="st-action">{s.action}</p>
-      <p className="st-ends"><span>Ends on</span> {s.end}</p>
-      {s.says && <p className="st-says">{s.says}</p>}
-      <p className="st-scene-tools">
-        <button type="button"><SqIcon name="shuffle" /> Another take</button>
-        <button type="button">Edit</button>
-      </p>
-    </motion.li>
-  </ol>
-  <div className="st-script-go">
-    <button type="button" className="st-go">This is the script<OrbSpot size={40} className="st-choice-spot" /></button>
-    <button type="button" className="st-ghost">Rewrite it all with the writer</button>
-  </div>
-</div>
-```
+Markup (`Conversation.tsx`): `<div className="st-thread" aria-live="polite">` holding `<p className="st-said">` (yours) and `<p className="st-reply">` (the assistant's).
 
 ```css
-/* ---- the script desk: scene by scene, like a shooting script */
-.st-script {
-  display: flex;
-  flex-direction: column;
-  gap: 18px;
-}
-.st-script-meta {
-  margin: 0;
-  display: flex;
-  flex-wrap: wrap;
-  gap: 4px 18px;
-  font: 600 11px / 1.4 var(--font-ui);
-  letter-spacing: 0.14em;
-  text-transform: uppercase;
-  color: var(--text-3);
-}
-.st-script-meta span:first-child {
-  color: var(--text-2);
-}
-.st-scenes {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  border-top: 1px solid var(--o5-hair);
-}
-.st-scene {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  padding: 18px 0 14px;
-  border-bottom: 1px solid var(--o5-hair);
-  transition: opacity 0.2s;
-}
-.st-scene[aria-busy='true'] {
-  opacity: 0.5;
-}
-.st-scene-head {
-  margin: 0;
-  display: flex;
-  flex-wrap: wrap;
-  gap: 2px 14px;
-}
-.st-scene-head span:first-child {
-  color: var(--accent);
-}
-.st-action {
-  margin: 0;
-  font-family: var(--font-display);
-  font-variation-settings: 'opsz' 36;
-  font-size: calc(clamp(20px, 3.4vw, 25px) * var(--text-scale, 1));
-  line-height: 1.32;
-  letter-spacing: -0.01em;
-  color: var(--text);
-}
-.st-ends {
-  margin: 0;
-  font: 400 var(--fs-sm, 14px) / 1.45 var(--font-ui);
-  color: var(--text-2);
-}
-.st-ends span {
-  margin-right: 6px;
-  font: 600 10.5px / 1 var(--font-ui);
-  letter-spacing: 0.16em;
-  text-transform: uppercase;
-  color: var(--text-3);
-}
-.st-says {
-  margin: 0;
-  padding-left: 14px;
-  border-left: 1px solid var(--accent);
-  font-family: var(--font-display);
-  font-style: italic;
-  font-size: calc(18px * var(--text-scale, 1));
-  color: var(--text-2);
-}
-.st-scene-tools {
-  margin: 0;
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0 20px;
-}
-.st-scene-tools button,
-.st-ghost,
-.st-scene-form button {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  min-height: 44px;
-  padding: 0;
-  border: 0;
-  background: none;
-  font: 600 calc(11px * var(--text-scale, 1)) / 1.3 var(--font-ui) !important;
-  letter-spacing: 0.16em;
-  text-transform: uppercase;
-  color: var(--text-2) !important;
-  text-decoration: underline;
-  text-underline-offset: 5px;
-  text-decoration-color: var(--o5-hair);
-}
-.st-scene-tools button:hover:not(:disabled),
-.st-ghost:hover:not(:disabled) {
-  color: var(--accent) !important;
-}
-.st-scene-tools button:disabled,
-.st-ghost:disabled {
-  opacity: 0.4;
-}
-```
-
-### 3.12 Talk: the thread
-
-Markup (`Talk.tsx`): `<div className="st-thread" aria-live="polite">` holding `<p className="st-said">` (yours) and `<p className="st-reply">` (the writer's).
-
-```css
-/* ---- talk */
+/* ---- the conversation thread */
 .st-thread {
   display: flex;
   flex-direction: column;
@@ -1330,12 +1128,12 @@ Markup (`Talk.tsx`): `<div className="st-thread" aria-live="polite">` holding `<
 }
 ```
 
-### 3.13 Drawers, tabs, the picture grid
+### 3.12 Drawers, tabs, the picture grid
 
-Markup (`StudioApp.tsx` `Gallery` and `Options`):
+Markup (`Drawer.tsx`: `Drawer`, with `TABS`, `ContentsList`, `MediaGrid` and `OptionsDrawer`; the example app passes the labels):
 
 ```tsx
-<div className="st-drawer-wrap" role="dialog" aria-modal="true" aria-label="After Dark: your gallery">
+<div className="st-drawer-wrap" role="dialog" aria-modal="true" aria-label="Compass: your gallery">
   <button type="button" className="st-scrim" aria-label="Close the gallery" />
   <aside className="st-drawer">
     <div className="st-drawer-head">
@@ -1414,7 +1212,7 @@ Markup (`StudioApp.tsx` `Gallery` and `Options`):
 }
 .st-tabs {
   display: grid;
-  grid-template-columns: repeat(5, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(64px, 1fr));
   gap: 6px;
 }
 .st-tabs button {
@@ -1471,9 +1269,9 @@ Markup (`StudioApp.tsx` `Gallery` and `Options`):
 }
 ```
 
-### 3.14 Toasts
+### 3.13 Toasts
 
-Markup (`orbit/src/shell/Toasts.tsx`, rendered inside `.st-root` in a studio and inside `.shell` in Orbit):
+Markup (`src/components/Toasts.tsx`, rendered inside `.st-root`; the source app rendered the same component inside its `.shell`):
 
 ```tsx
 <div className="toasts" role="status" aria-live="polite">
@@ -1483,7 +1281,7 @@ Markup (`orbit/src/shell/Toasts.tsx`, rendered inside `.st-root` in a studio and
 </div>
 ```
 
-A toast lives 3200 ms (`setTimeout(() => get().dismissToast(id), 3200)` in `orbit/src/state/shell.ts`); tones are `'info' | 'error' | 'success'`.
+A toast lives 3200 ms (`TOAST_MS = 3200` in `src/components/Toasts.tsx`); tones are `'info' | 'error' | 'success'`.
 
 ```css
 /* Toasts */                                      /* global.css */
@@ -1517,11 +1315,11 @@ A toast lives 3200 ms (`setTimeout(() => get().dismissToast(id), 3200)` in `orbi
 .toast { box-shadow: var(--depth-4); }           /* motion.css */
 ```
 
-Classic look: a glass pane (`.glass` from glass.css: tint, 0.5px edge, blur, sheen) with the layer-4 shadow and a `14px` radius (o5's `--radius-md`) or `12px` (classic). **Derived, o5 skin / studio:** `:root[data-skin='o5'] :is(… .glass …)` sets `background: transparent; border-color: transparent; box-shadow: none; backdrop-filter: none`, and `--sheen: none`; so a toast in the magazine look is just its text over the page, and only an error or success toast shows an edge, because the inline `borderColor` wins over `border-color: transparent` (the border width stays glass.css's `0.5px solid`). In a studio `.toasts` is positioned relative to `.st-root` (fixed, `inset: 0`), so `top: calc(var(--safe-top) + 60px)` is measured from the top of the screen.
+Classic look: a glass pane (`.glass` from glass.css: tint, 0.5px edge, blur, sheen) with the layer-4 shadow and a `14px` radius (o5's `--radius-md`) or `12px` (classic). **Derived, o5 skin / page look:** `:root[data-skin='o5'] :is(… .glass …)` sets `background: transparent; border-color: transparent; box-shadow: none; backdrop-filter: none`, and `--sheen: none`; so a toast in the magazine look is just its text over the page, and only an error or success toast shows an edge, because the inline `borderColor` wins over `border-color: transparent` (the border width stays glass.css's `0.5px solid`). Inside `.st-root` (fixed, `inset: 0`), `.toasts` is positioned relative to it, so `top: calc(var(--safe-top) + 60px)` is measured from the top of the screen.
 
 ## 4. Icons
 
-### SqIcon: the square line-icon set (`orbit/src/studio/icons.tsx`, whole file)
+### SqIcon: the square line-icon set (`src/components/icons.tsx`, whole file)
 
 "Thin square-cut line drawings in a square frame, like the marks in a magazine's contents. No rounded corners anywhere." Rendered at `20 × 20` on a `0 0 24 24` box, `fill="none"`, `stroke="currentColor"`, `strokeWidth="1.5"`, `strokeLinecap="square"`, `strokeLinejoin="miter"`. `framed` wraps it in `<span class="st-ico">` (the 40px hairline square, 3.8); `label` makes it `role="img"`, otherwise `aria-hidden`.
 
@@ -1535,9 +1333,9 @@ const PATHS = {
   options: 'M4 7h10M18 7h2M4 17h2M10 17h10M14 4v6M6 14v6',
   picture: 'M3.5 5.5h17v13h-17zM3.5 15l5-4 4 3 3-2 5 4',
   video: 'M3.5 6.5h12v11h-12zM15.5 10.5l5-3v9l-5-3',
-  movie: 'M3.5 4.5h17v15h-17zM7.5 4.5v15M16.5 4.5v15M3.5 9.5h4M3.5 14.5h4M16.5 9.5h4M16.5 14.5h4',
-  project: 'M3.5 6.5h7l2 2h8v10h-17z',
-  character: 'M8.5 3.5h7v7h-7zM4.5 20.5v-4h15v4',
+  reel: 'M3.5 4.5h17v15h-17zM7.5 4.5v15M16.5 4.5v15M3.5 9.5h4M3.5 14.5h4M16.5 9.5h4M16.5 14.5h4',
+  folder: 'M3.5 6.5h7l2 2h8v10h-17z',
+  person: 'M8.5 3.5h7v7h-7zM4.5 20.5v-4h15v4',
   talk: 'M4 5h16v10H9l-5 4z',
   mic: 'M9 4h6v9H9zM5 11v2h0a7 7 0 0 0 14 0v-2M12 20v-0',
   shuffle: 'M4 7h4l8 10h4M4 17h4l2.5-3M14 10l2-3h4M18 4l2 3-2 3M18 14l2 3-2 3',
@@ -1557,16 +1355,12 @@ export function SqIcon({ name, framed = false, label }: { name: IconName; framed
 }
 ```
 
-Where each is used: `options`, `menu` (top bar), `back`, `home`, `save` (bottom bar), `close` (drawers), `project`, `picture`, `video`, `movie`, `character` (gallery tabs, framed), `plus`, `talk`, `character` (contents rows, framed), `shuffle`, `forward` (shortcuts), `picture`, `video`, `movie` (Talk's "make it" buttons), `mic` (Talk).
+Where each is used: `options`, `menu` (top bar), `back`, `home`, `save` (bottom bar), `close` (drawers), `folder`, `picture`, `options` (the example `TABS` in `Drawer.tsx`, framed), `plus`, `talk` (contents rows, framed), `shuffle`, `forward` (shortcuts), `forward`, `talk` (the conversation's actions in the example app), `mic` (the conversation). `video`, `reel` and `person` are free for an app's own rows and tabs.
 
-### Icon: the general set (`orbit/src/ui/Icon.tsx`)
-
-A separate, rounded set for the classic components ("Stroke icons on a 24px grid. Decorative by default"). Rendered at `size = 22` (default), `strokeWidth = 1.9`, `strokeLinecap="round"`, `strokeLinejoin="round"`, `fill="none"`, `stroke="currentColor"`, `focusable="false"`; `aria-hidden` unless `label` is given (then `role="img"`). The 57 names: `home`, `switcher`, `sliders`, `terminal`, `code`, `sparkle`, `gear`, `plus`, `close`, `back`, `forward`, `down`, `arrowUp`, `folder`, `file`, `save`, `send`, `stop`, `split`, `trash`, `pencil`, `copy`, `paste`, `more`, `info`, `alert`, `check`, `refresh`, `keyboard`, `sidebar`, `search`, `moon`, `sun`, `text`, `motion`, `history`, `wifiOff`, `lock`, `play`, `mic`, `globe`, `speaker`, `pause`, `user`, `tool`, `undo`, `redo`, `download`, `upload`, `link`, `bolt`, `image`, `film`, `external`, `brush`, `eraser`, `camera`. The path data is in that file; the components package copies it. The `Magazine.tsx` contents line uses `<Icon name="down" size={14} />`; the `Sheet` close button uses `<IconButton icon="close" label="Close" />`; `EmptyState` uses `<Icon name={icon} size={28} />`.
-
-## 5. Layout of a studio screen
+## 5. Layout of a page
 
 ```
-<html data-theme="dark" data-skin="o5" data-studio="…">   ← palette, fonts, --st-gutter / --st-col
+<html data-theme="dark" data-skin="o5" data-guide="…">    ← palette, fonts, --st-gutter / --st-col
 └ .st-root   position: fixed; inset: 0; grid rows: auto | minmax(0, 1fr) | auto; background: glow + --bg
   ├ .st-top     masthead · [options][gallery]      padding-top: env(safe-area-inset-top) + 10px, sides env(side) + --st-gutter; hairline below
   ├ .st-stage   position: relative; overflow: hidden   (the only part that animates between screens)
@@ -1578,17 +1372,16 @@ A separate, rounded set for the classic components ("Stroke icons on a 24px grid
   └ the orb     (docs/09-orb.md)
 ```
 
-Widths and paddings, exactly: gutter `clamp(18px, 6vw, 64px)` plus the side safe-area inset; column `760px`; sheet top padding `clamp(28px, 7vh, 64px)`, bottom `calc(env(safe-area-inset-bottom, 0px) + 18vh)`; the walkthrough's `.st-now` top `clamp(28px, 6vh, 56px)`, bottom `calc(env(safe-area-inset-bottom, 0px) + 30vh)`, `min-height: 80%`; trail top `16vh`; drawer `min(460px, 92vw)`. Gap between a sheet's children `16px`; between script scenes `18px`; between thread lines `14px`.
+Widths and paddings, exactly: gutter `clamp(18px, 6vw, 64px)` plus the side safe-area inset; column `760px`; sheet top padding `clamp(28px, 7vh, 64px)`, bottom `calc(env(safe-area-inset-bottom, 0px) + 18vh)`; the flow's `.st-now` top `clamp(28px, 6vh, 56px)`, bottom `calc(env(safe-area-inset-bottom, 0px) + 30vh)`, `min-height: 80%`; trail top `16vh`; drawer `min(460px, 92vw)`. Gap between a sheet's children `16px`; between thread lines `14px`.
 
-Note that `.st-root` uses `position: fixed; inset: 0`, not `--app-height`. The on-screen keyboard is handled by the viewport meta (`interactive-widget=resizes-content` makes the layout viewport itself shrink) together with the hook below, which `StudioApp` calls (`useVisualViewport();` is its first line) and which keeps the shared `--app-height`/`--keyboard-inset` variables and the `keyboardOpen` flag current for the orb and the toasts.
+Note that `.st-root` uses `position: fixed; inset: 0`, not `--app-height`. The on-screen keyboard is handled by the viewport meta (`interactive-widget=resizes-content` makes the layout viewport itself shrink) together with the hook below, which the example app calls (`useVisualViewport();` is the first line of `App()`) and which keeps the shared `--app-height`/`--keyboard-inset` variables current for the orb and the toasts.
 
-### The visual-viewport hook (`orbit/src/hooks/useVisualViewport.ts`, whole file)
+### The visual-viewport hook (`src/components/useVisualViewport.ts`, whole file)
 
-On iOS Safari the *visual* viewport shrinks when the keyboard opens while the layout viewport does not. The hook measures the visible height each frame it changes, writes three variables on `<html>`, publishes `keyboardOpen` to a store (`useViewportStore` from `orbit/src/state/viewport.ts`, a small store with a `set` action; a copy needs an equivalent or can drop that call), and undoes the scroll iOS applies to `overflow: hidden` boxes when it brings a focused field into view.
+On iOS Safari the *visual* viewport shrinks when the keyboard opens while the layout viewport does not. The hook measures the visible height each frame it changes, writes three variables on `<html>`, reports `keyboardOpen` through an optional callback (the source app published it to a store instead), and undoes the scroll iOS applies to `overflow: hidden` boxes when it brings a focused field into view.
 
 ```ts
 import { useEffect } from 'react';
-import { useViewportStore } from '../state/viewport';
 
 /**
  * Tracks the *visual* viewport, which on iOS Safari shrinks when the on-screen keyboard opens
@@ -1596,10 +1389,10 @@ import { useViewportStore } from '../state/viewport';
  *   --app-height      visible height in px (the shell is sized to this)
  *   --vv-offset-top   how far iOS has scrolled the visual viewport (keeps the shell pinned)
  *   --keyboard-inset  approximate keyboard height
- * and a `keyboardOpen` flag in the viewport store (the dock hides while typing).
+ * and calls `onChange` (optional) with the size and a `keyboardOpen` flag.
  */
-export function useVisualViewport() {
-  const setViewport = useViewportStore((s) => s.set);
+export function useVisualViewport(onChange?: (v: { width: number; height: number; keyboardOpen: boolean }) => void) {
+  const setViewport = onChange ?? (() => {});
 
   useEffect(() => {
     const root = document.documentElement;
@@ -1679,21 +1472,21 @@ function isCoarsePointer() {
 }
 ```
 
-Who reads what it writes: `.shell { height: var(--app-height); transform: translateY(var(--vv-offset-top, 0px)); }` (global.css, Orbit's shell), `.o5-spread { min-height: var(--app-height, 100dvh) }` and `.cc-panel { max-height: calc(var(--app-height) - …) }`. The stylesheet defaults are `--app-height: 100dvh` and `--keyboard-inset: 0px` (tokens.css).
+Who reads what it writes: `.shell { height: var(--app-height); transform: translateY(var(--vv-offset-top, 0px)); }` (the source app's shell; not in base.css), `.o5-spread { min-height: var(--app-height, 100dvh) }` and `.cc-panel { max-height: calc(var(--app-height) - …) }`. The stylesheet defaults are `--app-height: 100dvh` and `--keyboard-inset: 0px` (tokens.css).
 
 ## 6. iPhone and iPad rules, with where they live
 
 | Rule | Where |
 |---|---|
-| Paint under the notch and home indicator, pad with the insets; the keyboard shrinks the page rather than covering it | `orbit/index.html`: `<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content" />`, with `apple-mobile-web-app-capable`, `mobile-web-app-capable`, `apple-mobile-web-app-status-bar-style="black-translucent"`, `format-detection="telephone=no"` |
-| Safe-area insets | tokens.css `--safe-*: env(safe-area-inset-*, 0px)`; studio.css uses `env(safe-area-inset-top/right/bottom/left, 0px)` directly in `.st-top`, `.st-scroll`, `.st-sheet`, `.st-now`, `.st-bottom`, `.st-drawer`; o5.css adds them to every gutter (`calc(var(--safe-left) + clamp(…))`) |
-| Minimum 44px touch targets | tokens.css `--tap: 44px`; studio.css `.st-sq { width: 44px; height: 44px }`, `.st-own button, .st-shortcuts button { min-height: 44px }`, `.st-scene-tools button, .st-ghost, .st-scene-form button { min-height: 44px }`, `.st-bar-btn { min-height: 54px }`, `.st-go { min-height: 52px }`, `.st-choice { min-height: 68px }`, `.st-row { min-height: 72px }`; global.css `.btn { min-height: var(--tap) }`, `.icon-btn { width: var(--tap); height: var(--tap) }`, `button.chip { min-height: 32px }` (the one exception, a chip), `.swatch`, `.range`; o5.css `.segmented button { min-width: var(--tap); min-height: var(--tap) }`, `.o5-cue`, `.o5-switch`, `.o5-index-close`, `.o5-handle`, `.o5-orb-btn { min-height: 44px }` |
+| Paint under the notch and home indicator, pad with the insets; the keyboard shrinks the page rather than covering it | the app's `index.html` (copy the example app's `example/index.html`): `<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content" />`, with `apple-mobile-web-app-capable`, `mobile-web-app-capable`, `apple-mobile-web-app-status-bar-style="black-translucent"`, `format-detection="telephone=no"` |
+| Safe-area insets | tokens.css `--safe-*: env(safe-area-inset-*, 0px)`; pages.css uses `env(safe-area-inset-top/right/bottom/left, 0px)` directly in `.st-top`, `.st-scroll`, `.st-sheet`, `.st-now`, `.st-bottom`, `.st-drawer`; o5.css adds them to every gutter (`calc(var(--safe-left) + clamp(…))`) |
+| Minimum 44px touch targets | tokens.css `--tap: 44px`; pages.css `.st-sq { width: 44px; height: 44px }`, `.st-own button, .st-shortcuts button { min-height: 44px }`, `.st-ghost { min-height: 44px }`, `.st-bar-btn { min-height: 54px }`, `.st-go { min-height: 52px }`, `.st-choice { min-height: 68px }`, `.st-row { min-height: 72px }`; global.css `.btn { min-height: var(--tap) }`, `.icon-btn { width: var(--tap); height: var(--tap) }`, `button.chip { min-height: 32px }` (the one exception, a chip), `.swatch`, `.range`; o5.css `.segmented button { min-width: var(--tap); min-height: var(--tap) }`, `.o5-cue`, `.o5-switch`, `.o5-index-close`, `.o5-handle`, `.o5-orb-btn { min-height: 44px }` |
 | No iOS zoom on focus: editable text at least 16px on touch | global.css `@media (pointer: coarse) { input, textarea, .ta-plain, select { font-size: max(16px, var(--fs-md)); } }` |
-| No horizontal scroll | global.css `html, body { overflow: hidden; overscroll-behavior: none }`; studio.css `.st-scroll { overflow-x: hidden; overscroll-behavior: contain }`, `.st-stage { overflow: hidden }`; o5.css `.o5-path { overflow-x: hidden }`; motion.css `.shell, .app-host, .app-window { overflow: clip }` |
-| No tap flash, no rubber-banding, no text inflation | global.css `-webkit-tap-highlight-color: transparent`, `overscroll-behavior: none`, `-webkit-text-size-adjust: 100%; text-size-adjust: 100%`; studio.css `.st-root button { -webkit-tap-highlight-color: transparent }` |
+| No horizontal scroll | global.css `html, body { overflow: hidden; overscroll-behavior: none }`; pages.css `.st-scroll { overflow-x: hidden; overscroll-behavior: contain }`, `.st-stage { overflow: hidden }`; o5.css `.o5-path { overflow-x: hidden }`; motion.css `.shell, .app-host, .app-window { overflow: clip }` |
+| No tap flash, no rubber-banding, no text inflation | global.css `-webkit-tap-highlight-color: transparent`, `overscroll-behavior: none`, `-webkit-text-size-adjust: 100%; text-size-adjust: 100%`; pages.css `.st-root button { -webkit-tap-highlight-color: transparent }` |
 | Momentum scrolling | `-webkit-overflow-scrolling: touch` on `.st-scroll`, `.home`, `.sheet-body`, `.o5-path` |
-| Full height that follows the keyboard | `--app-height` (100dvh, then the measured visible height) and `useVisualViewport()`; the studio root uses `position: fixed; inset: 0` and relies on `interactive-widget=resizes-content` |
-| Side gutters | studio: `--st-gutter: calc(clamp(18px, 6vw, 64px))` (never below **18px**; the task's "16px" minimum does not appear in the studio look); o5 AI bar `clamp(16px, 5vw, 48px)`; o5 app pages `clamp(18px, 6vw, 64px)`; o5 home `clamp(24px, 7vw, 96px)`; toasts `width: min(420px, calc(100% - 24px))` (12px each side); classic `.app-header` `calc(var(--safe-right) + 10px)`; the dock `max-width: calc(100% - 16px - var(--safe-left) - var(--safe-right))` (8px each side) |
-| Phone-width adjustments | studio.css `@media (max-width: 560px) { .st-q { padding-right: 56px } .st-bar-btn span { font-size: 10px } }`; o5.css `@media (max-width: 700px) { .o5-folio { display: none } }`, `@media (max-height: 520px) { .o5-path { scroll-snap-type: none } }`; global.css `@media (min-width: 700px) and (min-height: 500px)` turns the bottom sheet into a centred card `min(560px, calc(100% - 48px))`; o5.css `@media (min-width: 1100px)` moves the message author into the margin (iPad) |
-| Reduced motion / transparency | tokens.css zeroes `--dur-fast`/`--dur-med`; studio.css `@media (prefers-reduced-motion: reduce) { .st-drawer, .st-scrim, .st-predicting, .st-bar-busy { animation: none } }`; glass.css `@media (prefers-reduced-transparency: reduce)` gives solid panes |
+| Full height that follows the keyboard | `--app-height` (100dvh, then the measured visible height) and `useVisualViewport()`; the page root uses `position: fixed; inset: 0` and relies on `interactive-widget=resizes-content` |
+| Side gutters | page look: `--st-gutter: calc(clamp(18px, 6vw, 64px))` (never below **18px**; a "16px" minimum does not appear in the page look); o5 AI bar `clamp(16px, 5vw, 48px)`; o5 app pages `clamp(18px, 6vw, 64px)`; o5 home `clamp(24px, 7vw, 96px)`; toasts `width: min(420px, calc(100% - 24px))` (12px each side); classic `.app-header` `calc(var(--safe-right) + 10px)`; the dock `max-width: calc(100% - 16px - var(--safe-left) - var(--safe-right))` (8px each side) |
+| Phone-width adjustments | pages.css `@media (max-width: 560px) { .st-q { padding-right: 56px } .st-bar-btn span { font-size: 10px } }`; o5.css `@media (max-width: 700px) { .o5-folio { display: none } }`, `@media (max-height: 520px) { .o5-path { scroll-snap-type: none } }`; global.css `@media (min-width: 700px) and (min-height: 500px)` turns the bottom sheet into a centred card `min(560px, calc(100% - 48px))`; o5.css `@media (min-width: 1100px)` moves the message author into the margin (iPad) |
+| Reduced motion / transparency | tokens.css zeroes `--dur-fast`/`--dur-med`; pages.css `@media (prefers-reduced-motion: reduce) { .st-drawer, .st-scrim, .st-predicting, .st-bar-busy { animation: none } }`; glass.css `@media (prefers-reduced-transparency: reduce)` gives solid panes |
 | iPad split view | global.css `.split-divider` (24px wide hit area, 5 × 56px handle), `.app-window[data-placement='split-…']` — Orbit shell only, not copied into base.css |

@@ -1,12 +1,12 @@
 import type { OrbBrain } from '../orb';
-import type { Writer } from '../walkthrough';
+import type { Assistant } from '../flow';
 
 /**
- * One adapter for both slots: the orb's brain and the walkthrough's writer are the same model in
- * most apps. `awake()` must be free (no network), so it reports the last answer of `ready()`,
- * refreshed in the background every `everyMs`.
+ * One adapter for both slots: the orb's brain and the flow's assistant are the same model in most
+ * apps. `awake()` must be free (no network), so it reports the last answer of `ready()`, refreshed
+ * in the background every `everyMs`.
  */
-export function writerFromBrain(brain: OrbBrain, { everyMs = 5000, maxTokensHint = true }: { everyMs?: number; maxTokensHint?: boolean } = {}): Writer {
+export function assistantFromBrain(brain: OrbBrain, { everyMs = 5000, maxTokensHint = true }: { everyMs?: number; maxTokensHint?: boolean } = {}): Assistant {
   let awake = false;
   let checkedAt = 0;
   const check = () => {

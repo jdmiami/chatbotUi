@@ -6,20 +6,20 @@ be dragged, thrown, parked at an edge or tucked away, pinched to change the text
 open a small panel, and tapped to talk. It glows while the page works for you, and it keeps what a
 page wants to tell you until you tap it.
 
-This document describes the orb as it is in `src/orb/`, which is a port of Orbit's
-`src/shell/orb/` with every physics, attention, caret, gesture, caption, note, panel and energy
-feature intact, and every Orbit service removed. The only intelligence it has is whatever the app
+This document describes the orb as it is in `src/orb/`, which is a port of the source app's
+orb with every physics, attention, caret, gesture, caption, note, panel and energy
+feature intact, and every service of the source app removed. The only intelligence it has is whatever the app
 plugs into one adapter, `OrbBrain` (see `docs/10-ai-adapter.md`). With the adapter set to `null`,
 everything except answering a question still works.
 
-Every number in this document is copied from the source. Where the port had to differ from Orbit,
+Every number in this document is copied from the source. Where the port had to differ from the source app,
 the difference is called out in a "Port note" or in the list at the end.
 
 ---
 
 ## 1. Design intent
 
-- **A quiet companion.** It never talks on its own inside a studio-style page. A page leaves it a
+- **A quiet companion.** It never talks on its own inside a page built on this package. A page leaves it a
   *note*; the person sees it only when they tap the orb. Captions (one-line speech bubbles) are
   optional, and a page triggers them deliberately (`orb:say`).
 - **It sits on what the screen wants.** Each page marks the thing it wants the person to look at or
@@ -38,18 +38,18 @@ the difference is called out in a "Port note" or in the list at the end.
 
 ## 2. Files
 
-| Package file | Orbit source | What it is |
+| Package file | Source (the source app) | What it is |
 |---|---|---|
-| `src/orb/OrbCursor.tsx` | `src/shell/orb/OrbCursor.tsx` | The component: frame loop, modes, gestures, caret, captions, notes, panel. Orbit services replaced by the `brain` prop. |
+| `src/orb/OrbCursor.tsx` | `src/shell/orb/OrbCursor.tsx` | The component: frame loop, modes, gestures, caret, captions, notes, panel. The source app's services replaced by the `brain` prop. |
 | `src/orb/physics.ts` | `src/shell/orb/physics.ts` | Springs, momentum, rubber band, squash, landing, shake, deep press. Verbatim copy. |
 | `src/orb/attention.ts` | `src/shell/orb/attention.ts` | Where to go: `findFocus`, `besideRect`, `coversControl`, `restSpot`. Verbatim copy. |
 | `src/orb/caret.ts` | `src/shell/orb/caret.ts` | Measuring the text caret: `caretField`, `caretOf`, `caretsAt`, `caretAt`, `offsetAt`. Verbatim copy. |
-| `src/orb/write.ts` | `src/shell/orb/write.ts` | Text insertion and writing-help helpers (`insertText`, `writable`, …). Its two imports from Orbit's agent module (`privateField`, `labelOf`) are inlined. |
+| `src/orb/write.ts` | `src/shell/orb/write.ts` | Text insertion and writing-help helpers (`insertText`, `writable`, …). Its two imports from the source app's agent module (`privateField`, `labelOf`) are inlined. |
 | `src/orb/screen.ts` | `src/shell/orb/look.ts`, part of `agent.ts` | DOM-only: `screenText`, `isExplain`, `EXPLAIN_PROMPT`, `snapshot`. |
-| `src/orb/OrbFace.tsx` | `src/apps/ai/AiOrb.tsx` | The drawn face (WebGL shader, CSS fallback). Takes `level` as a prop instead of Orbit's motion context. |
+| `src/orb/OrbFace.tsx` | `src/apps/ai/AiOrb.tsx` | The drawn face (WebGL shader, CSS fallback). Takes `level` as a prop instead of the source app's motion context. |
 | `src/orb/face.css` | part of `src/apps/ai/ai.css` | The CSS fallback sphere (`.ai-orb`, `.ai-orb-eyes`). |
 | `src/orb/orb.css` | `src/styles/orb.css` | The orb's stylesheet. Verbatim copy, selectors unchanged. |
-| `src/orb/events.tsx` | `src/studio/orbGuide.ts`, `OrbSpot` from `src/studio/Sheets.tsx` | Typed helpers for the events a page sends, and the `OrbSpot` component. |
+| `src/orb/events.tsx` | the source app's `orbGuide.ts` and `OrbSpot` (also in this package as `src/flow/orbGuide.ts` and `src/components/Sheets.tsx`) | Typed helpers for the events a page sends, and the `OrbSpot` component. |
 | `src/orb/index.ts` | — | Re-exports. |
 | `src/motion/feedback.ts` | `src/motion/feedback.ts` | `cue()` and `tick()` (sound and vibration), configured with `configureFeedback({ sound, haptics })`. Written by the motion part of this package; the orb imports it. |
 
@@ -76,15 +76,15 @@ events).
 | Prop | Type | Default | Meaning |
 |---|---|---|---|
 | `brain` | `OrbBrain \| null` | required | The adapter. `null` = no intelligence. |
-| `settings.follow` | `boolean` | `true` | Follow what matters on the page. `false` = it stays where it is put (Orbit's `orbFollow` setting). |
+| `settings.follow` | `boolean` | `true` | Follow what matters on the page. `false` = it stays where it is put (the source app's `orbFollow` setting). |
 | `settings.sound` | `boolean` | `false` | Play the synthesised cues (`cue('tap' \| 'pop' \| 'done' \| 'error')`). |
 | `settings.haptics` | `boolean` | `false` | Vibrate on cues, and the lightest `tick()` when passing over a control. |
 | `settings.level` | `'full' \| 'lite' \| 'off'` | `'full'` | Motion level. `full`: springs, squash, GPU face. `lite`: springs, no squash, CSS face with eyes. `off`: it jumps instead of moving, no face. |
-| `settings.textScale` | `number` | `1` | The page's current text scale (Orbit: Settings → Text size, 0.9…1.3). A pinch steps from here. |
+| `settings.textScale` | `number` | `1` | The page's current text scale (the source app: Settings → Text size, 0.9…1.3). A pinch steps from here. |
 | `onTextScale` | `(scale: number) => void` | — | Called when a pinch lands on a new scale. **Port note:** when absent, the orb sets `--text-scale` on `<html>` itself. |
-| `hidden` | `boolean` | `false` | Hide it. **Port note:** Orbit hid it while its app index overlay was open (`overlay === 'index'`); this prop replaces that. A dialog with `aria-modal="true"` hides it on its own. |
-| `suggestions` | `string[]` | `['Explain this screen', 'What can I do here?']` | Chips in an empty panel. Orbit's list was `['Explain this screen', 'Open Terminal', 'Make a picture of a red fox in snow', 'Dark mode', 'What can I do here?', 'Turn on the AI machine']`; all but two were Orbit app commands. |
-| `explainPrompt` | `string` | Orbit's `EXPLAIN_PROMPT` | System prompt for "explain this screen". `data-orb-context` is appended. |
+| `hidden` | `boolean` | `false` | Hide it. **Port note:** the source app hid it while its app index overlay was open (`overlay === 'index'`); this prop replaces that. A dialog with `aria-modal="true"` hides it on its own. |
+| `suggestions` | `string[]` | `['Explain this screen', 'What can I do here?']` | Chips in an empty panel. The source app's list had four more entries, all commands for its own apps. |
+| `explainPrompt` | `string` | `EXPLAIN_PROMPT` (the source app's, unchanged) | System prompt for "explain this screen". `data-orb-context` is appended. |
 | `askPrompt` | `string` | `ASK_PROMPT` (port addition, see §15) | System prompt for any other question. `data-orb-context` is appended. |
 
 `settings.sound` and `settings.haptics` are passed to `configureFeedback` whenever they change.
@@ -153,7 +153,7 @@ shader's light.
 
 ## 5. The face (`OrbFace`)
 
-`OrbFace` is Orbit's `AiOrb` with the motion level as a prop. Props:
+`OrbFace` is the source app's `AiOrb` with the motion level as a prop. Props:
 
 | Prop | Type | Effect |
 |---|---|---|
@@ -195,7 +195,7 @@ talk   = talking
 sleepy = expression === 'sleepy'
 ```
 
-Port note: in Orbit, while the agent flew to a control, `gaze` pointed at it for 1400 ms. The agent
+Port note: in the source app, while the agent flew to a control, `gaze` pointed at it for 1400 ms. The agent
 is not ported, so that branch is gone.
 
 ---
@@ -224,7 +224,7 @@ more bounce.
 | `GROW` | 0.55 | 0.72 | growing into a spot or stage, and back |
 | `PINCH_TRACK` | 0.09 | 1 | pinch size follows the fingers without lag |
 | `BOUNCE` | 0.6 | 0.34 | let go of a pinch: bounces back to size, overshooting a few times |
-| `AIM` | 0.36 | 0.84 | **Orbit only**: flying to a control the agent is about to press. Not used in the port. |
+| `AIM` | 0.36 | 0.84 | **source app only**: flying to a control the agent is about to press. Not used in the port. |
 
 ### `SpringValue`
 
@@ -323,7 +323,7 @@ next frame if mode === 'drag' || !still
 | `tucked` | sits half off the right edge (`x = right − R·0.5`, `y = bottom − 150`) |
 | `drag` | under the finger |
 | `acting` | moving on its own (a shake's summon); refocus leaves it alone |
-| `caret` | it is the text caret; `caretMode` remembers the mode to return to |
+| `caret` | it is the text caret; `caretMode` holds the mode to return to |
 
 ### Every transition
 
@@ -362,7 +362,7 @@ next frame if mode === 'drag' || !still
 layer and has no `[data-orb-spot="stage"]`, or the `hidden` prop). It returns early while
 `leaving` (rounding out after caret mode).
 
-Port note: in Orbit, `findFocus` was followed by a `MutationObserver` only for the caret (xterm and
+Port note: in the source app, `findFocus` was followed by a `MutationObserver` only for the caret (xterm and
 CodeMirror cursors, §10); attention itself relies on the interval and the events above.
 
 ### `findFocus(view, size, self)` — priorities
@@ -379,7 +379,7 @@ Returns `{ x, y, el, kind, size? }`. First hit wins:
 | 5 | `latest` | `LATEST = '.ai-msg-assistant, .ag-msg, .sr-shot, .o5-step'`, newest first, only the last 4 | beside it |
 | 6 | `rest` | `restSpot(view, size)` | `x = view.x + view.w − size/2 − 14`, `y = view.y + view.h − size/2 − 96` (low right, above a dock/home handle and the keyboard) |
 
-`.ai-make`, `.ai-send`, `.ai-msg-assistant`, `.ag-msg`, `.sr-shot`, `.o5-step` are Orbit's own
+`.ai-make`, `.ai-send`, `.ai-msg-assistant`, `.ag-msg`, `.sr-shot`, `.o5-step` are the source app's own
 class names, kept as copied. In a new app, use `data-orb-focus` (priority 1) or `.btn.primary` /
 `button[type="submit"]` (priority 4), or reuse those class names.
 
@@ -450,7 +450,7 @@ A headline the orb should wait beside (it goes to the top right of the headline 
 
 ```tsx
 <div className="st-qwrap">
-  <h2 className="st-q">Where are <em>we?</em></h2>
+  <h2 className="st-q">Where <em>to?</em></h2>
   <OrbSpot />   {/* <span class="st-orb-spot" data-orb-spot="" data-orb-size="52" role="presentation"> */}
 </div>
 ```
@@ -460,7 +460,7 @@ A headline the orb should wait beside (it goes to the top right of the headline 
 ```
 
 A recommended answer (the orb rests on the answer it would pick until one is chosen; this is
-Orbit's `Choices.tsx`):
+`src/components/Choices.tsx`):
 
 ```tsx
 <button type="button" className="st-choice" data-rec={rec || undefined} aria-pressed={chosen} disabled={picked !== null}>
@@ -478,17 +478,17 @@ Orbit's `Choices.tsx`):
 A primary button (nothing to add: it is in `PRIMARY`):
 
 ```html
-<button type="submit" class="btn primary">Make the picture</button>
+<button type="submit" class="btn primary">Save the plan</button>
 ```
 
-A spot kept for it on an empty chat (Orbit's AI app):
+A spot kept for it on an empty chat (the source app's chat):
 
 ```html
 <div class="ai-hello-spot" data-orb-spot="hello" data-orb-size="76"></div>
 ```
 (any non-"stage" value counts as a spot; `.ai-hello-spot { width: 76px; height: 76px; flex: none; }`)
 
-A stage (Orbit's voice mode; the orb becomes the voice orb and the page drives its glow):
+A stage (the source app's voice mode; the orb becomes the voice orb and the page drives its glow):
 
 ```tsx
 <div className="ai-voice" role="dialog" aria-modal="true" aria-label="Voice chat">
@@ -505,14 +505,14 @@ useEffect(() => () => orbThink(null), []);
 Something the page wants to say, kept until the orb is tapped, with a button:
 
 ```ts
-orbNote('I’d go with “Dusk”. It fits the mood you picked.', { label: 'Go with “Dusk”', id: 'pick' });
+orbNote('I’d go with “A harbour town”. It suits the summer you picked.', { label: 'Go with “A harbour town”', id: 'pick' });
 const stop = onOrbAct((id) => { if (id === 'pick') pick(rec.label); });
 ```
 
 Telling the orb what the page is:
 
 ```ts
-document.documentElement.dataset.orbContext = 'You are the guide inside Dusk Studio. The member is on the "mood" question.';
+document.documentElement.dataset.orbContext = 'You are the guide inside Compass, an app that plans a trip or an evening one question at a time. The person is on the walk screen, at the question "Where to?".';
 ```
 
 ---
@@ -760,10 +760,10 @@ triggers it (see §17).
 **Sleepy:** when the panel opens, `brain ? await brain.ready() : false`; false → `sleepy = true`
 (the face's expression `sleepy`, heavy lids).
 
-**Port note on the input's placeholder:** Orbit's was "Open Code, make a video of waves, dark mode…";
+**Port note on the input's placeholder:** the source app's was "Open Code, make a video of waves, dark mode…";
 the port's is "Ask about this screen…". Button and title strings are unchanged.
 
-The panel uses these class names from Orbit's global stylesheet, which `orb.css` does not define:
+The panel uses these class names from the source app's global stylesheet (base.css here), which `orb.css` does not define:
 `.btn`, `.btn.primary`, `.btn.ghost`, `.icon-btn`, `.chip`, `.input`, `.row-inline`. Provide them
 (this package's components stylesheet does) or restyle under `.orb-panel`.
 
@@ -772,8 +772,8 @@ The panel uses these class names from Orbit's global stylesheet, which `orb.css`
 ## 14. Energy and the glow
 
 - `orb:energy` (via `orbThink(n)`) sets the face's energy: the shader's liquid stirs faster
-  (`speed = 0.25 + energy·0.9`), the sphere swells (`size = 0.86 + energy·0.1`). In Orbit a studio
-  sent `0.7` while predicting answers, `0.55` while making, `null` to rest.
+  (`speed = 0.25 + energy·0.9`), the sphere swells (`size = 0.86 + energy·0.1`). The example app
+  sends `0.7` while suggesting answers, `0.55` while saving, `null` to rest.
 - While listening, the mic level `v` drives `energy = 0.25 + v·0.75` (updated at most every 70 ms)
   and `depth.target = −v · 0.25` (it swells a little; negative depth is never drawn as a press).
 - While running, energy is `0.8` and `typing` is true.
@@ -804,7 +804,7 @@ With `brain.ready()` false, it gets `brain.why` (or the same line).
 the owner in plain, friendly language: 2 to 5 short sentences, no jargon, no markdown headings.
 Never repeat passwords or keys."*
 
-`EXPLAIN_PROMPT` (Orbit's, unchanged): *"You are the orb in Orbit, a web workspace. You see what is
+`EXPLAIN_PROMPT` (the source app's, unchanged): *"You are the orb in Orbit, a web workspace. You see what is
 on the owner's screen (its text, and sometimes pictures). Answer their question about it in plain,
 friendly language: 2 to 5 short sentences, no jargon, no markdown headings. If something looks
 wrong (an error, a warning), say what it means and one thing to try. Never repeat passwords or
@@ -911,7 +911,7 @@ Chips, the ask row (16 px input text so phones do not zoom; 44 px touch targets)
 :root[data-skin='o5'] .orb-panel, :root[data-skin='o5'] .orb-caption { border-radius: 6px; }
 :root[data-skin='o5'] .orb-panel-title { font-family: var(--font-display); font-weight: 400; font-size: calc(24px * var(--text-scale, 1)); }
 ```
-Orbit's "0.5" magazine skin: square corners and a display-face title. Harmless if your app never sets `data-skin`.
+The Orbit 0.5 magazine skin: square corners and a display-face title. Harmless if your app never sets `data-skin`.
 
 ```css
 @media (prefers-reduced-motion: reduce) { .orb-layer[data-listening] .orb-cursor-ring, .orb-layer[data-running] .orb-cursor-ring { animation: none; } }
@@ -935,7 +935,7 @@ As the caret: taps pass through to the text; the glow would stretch into a strea
 :root[data-orb-caret] .xterm.focus .xterm-rows .xterm-cursor { background-color: transparent !important; color: inherit !important; outline: none !important; box-shadow: none !important; animation: none !important; }
 @media (prefers-reduced-motion: reduce) { .orb-layer[data-caret][data-slim] .orb-cursor-face { animation: none; } }
 ```
-While the orb is the caret, the field's own caret steps aside: text boxes (`.ta-plain` is Orbit's textarea class), CodeMirror's cursor layer, and xterm's block cursor.
+While the orb is the caret, the field's own caret steps aside: text boxes (`.ta-plain` is the source app's textarea class, kept in base.css), CodeMirror's cursor layer, and xterm's block cursor.
 
 ```css
 [data-orb-hover] { outline: 2px solid color-mix(in srgb, var(--accent) 60%, transparent); outline-offset: 3px; transition: outline-offset 0.18s cubic-bezier(0.22, 1, 0.36, 1); }
@@ -951,12 +951,12 @@ The touch cursor: a 2 px accent outline (following each control's own corners) w
 @keyframes wh-in { … } :root[data-motion='off'] :is(.wh-ghost, .wh-chip) { animation: none; }
 @media (pointer: coarse) { .wh-ghost-key { display: none; } }
 ```
-Orbit's writing help (ghost text and the Rewrite chip, `WriteHelp.tsx`), which is **not ported**. The rules are kept in the verbatim copy and are unused unless you build on `write.ts`.
+The source app's writing help (ghost text and the Rewrite chip, `WriteHelp.tsx`), which is **not ported**. The rules are kept in the verbatim copy and are unused unless you build on `write.ts`.
 
 ```css
 .orb-found { … } .orb-found button { … } .orb-found button:hover { … } .orb-found-kind { … } .orb-found-title { … } .orb-found-snippet { … }
 ```
-Orbit's "find …" results list in the panel, **not ported**; kept in the copy, unused.
+The source app's "find …" results list in the panel, **not ported**; kept in the copy, unused.
 
 `face.css` adds `.ai-orb` (64 px conic-gradient sphere, spinning 8 s and breathing 4 s), `.ai-orb-gpu`
 (88 px canvas with −12 px margin, no CSS effects; overridden to 100 % inside `.orb-cursor`),
@@ -967,16 +967,16 @@ animations off under `prefers-reduced-motion`.
 
 ## 17. What is not in the port, and what changed
 
-Left out on purpose (Orbit-app-specific, or AI beyond the adapter):
+Left out on purpose (specific to the source app, or AI beyond the adapter):
 
-- **The do-it-for-me agent** (`agent.ts`: `parseCommand`, `PLANNER_PROMPT`, `Step`, `exec`, `plan`, `aimAt` with the `AIM` spring, the "Typed …"/"Tapped …" log lines, `needsConfirm` and the confirm dialog's use). It opened Orbit apps, changed Orbit settings and switched Orbit's machines. A future `act` hook on the adapter (for example `act?(goal, page: PageItem[]): Promise<Step | null>`) could bring back step-by-step acting; `snapshot()` and `labelOf()` are already here for the "what is on screen" side, and `activate()` shows how the orb presses something.
-- **Find / bring** (`find.ts`: searching Orbit's chats, files and sessions; the `.orb-found` list; "bring me …" into the last text box via `insertText`).
+- **The do-it-for-me agent** (`agent.ts`: `parseCommand`, `PLANNER_PROMPT`, `Step`, `exec`, `plan`, `aimAt` with the `AIM` spring, the "Typed …"/"Tapped …" log lines, `needsConfirm` and the confirm dialog's use). It opened the source app's own apps, changed its settings and switched its servers. A future `act` hook on the adapter (for example `act?(goal, page: PageItem[]): Promise<Step | null>`) could bring back step-by-step acting; `snapshot()` and `labelOf()` are already here for the "what is on screen" side, and `activate()` shows how the orb presses something.
+- **Find / bring** (`find.ts`: searching the source app's chats, files and sessions; the `.orb-found` list; "bring me …" into the last text box via `insertText`).
 - **Pictures** for "explain this screen" (`screenPictures`): the adapter takes text only.
 - **`pageChat`** (a page lending its own AI): replaced by the `brain` prop.
 - **Speech and listening modules**: replaced by `brain.speak` / `brain.listen`. `docs/10-ai-adapter.md` ports the browser Web Speech parts.
 - **`useShell`** (settings, overlay, app names), **`useMotionLevel`** (now `settings.level`), the **`Icon`** component (two inline SVG paths instead, same geometry).
 - **The `orbit:orb-run` event name** (now `orb:run`).
 
-Changed strings: the suggestions list; the input placeholder; `pageHelp()` says "On this screen: …. Ask me about any of it." / "Ask me about this screen." (Orbit's ended "Ask me to tap, type, open or change anything." / "Ask me to open an app, change a setting or make something.", which would be untrue here). New strings: `ASK_PROMPT`, "There is nothing for me to think with here yet.", "Thinking…", "I couldn’t work out how to answer that.".
+Changed strings: the suggestions list; the input placeholder; `pageHelp()` says "On this screen: …. Ask me about any of it." / "Ask me about this screen." (the source app's ended "Ask me to tap, type, open or change anything." / "Ask me to open an app, change a setting or make something.", which would be untrue here). New strings: `ASK_PROMPT`, "There is nothing for me to think with here yet.", "Thinking…", "I couldn’t work out how to answer that.".
 
-Everything else — every spring, threshold, timing, size, selector, attribute and mode rule — is as in Orbit.
+Everything else — every spring, threshold, timing, size, selector, attribute and mode rule — is as in the source app.

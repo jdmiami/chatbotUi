@@ -10,7 +10,7 @@ import 'orbit-design/styles/o5.css';
 import 'orbit-design/orb/face.css';
 import 'orbit-design/orb/orb.css';
 import 'orbit-design/motion/depth.css';
-import 'orbit-design/styles/studio.css';
+import 'orbit-design/styles/pages.css';
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import { loadFonts } from 'orbit-design/styles/fonts';

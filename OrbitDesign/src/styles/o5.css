@@ -41,21 +41,7 @@
  *   :root[data-skin='o5'] .ai-composer-bar .ai-send
  *   :root[data-skin='o5'] .ai-create
  *   :root[data-skin='o5'] .ai-create-form
- *   :root[data-skin='o5'] .ai-maker-picks
- *   :root[data-skin='o5'] .ai-maker-chip
- *   :root[data-skin='o5'] .ai-maker-chip[aria-checked='true']
- *   :root[data-skin='o5'] .ai-makers .ai-banner.ai-banner
- *   :root[data-skin='o5'] .ai-makers h3
- *   :root[data-skin='o5'] .ai-makers ul
- *   :root[data-skin='o5'] .ai-maker-row,
- *   :root[data-skin='o5'] .ai-maker-row[data-installed='true']
- *   :root[data-skin='o5'] .ai-maker-name
- *   :root[data-skin='o5'] .ai-maker-row[data-installed='true'] .ai-maker-name
- *   :root[data-skin='o5'] .ai-maker-tag
- *   :root[data-skin='o5'] .ai-maker-ok
- *   :root[data-skin='o5'][data-skin] .ai-maker-row .btn
- *   :root[data-skin='o5'][data-skin] .ai-maker-row .btn:disabled
- *   :root[data-skin='o5'] .ai-maker-row .btn svg
+ *   (15 rules of the AI app's model-picker block, every selector under .ai-)
  *   :root[data-skin='o5'] .ai-create :is(textarea, .ta-plain)
  *   :root[data-skin='o5'] .ai-create :is(textarea, .ta-plain):focus
  *   :root[data-skin='o5'] .ai-make
@@ -631,8 +617,8 @@
   backdrop-filter: blur(14px) saturate(120%);
 }
 
-/* Page sheets (Sheet `page`): the store and the makers read like the home, a tall page whose
-   chapters sink back and blur as they scroll away (--p / --ap from useScrollDepth). */
+/* Page sheets (Sheet `page`): tall pages that read like the home, whose chapters sink back and
+   blur as they scroll away (--p / --ap from useScrollDepth). */
 :root[data-skin='o5'] .sheet-scrim[data-page] {
   background: color-mix(in srgb, var(--bg) 62%, transparent);
   -webkit-backdrop-filter: blur(22px) saturate(120%);

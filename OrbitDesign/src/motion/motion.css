@@ -10,7 +10,7 @@
  * Motion. Follows docs/MOTION.md (light, depth layers, springs, where things come from).
  * <html data-motion="full | lite | off"> is set by MotionProvider (Settings → Motion).
  *  - Only transform / opacity / filter animate; no layout work.
- *  - Entrances are plain CSS so the screen never depends on JavaScript to appear.
+ *  - Entrances are plain CSS so the screen never depends on code running to appear.
  *  - Full = springs, depth and tilt. Lite = short fades. Off = still, with quick cross-fades.
  */
 
@@ -143,7 +143,7 @@
 }
 
 /* ---------------------------------------------------------------- Windows */
-/* Full-motion windows are animated by script (motion/morph.ts); the CSS fade would fight it. */
+/* Full-motion windows are animated from code (motion/morph.ts); the CSS fade would fight it. */
 :root[data-motion='full'] .app-window {
   transition: left var(--dur-med) var(--ease-out), right var(--dur-med) var(--ease-out);
 }
@@ -232,7 +232,7 @@
 }
 @keyframes mo-viewer-in { from { transform: scale(0.82); opacity: 0; } }
 
-/* A job being made: its icon sits in a swirling gradient, like film in the developer. */
+/* A job being made: its icon sits in a swirling gradient, like a print in the developing tray. */
 .ai-job-art { width: 36px; height: 36px; border-radius: 12px; display: grid; place-items: center; flex: none; background: var(--surface-3); color: var(--text-2); position: relative; overflow: hidden; }
 :root[data-motion='full'] .ai-job-art[data-live='true']::before {
   content: ''; position: absolute; inset: -60%;

@@ -1,17 +1,16 @@
 import { LayoutGroup, motion } from 'motion/react';
 import { useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import { SPRING, transitionFor, useMotionLevel, useScrollDepth } from '../motion';
-import type { Answers, Choice, Flow, StepDef } from '../walkthrough/defs';
-import { stepsFor } from '../walkthrough/engine';
+import type { Answers, Choice, Flow, Step } from '../flow/defs';
+import { stepsFor } from '../flow/engine';
 import { Choices } from './Choices';
 import { Headline } from './Sheets';
 import { SqIcon } from './icons';
 
 /**
- * A walkthrough as one scroll: the answers so far stacked small at the top (blurred as they leave
- * the middle, tap one to go back to it), and the question you're on in the middle. A picked answer
+ * A flow as one scroll: the answers so far stacked small at the top (blurred as they leave the
+ * middle, tap one to go back to it), and the question you're on in the middle. A picked answer
  * flies up into the stack; the next question comes in below it.
- * Copied from Orbit Studios (src/studio/Walk.tsx), unchanged.
  */
 export function Walk({
   flow,
@@ -20,31 +19,36 @@ export function Walk({
   n,
   total,
   choices,
-  predicting,
+  suggesting = false,
   picked,
   onPick,
   onPickForMe,
   onFinishForMe,
   onRevisit,
   recommended,
-  desk,
+  custom,
 }: {
   flow: Flow;
   answers: Answers;
-  step: StepDef;
+  step: Step;
+  /** Where the flow is, for the running head ("3 of 7"). */
   n: number;
   total: number;
+  /** The answers on offer (the assistant's suggestions merged over the step's own). */
   choices: Choice[];
-  predicting: boolean;
+  /** Whether the assistant is still thinking of more answers. */
+  suggesting?: boolean;
+  /** The label just picked (it lifts while the others leave), or null. */
   picked: string | null;
   onPick: (label: string) => void;
   onPickForMe: () => void;
   onFinishForMe: () => void;
+  /** Tap an earlier answer: go back to that question. */
   onRevisit: (stepId: string) => void;
   /** The orb's pick for this question (it sits on it). */
   recommended?: string | null;
-  /** A step that isn't a list of answers (the script desk) brings its own body. */
-  desk?: ReactNode;
+  /** A custom step (one that isn't a list of answers) brings its own body here; the app renders it. */
+  custom?: ReactNode;
 }) {
   const level = useMotionLevel();
   const full = level === 'full';
@@ -95,13 +99,13 @@ export function Walk({
               {n} of {total}
             </span>
           </p>
-          <Headline text={step.q} id={`q-${step.id}`} orb={!busy && !recommended && !desk} />
+          <Headline text={step.q} id={`q-${step.id}`} orb={!busy && !recommended && !custom} />
           {step.dek && <p className="st-dek">{step.dek}</p>}
-          {desk ?? (
+          {custom ?? (
             <Choices items={choices} picked={picked} onPick={onPick} layoutPrefix={`ans-${step.id}`} delay={done.length ? 0.3 : 0.12} recommended={recommended} />
           )}
-          {predicting && !busy && !desk && <p className="st-predicting">The writer is thinking of more…</p>}
-          {!step.closed && !busy && !desk && (
+          {suggesting && !busy && !custom && <p className="st-predicting">Thinking of more…</p>}
+          {!step.closed && !busy && !custom && (
             <motion.form
               className="st-own"
               initial={full ? { opacity: 0, y: 16, filter: 'blur(8px)' } : { opacity: 0 }}
@@ -121,7 +125,7 @@ export function Walk({
               </button>
             </motion.form>
           )}
-          {!busy && !desk && (
+          {!busy && !custom && (
             <motion.p
               className="st-shortcuts"
               initial={{ opacity: 0 }}

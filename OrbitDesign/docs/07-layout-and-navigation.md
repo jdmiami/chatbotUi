@@ -1,20 +1,20 @@
 # 07 · Layout and navigation
 
-The screen model of an Orbit studio, as Orbit's `StudioApp.tsx` ran it. This document is the specification for the app shell that `src/components/Bars.tsx` (Root, TopBar, Stage, BottomBar) is set from; the decisions (what each button does per view) are written out here so a new app can re-implement them exactly.
+The screen model, as the example app (`example/src/App.tsx`) implements it on the frame in `src/components/Bars.tsx` (`Root`, `TopBar`, `Stage`, `BottomBar`). The components give the three bands and the crossfade; the decisions (which view shows what, what each button does, when a run is saved, where the orb goes) are the app's, and they are written out here with the code so a new app can make the same ones. The component props and DOM are in `docs/06-components.md`; the motion in `docs/05-motion.md`; the orb in `docs/09-orb.md`.
 
 ## Contents
 
 1. [The three bands](#1-the-three-bands)
-2. [The View union and what each view shows](#2-views)
-3. [Transitions](#3-transitions)
+2. [The views](#2-the-views)
+3. [The stage crossfade](#3-the-stage-crossfade)
 4. [One question at a time, and the trail](#4-one-question-at-a-time-and-the-trail)
 5. [The bottom bar: Back, Home, Save draft](#5-the-bottom-bar)
-6. [The top bar: masthead, Options, Gallery](#6-the-top-bar)
-7. [Drafts save themselves](#7-drafts-save-themselves)
-8. [The gate for adult studios](#8-the-gate)
-9. [The gallery shelves](#9-the-gallery-shelves)
-10. [The studio's look on `<html>`](#10-the-studios-look-on-html)
-11. [iPhone and iPad behaviours](#11-iphone-and-ipad-behaviours)
+6. [The top bar](#6-the-top-bar)
+7. [Runs save themselves](#7-runs-save-themselves)
+8. [A gate as an optional first screen](#8-a-gate-as-an-optional-first-screen)
+9. [The drawers](#9-the-drawers)
+10. [The theme on `<html>`](#10-the-theme-on-html)
+11. [Phones and tablets](#11-phones-and-tablets)
 12. [The orb on these screens](#12-the-orb-on-these-screens)
 13. [State diagram](#13-state-diagram)
 
@@ -23,12 +23,12 @@ The screen model of an Orbit studio, as Orbit's `StudioApp.tsx` ran it. This doc
 ## 1. The three bands
 
 ```
-┌──────────────────────────────────────────────┐  .st-root  position: fixed; inset: 0;
-│ AN ORBIT STUDIO · 18+              [⚙] [≡]   │  .st-top   grid row 1 (auto)
-│ After Dark                                   │
+┌──────────────────────────────────────────────┐  .st-root   position: fixed; inset: 0; grid
+│ A SAMPLE GUIDE                     [⚙] [≡]   │  .st-top    grid row 1 (auto)
+│ Com pass                                     │
 ├──────────────────────────────────────────────┤
-│                                              │  .st-stage grid row 2 (minmax(0,1fr)), overflow hidden
-│   (the only part that moves)                 │    .st-view absolute inset 0
+│                                              │  .st-stage  grid row 2 (minmax(0, 1fr)), overflow hidden
+│   (the only part that moves)                 │    .st-view   absolute inset 0, one per screen
 │                                              │      .st-scroll  the one column that scrolls
 │                                              │
 ├──────────────────────────────────────────────┤
@@ -36,297 +36,581 @@ The screen model of an Orbit studio, as Orbit's `StudioApp.tsx` ran it. This doc
 └──────────────────────────────────────────────┘
 ```
 
-- `.st-root` is `display: grid; grid-template-rows: auto minmax(0, 1fr) auto`. It carries `data-view="{view}"`.
-- **Top bar** (`.st-top`): a flex row, the masthead (`.st-flag`: `<small>` kicker, `<b>` roman half, `<i>` italic half in the accent) on the left and `.st-top-actions` (two 44 × 44 hairline squares `.st-sq`) on the right. Hidden actions on the gate. Padding includes `env(safe-area-inset-top/left/right)` plus the gutter.
-- **Stage** (`.st-stage`): `position: relative; min-height: 0; overflow: hidden`. Each screen is a `.st-view` (`position: absolute; inset: 0`) so an exiting and an entering screen can overlap. Inside, `.st-scroll` is `height: 100%; overflow-y: auto; overscroll-behavior: contain`, with the side gutters; its children are centred at `max-width: var(--st-col)` (760 px). The gutter is `--st-gutter: clamp(18px, 6vw, 64px)`.
-- **Bottom bar** (`.st-bottom`): three equal columns, hairline above, translucent (`color-mix(bg 80%)` + `backdrop-filter: blur(18px) saturate(1.3)`), padded for `env(safe-area-inset-bottom/left/right)`. Hidden on the gate. Buttons are 54 px tall, uppercase 11 px, 30 % opacity when disabled.
-- Drawers (`.st-drawer-wrap`, `z-index: 60`) and toasts sit over everything; the orb cursor is mounted last inside `.st-root`.
+- `.st-root` is `display: grid; grid-template-rows: auto minmax(0, 1fr) auto` and carries `data-view="{view}"`.
+- **Top bar** (`.st-top`): a flex row; the masthead (`.st-flag`: `<small>` kicker, `<b>` roman half, `<i>` italic half in the accent) on the left and `.st-top-actions` (two 44 × 44 hairline squares, `.st-sq`) on the right. Padding includes `env(safe-area-inset-top/left/right)` plus the gutter `--st-gutter: clamp(18px, 6vw, 64px)`.
+- **Stage** (`.st-stage`): `position: relative; min-height: 0; overflow: hidden`. Each screen is a `.st-view` (`position: absolute; inset: 0`) so a leaving and an arriving screen can overlap. Inside, `.st-scroll` is `height: 100%; overflow-y: auto; overflow-x: hidden; overscroll-behavior: contain`, padded with the gutter and the side safe areas; its children are centred at `max-width: var(--st-col)` (760 px).
+- **Bottom bar** (`.st-bottom`): three equal columns, hairline above, translucent (`color-mix(in srgb, var(--bg) 80%, transparent)` + `backdrop-filter: blur(18px) saturate(1.3)`), padded for `env(safe-area-inset-bottom/left/right)`. Buttons are 54 px tall, uppercase 11 px, 30 % opacity when disabled.
+- Drawers (`.st-drawer-wrap`, `z-index: 60`) and toasts (`.toasts`, `z-index: 90`) sit over everything inside `.st-root`; the orb (`<OrbCursor/>`) is mounted after the app, outside `.st-root` (`example/src/main.tsx`).
 
-Only the middle moves. The bars never animate between views.
+**Only the stage moves.** The bars never animate between views; they change only their enabled states.
 
 ---
 
-## 2. Views
+## 2. The views
 
 ```ts
-type View = 'gate' | 'home' | 'start' | 'walk' | 'make' | 'talk';
-type Shelf = 'projects' | 'pictures' | 'videos' | 'movies' | 'characters';
+type View = 'contents' | 'start' | 'walk' | 'summary' | 'talk';
 ```
 
 | View | What is on the stage | Scroller |
 |---|---|---|
-| `gate` | `Gate` (adult studios only). Top-bar actions and the bottom bar are hidden. | wrapped in `.st-scroll` |
-| `home` | `Home`: the contents page of projects. | wrapped |
-| `start` | The "What shall we *make?*" page: kicker `Opening`, dek `Pick one. Every choice is a short walk, one question at a time.`, `Choices` of the four START items (`delay 0.2`), headline orb while `picked === null`. | wrapped |
-| `walk` | `Walk` for the current step, or, when the flow has no question left (`nextStep` is null), the brief (`Make`). | `Walk` scrolls itself; the brief is wrapped |
-| `make` | The brief / making / result (`Make` in Orbit; `Brief.tsx` pieces here). | wrapped |
-| `talk` | `Talk`. | wrapped |
+| `contents` | `Contents`: the welcome, "Start something new", "Talk it through", then every run as a numbered row. | wrapped in `.st-scroll` |
+| `start` | A `Page` (`id="st-start-t"`, kick `Opening`, title `What shall we *plan?*`, dek `Pick one. Every choice is a short walk, one question at a time.`, headline orb while `picked === null`) with `Choices` of `START` (`delay 0.2`). | wrapped |
+| `walk` | `Walk` for the current step (`nextStep`), with the custom body when `step.custom === 'notes'`. When the flow has no question left the summary is shown instead (below). | `Walk` scrolls itself |
+| `summary` | The summary: `SummaryList` and `Go "Save the plan"` while the run is a draft; `Progress` while saving; `Result` once done. | wrapped |
+| `talk` | `Conversation` with the guide's `starters` and `followUps`, two actions that start a flow from what was said, and (in the sample) a canned `onSend`. | wrapped |
 
-The four START choices and what they start:
-
-| Label | Hint | Kind |
-|---|---|---|
-| Talk it through | Plan it with the writer first | `talk` → view `talk` |
-| A picture | One frame, in under a minute | `image` |
-| A video | A moving moment, with sound | `video` |
-| A movie | Several scenes, cut together | `movie` |
-
-Initial view: `'home'` unless `studio.adult`, in which case `localStorage.getItem('orbit:studio:{id}:adult') === '1' ? 'home' : 'gate'` (and `'gate'` when storage throws).
-
-Derived values the shell keeps:
+The `START` list is the conversation first, then one answer per flow:
 
 ```ts
-const flow = project ? studio.flows[project.kind] : null;
-const step = view === 'walk' && flow && project ? nextStep(flow, project.answers) : null;
-const stepKey = `${view}|${step?.id ?? ''}|${project?.id ?? ''}`;   // "where am I": effects key on it
-const offered = step ? mergeChoices(predicted, step.choices) : [];
-const rec = step && flow && project && step.kind !== 'script' ? recommend(flow, project.answers, step, offered, predicted) : null;
-const canBack = view !== 'home' && view !== 'gate';
-const canSave = (view === 'walk' || view === 'make') && project?.status === 'draft';
+const TALK = 'Talk it through';
+const START: Choice[] = [{ label: TALK, hint: 'Plan it in conversation first' }, ...flows.map((f) => ({ label: f.label, hint: f.hint }))];
+```
+
+The initial view is `'contents'` (`useState<View>('contents')`). Derived values the app keeps:
+
+```ts
+  const flow = run ? guide.flows[run.flowId] : null;
+  const step = view === 'walk' && flow && run ? nextStep(flow, run.answers) : null;
+  const stepKey = `${view}|${step?.id ?? ''}|${run?.id ?? ''}`;
+```
+
+```ts
+  const offered = step ? mergeChoices(suggested, step.choices) : [];
+  const rec = step && flow && run && !step.custom ? recommend(flow, run.answers, step, offered, suggested) : null;
+```
+
+```ts
+  const canBack = view !== 'contents';
+  const canSave = (view === 'walk' || view === 'summary') && run?.status === 'draft' && !saving;
+```
+
+`stepKey` is "where am I": every effect that follows the person (suggestions, the orb's note, bringing the orb home, the orb context) keys on it.
+
+The summary body is rendered for `view === 'summary'`, and also for a `walk` view that has no step left (`(view === 'summary' || view === 'walk') && run && flow`), so a run can never show an empty stage:
+
+```tsx
+  } else if ((view === 'summary' || view === 'walk') && run && flow) {
+    const done = run.status === 'done' && result;
+```
+
+Suggestions are asked for on every `stepKey` change, only while an assistant is set and awake (otherwise the ready answers stand alone):
+
+```ts
+  useEffect(() => {
+    setSuggested([]);
+    if (!step || !flow || !run) return;
+    let on = true;
+    setSuggesting(assistantAwake() && wantsSuggestions(flow, step, run.answers));
+    void suggestChoices(guide, flow, step, run.answers).then((list) => {
+      if (!on) return;
+      setSuggested(list);
+      setSuggesting(false);
+    });
+    return () => {
+      on = false;
+    };
+  }, [stepKey]); // eslint-disable-line react-hooks/exhaustive-deps
 ```
 
 ---
 
-## 3. Transitions
+## 3. The stage crossfade
 
-The stage is one `AnimatePresence mode="wait" initial={false}` with a single `motion.div.st-view` keyed by
+The stage is one `AnimatePresence mode="wait" initial={false}` with a single `motion.div.st-view` keyed by `screenKey` (`src/components/Bars.tsx`):
 
-```ts
-const screen = view === 'walk' && !walking ? 'make' : view;   // a walk with nothing left to ask looks like the brief
-key = `${screen}|${project?.id ?? ''}`
+```tsx
+    <main className="st-stage" id="st-stage">
+      <AnimatePresence mode="wait" initial={false}>
+        <motion.div
+          key={screenKey}
+          className="st-view"
+          initial={full ? { opacity: 0, y: 28, filter: 'blur(14px)' } : { opacity: 0 }}
+          animate={{ opacity: 1, y: 0, filter: 'blur(0px)', transition: full ? SPRING.smooth : transitionFor(level) }}
+          exit={full ? { opacity: 0, y: -18, filter: 'blur(14px)', transition: { ...SPRING.smooth, stiffness: 260 } } : { opacity: 0, transition: transitionFor(level) }}
+        >
+          {walking ? children : <div className="st-scroll">{children}</div>}
+        </motion.div>
+      </AnimatePresence>
+    </main>
 ```
 
-`mode="wait"` means the old screen finishes leaving before the new one starts arriving: a keyed crossfade with a vertical drift and a blur. Full motion: enter from `{ opacity: 0, y: 28, filter: blur(14px) }` with `SPRING.smooth`; exit to `{ opacity: 0, y: -18, filter: blur(14px) }` with `{ ...SPRING.smooth, stiffness: 260 }` (a little quicker than the entrance). Lite/Off: opacity only, `transitionFor(level)`. Steps inside a walk do **not** change the stage key; the `Walk` animates its own section (`key={step.id}`) and the trail. See `docs/05-motion.md`.
+`mode="wait"` means the old screen finishes leaving before the new one starts arriving: a keyed crossfade with a vertical drift and a blur, the exit a little quicker than the entrance (`stiffness: 260`). Lite/off: opacity only. `initial={false}` means the first screen does not animate in. See `docs/05-motion.md` §12.3.
+
+**The `screenKey` rule.** The key is the screen and the run, not the step:
+
+```ts
+  const screen = view === 'walk' && !walking ? 'summary' : view;
+```
+
+```tsx
+      <Stage screenKey={`${screen}|${run?.id ?? ''}`} walking={walking}>
+```
+
+- A `walk` view with nothing left to ask looks like, and is keyed as, the summary, so moving from the last answer to the summary does not crossfade twice.
+- Steps inside a walk do **not** change the stage key: the `Walk` animates its own section (`key={step.id}`) and the trail, and the answer flies up within one scroller.
+- Opening a different run changes the key even when the view stays the same (two walks crossfade).
+- `walking` is `true` only when a `Walk` is rendered (`view === 'walk' && step && run && flow`).
 
 Which view leads where:
 
 | From | Action | To |
 |---|---|---|
-| gate | "I am 18 or older" | home (and the key is stored) |
-| gate | "Take me back" | leaves the site (`history.back()` or `about:blank`) |
-| home | Start something new | start |
-| home | Talk with the writer | talk |
-| home | a project row | walk if `status === 'draft'` and `nextStep` is not null, else make |
-| start | A picture / A video / A movie | walk (a new project of that kind, saved at once) |
+| contents | Start something new | start |
+| contents | Talk it through | talk |
+| contents | a run's row (`open`) | walk if `status === 'draft'` and `nextStep` is not null, else summary |
+| start | a flow's label | walk (a new run of that flow, saved at once) |
 | start | Talk it through | talk |
-| talk | Make it a picture / A video / A movie | walk (new project; for a movie the seed becomes `answers.premise`; for a picture or video the seed is not used as an answer) |
-| walk | last answer given | make (`after()` sees `nextStep` null) |
-| walk | "Finish it for me" | make |
-| make | Make the … | stays on make (status `making`, then `done` or `error`) |
-| any but home/gate | Home | home |
-| gallery | a project row | closes the drawer, then as "a project row" above |
+| talk | an action ("Plan a trip from this", "Just an evening") | walk (a new run; the seed becomes the first draft of the notes) |
+| walk | last answer given | summary (`after()` sees `nextStep` null) |
+| walk | Finish it for me | summary |
+| summary | Save the plan | stays on summary (`saving`, then `status === 'done'`) |
+| any but contents | Home | contents |
+| gallery drawer | a draft's row | closes the drawer, then as `open` above |
 
-Going somewhere is just `setView(...)`; Orbit's `go(change)` wrapper exists only so every move passes one place.
+Going somewhere is just `setView(...)`.
 
 ---
 
 ## 4. One question at a time, and the trail
 
-- The walk shows exactly one question: `nextStep(flow, answers)`, the first step (in flow order, among those whose `when` passes) with no answer yet.
-- Above it, the **trail**: every answered step, in flow order, each a `st-trail-row` button labelled `"{key}: {answer}. Change it"`. Rows carry `data-depth` so the ones scrolling out of the middle sink and blur (`useScrollDepth`, mode `center`).
-- **Tap to revisit** (`revisit(stepId)`): keep only the answers to steps that come *before* that step in the current order; everything from that step on is asked again.
+- The walk shows exactly one question: `nextStep(flow, answers)`, the first step in flow order, among those whose `when` passes, with no answer yet.
+- Above it, the **trail**: every answered step in flow order, each a `st-trail-row` button labelled `"{key}: {answer}. Change it"`. Rows carry `data-depth` so the ones scrolling out of the middle sink and blur (`useScrollDepth(scroller, true, 'center')`; `docs/05-motion.md` §9).
+- **Tap to revisit** (`revisit(stepId)`): keep only the answers to steps that come *before* the tapped step in the current order; everything from that step on is asked again.
 
-  ```ts
-  const order = stepsFor(flow, project.answers).map((s) => s.id);
-  const cut = order.indexOf(stepId);
-  keep({ ...project, answers: Object.fromEntries(Object.entries(project.answers).filter(([k]) => order.indexOf(k) < cut)) });
-  ```
+```ts
+  const revisit = (stepId: string) => {
+    if (!run || !flow) return;
+    const order = stepsFor(flow, run.answers).map((s) => s.id);
+    const cut = order.indexOf(stepId);
+    keep({ ...run, answers: Object.fromEntries(Object.entries(run.answers).filter(([k]) => order.indexOf(k) < cut)) });
+  };
+```
 
-  So revisiting drops the tapped answer and all later ones (including a script approval), and the script is re-drafted only if its basis changed.
-- **Picking** (`pick(label)`): ignored while a pick is in flight. Then `orbHome()`, `setPicked(label)`, wait `settle()` (`560 ms` full, `200 ms` lite, `0` off) for the other answers to leave, `setPicked(null)`, then `after(project, answer(flow, answers, step.id, label))`.
-- **after(project, answers)**: (1) if `answers.script` is set and the project's script basis differs from `scriptBasis(answers)`, draft the script (`draftScript`) so "Finish it for me" past the script has one; (2) for every live step whose `key` is `Appearance`, `Lead` or `Partner` with a *new* answer, `keepCharacter(studio.id, "{key} · {title || studio.name}", answer)`; (3) `keep({ ...project, answers })` (save); (4) if `nextStep` is null, `setView('make')`.
-- **Pick for me**: on a script step, approve it; otherwise `pick(pickFor(step, offered))` (a random one of what is on screen, writer's ideas included).
-- **Finish it for me**: `after(project, finishAll(flow, answers))` — every remaining question answered with a random ready choice (the script taken as drafted), straight to the brief.
-- **Own words**: the `st-own` form calls the same `pick(value)`; the value is stored verbatim and goes into the prompt as written.
-- The script step: when `step.kind === 'script'`, the Walk's `desk` is `ScriptDesk`; `script` is passed only if `project.script.basis === scriptBasis(answers)` (else `undefined`, "Drafting the script…"), and an effect drafts it: `if (project.script?.basis !== basis) keep({ ...project, script: { basis, scenes: draftScript(answers), by: 'draft' } })`. Approving answers the step with `` `${scenes.length} scenes, approved` `` (`SCRIPT_OK` lower-cased).
-- Titles: `titleOf(p)` is `answers.premise` for a movie, else `[answers.cast, answers.room].filter(Boolean).join(' · ')`; saved as `title` when non-empty.
+  So revisiting drops the tapped answer **and every later one**. The view stays `walk`; `nextStep` now returns the tapped step, and the trail shortens to the answers before it.
+
+- **Picking** (`pick(label)`): ignored while a pick is in flight. Then `orbHome()`, `setPicked(label)`, wait `settle()` for the other answers to leave, `setPicked(null)`, then answer and move on. On the start screen the same function starts a flow or opens the conversation:
+
+```ts
+  const settle = () => wait(full ? 560 : level === 'lite' ? 200 : 0);
+```
+
+```ts
+  const pick = async (label: string) => {
+    if (picked !== null) return;
+    orbHome();
+    if (view === 'start') {
+      setPicked(label);
+      await settle();
+      setPicked(null);
+      if (label === TALK) return setView('talk');
+      const f = flows.find((x) => x.label === label);
+      return f && startFlow(f.id);
+    }
+    if (!run || !flow || !step) return;
+    setPicked(label);
+    await settle();
+    setPicked(null);
+    after(run, answer(flow, run.answers, step.id, label));
+  };
+```
+
+- **after(run, answers)**: save, then go to the summary when nothing is left to ask.
+
+```ts
+  const after = (r: Run, answers: Answers) => {
+    const f = guide.flows[r.flowId];
+    const saved = keep({ ...r, answers });
+    if (!nextStep(f, answers)) setView('summary');
+    return saved;
+  };
+```
+
+- **Own words**: the `st-own` form in `Walk` calls the same `onPick(value)`; the value is stored verbatim and `valueOf` passes it through unchanged into the result.
+- **Pick for me**: on a custom step, answer it as done; otherwise `pick(pickFor(step, offered))`, a random one of what is on screen, suggestions included. **Finish it for me**: `finishAll` answers every remaining question with a random ready answer (a custom step with `CUSTOM_DONE`), straight to the summary.
+
+```ts
+  const pickForMe = () => (step?.custom ? takeNotes('') : step && void pick(pickFor(step, offered)));
+  const finishForMe = () => run && flow && after(run, finishAll(flow, run.answers));
+```
+
+- **The custom step.** A step with `custom` has no ready answers; the app renders its own body in the `Walk`'s `custom` slot and answers with its own value. The sample's `'notes'` step is a text box; an empty box answers `CUSTOM_DONE` (`'Done'`), which is how it reads in the trail:
+
+```ts
+  const takeNotes = (text: string) => {
+    if (!run || !flow || !step?.custom) return;
+    orbHome();
+    setNotes('');
+    after(run, answer(flow, run.answers, step.id, text.trim() || CUSTOM_DONE));
+  };
+```
+
+- **Titles.** A run's title is set on every save from its answers: the first two answers that are part of the result, joined with ` · `.
+
+```ts
+const titleOf = (r: Run) => {
+  const f = guide.flows[r.flowId];
+  return f
+    ? stepsFor(f, r.answers)
+        .filter((s) => !s.meta && !s.custom && r.answers[s.id])
+        .slice(0, 2)
+        .map((s) => r.answers[s.id])
+        .join(' · ')
+    : '';
+};
+```
 
 ---
 
 ## 5. The bottom bar
 
-Copied logic (Orbit's `goBack`, `goHome`, `saveDraft`):
+The three handlers, verbatim from the example:
 
 ```ts
-const goBack = () => {
-  if (view === 'walk' && project && flow) {
-    if (!Object.keys(project.answers).length) return void go(() => setView('start'));   // nothing answered: back to "What shall we make?"
-    return void go(() => keep({ ...project, answers: backOne(flow, project.answers) }));  // forget the last answer
-  }
-  if (view === 'make' && project && flow && project.status === 'draft') {
-    return void go(() => {
-      keep({ ...project, answers: backOne(flow, project.answers) });   // reopen the last question
-      setView('walk');
-    });
-  }
-  if (view === 'start' || view === 'talk' || view === 'make') return void go(() => setView('home'));
-};
-const goHome = () => {
-  if (view !== 'home' && view !== 'gate') void go(() => setView('home'));
-};
-const saveDraft = () => {
-  if (project) keep(project);
-  toast('Saved. It is waiting in your projects.', 'success');
-  goHome();
-};
+  const goBack = () => {
+    if (view === 'walk' && run && flow) {
+      if (!Object.keys(run.answers).length) return setView('start');
+      return keep({ ...run, answers: backOne(flow, run.answers) });
+    }
+    if (view === 'summary' && run && flow && run.status === 'draft') {
+      keep({ ...run, answers: backOne(flow, run.answers) });
+      return setView('walk');
+    }
+    if (view === 'start' || view === 'talk' || view === 'summary') setView('contents');
+  };
+  const goHome = () => view !== 'contents' && setView('contents');
+  const saveDraft = () => {
+    if (run) keep(run);
+    toast('Saved. It is waiting in your drafts.', 'success');
+    goHome();
+  };
 ```
+
+(`backOne` is the engine's `back`, imported as `back as backOne`: it forgets the *last answered step in flow order*, which, because `answer()` drops answers to steps that no longer apply, is always the last question shown.)
+
+Enabled states: `canBack = view !== 'contents'`; Home is `view !== 'contents'`; `canSave = (view === 'walk' || view === 'summary') && run?.status === 'draft' && !saving`.
 
 Per view:
 
 | View | Back | Home | Save draft |
 |---|---|---|---|
-| gate | bar hidden | bar hidden | bar hidden |
-| home | disabled | disabled | disabled |
-| start | → home | → home | disabled |
-| walk, no answers yet | → start | → home | enabled (project is a draft): save, toast, → home |
-| walk, some answers | forget the last answer (`back()`), stay on walk | → home | enabled: save, toast, → home |
-| make, status draft | forget the last answer and → walk | → home | enabled |
-| make, status making/done/error | → home | → home | disabled |
-| talk | → home | → home | disabled (no project yet) |
+| contents | disabled | disabled | disabled |
+| start | → contents | → contents | disabled |
+| walk, no answers yet | → start | → contents | enabled (the run is a draft): save, toast, → contents |
+| walk, some answers | forget the last answer (`backOne`), stay on walk | → contents | enabled: save, toast, → contents |
+| summary, draft, not saving | forget the last answer and → walk (the last question opens again) | → contents | enabled |
+| summary, saving | as above (Back is not blocked by `saving`) | → contents | disabled (`!saving`) |
+| summary, done | → contents | → contents | disabled (status is `done`) |
+| talk | → contents | → contents | disabled (no run on this view) |
 
-`canBack = view !== 'home' && view !== 'gate'`; Home is disabled only on home; `canSave = (view === 'walk' || view === 'make') && project?.status === 'draft'`.
-
-Note that `back()` from the engine forgets only the *last answered step in flow order*, which after `answer()` dropped stale answers is always the last question shown.
+"Save draft" never saves anything new (§7); it confirms and leaves.
 
 ---
 
 ## 6. The top bar
 
-- Masthead: `studio.kicker` small, then `studio.mark[0]` roman and `studio.mark[1]` italic in the accent colour. It is not a button.
-- First square (`options` icon, `aria-label="Options"`): opens the Options drawer (house rules + one line about the orb).
-- Second square (`menu` icon, `aria-label="Your gallery"`): opens the gallery drawer on the `projects` shelf.
-- Both are hidden on the gate (`view !== 'gate'`).
+```tsx
+      <TopBar kicker={guide.kicker} mark={guide.mark} onOptions={() => setOptions(true)} onGallery={() => setTab('drafts')} />
+```
+
+- Masthead: `guide.kicker` small, then `guide.mark[0]` roman and `guide.mark[1]` italic in the accent. It is not a button.
+- First square (`options` icon, `aria-label="Options"`): opens the options drawer (house rules and one line about the orb).
+- Second square (`menu` icon, `aria-label="Your gallery"`): opens the gallery drawer on the `drafts` tab.
+- The example shows both on every view. An app with a gate passes `actions={false}` there (§8).
 
 ---
 
-## 7. Drafts save themselves
+## 7. Runs save themselves
 
-- A project exists from the moment a kind is chosen (`newProject(kind)` is saved at once in `startKind`).
-- `keep(p)` is the one write path: `saveProject(studio.id, { ...p, title: titleOf(p) || p.title })`, then the in-memory `project` and the `projects` list are refreshed from storage. Every answer, every script change (`changeScript`), every revisit, every Back, and every status change of the making goes through it.
-- So "Save draft" never saves anything new; it only confirms and leaves (toast + home).
-- Storage: `localStorage['orbit:studio:{studio.id}:projects']`, newest first, at most 200 (`saveProject` slices). Characters: `orbit:studio:{studio.id}:characters`, at most 100, deduplicated by description. Both reads tolerate missing or broken storage (empty list) and writes swallow quota errors.
-- Opening a project (`open(p)`): walk if it is a draft with a question left, otherwise the brief/result.
+A run exists from the moment a flow is chosen, and every answer saves it; "Save draft" is only ever a way out, never a chore.
+
+- `keep(r)` is the one write path: it saves, refreshes the in-memory run and the list from storage, and returns the saved copy. Every answer, every revisit, every Back, every custom step, every status change goes through it.
+
+```ts
+  const keep = useCallback((r: Run) => {
+    const saved = saveRun(guide.id, { ...r, title: titleOf(r) || r.title });
+    setRun(saved);
+    setRuns(listRuns(guide.id));
+    return saved;
+  }, []);
+```
+
+- Starting a flow saves an empty run at once (`newRun(flowId)`); a `seed` from the conversation is kept as the first draft of the notes:
+
+```ts
+  const startFlow = (flowId: string, seed = '') => {
+    setNotes(seed);
+    setResult(null);
+    setRun(keep(newRun(flowId)));
+    setView('walk');
+  };
+```
+
+- Opening a run goes to the walk if it is a draft with a question left, otherwise to the summary:
+
+```ts
+  const open = (r: Run) => {
+    setRun(r);
+    setResult(typeof r.result === 'string' ? r.result : null);
+    setView(r.status === 'draft' && nextStep(guide.flows[r.flowId], r.answers) ? 'walk' : 'summary');
+  };
+```
+
+- Storage (`src/flow/runs.ts`): one key per guide in `localStorage`, newest first, at most 200.
+
+```ts
+const key = (guide: string) => `orbit:guide:${guide}:runs`;
+```
+
+```ts
+/** Every run of this guide, newest first. Missing or broken storage gives []. */
+export function listRuns(guideId: string): Run[] {
+  return read(key(guideId)).sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+}
+
+/** Keep a run (replacing one with the same id); at most 200 are kept. Returns the saved copy. */
+export function saveRun(guideId: string, r: Run): Run {
+  const now = { ...r, updatedAt: new Date().toISOString() };
+  const rest = read(key(guideId)).filter((x) => x.id !== r.id);
+  write(key(guideId), [now, ...rest].slice(0, 200));
+  return now;
+}
+```
+
+  Reads tolerate missing or broken storage (an empty list); writes swallow quota and private-mode errors, so the session still works, it just is not remembered. `removeRun(guideId, id)` deletes one. An app with accounts can move runs to its own storage; the functions are the contract.
+
+- The list on the contents page and in the drafts tab is `runs` (`listRuns(guide.id)`, refreshed by `keep`). The "Made" tab is `runs.filter((r) => typeof r.result === 'string')`.
 
 ---
 
-## 8. The gate
+## 8. A gate as an optional first screen
 
-- Only when `studio.adult` is true. Key: `orbit:studio:{studio.id}:adult`, value `'1'`.
-- The gate hides the top-bar actions and the whole bottom bar, so nothing can be reached around it.
-- "I am 18 or older" writes the key (errors ignored: asked again next time) and goes home. "Take me back" goes to the previous page (`history.back()`) or, with no history, to `about:blank`.
-- The rules shown on the gate are `studio.rules`; the same list appears in the Options drawer.
+The example has no gate; the `Gate` component (`docs/06-components.md` §8) is there for an app that must ask one yes/no before anything else (house rules, an age check, terms). How an app gates:
+
+1. Add `'gate'` to its `View` union and start there when nothing is remembered.
+2. Render `<TopBar actions={false} …/>` and no `<BottomBar/>` on that view, so nothing can be reached around it.
+3. On yes, remember it and go to `contents`; on no, leave (`history.back()` when there is history, else `location.href = 'about:blank'`).
+4. Show `guide.rules` on the gate; the same list appears in the options drawer.
+
+The storage pattern, in the shape of `src/flow/runs.ts` (a sketch, not copied from a file):
+
+```ts
+const GATE = `orbit:guide:${guide.id}:agreed`;
+const agreed = () => {
+  try {
+    return localStorage.getItem(GATE) === '1';
+  } catch {
+    return false;
+  }
+};
+const [view, setView] = useState<View>(() => (agreed() ? 'contents' : 'gate'));
+const agree = async (yes: boolean) => {
+  setPicked(yes ? YES.label : NO.label);
+  await settle();
+  setPicked(null);
+  if (!yes) return history.length > 1 ? history.back() : (location.href = 'about:blank');
+  try {
+    localStorage.setItem(GATE, '1');
+  } catch {
+    /* asked again next time */
+  }
+  setView('contents');
+};
+```
+
+The orb waits beside the gate's headline until a choice is made (`orb={picked === null}`), then sits on the chosen answer.
 
 ---
 
-## 9. The gallery shelves
+## 9. The drawers
 
-Drawer `aria-label="{studio.name}: your gallery"`, title `Your *gallery*`, tabs in order `Projects · Pictures · Videos · Movies · Characters` (icons `project picture video movie character`). Escape closes; the scrim's label is `Close the gallery`.
+Both drawers are conditional renders over the frame, closed by Escape, the scrim or the close button (`docs/06-components.md` §14).
 
-| Shelf | Source | Empty text |
-|---|---|---|
-| Projects | `projects` (same list as Home), rows numbered, meta `Picture / Video / Movie`; tap closes the drawer and opens the project | `No projects yet. Start one from Home.` |
-| Pictures | the member's items where `kind === 'image'` and not part of a movie | `Nothing here yet.` |
-| Videos | `kind === 'video'` and not part of a movie | `Nothing here yet.` |
-| Movies | joined films | `Nothing here yet.` |
-| Characters | `listCharacters(studio.id)` | `Characters you describe in a walkthrough are kept here, to cast again.` |
+**The gallery** (`tab !== null`): `label` `"{guide.name}: your gallery"`, title `Your <em>gallery</em>`, `tabs={TABS}`; the top bar opens it on `drafts`.
 
-While items load: `Opening your gallery…`. If the item list cannot be fetched (Orbit: the machine was resting): `Your pictures and films show here while the studio is awake. Start something and it wakes up.` Items are fetched once when the drawer opens.
+| Tab (`TABS`) | Icon | Content | Empty text |
+|---|---|---|---|
+| `drafts` "Drafts" | `folder` | `ContentsList` of `runs`: title `r.title \|\| 'Untitled'`, meta the flow's label; tapping a row closes the drawer and calls `open(r)` | `No drafts yet. Start one from the contents page.` |
+| `items` "Made" | `picture` | `MediaGrid` of the runs whose `result` is a string (`kind: 'image'`, `alt: r.title`) | `Nothing made yet. Finish a plan and save it.` |
+| `about` "About" | `options` | `<ul class="st-rules">` of `guide.rules`, then a `st-dek` line about the sample | — |
+
+**The options drawer** (`options === true`): `<OptionsDrawer rules={guide.rules ?? []} onClose={() => setOptions(false)} />`, title `House <em>rules</em>`, the rules, then `Tap the orb any time to ask it something, or hold it to talk.`
+
+The orb hides while either is open (they are `aria-modal="true"`).
 
 ---
 
-## 10. The studio's look on `<html>`
+## 10. The theme on `<html>`
 
-On mount (and whenever `studio` changes), Orbit set on `document.documentElement`:
+The document starts with the attributes already set, so the first paint is in the right skin (`example/index.html`):
+
+```html
+<html lang="en" data-theme="dark" data-skin="o5" data-guide="compass">
+```
+
+On mount the app writes the same attributes and the guide's colours (the exact effect from the example):
+
+```ts
+  // The guide's colours on <html> (docs/02-tokens.md, "The guide's theme").
+  useEffect(() => {
+    const root = document.documentElement;
+    root.dataset.theme = 'dark';
+    root.dataset.skin = 'o5';
+    root.dataset.guide = guide.id;
+    const t = guide.theme;
+    const vars: Record<string, string> = { '--st-paper': t.paper, '--st-ink': t.ink, '--st-ink2': t.ink2, '--st-accent': t.accent, '--st-desk': t.desk, '--st-desk2': t.desk2, '--accent': t.orbA, '--orb-a': t.orbA, '--orb-b': t.orbB };
+    for (const [k, v] of Object.entries(vars)) root.style.setProperty(k, v);
+    document.title = guide.name;
+  }, []);
+```
 
 | What | Value |
 |---|---|
 | `data-theme` | `'dark'` (the desk is always dark) |
-| `data-skin` | `'o5'` |
-| `data-studio` | `studio.id` (studio.css scopes `--st-gutter`/`--st-col` on `:root[data-studio]`) |
-| `--st-paper`, `--st-ink`, `--st-ink2`, `--st-accent`, `--st-desk`, `--st-desk2` | from `studio.theme` |
+| `data-skin` | `'o5'` (the magazine skin) |
+| `data-guide` | `guide.id` (`pages.css` scopes `--st-gutter`/`--st-col` on `:root[data-guide]`) |
+| `--st-paper`, `--st-ink`, `--st-ink2`, `--st-accent`, `--st-desk`, `--st-desk2` | from `guide.theme` |
 | `--accent`, `--orb-a` | `theme.orbA` (on the dark page the accent is the orb's light tone) |
 | `--orb-b` | `theme.orbB` |
-| `document.title` | `studio.name` |
+| `document.title` | `guide.name` |
 
-The display and text faces (Fraunces opsz + italic, Inter) were loaded lazily. See `docs/02-tokens.md` for the tokens and `src/styles/fonts.ts`.
+`data-motion` is written by `MotionProvider` (`docs/05-motion.md` §3.4). The fonts are loaded by `loadFonts()` in `main.tsx`. See `docs/02-tokens.md` §14 and §15.
 
 ---
 
-## 11. iPhone and iPad behaviours
+## 11. Phones and tablets
 
-- **Visual viewport.** The shell runs `useVisualViewport()` (Orbit `src/hooks/useVisualViewport.ts`): on `visualViewport` resize/scroll, window resize, orientation change, focusin/focusout it writes `--app-height` (visible height), `--vv-offset-top` (how far iOS scrolled the visual viewport) and `--keyboard-inset` (≈ keyboard height) on `<html>`, and a `keyboardOpen` flag (keyboard > 150 px, or an editable focused on a coarse pointer with the visible height < 75 % of the layout height). On iPhone Safari 26+ it also reserves 76 px for the floating AutoFill bar above the keyboard. It also undoes iOS's scroll of `overflow: hidden` boxes when an input is focused (`scrollTop = 0` in a capturing `scroll` listener). Note that `.st-root` itself is `position: fixed; inset: 0` and is **not** sized to `--app-height` in `studio.css`; in Orbit the variables were consumed by the shell container (`.shell { height: var(--app-height); transform: translateY(var(--vv-offset-top)) }`) and by `.o5-spread { min-height: var(--app-height, 100dvh) }`. A new app that wants the studio pinned above the keyboard should give `.st-root` the same `height`/`transform` treatment.
-- **Safe areas.** `.st-top` pads top/left/right, `.st-scroll` pads left/right, `.st-bottom` pads bottom/left/right, `.st-drawer` pads top/right/bottom, all with `env(safe-area-inset-*)`. Page bottoms leave room: `.st-sheet` ends at `safe-area-inset-bottom + 18vh`, `.st-now` at `+ 30vh`, so the question can sit mid-screen above the bar and the keyboard.
-- **Square fields.** Inputs keep hairline square edges even where the base skin rounds them (`:root[data-skin='o5'] .st-root :is(input, textarea, select) { border-radius: 0 }`), and focus removes the ring (`outline: none; box-shadow: none`) in favour of the accent line.
-- **Tap highlight.** `-webkit-tap-highlight-color: transparent` on every button.
+Phones and tablets are the first target; everything is checked at 390 × 844 and 768 × 1024.
+
+- **The visual viewport.** The app calls `useVisualViewport()` once (`docs/06-components.md` §16). It writes `--app-height`, `--vv-offset-top` and `--keyboard-inset` on `<html>` and computes `keyboardOpen`: the keyboard counts as open when the visual viewport is more than **150 px** shorter than the layout viewport, or when an editable element is focused on a coarse pointer and the visible height is under 75 % of the layout height. On phones whose browser floats a bar above the keyboard it reserves `FLOATING_BAR` (76 px). The **unshift rule** puts back any `overflow: hidden` box the browser scrolled to reveal a focused input (`scrollTop = 0` in a capturing `scroll` listener). `pages.css` does not consume the variables: `.st-root` is `position: fixed; inset: 0`. An app that wants the frame pinned above the keyboard adds `.st-root { height: var(--app-height); transform: translateY(var(--vv-offset-top)); }` itself.
+- **The viewport meta** (`example/index.html`): `width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content`, so the safe areas are available and the keyboard resizes the layout where the browser honours it.
+- **Safe areas.** `.st-top` pads top/left/right, `.st-scroll` pads left/right, `.st-bottom` pads bottom/left/right, `.st-drawer` pads top/right/bottom, all with `env(safe-area-inset-*)`. Page bottoms leave room: `.st-sheet` ends at `safe-area-inset-bottom + 18vh`, `.st-now` at `+ 30vh`, so the question can sit mid-screen above the bar and the keyboard. See `docs/02-tokens.md` §5.
+- **44 px targets.** The square buttons are 44 × 44; the bottom-bar buttons 54 px tall; the own-words, shortcut and ghost buttons `min-height: 44px`; answers `min-height: 68px`; rows `72px`; the Go button 52 px.
+- **Square fields.** Inputs keep hairline square edges even where the base skin rounds them (`:root[data-skin='o5'] .st-root :is(input, textarea, select):not([type='range']):not([type='checkbox']) { border-radius: 0 }`), and focus removes the ring (`outline: none; box-shadow: none`) in favour of the accent underline.
+- **Tap highlight.** `-webkit-tap-highlight-color: transparent` on every button in `.st-root`.
 - **Narrow screens** (`max-width: 560px`): the headline keeps 56 px of right padding for the orb; bottom-bar labels drop to 10 px.
-- **Reduced motion** (`prefers-reduced-motion: reduce`): the drawer slide, scrim fade, the predicting pulse and the busy bar sweep are turned off in CSS; the motion level handles the rest.
-- **Scroll containment.** `.st-scroll` uses `overscroll-behavior: contain` so a flick never rubber-bands the whole page; `-webkit-overflow-scrolling: touch` for momentum.
-- **Keyboard hints.** `enterkeyhint="next"` on the own-words box, `"send"` on Talk's box; `autocomplete="off"` everywhere.
+- **Reduced motion** (`prefers-reduced-motion: reduce`): the drawer slide, scrim fade, the suggesting pulse and the busy bar sweep are turned off in CSS; the motion level handles the rest.
+- **Scroll containment.** `.st-scroll` uses `overscroll-behavior: contain` so a flick never rubber-bands the whole page, with `-webkit-overflow-scrolling: touch` for momentum.
+- **Keyboard hints.** `enterkeyhint="next"` on the own-words box, `"send"` on the conversation's box; `autocomplete="off"` on both.
 
 ---
 
 ## 12. The orb on these screens
 
-The orb is a separate layer (`src/orb`); the shell talks to it only through `src/walkthrough/orbGuide.ts`:
+The orb is a separate layer (`src/orb`, mounted once with `<OrbCursor brain={null} />` in `main.tsx`); the app talks to it only through `orbNote`, `orbThink`, `orbHome` and `onOrbAct` from `src/flow` (`docs/09-orb.md` §12 to §14).
 
-- On every `stepKey` change the shell calls `orbHome()` at once and again after `650 ms` (full) / `120 ms` (otherwise), so a dragged orb comes back for the new question.
-- What it would say (`orbNote`) per view, verbatim from Orbit:
+- On every `stepKey` change the app calls `orbHome()` at once and again after `650 ms` (full) / `120 ms` (otherwise), so a dragged orb comes back for the new question:
 
-| Where | Note | Panel button |
+```ts
+  useEffect(() => {
+    orbHome();
+    const t = setTimeout(orbHome, full ? 650 : 120);
+    return () => clearTimeout(t);
+  }, [stepKey]); // eslint-disable-line react-hooks/exhaustive-deps
+```
+
+- What it would say (`orbNote`), kept until tapped, verbatim from the example:
+
+```ts
+  useEffect(() => {
+    if (view === 'walk' && step?.custom) return orbNote('Write anything the plan should remember, or go on without.', { label: 'Go on without notes', id: 'skip-notes' });
+    if (view === 'walk' && rec) return orbNote(`I’d go with “${rec.label}”. ${rec.why}`, { label: `Go with “${rec.label}”`, id: 'pick' });
+    const lines: Partial<Record<View, string>> = {
+      start: 'Pick what to plan. Each one is a short walk, one question at a time.',
+      talk: 'Pick a way to start, or say your own.',
+      contents: runs.length ? 'Pick a draft up, or start something new.' : 'Tap “Start something new” and I’ll walk you through it.',
+    };
+    orbNote(lines[view] ?? null);
+  }, [stepKey, rec?.label]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => () => orbNote(null), []);
+```
+
+```ts
+  // The summary screen's note for the orb.
+  useEffect(() => {
+    if (view !== 'summary' || !run) return;
+    if (saving) orbNote(note ?? 'Putting it together.');
+    else if (run.status === 'done') orbNote('Your plan is ready. It is in your drafts too.');
+    else orbNote('Everything you picked, in one place. Tap “Save the plan” when it looks right.', { label: 'Save the plan', id: 'save' });
+  }, [view, run?.status, saving, note]); // eslint-disable-line react-hooks/exhaustive-deps
+```
+
+| Where | Note | Panel button → `orb:act` id |
 |---|---|---|
-| gate | `This studio is for adults. Confirm and we’re in.` | — |
-| start | `Pick what to make. A movie walks you through the story, the script and the storyboard.` | — |
-| talk | `Pick a mood, or say your own. I’ll help shape it, then turn it into a picture, a video or a movie.` | — |
-| home, with a draft | `Pick up “{draft.title || 'your draft'}”, or start something new.` | — |
-| home, none | `Tap “Start something new” and I’ll walk you through it.` | — |
-| walk, a question with a pick | `I’d go with “{rec.label}”. {rec.why}` | `Go with “{rec.label}”` → id `pick` |
-| walk, the script step | `This draft follows your arc and your ending, one five-second shot per scene. Change any scene, or film it as it is.` | `This is the script` → id `approve-script` |
-| make | see `docs/08-walkthrough-prd.md` §9 | `Make the {what}` / `Try again` / `Film it` |
+| contents, with drafts | `Pick a draft up, or start something new.` | — |
+| contents, none | `Tap “Start something new” and I’ll walk you through it.` | — |
+| start | `Pick what to plan. Each one is a short walk, one question at a time.` | — |
+| talk | `Pick a way to start, or say your own.` | — |
+| walk, a question with a pick | `I’d go with “{rec.label}”. {rec.why}` | `Go with “{rec.label}”` → `pick` |
+| walk, the custom step | `Write anything the plan should remember, or go on without.` | `Go on without notes` → `skip-notes` |
+| summary, draft | `Everything you picked, in one place. Tap “Save the plan” when it looks right.` | `Save the plan` → `save` |
+| summary, saving | the current progress note, or `Putting it together.` | — |
+| summary, done | `Your plan is ready. It is in your drafts too.` | — |
 
-- `orb:act` with `pick` runs `pick(rec.label)`; `approve-script` runs `approveScript`. On unmount `orbNote(null)`.
-- `orbThink(0.7)` while predictions are being fetched; `null` after.
-- Orbit also set `document.documentElement.dataset.orbContext` (a plain-language description of where the member is, used when the orb is tapped and asked) and routed the orb's own chat to the studio's writer. In this package that is the app's business: write the same context string if your orb can chat (`"You are the guide inside {studio.name}, a studio site; there are no Orbit apps or machines here, so never use "open", "setting" or "machine". {studio.writer} {where} Help them move forward: pick or type answers that match what they ask for, in as few steps as possible."`, with `{where}` either `The member is making {flow.label lower}. Answers so far: {k: v; …|none}. The question on screen: "{q without asterisks}". To answer it, click one of the listed answers, or type into "Or in your own words" and submit. "Pick for me" and "Finish it for me" are there too.` or `The member is on the {view} screen.`).
+- The panel's buttons come back as `orb:act`; the app maps the ids to its handlers through a ref so the listener is set once:
+
+```ts
+  const acts = useRef<Record<string, () => void>>({});
+  acts.current = { pick: () => rec && void pick(rec.label), 'skip-notes': () => takeNotes(''), save: () => void save() };
+  useEffect(() => onOrbAct((id) => acts.current[id]?.()), []);
+```
+
+- The glow: `orbThink(0.7)` while suggestions are being fetched, `null` after; `orbThink(0.55)` while the summary is being saved, `null` when it is done (`save()`). `Conversation` drives it from the mic level itself.
+
+```ts
+  useEffect(() => {
+    orbThink(suggesting ? 0.7 : null);
+    return () => orbThink(null);
+  }, [suggesting]);
+```
+
+- Where it sits, per view (through the spots the components render, `docs/09-orb.md` §8): contents, start, talk: beside the headline; start while picking: on the chosen answer; walk: on the recommended answer, or beside the question when there is none, or on the chosen answer while picking, or on the custom body's submit button; summary, draft: on the `Go` button; summary, saving or done: beside the headline. The orb hides while a drawer is open.
+
+- The context the orb's own brain (if one is plugged in) would be told, written on `<html>` as `data-orb-context` on every `stepKey` change:
+
+```ts
+  useEffect(() => {
+    document.documentElement.dataset.orbContext = `You are the guide inside ${guide.name}, an app that plans a trip or an evening one question at a time. The person is on the ${view} screen${step ? `, at the question "${step.q.replace(/\*/g, '')}"` : ''}.`;
+    return () => void delete document.documentElement.dataset.orbContext;
+  }, [stepKey]); // eslint-disable-line react-hooks/exhaustive-deps
+```
 
 ---
 
 ## 13. State diagram
 
 ```
-                 [adult && no key]
-   (load) ─────────────────────────────► GATE ──"18+"──► HOME
-      │                                     │
-      └──[else]────────────────────────────►│      "Take me back" → leaves the site
-                                            ▼
-   ┌───────────────────────────────────── HOME ◄────────────────────────── Home / Save draft (any view)
-   │   "Start something new"               │ "Talk with the writer"          ▲
-   │                                       ▼                                 │
-   │                                     TALK ──"Make it a …"──┐              │
-   ▼                                      ▲                    │              │
- START ──"Talk it through"────────────────┘                    │              │
-   │ "A picture / A video / A movie"                           │              │
-   ▼                                                           ▼              │
- WALK (project draft, step = nextStep) ◄──────────────── new project ─────────┘
-   │  ▲   ▲
-   │  │   └── Back (answers > 0): back() drops the last answer, stay
-   │  └────── Back (answers = 0): → START
-   │  pick / own words / Pick for me ─► answer() ─► keep() ─► nextStep? ──yes──► WALK (next question)
-   │  trail tap ─► revisit(): drop that answer and all after it ─► WALK
-   │  Finish it for me ─► finishAll() ─► keep()
-   │                                       │ no question left
-   ▼                                       ▼
- MAKE (draft) ──Back──► WALK (last answer dropped)
-   │ "Make the …"
-   ▼
- MAKE (making) ──done──► MAKE (done) ──Back/Home──► HOME
-   │
-   └──error──► MAKE (error) ──"Try again"──► MAKE (making)
+   (load) ───────────────────────────────► CONTENTS ◄──────────────── Home / Save draft (any other view)
+                                            │  │  │                       ▲
+          "Start something new" ◄───────────┘  │  └── a run's row (open) ─┼──► WALK (draft, question left)
+                    │                          │                          │    or SUMMARY (otherwise)
+                    ▼          "Talk it through"                          │
+                  START ◄──────────────────────┘                          │
+                    │  "Talk it through" ──────────────► TALK             │
+                    │                                     │ action (seed) │
+                    │ a flow's label                      │               │
+                    ▼                                     ▼               │
+                  WALK (run draft, step = nextStep) ◄── startFlow(): newRun() saved at once
+                    │  ▲   ▲
+                    │  │   └── Back (answers > 0): backOne() drops the last answer, stay
+                    │  └────── Back (answers = 0): → START
+                    │  pick / own words / Pick for me / custom step ─► answer() ─► keep() ─► nextStep? ──yes──► WALK (next question)
+                    │  trail tap ─► revisit(): drop that answer and all after it ─► WALK (that question)
+                    │  Finish it for me ─► finishAll() ─► keep()
+                    │                                     │ no question left
+                    ▼                                     ▼
+                  SUMMARY (draft) ──Back──► WALK (last answer dropped)
+                    │ "Save the plan" (Go, or the orb's "save")
+                    ▼
+                  SUMMARY (saving: Progress, orbThink 0.55) ──done──► SUMMARY (done: Result, status 'done') ──Back/Home──► CONTENTS
 
- Overlays (any view but gate): Options drawer, Gallery drawer (projects → open a project → WALK or MAKE).
+ Overlays (any view): the options drawer; the gallery drawer (drafts → open → WALK or SUMMARY; made; about).
 ```
 
 Invariants:
 
 1. At most one question is on screen; the trail holds only answers to steps that still apply.
-2. Every change to answers or script is saved before the screen moves on.
-3. The stage is the only animated region; a stage key change always waits for the exit.
+2. Every change to the answers is saved (`keep`) before the screen moves on; "Save draft" adds nothing.
+3. The stage is the only animated region; a stage key change always waits for the exit; a step change never changes the key.
 4. The orb is told where to be and what it may say on every `stepKey` change, and is brought home.
+5. The bars never move; they only enable and disable.
