@@ -16,6 +16,7 @@ import { CharacterList, Gate, Headline, Home } from './Sheets';
 import { Choices } from './Choices';
 import { Walk } from './Walk';
 import { lineFor, nudgeFor, orbSay, orbThink } from './orbGuide';
+import { setPageChat } from '../shell/orb/pageChat';
 import { Make } from './Make';
 import { Talk } from './Talk';
 import { SqIcon, type IconName } from './icons';
@@ -155,6 +156,15 @@ export function StudioApp({ studio }: { studio: StudioDef }) {
     document.documentElement.dataset.orbContext = `You are the guide inside ${studio.name}, a studio site; there are no Orbit apps or machines here, so never use "open", "setting" or "machine". ${studio.writer} ${where} Help them move forward: pick or type answers that match what they ask for, in as few steps as possible.`;
   }, [stepKey, view, studio]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => () => void delete document.documentElement.dataset.orbContext, []);
+  // Tap the orb and ask: it thinks with this studio's writer (members can't use the owner's AI).
+  useEffect(() => {
+    setPageChat({
+      chat: (messages, h, signal) => studioAi.chat(messages, h.onText, signal, 1024),
+      ready: async () => studioAi.awake() || (await studioAi.status().catch(() => ({ state: 'off' as const }))).state === 'on',
+      why: 'I think with the studio, and it’s resting right now. It wakes up when you make something.',
+    });
+    return () => setPageChat(null);
+  }, []);
 
   /** Move to another screen (it leaves and the next one arrives on springs, see the render). */
   const go = useCallback(async (change: () => void) => change(), []);

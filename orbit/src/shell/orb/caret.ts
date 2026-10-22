@@ -105,7 +105,12 @@ export function caretsAt(el: HTMLInputElement | HTMLTextAreaElement, from: numbe
   const box = el.getBoundingClientRect();
   if (box.width < 2 || box.height < 2) return Array.from({ length: Math.max(0, to - from + 1) }, () => null);
   const s = getComputedStyle(el);
-  const h = Math.min(lineHeight(s), box.height);
+  // A box inside something being scaled (a spring, a page sinking back) draws smaller or larger than
+  // it lays out: measure unscaled, then scale back onto the screen.
+  const sx = el.offsetWidth ? box.width / el.offsetWidth : 1;
+  const sy = el.offsetHeight ? box.height / el.offsetHeight : 1;
+  const lh = lineHeight(s);
+  const h = Math.min(lh * sy, box.height);
   const copy = document.createElement('div');
   const cs = copy.style as unknown as Record<string, string>;
   for (const p of COPY) cs[p] = (s as unknown as Record<string, string>)[p];
@@ -137,9 +142,14 @@ export function caretsAt(el: HTMLInputElement | HTMLTextAreaElement, from: numbe
   const out = marks.map((mark) => {
     if (!mark) return null;
     const m = mark.getBoundingClientRect();
-    // A single-line input centres its text vertically; a text area starts at the top padding.
-    const top = el instanceof HTMLInputElement ? box.top + (box.height - h) / 2 : m.top - el.scrollTop;
-    const x = Math.min(box.right - 2, Math.max(box.left, m.left - el.scrollLeft));
+    // A single-line input centres its line inside its padding (not inside the whole box: padding
+    // and borders are often uneven, e.g. an underlined field); a text area starts at its top padding.
+    const px = (v: string) => parseFloat(v) || 0;
+    const top =
+      el instanceof HTMLInputElement
+        ? box.top + (px(s.borderTopWidth) + px(s.paddingTop) + Math.max(0, (el.offsetHeight - px(s.borderTopWidth) - px(s.borderBottomWidth) - px(s.paddingTop) - px(s.paddingBottom) - lh) / 2)) * sy
+        : box.top + (m.top - box.top - el.scrollTop) * sy;
+    const x = Math.min(box.right - 2, Math.max(box.left, box.left + (m.left - box.left - el.scrollLeft) * sx));
     const y = Math.min(box.bottom - h, Math.max(box.top, top));
     return { x, y, h };
   });
