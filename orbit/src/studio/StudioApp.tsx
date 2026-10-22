@@ -14,6 +14,7 @@ import { keepCharacter, listCharacters, listProjects, newProject, saveProject, t
 import { CharacterList, Gate, Headline, Home } from './Sheets';
 import { Choices } from './Choices';
 import { Walk } from './Walk';
+import { lineFor, nudgeFor, orbSay, orbThink } from './orbGuide';
 import { Make } from './Make';
 import { Talk } from './Talk';
 import { SqIcon, type IconName } from './icons';
@@ -102,11 +103,57 @@ export function StudioApp({ studio }: { studio: StudioDef }) {
       if (!on) return;
       setPredicted(list);
       setPredicting(false);
+      if (list.length) orbSay(list.length === 1 ? 'I added an idea that fits what you picked.' : `I added ${list.length} ideas that fit what you picked.`);
     });
     return () => {
       on = false;
     };
   }, [stepKey]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // The orb guides: it reads each new question out (with a nod to your last answer), glows while the
+  // writer thinks, and nudges if you sit on a question for a while.
+  useEffect(() => {
+    if (view === 'walk' && step && flow && project) {
+      const t = setTimeout(() => orbSay(lineFor(flow, project.answers, step, project.id.length)), full ? 700 : 100);
+      const nudge = setTimeout(() => orbSay(nudgeFor(step)), 14000);
+      return () => {
+        clearTimeout(t);
+        clearTimeout(nudge);
+      };
+    }
+    const lines: Partial<Record<View, string>> = {
+      gate: 'This studio is for adults. Confirm and we’re in.',
+      start: 'What are we making? Pick one and I’ll walk you through it.',
+      talk: 'Tell me the mood, a story, a scene. I’ll help you shape it.',
+      home: projects.find((p) => p.status === 'draft')
+        ? `Welcome back. Pick up “${projects.find((p) => p.status === 'draft')!.title || 'your draft'}”, or start something new.`
+        : projects.length
+          ? 'Welcome back. What are we making tonight?'
+          : 'Tap “Start something new” and I’ll walk you through it.',
+    };
+    const line = lines[view];
+    if (!line) return;
+    const t = setTimeout(() => orbSay(line), full ? 700 : 100);
+    return () => clearTimeout(t);
+  }, [stepKey]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    orbThink(predicting ? 0.7 : null);
+    return () => orbThink(null);
+  }, [predicting]);
+
+  // When you tap the orb and ask, it knows it is this studio's guide and where you are in it.
+  useEffect(() => {
+    const where =
+      view === 'walk' && step && flow && project
+        ? `The member is making ${flow.label.toLowerCase()}. Answers so far: ${
+            Object.entries(project.answers)
+              .map(([k, v]) => `${k}: ${v}`)
+              .join('; ') || 'none'
+          }. The question on screen: "${step.q.replace(/\*/g, '')}". To answer it, click one of the listed answers, or type into "Or in your own words" and submit. "Pick for me" and "Finish it for me" are there too.`
+        : `The member is on the ${view} screen.`;
+    document.documentElement.dataset.orbContext = `You are the guide inside ${studio.name}, a studio site; there are no Orbit apps or machines here, so never use "open", "setting" or "machine". ${studio.writer} ${where} Help them move forward: pick or type answers that match what they ask for, in as few steps as possible.`;
+  }, [stepKey, view, studio]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => () => void delete document.documentElement.dataset.orbContext, []);
 
   /** Move to another screen (it leaves and the next one arrives on springs, see the render). */
   const go = useCallback(async (change: () => void) => change(), []);

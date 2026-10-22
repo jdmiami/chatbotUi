@@ -4,6 +4,7 @@ import type { StudioDef } from './defs';
 import { briefOf, jobOf, promptOf } from './engine';
 import type { Project } from './projects';
 import { Headline } from './Sheets';
+import { orbSay, orbThink } from './orbGuide';
 
 const PHASE: Record<string, string> = {
   draft: 'Getting ready',
@@ -145,6 +146,24 @@ export const Make = forwardRef<HTMLElement, { studio: StudioDef; project: Projec
   const result = project.items.map((id) => items.get(id)).filter(Boolean) as StudioItem[];
   const frames = movie?.phase === 'review' ? (movie.frames ?? []).map((f) => (f.itemId ? items.get(f.itemId) : undefined)).filter(Boolean) as StudioItem[] : [];
   const what = project.kind === 'image' ? 'picture' : project.kind;
+
+  // The orb follows along: it glows while the studio works, reads out each new stage, and says when it's ready.
+  useEffect(() => {
+    if (project.status !== 'making') return;
+    orbThink(0.55);
+    return () => orbThink(null);
+  }, [project.status]);
+  useEffect(() => {
+    if (project.status === 'making' && note) orbSay(note);
+  }, [note]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    if (project.status === 'done') orbSay(`Your ${what} is ready.`);
+    else if (project.status === 'error' && project.error) orbSay(project.error);
+    else if (project.status === 'draft') orbSay(`Here is your brief. Tap “Make the ${what}” when it looks right.`);
+  }, [project.status]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    if (movie?.phase === 'review') orbSay('Your storyboard is ready. Have a look, then tell me to film it.');
+  }, [movie?.phase]);
 
   return (
     <article className="st-sheet st-brief" ref={ref} aria-labelledby="st-brief-t">

@@ -88,3 +88,17 @@ describe('predicted choices', () => {
     expect(merged.map((c) => c.label)).toEqual(['Playful', 'New one', 'Romantic']);
   });
 });
+
+import { lineFor, nudgeFor } from '../../src/studio/orbGuide';
+
+describe('the orb as guide', () => {
+  it('opens with the first question’s hint, then nods to the last answer', () => {
+    expect(lineFor(image, {}, image.steps[0])).toBe('Everyone here is a fictional adult.');
+    expect(lineFor(image, { cast: 'A couple' }, image.steps[1])).toMatch(/^\w[\w ]*: a couple\.$/);
+  });
+  it('skips meta answers when nodding, and nudges differently on yes/no questions', () => {
+    expect(lineFor(movie, { cut: 'Quick film' }, movie.steps[1])).toBe('One line is enough. We build on it.');
+    expect(nudgeFor(movie.steps[0])).toMatch(/Tap the one/);
+    expect(nudgeFor(image.steps[0])).toMatch(/Pick for me/);
+  });
+});
