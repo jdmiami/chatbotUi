@@ -27,6 +27,8 @@ export function Walk({
   onPickForMe,
   onFinishForMe,
   onRevisit,
+  recommended,
+  desk,
 }: {
   flow: Flow;
   answers: Answers;
@@ -40,6 +42,10 @@ export function Walk({
   onPickForMe: () => void;
   onFinishForMe: () => void;
   onRevisit: (stepId: string) => void;
+  /** The orb's pick for this question (it sits on it). */
+  recommended?: string | null;
+  /** A step that isn't a list of answers (the script desk) brings its own body. */
+  desk?: React.ReactNode;
 }) {
   const level = useMotionLevel();
   const full = level === 'full';
@@ -90,11 +96,13 @@ export function Walk({
               {n} of {total}
             </span>
           </p>
-          <Headline text={step.q} id={`q-${step.id}`} orb={!busy} />
+          <Headline text={step.q} id={`q-${step.id}`} orb={!busy && !recommended && !desk} />
           {step.dek && <p className="st-dek">{step.dek}</p>}
-          <Choices items={choices} picked={picked} onPick={onPick} layoutPrefix={`ans-${step.id}`} delay={done.length ? 0.3 : 0.12} />
-          {predicting && !busy && <p className="st-predicting">The writer is thinking of more…</p>}
-          {!step.closed && !busy && (
+          {desk ?? (
+            <Choices items={choices} picked={picked} onPick={onPick} layoutPrefix={`ans-${step.id}`} delay={done.length ? 0.3 : 0.12} recommended={recommended} />
+          )}
+          {predicting && !busy && !desk && <p className="st-predicting">The writer is thinking of more…</p>}
+          {!step.closed && !busy && !desk && (
             <motion.form
               className="st-own"
               initial={full ? { opacity: 0, y: 16, filter: 'blur(8px)' } : { opacity: 0 }}
@@ -114,7 +122,7 @@ export function Walk({
               </button>
             </motion.form>
           )}
-          {!busy && (
+          {!busy && !desk && (
             <motion.p
               className="st-shortcuts"
               initial={{ opacity: 0 }}

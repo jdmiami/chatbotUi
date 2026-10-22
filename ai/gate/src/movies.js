@@ -247,6 +247,12 @@ export function createMovies(o) {
     return write(m);
   }
 
+  /** Change a movie that is waiting at the storyboard check (that run ends first). */
+  async function revise(id, body = {}) {
+    if (running.get(id)?.waiting) await running.get(id).done;
+    return update(id, body);
+  }
+
   async function remove(id) {
     const m = await read(id);
     if (m && elsewhere(m)) throw busyElsewhere(m);
@@ -1018,5 +1024,5 @@ export function createMovies(o) {
   /** True while a movie is making shots (keeps the machine from turning off between shots). */
   const busy = () => running.size > 0;
 
-  return { list, create, get, update, remove, run, stop, render, plan, leadPhoto, estimate, busy, ownerBusy, usedElsewhere, adopt };
+  return { list, create, get, update, revise, remove, run, stop, render, plan, leadPhoto, estimate, busy, ownerBusy, usedElsewhere, adopt };
 }

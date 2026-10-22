@@ -3,13 +3,15 @@
  * each answer, so "Save draft" is only ever a way out, never a chore. Kept per studio, on this
  * device for now (member accounts move them to the studio's cloud storage).
  */
-import type { Answers, MakeKind } from './defs';
+import type { Answers, MakeKind, Scene } from './defs';
 
 export interface Project {
   id: string;
   kind: Exclude<MakeKind, 'talk'>;
   title: string;
   answers: Answers;
+  /** A film's script: drafted from the answers (`basis`), then yours to change. */
+  script?: { basis: string; scenes: Scene[]; by: 'draft' | 'writer' | 'you' };
   status: 'draft' | 'making' | 'done' | 'error';
   /** Picture or video job, or the movie, on the AI machine. */
   jobId?: string;

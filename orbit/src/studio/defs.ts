@@ -11,6 +11,18 @@ export interface Choice {
   hint?: string;
   /** What it adds to the prompt (default: the label, lower-cased). */
   adds?: string;
+  /** Words in the earlier answers that make this the orb's pick ("rain", "slow burn"…). */
+  suits?: string[];
+}
+
+/** One scene of a film's script: what happens, the moment it ends on, and what is said. */
+export interface Scene {
+  id: string;
+  /** "INT. SNOWED-IN CABIN — NIGHT" */
+  heading: string;
+  action: string;
+  end: string;
+  says: string;
 }
 
 export interface StepDef {
@@ -32,6 +44,10 @@ export interface StepDef {
   closed?: boolean;
   /** The answer isn't part of the prompt (length, shape…), only of the job. */
   meta?: boolean;
+  /** The orb's pick when nothing earlier points elsewhere (default: the first answer). */
+  best?: string;
+  /** 'script': the writer drafts the script and you go through it scene by scene. */
+  kind?: 'choose' | 'script';
 }
 
 export interface Flow {

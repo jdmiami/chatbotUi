@@ -9,6 +9,23 @@ let gate;
 let base;
 let lastJob = null;
 const jobs = new Map();
+const films = new Map();
+let lastFilm = null;
+let revised = null;
+const fakeMovies = {
+  create: async (b) => {
+    lastFilm = b;
+    const m = { id: `film${films.size + 1}`, title: b.title, owner: b.owner, phase: 'draft', frames: [{ id: 'fa', itemId: null }, { id: 'fb', itemId: null }], render: null };
+    films.set(m.id, m);
+    return m;
+  },
+  get: async (id) => films.get(id) ?? null,
+  run: async (id) => ({ ...films.get(id), phase: 'storyboard' }),
+  revise: async (id, body) => {
+    revised = { id, ...body };
+    return films.get(id);
+  },
+};
 
 const member = (sub) => signJwt({ sub, aud: 'studio-member', studio: 'afterdark' }, SECRET, { expiresIn: 600 });
 const ownerKey = () => signJwt({ sub: 'jd', aud: 'orbit-ai' }, SECRET, { expiresIn: 600 });
@@ -37,7 +54,7 @@ before(async () => {
     file: async () => null,
   };
   gate = createGate(
-    { secret: SECRET, webui: 'http://127.0.0.1:9', ollama: 'http://127.0.0.1:9', allowedOrigins: 'https://site.example', siteUrl: 'https://site.example', status: async () => ({}), studio: fakeStudio },
+    { secret: SECRET, webui: 'http://127.0.0.1:9', ollama: 'http://127.0.0.1:9', allowedOrigins: 'https://site.example', siteUrl: 'https://site.example', status: async () => ({}), studio: fakeStudio, movies: fakeMovies },
     { warn() {}, info() {} },
   );
   base = `http://127.0.0.1:${await listen(gate)}`;
@@ -80,4 +97,25 @@ test('members: jobs are tagged from the key, never from the body; only picture a
   const { id } = await r.json();
   assert.equal((await get(`/_studio/jobs/${id}`, member('afterdark:ann'))).status, 200);
   assert.equal((await get(`/_studio/jobs/${id}`, member('afterdark:bob'))).status, 404, "someone else's job is not found");
+});
+
+test('members: a film carries their own script; only they can redraw its storyboard', async () => {
+  const ann = member('afterdark:ann');
+  const r = await post('/_studio/movies', ann, {
+    idea: 'Strangers at a cabin',
+    owner: 'm:afterdark:bob',
+    opening: 'Snow against the window',
+    shots: [{ prompt: 'Mara opens the door', end: 'Their eyes meet', says: 'Mara, softly: "Come in."', itemId: 'x' }, 'nope', null],
+  });
+  assert.equal(r.status, 200);
+  assert.equal(lastFilm.owner, 'm:afterdark:ann');
+  assert.equal(lastFilm.opening, 'Snow against the window');
+  assert.deepEqual(lastFilm.shots, [{ prompt: 'Mara opens the door', end: 'Their eyes meet', says: 'Mara, softly: "Come in."' }]);
+  const { id } = await r.json();
+  const redo = (key, frames) => post(`/_studio/movies/${id}/frames`, key, { frames });
+  assert.equal((await redo(member('afterdark:bob'), [{ id: 'fa' }])).status, 404, "not someone else's film");
+  assert.equal((await redo(ann, [{ id: 'other' }])).status, 400, 'only its own pictures');
+  const ok = await redo(ann, [{ id: 'fa' }, { id: 'fb', prompt: 'Snow falling, closer' }]);
+  assert.equal(ok.status, 200);
+  assert.deepEqual(revised, { id, frames: [{ id: 'fa', redo: true }, { id: 'fb', prompt: 'Snow falling, closer' }] });
 });

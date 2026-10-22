@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { AnimatePresence, motion } from 'motion/react';
 import { useShell } from '../state/shell';
 import { useMotionLevel } from '../motion/MotionProvider';
@@ -8,14 +8,16 @@ import type { StudioItem } from '../services/ai/LocalAi';
 import { studioAi } from './memberApi';
 import { OrbCursor } from '../shell/orb/OrbCursor';
 import { Toasts } from '../shell/Toasts';
-import type { Answers, Choice, MakeKind, StudioDef } from './defs';
-import { answer, back as backOne, finishAll, nextStep, pickFor, progressOf, stepsFor } from './engine';
+import type { Answers, Choice, MakeKind, Scene, StudioDef } from './defs';
+import { answer, back as backOne, finishAll, nextStep, pickFor, progressOf, recommend, SCRIPT_OK, stepsFor } from './engine';
 import { mergeChoices, predictChoices } from './predict';
 import { keepCharacter, listCharacters, listProjects, newProject, saveProject, type Project } from './projects';
 import { CharacterList, Gate, Headline, Home } from './Sheets';
 import { Choices } from './Choices';
 import { Walk } from './Walk';
-import { lineFor, nudgeFor, orbHome, orbSay, orbThink } from './orbGuide';
+import { orbHome, orbNote, orbThink } from './orbGuide';
+import { ScriptDesk } from './Script';
+import { draftScript, scriptBasis } from './writer';
 import { setPageChat } from '../shell/orb/pageChat';
 import { Make } from './Make';
 import { Talk } from './Talk';
@@ -105,44 +107,46 @@ export function StudioApp({ studio }: { studio: StudioDef }) {
       if (!on) return;
       setPredicted(list);
       setPredicting(false);
-      if (list.length) orbSay(list.length === 1 ? 'I added an idea that fits what you picked.' : `I added ${list.length} ideas that fit what you picked.`);
     });
     return () => {
       on = false;
     };
   }, [stepKey]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // The orb guides: it reads each new question out (with a nod to your last answer), glows while the
-  // writer thinks, and nudges if you sit on a question for a while.
+  // The orb's pick: the answer that fits best with everything chosen so far. It sits on it and keeps
+  // its reason until you tap it (it never talks on its own); its panel can take the pick for you.
+  const offered = step ? mergeChoices(predicted, step.choices) : [];
+  const rec = step && flow && project && step.kind !== 'script' ? recommend(flow, project.answers, step, offered, predicted) : null;
   useEffect(() => {
-    if (view === 'walk' && step && flow && project) {
-      const t = setTimeout(() => orbSay(lineFor(flow, project.answers, step, project.id.length)), full ? 700 : 100);
-      const nudge = setTimeout(() => orbSay(nudgeFor(step)), 14000);
-      return () => {
-        clearTimeout(t);
-        clearTimeout(nudge);
-      };
+    if (view === 'walk' && step?.kind === 'script') {
+      orbNote('This draft follows your arc and your ending, one five-second shot per scene. Change any scene, or film it as it is.', { label: 'This is the script', id: 'approve-script' });
+      return;
+    }
+    if (view === 'walk' && rec) {
+      orbNote(`I’d go with “${rec.label}”. ${rec.why}`, { label: `Go with “${rec.label}”`, id: 'pick' });
+      return;
     }
     const lines: Partial<Record<View, string>> = {
       gate: 'This studio is for adults. Confirm and we’re in.',
-      start: 'What are we making? Pick one and I’ll walk you through it.',
-      talk: 'Tell me the mood, a story, a scene. I’ll help you shape it.',
-      home: projects.find((p) => p.status === 'draft')
-        ? `Welcome back. Pick up “${projects.find((p) => p.status === 'draft')!.title || 'your draft'}”, or start something new.`
-        : projects.length
-          ? 'Welcome back. What are we making tonight?'
-          : 'Tap “Start something new” and I’ll walk you through it.',
+      start: 'Pick what to make. A movie walks you through the story, the script and the storyboard.',
+      talk: 'Pick a mood, or say your own. I’ll help shape it, then turn it into a picture, a video or a movie.',
+      home: projects.find((p) => p.status === 'draft') ? `Pick up “${projects.find((p) => p.status === 'draft')!.title || 'your draft'}”, or start something new.` : 'Tap “Start something new” and I’ll walk you through it.',
     };
-    const line = lines[view];
-    if (!line) return;
-    const t = setTimeout(() => orbSay(line), full ? 700 : 100);
-    return () => clearTimeout(t);
-  }, [stepKey]); // eslint-disable-line react-hooks/exhaustive-deps
+    orbNote(lines[view] ?? null);
+  }, [stepKey, rec?.label]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => () => orbNote(null), []);
+
   // Wherever you dragged or threw the orb, each new question (forward or back) brings it home.
   useEffect(() => {
     orbHome();
     const t = setTimeout(orbHome, full ? 650 : 120);
     return () => clearTimeout(t);
+  }, [stepKey]); // eslint-disable-line react-hooks/exhaustive-deps
+  // The script step: drafted from the answers, again whenever the answers it was drafted from change.
+  useEffect(() => {
+    if (step?.kind !== 'script' || !project) return;
+    const basis = scriptBasis(project.answers);
+    if (project.script?.basis !== basis) keep({ ...project, script: { basis, scenes: draftScript(project.answers), by: 'draft' } });
   }, [stepKey]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => {
     orbThink(predicting ? 0.7 : null);
@@ -200,6 +204,8 @@ export function StudioApp({ studio }: { studio: StudioDef }) {
 
   const after = (p: Project, answers: Answers) => {
     const f = studio.flows[p.kind];
+    // "Finish it for me" past the script: the draft is the script.
+    if (answers.script && p.script?.basis !== scriptBasis(answers)) p = { ...p, script: { basis: scriptBasis(answers), scenes: draftScript(answers), by: 'draft' } };
     for (const s of stepsFor(f, answers)) {
       if (CHARACTER_KEYS.has(s.key) && answers[s.id] && !(s.id in p.answers)) keepCharacter(studio.id, `${s.key} · ${titleOf({ ...p, answers }) || studio.name}`, answers[s.id]);
     }
@@ -226,6 +232,28 @@ export function StudioApp({ studio }: { studio: StudioDef }) {
     after(project, answer(flow, project.answers, step.id, label));
   };
 
+  /** The script desk: keep your changes; "This is the script" moves on. */
+  const changeScript = (scenes: Scene[], by: NonNullable<Project['script']>['by']) => {
+    if (project?.script) keep({ ...project, script: { ...project.script, scenes, by } });
+  };
+  const approveScript = () => {
+    if (!project || !flow || !step || step.kind !== 'script') return;
+    orbHome();
+    after(project, answer(flow, project.answers, step.id, `${project.script?.scenes.length ?? ''} scenes, ${SCRIPT_OK.toLowerCase()}`.trim()));
+  };
+
+  // The orb's panel buttons ("Go with …", "This is the script").
+  const acts = useRef<Record<string, () => void>>({});
+  acts.current = {
+    pick: () => rec && void pick(rec.label),
+    'approve-script': approveScript,
+  };
+  useEffect(() => {
+    const on = (e: Event) => acts.current[(e as CustomEvent<string>).detail]?.();
+    window.addEventListener('orb:act', on);
+    return () => window.removeEventListener('orb:act', on);
+  }, []);
+
   /** Tap an earlier answer: back to that question (the answers after it are asked again). */
   const revisit = (stepId: string) => {
     if (!project || !flow) return;
@@ -235,7 +263,8 @@ export function StudioApp({ studio }: { studio: StudioDef }) {
   };
 
   const pickForMe = () => {
-    if (step) void pick(pickFor(step, mergeChoices(predicted, step.choices)));
+    if (step?.kind === 'script') return approveScript();
+    if (step) void pick(pickFor(step, offered));
   };
   const finishForMe = () => {
     if (!project || !flow) return;
@@ -316,7 +345,13 @@ export function StudioApp({ studio }: { studio: StudioDef }) {
         step={step}
         n={n}
         total={total}
-        choices={mergeChoices(predicted, step.choices)}
+        choices={offered}
+        recommended={rec?.label ?? null}
+        desk={
+          step.kind === 'script' ? (
+            <ScriptDesk studio={studio} answers={project.answers} script={project.script?.basis === scriptBasis(project.answers) ? project.script : undefined} awake={studioAi.awake()} onChange={changeScript} onApprove={approveScript} />
+          ) : undefined
+        }
         predicting={predicting}
         picked={picked}
         onPick={(l) => void pick(l)}
