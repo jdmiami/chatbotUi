@@ -723,3 +723,14 @@
     animation: none;
   }
 }
+
+/* Fields keep the square hairline look when focused (no rounded focus ring); the line turns accent. */
+.st-root :is(input, textarea):focus-visible {
+  box-shadow: none;
+  border-radius: 0;
+  outline: none;
+}
+/* Square everywhere: beats Orbit 0.5's rounded fields (o5.css gives inputs --radius-md). */
+:root[data-skin='o5'] .st-root :is(input, textarea, select):not([type='range']):not([type='checkbox']) {
+  border-radius: 0;
+}

@@ -28,6 +28,7 @@ import {
   type Step,
 } from './agent';
 import { canListen, listen, type Listening } from './listen';
+import { pageChat } from './pageChat';
 
 /** A page can tell the orb where it is and what it is for (a studio sets this), on <html data-orb-context>. */
 function withPageContext(prompt: string): string {
@@ -505,6 +506,25 @@ function Orb() {
       delete document.documentElement.dataset.orbCaret;
     };
   }, [syncCaret]);
+
+  // While it is the caret, the box can move without any event (a spring settling, answers above
+  // leaving, a page sinking back): check where the box is each frame, and follow it when it moves.
+  useEffect(() => {
+    if (!caretOn) return;
+    let raf = 0;
+    let last = '';
+    const watch = () => {
+      const r = caretFieldRef.current?.getBoundingClientRect();
+      const key = r ? `${Math.round(r.left * 2)},${Math.round(r.top * 2)},${Math.round(r.width)},${Math.round(r.height)}` : '';
+      if (key !== last) {
+        if (last) syncCaret();
+        last = key;
+      }
+      raf = requestAnimationFrame(watch);
+    };
+    raf = requestAnimationFrame(watch);
+    return () => cancelAnimationFrame(raf);
+  }, [caretOn, syncCaret]);
 
   useEffect(() => {
     let pending = 0;
@@ -1162,7 +1182,18 @@ function Orb() {
       const pictures = await screenPictures(2);
       const question = `${goal}\n\nApp: ${useShell.getState().activeApp ?? 'home'}\nText on screen:\n${text || '(no text)'}`;
       let answer = '';
-      await cloudChat(
+      const lent = pageChat();
+      if (lent) {
+        if (!(await lent.ready())) return say(lent.why, spoken);
+        await lent.chat(
+          [
+            { role: 'system', content: withPageContext(EXPLAIN_PROMPT) },
+            { role: 'user', content: question },
+          ],
+          { onText: (d) => (answer += d) },
+          signal,
+        );
+      } else await cloudChat(
         {
           task: pictures.length ? 'vision' : 'fast',
           maxTokens: 500,
@@ -1193,7 +1224,12 @@ function Orb() {
         if (!models.length) return 'no-model' as const;
         return (messages: ChatMessage[], h: StreamHandlers) => ai.chat(models[0], messages, h, signal);
       };
-      if (await cloudReady()) {
+      const lent = pageChat();
+      if (lent) {
+        // The page's own AI (a studio's writer): the only one it uses there.
+        if (!(await lent.ready())) return say(lent.why, spoken);
+        ask = (messages, h) => lent.chat(messages, h, signal);
+      } else if (await cloudReady()) {
         ask = async (messages, h) => {
           try {
             return await cloudChat({ task: 'agent', messages, maxTokens: 1024, temperature: 0.2, signal }, h);
@@ -1280,7 +1316,7 @@ function Orb() {
         } else {
           const wants = findIntent(goal);
           if (wants) await find(wants.query, wants.bring, ctrl.signal, spoken);
-          else if (isExplain(goal) && (await cloudReady())) await explain(goal, ctrl.signal, spoken);
+          else if (isExplain(goal) && (pageChat() || (await cloudReady()))) await explain(goal, ctrl.signal, spoken);
           else await plan(goal, ctrl.signal, spoken);
         }
       } catch (err) {
@@ -1364,7 +1400,8 @@ function Orb() {
     if (!panel) return;
     let live = true;
     void (async () => {
-      const ok = (await cloudReady()) || (await getLocalAi().status().catch(() => null))?.state === 'on';
+      const lent = pageChat();
+      const ok = lent ? await lent.ready() : (await cloudReady()) || (await getLocalAi().status().catch(() => null))?.state === 'on';
       if (live) setSleepy(!ok);
     })();
     return () => {
