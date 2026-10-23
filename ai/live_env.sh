@@ -84,10 +84,16 @@ if [ "$name" = sdv2 ]; then
   fi
 else
   log "installing its packages from its lockfile (PyTorch 2.8 and friends: a few minutes)"
-  # OpenAI's CLIP (pinned by Krea) builds with setup.py and imports pkg_resources, which setuptools
-  # 81 removed: build it with an older setuptools. Only the build changes; the lockfile is used as is.
-  grep -q '^build-constraint-dependencies' "$D/src/pyproject.toml" ||
-    printf '\n[tool.uv]\nbuild-constraint-dependencies = ["setuptools<81"]\n' >> "$D/src/pyproject.toml"
+  # OpenAI's CLIP (pinned by Krea from git) builds with setup.py and imports pkg_resources, which
+  # setuptools 81 removed, and a frozen sync ignores build settings outside the lockfile. So it is
+  # built first with an older setuptools into uv's cache, where the sync below finds it ready.
+  CLIP=$(sed -n 's/^clip = { git = "\([^"]*\)", rev = "\([^"]*\)".*/\1@\2/p' "$D/src/pyproject.toml")
+  if [ -n "$CLIP" ]; then
+    "$UV" venv -q --python 3.11 "$ROOT/clip-build" &&
+      "$UV" pip install -q --python "$ROOT/clip-build/bin/python" "setuptools<81" wheel &&
+      "$UV" pip install -q --python "$ROOT/clip-build/bin/python" --no-deps --no-build-isolation "clip @ git+$CLIP" || exit 1
+    rm -rf "$ROOT/clip-build"
+  fi
   (cd "$D/src" && "$UV" sync -q --frozen --python 3.11) || exit 1
   # Its lockfile's PyTorch 2.8 (CUDA 12.8 wheels from PyPI) runs on Hopper (H100/H200) and Blackwell.
   # The SageAttention wheel it ships is built for Hopper: on the H200 Krea uses it; on another card
