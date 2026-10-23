@@ -77,7 +77,8 @@ export function rememberMakers(list: StudioMakerInfo[]) {
  */
 export function progressText(m: StudioMakerInfo, machineOn = true): string {
   const p = `${m.percent}%`;
-  if (!machineOn) return `${p} · paused`;
+  // While the machine is off nothing moves, and the last number seen may be old: no number then.
+  if (!machineOn) return 'Waits for the machine';
   switch (m.status) {
     case 'disk':
       return 'Disk full';
@@ -106,7 +107,7 @@ export function canResume(m: StudioMakerInfo, machineOn = true): boolean {
 
 /** The same, as a sentence (under the maker, or where it is picked). */
 export function progressWhy(m: StudioMakerInfo, machineOn = true): string {
-  if (!machineOn) return `${m.name} is ${m.percent}% downloaded. It carries on when your AI machine is on.`;
+  if (!machineOn) return `${m.name} carries on downloading when your AI machine is on.`;
   switch (m.status) {
     case 'disk':
     case 'blocked':
