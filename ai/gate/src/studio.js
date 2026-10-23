@@ -6,7 +6,7 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import fsp from 'node:fs/promises';
 import path from 'node:path';
-import { Readable } from 'node:stream';
+import { Readable, Transform } from 'node:stream';
 import { lastFrameArgs, runFfmpeg } from './movies.js';
 import { UPLOAD_MAX, audioArgs, clipArgs, fitSize, ltxFrames, probeMedia, shapeOf, uploadType, vaceFrames } from './media.js';
 import { createMirror, downloadFile, uploadFile } from './r2.js';
@@ -256,7 +256,10 @@ export function createStudio(o) {
   function logDownload(kind, text) {
     download.log.push({ at: new Date().toISOString(), kind, text });
     if (download.log.length > 60) download.log.splice(0, download.log.length - 60);
+    // In the machine's own log too, so a long first start can be followed from Runpod.
+    log.info?.(`[download] ${text}`);
   }
+  let lastProgressLog = 0;
   /** The file being fetched: where from, how far, and how fast (bytes a second over the last ~10 s). */
   function begin(file, source, completed, total, saving = false) {
     download.current = { id: fid(file), name: file.name, source, completed, total, saving, startedAt: Date.now(), samples: [[Date.now(), completed]] };
@@ -269,6 +272,13 @@ export function createStudio(o) {
     const last = c.samples[c.samples.length - 1];
     if (t - last[0] >= 500) c.samples.push([t, c.completed]);
     while (c.samples.length > 2 && t - c.samples[0][0] > 10_000) c.samples.shift();
+    // Once a minute: how far the current file is (the log shows a long download is moving).
+    if (t - lastProgressLog >= 60_000) {
+      lastProgressLog = t;
+      const pct = c.total ? Math.floor((c.completed / c.total) * 100) : null;
+      const sp = speedOf(c);
+      log.info?.(`[download] ${c.name}: ${pct != null ? `${pct}%` : `${(c.completed / GB).toFixed(1)} GB`} ${c.saving ? `onto ${c.source}` : `from ${c.source}`}${sp ? `, ${Math.round(sp / 1e6)} MB/s` : ''}`);
+    }
   }
   function speedOf(c) {
     if (!c || c.samples.length < 2) return null;
@@ -296,7 +306,13 @@ export function createStudio(o) {
     // A file whose size is known is told apart from a half-copied one by its size; one without is
     // copied under another name first.
     const to = file.size ? dest : `${dest}.copying`;
-    await pipeline(fs.createReadStream(part), fs.createWriteStream(to));
+    const counter = new Transform({
+      transform(chunk, _enc, cb) {
+        tick(chunk.length);
+        cb(null, chunk);
+      },
+    });
+    await pipeline(fs.createReadStream(part), counter, fs.createWriteStream(to));
     if (to !== dest) await fsp.rename(to, dest);
     await fsp.rm(part, { force: true });
   }
