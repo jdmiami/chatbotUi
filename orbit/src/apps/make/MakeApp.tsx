@@ -14,8 +14,9 @@ import '../ai/ai.css';
 import './make.css';
 
 /**
- * Make: pictures, videos, edits, live drawing and live video, as an app of its own (it used to be a
- * tab of the AI app, beside the chat). The steps are the chapters of the page; the gallery closes it.
+ * Make: pictures, videos and edits, as an app of its own (it used to be a
+ * tab of the AI app, beside the chat). Drawing lives in Live Draw ("Draw it" opens it). The steps are
+ * the chapters of the page; the gallery closes it.
  */
 export default function MakeApp({ isActive }: AppProps) {
   const ai = useMemo(() => getLocalAi(), []);
