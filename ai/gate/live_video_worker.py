@@ -86,6 +86,12 @@ session_strength = None
 def to_array(b64):
     # demo/util.py image_to_array: RGB, resized, -1..1
     with Image.open(io.BytesIO(base64.b64decode(b64))) as im:
+        # A canvas frame (Live Draw) may be a PNG with transparency: lay it on white, not black.
+        if im.mode in ("RGBA", "LA", "P"):
+            im = im.convert("RGBA")
+            flat = Image.new("RGBA", im.size, (255, 255, 255, 255))
+            flat.alpha_composite(im)
+            im = flat
         arr = np.array(im.convert("RGB").resize((SIZE, SIZE)))
     return arr / 127.5 - 1.0
 

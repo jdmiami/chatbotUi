@@ -18,7 +18,7 @@ fully visible to hidden. Four modes on the same canvas:
 | **Live** | Every stroke sends the sketch; the picture under it follows (target 8–20 updates/s). |
 | **Paint over** | Brush on the picture: only the painted area changes (mask), the rest is held. |
 | **Keep** | Freezes the current picture as the new base layer; strokes continue on top of it. |
-| **Bring to life** | **Animate**: 3 or 5 s clip from the picture (LTX image-to-video). **Living canvas**: the picture keeps moving while you draw (StreamDiffusionV2, fed from the canvas). |
+| **Bring to life** | **Animate**: the picture comes to life as live video, generated faster than it plays and streamed back, starting from the kept picture and following the canvas while you keep drawing; the words steer it, a slider sets how much may change, and "Save last 10 s" puts the clip in the gallery (Krea Realtime 14B for the owner; StreamDiffusionV2 for studio members, since Krea's code is non-commercial). **Living canvas**: the picture keeps moving while you draw (StreamDiffusionV2, fed from the canvas). |
 
 Tools: pen, pencil, marker, airbrush, eraser, fill; colour picker; size; Apple Pencil pressure and
 tilt (reuse `orbit/src/apps/ai/sketch.ts`). Layers: Sketch, Colour (rough colour blocks), Picture
@@ -34,8 +34,15 @@ prompt; tap to use).
 
 | Engine | Use | Models (initial; licences re-checked before members use them) |
 |---|---|---|
-| `fast` | the owner's own use, testing | pix2pix-turbo (sketch→image, 1 step) and StreamDiffusion SD-Turbo img2img: the fastest; **non-commercial** licence |
-| `licensed` | studio members | SD 1.5 + LCM-LoRA + ControlNet line art / scribble via StreamDiffusion, or SDXL-Lightning + ControlNet; OpenRAIL-style licences that allow commercial use |
+| `fast` | the owner's own use, testing | pix2pix-turbo (sketch→image, 1 step) for a sketch alone; SD-Turbo img2img (1 step) once there is colour or a kept picture; TAESD decoder. SD-Turbo is under the Stability AI Community License: **not for members** (commercial use only after registering, under US$1M revenue) |
+| `licensed` | studio members | SD 1.5 + LCM-LoRA (fused, 4 steps) + ControlNet 1.1 line art (+ openpose for Pose) + IP-Adapter sd15 (Style reference) + TAESD; OpenRAIL-M / OpenRAIL++ / OpenRAIL / Apache-2.0 / MIT: commercial use allowed |
+
+Both run in one worker (`ai/gate/canvas_worker.py`, the studio's Python) with StreamDiffusion's tricks
+(cached prompt embeddings, tiny VAE, one-step / LCM sampling, optional `torch.compile`) on plain
+diffusers; the StreamDiffusion package itself is not used (it pins an old diffusers). Once loaded,
+both stay loaded. Fast answers Pose and Style reference with a plain error ("Pose works with the
+Members engine."); Regions work on both (one extra masked img2img pass per region). Models and
+licences in detail: the comment at the top of `canvas_worker.py`.
 
 The app passes `engine`; the site decides the default per surface (owner: `fast`; studio member:
 `licensed`, never overridable by a member).
@@ -53,10 +60,15 @@ The app passes `engine`; the site decides the default per surface (owner: `fast`
 | Power | its own start/stop/status, its own idle auto-off (the one auto-off rule, `lib/autoOff.ts`), its own cost line, in the watchdog |
 | Auth | the same signed tokens as the AI machine (audience `orbit-ai`), so Orbit's existing access code works |
 | Start target | under 90 s from Start to first live picture on a warm drive |
+| Makers | the studio keeps only `CANVAS_MAKERS` (default `canvas-fast,canvas-licensed,canvas-reader,sketch-finish,live-sdv2,live-krea`, in download order); every model file comes through the catalog (`ai/gate/catalog.json`) onto the drive, the workers only read them (no Hugging Face cache) |
 
-Blackwell needs PyTorch ≥ 2.7 with CUDA 12.8 everywhere: ComfyUI's venv is already torch 2.11
-cu128; StreamDiffusionV2's own venv must move to its Blackwell-supporting commit (torch 2.11).
-Krea Realtime 14B is not installed on the drawing machine.
+Both cards run PyTorch with CUDA 12.8: ComfyUI's venv (and so the Live Draw engines) is torch 2.11
+cu128, StreamDiffusionV2's own venv torch 2.11 cu128, Krea's own venv its lockfile's torch 2.8 (CUDA
+12.8 wheels). Krea Realtime 14B is installed here (`live-krea`); its Turbo-machine rule becomes "40 GB
+of GPU memory" on this machine, which both cards pass. Attention: Krea ships SageAttention 2.2.1 built
+for Hopper, so the H200 uses it; before starting Krea the gate runs one tiny SageAttention call with
+Krea's Python, and where it has no kernel (the RTX PRO 6000 Blackwell) starts Krea with
+`DISABLE_SAGEATTENTION=1`, which Krea's code turns into PyTorch's `scaled_dot_product_attention`.
 
 ## 4. Site API (machine part)
 
@@ -73,7 +85,14 @@ Krea Realtime 14B is not installed on the drawing machine.
 ### 5.1 Live picture: WebSocket `/_orbit/canvas/live`
 
 Sub-protocols `['orbit-live', token]` (as `/_orbit/live/draw` today). Only one frame in flight per
-socket; the client keeps only the newest waiting frame (as `LiveDrawLink` does).
+socket; the client keeps only the newest waiting frame (as `LiveDrawLink` does). The machine applies
+the same rule per socket: a frame that arrives while one is being made waits, and a newer one replaces
+it (the replaced one answers `{ type: 'dropped', id }`).
+
+Studio members use `/_studio/canvas/live` with `['orbit-live', memberKey]` (audience `studio-member`):
+the engine is always `licensed` whatever the frame says, and `ref` is refused (403: no pictures of
+their own go to the machine). Client → machine messages also include `{ type: 'warm', engine }` and
+`{ type: 'state' }` (both answer a `state` message).
 
 Client → machine (JSON, one per message):
 
@@ -103,25 +122,47 @@ Machine → client:
 ```ts
 type CanvasReply =
   | { type: 'frame'; id: number; image: string /* data:image/webp */; ms: number }
-  | { type: 'error'; id: number; error: string; blocked?: boolean; paused?: boolean; status?: number }
-  | { type: 'state'; engines: Record<'fast' | 'licensed', 'off' | 'loading' | 'ready' | 'error'>; loading?: string };
+  | { type: 'dropped'; id: number }   // replaced by a newer frame before it was made
+  | { type: 'error'; id: number; error: string; blocked?: boolean; paused?: boolean; loading?: boolean; status?: number }
+  | { type: 'state'; engines: Record<'fast' | 'licensed', 'off' | 'loading' | 'ready' | 'error'>; loading?: string; errors?: Partial<Record<'fast' | 'licensed', string>> };
 ```
 
-The same body can be POSTed to `/_orbit/canvas/frame` (fallback when sockets are blocked) and
-answers one `CanvasReply`. Words go through the gate's content rules (`blockedPrompt`) before a
-frame is made.
+A `state` message arrives when the socket opens and whenever an engine's state or loading text
+changes. A frame for an engine that isn't loaded yet starts loading it and answers an `error` with
+`loading: true` (status 503); the socket remembers that frame (the newest only) and answers it with a
+`frame` as soon as the engine is ready, without the app sending it again. Statuses: 400 bad request
+(including the plain "Pose works with the Members engine."), 403 member sent `ref`, 409 paused, 413
+too large, 422 content rules (`blocked: true`), 503 loading / engine problem, 504 too slow.
+
+The same body can be POSTed to `/_orbit/canvas/frame` (members: `/_studio/canvas/frame`, fallback
+when sockets are blocked) and answers one `CanvasReply` as JSON (HTTP status = its `status`). Words
+go through the gate's content rules (`blockedPrompt`) before a frame is made: the prompt, each
+region's prompt and all of them together; with a style reference, the photo rule (`blockedForPhoto`)
+too.
 
 ### 5.2 HTTP
 
 | Route | Method | Body → result |
 |---|---|---|
-| `/_orbit/canvas` | GET | `{ engines, living: state, animate: state, finish: state, reader: state, gpu: { name, memoryGb } }` |
-| `/_orbit/canvas/warm` | POST | `{ engine }` → starts loading it; `{ ok: true }` |
+| `/_orbit/canvas` | GET | `{ engines, living: state, animate: state, finish: state, reader: state, gpu: { name, memoryGb } \| null, lastMs, lastFrameAt, paused, loading?, detail? }`; each `state` is `'off' \| 'loading' \| 'ready' \| 'error'`, `detail` says why for any that is loading or in error |
+| `/_orbit/canvas/warm` | POST | `{ engine }` → starts loading it; `{ ok: true }` (`{ ok: false, paused }` while paused) |
+| `/_orbit/canvas/frame` | POST | a `CanvasFrame` → one `CanvasReply` (the socket's fallback) |
 | `/_orbit/canvas/read` | POST | `{ image }` → `{ guesses: { label: string; prompt: string }[] }` (sketch reader, up to 3) |
-| `/_orbit/canvas/finish` | POST | `{ image, sketch, prompt, engine, size }` → a studio job (`{ id, status, ... }`, followed with the existing `/_orbit/studio/jobs/:id`) |
-| `/_orbit/canvas/animate` | POST | `{ image, prompt, seconds: 3 \| 5, size: 'landscape' \| 'portrait' \| 'square' }` → a studio job |
+| `/_orbit/canvas/finish` | POST | `{ image, sketch, prompt, engine, size: 'square' \| 'portrait' \| 'landscape', follow?, strength? }` → a studio job (`{ id, status, ... }`, followed with the existing `/_orbit/studio/jobs/:id`). Sketch finish (Z-Image + ControlNet): `image` (the canvas as it looks) is where it starts (img2img, `strength` 0.3–1, default 0.7), `sketch` (strokes on transparent, laid on white) is the line control, `follow` its strength |
 
-Living canvas reuses `/_orbit/live/video` (StreamDiffusionV2) with the canvas as its source.
+Studio members have the same routes under `/_studio/canvas` (GET, `/warm`, `/frame`, `/read`,
+`/finish`) with their member key: always the licensed engine, no `ref`, their Finish is tagged with
+them and followed at `/_studio/jobs/:id`. `/_orbit/status` carries `canvas: { fast, licensed }` (the
+engines' states) so the site can show "warming up".
+
+**Bring to life** is live video, not a job: `/_orbit/live/video` (WebSocket, `livevideo.js`). Animate:
+`{ type: 'start', maker: 'live-krea', source: 'canvas', prompt, strength, image }` where `image` is
+the kept picture (JPEG/PNG/WebP data URL, opaque: transparent pixels count as black for Krea); the
+machine sends it again and again (8 a second) while the page sends nothing newer, then
+`{ type: 'frame', image }` canvas frames while the person draws (the last one is held when they stop);
+`{ type: 'still', image }` replaces the held picture; `{ type: 'save' }` saves the last 10 s. Studio
+members use `/_studio/canvas/video` (member key), which forces `live-sdv2` and the canvas as source and
+tags the saved clip with them. Living canvas is the same with `maker: 'live-sdv2'`.
 
 ## 6. The app (Orbit)
 

@@ -23,7 +23,8 @@ import { createStorageReport } from './storage.js';
 import { createOllamaSync, createWebuiBackup, keptInR2, machineRole } from './cloud.js';
 import { FILES, STUDIO_FILES } from './workflows.js';
 import { createLiveDraw, createLiveWorker } from './live.js';
-import { TURBO_GPU_BYTES, TURBO_MESSAGE, createLiveEnvs, createLiveServer, createLiveVideo } from './livevideo.js';
+import { CANVAS_KREA_GPU_BYTES, TURBO_GPU_BYTES, TURBO_MESSAGE, createLiveEnvs, createLiveServer, createLiveVideo, sageWorks } from './livevideo.js';
+import { createCanvas } from './canvas.js';
 
 const env = process.env;
 if (!env.GATEWAY_SECRET || env.GATEWAY_SECRET.length < 32) {
@@ -39,10 +40,19 @@ const HELPER = ROLE === 'helper';
 const CANVAS = ROLE === 'canvas';
 // No Open WebUI and no Ollama here (ai/setup.sh starts neither).
 const NO_CHAT = ROLE !== 'main';
-// What the drawing machine keeps, in download order: pix2pix-turbo (the fast live engine, small),
-// Sketch finish (Z-Image + ControlNet: Finish), StreamDiffusionV2 (Living canvas) and LTX (Animate:
-// image to video, the biggest). CANVAS_MAKERS (comma-separated maker ids) replaces the list.
-const CANVAS_MAKERS = (env.CANVAS_MAKERS || 'live-draw,sketch-finish,live-sdv2,ltx').split(',').map((s) => s.trim()).filter(Boolean);
+// What the drawing machine keeps, in download order: Live Draw's fast engine (Live draw's SD-Turbo and
+// pix2pix-turbo files plus TAESD: small), its Members engine (SD 1.5, LCM-LoRA, ControlNets, IP-Adapter),
+// the sketch reader (Florence-2), Sketch finish (Z-Image + ControlNet: Finish), StreamDiffusionV2 (Living
+// canvas, and Animate for studio members) and Krea Realtime 14B (the owner's Animate, the biggest). Every
+// model file comes through the catalog onto the drive; the workers only read them.
+// CANVAS_MAKERS (comma-separated maker ids) replaces the list.
+const CANVAS_MAKERS = (env.CANVAS_MAKERS || 'canvas-fast,canvas-licensed,canvas-reader,sketch-finish,live-sdv2,live-krea').split(',').map((s) => s.trim()).filter(Boolean);
+// Live Draw's engines (canvas.js): on the drawing machine, and on the main machine with LIVE_CANVAS=1
+// (to try it there).
+const LIVE_CANVAS = CANVAS || env.LIVE_CANVAS === '1';
+// Krea Realtime only has to fit: 40 GB on the drawing machine (H200 141 GB, RTX PRO 6000 96 GB);
+// elsewhere the Turbo machine (80 GB) rule stays.
+const KREA_BYTES = CANVAS ? CANVAS_KREA_GPU_BYTES : TURBO_GPU_BYTES;
 const OLLAMA = env.OLLAMA_URL || 'http://127.0.0.1:11434';
 const WEBUI = env.WEBUI_URL || 'http://127.0.0.1:8081';
 const startedAt = Date.now();
@@ -89,10 +99,12 @@ const studio = env.STUDIO_DIR
       makeWayForVideo: async () => {
         liveDraw?.release();
         liveVideo?.release();
+        // The main machine's card is shared; the drawing machine's has room for both.
+        if (!CANVAS) canvas?.release();
       },
       liveEnvs,
       gpuMemory,
-      turboBytes: TURBO_GPU_BYTES,
+      turboBytes: KREA_BYTES,
       turboMessage: TURBO_MESSAGE,
       // Gated downloads (LTX-2.5). A Runpod secret that was never set arrives as "{{ RUNPOD_SECRET_… }}".
       hfToken: /^\{\{/.test(env.HF_TOKEN || '') ? '' : env.HF_TOKEN || env.HUGGING_FACE_HUB_TOKEN || '',
@@ -130,6 +142,16 @@ const liveDraw = studio
 // Live video (livevideo.js): StreamDiffusionV2 in its own worker, Krea Realtime as Krea's own server
 // on 127.0.0.1 (never exposed: Orbit reaches both through the gate's /_orbit/live/video).
 const KREA_PORT = Number(env.KREA_PORT || 8766);
+const KREA_PYTHON = liveEnvs ? path.join(liveEnvs.root, 'krea', 'src', '.venv', 'bin', 'python') : null;
+const kreaEnv = {
+  MODEL_FOLDER: path.join(env.STUDIO_DIR || '', 'models', 'live', 'wan_models'),
+  CONFIG: 'configs/self_forcing_server_14b.yaml',
+  // torch.compile makes the first start much slower; not worth it for a session or two.
+  DO_COMPILE: 'false',
+  CUDA_VISIBLE_DEVICES: '0',
+  HF_HOME: path.join(env.STUDIO_DIR || '', 'hf'),
+};
+let sageChecked = null;
 const liveVideo =
   studio && liveEnvs
     ? createLiveVideo({
@@ -154,17 +176,10 @@ const liveVideo =
           }),
         krea: createLiveServer({
           name: 'Krea Realtime',
-          cmd: path.join(liveEnvs.root, 'krea', 'src', '.venv', 'bin', 'python'),
+          cmd: KREA_PYTHON,
           args: ['-m', 'uvicorn', 'release_server:app', '--host', '127.0.0.1', '--port', String(KREA_PORT)],
           cwd: path.join(liveEnvs.root, 'krea', 'src'),
-          env: {
-            MODEL_FOLDER: path.join(env.STUDIO_DIR, 'models', 'live', 'wan_models'),
-            CONFIG: 'configs/self_forcing_server_14b.yaml',
-            // torch.compile makes the first start much slower; not worth it for a session or two.
-            DO_COMPILE: 'false',
-            CUDA_VISIBLE_DEVICES: '0',
-            HF_HOME: path.join(env.STUDIO_DIR, 'hf'),
-          },
+          env: kreaEnv,
           url: `http://127.0.0.1:${KREA_PORT}`,
           // Its config reads checkpoints/krea-realtime-video-14b.safetensors from its own folder.
           prepare: async () => {
@@ -172,15 +187,59 @@ const liveVideo =
             await fs.mkdir(path.dirname(link), { recursive: true });
             await fs.rm(link, { force: true });
             await fs.symlink(studio.modelPath(FILES.kreaRealtime), link);
+            // Its SageAttention wheel is built for Hopper (H100/H200): tried once on this card; on
+            // another (the RTX PRO 6000 Blackwell) Krea falls back to PyTorch's own attention.
+            if (sageChecked === null) {
+              sageChecked = await sageWorks({ python: KREA_PYTHON });
+              if (!sageChecked) kreaEnv.DISABLE_SAGEATTENTION = '1';
+              console.log(`[live] Krea Realtime attention: ${sageChecked ? 'SageAttention' : 'PyTorch SDPA (SageAttention has no kernel for this card)'}`);
+            }
           },
           idleMs: 5 * 60_000,
           log: console,
         }),
         kreaUrl: `ws://127.0.0.1:${KREA_PORT}`,
         gpuMemory,
+        turboBytes: KREA_BYTES,
         makeWay: async () => liveDraw?.release(),
         activity: () => idle.activity(),
         ffmpeg: (args, opts) => runFfmpeg(args, opts),
+        log: console,
+      })
+    : null;
+// Live Draw (canvas.js, canvas_worker.py): both engine sets and the sketch reader in one worker on the
+// graphics card. On the drawing machine it keeps them for 20 quiet minutes (the card is its own); on
+// the main machine it hands the card back sooner and waits while a video is made.
+const canvas =
+  studio && LIVE_CANVAS
+    ? createCanvas({
+        makeWorker: (onEvent) =>
+          createLiveWorker({
+            name: 'Live Draw engines',
+            python: path.join(env.STUDIO_DIR, 'venv', 'bin', 'python'),
+            script: fileURLToPath(new URL('../canvas_worker.py', import.meta.url)),
+            // Reads only the catalog's files under the studio's models folder (the drive); never downloads.
+            env: {
+              STUDIO_DIR: env.STUDIO_DIR,
+              CANVAS_MODELS: path.join(env.STUDIO_DIR, 'models'),
+              CANVAS_SD_TURBO: path.dirname(path.dirname(studio.modelPath(FILES.sdTurboUnet))),
+              CANVAS_P2P_LORA: studio.modelPath(FILES.pix2pixSketchLora),
+              HF_HUB_OFFLINE: '1',
+            },
+            idleMs: (CANVAS ? 20 : 5) * 60_000,
+            startTimeoutMs: 5 * 60_000,
+            timeoutMs: 60_000,
+            onEvent,
+            log: console,
+          }),
+        studio,
+        makeRoom: CANVAS ? null : () => studio.makeRoom(),
+        paused: CANVAS ? null : () => (studio.videoInFlight() ? 'Your AI machine is making a video: Live Draw waits until it is done.' : null),
+        activity: () => idle.activity(),
+        gpu: async () => {
+          const g = (await gpuStats().catch(() => null))?.gpus?.[0];
+          return g ? { name: g.name, memoryGb: Math.round((g.memoryTotal || 0) / 2 ** 30) } : null;
+        },
         log: console,
       })
     : null;
@@ -222,7 +281,7 @@ const idle = createAutoOff({
   limitMinutes: clampAutoOffMinutes(env.IDLE_MINUTES),
   // Busy while a picture, video or movie shot is being made or a download is running (so the hour
   // starts once every download is done). A model merely sitting in GPU memory is not a job.
-  busy: async () => Boolean(models.pulling() || store.busy() || studio?.busy() || liveDraw?.busy() || liveVideo?.busy() || r2test?.running() || ollamaSync?.busy() || webuiBackup?.busy()),
+  busy: async () => Boolean(models.pulling() || store.busy() || studio?.busy() || liveDraw?.busy() || liveVideo?.busy() || canvas?.busy() || r2test?.running() || ollamaSync?.busy() || webuiBackup?.busy()),
   // A notification shortly before turning off, so the owner can keep it on.
   warnMinutes: AUTO_OFF.warnMinutes,
   warn: push ? async () => void (await push.send()) : null,
@@ -355,6 +414,8 @@ async function status() {
       idle: idle.state(),
       canStopSelf: Boolean(env.RUNPOD_POD_ID && env.RUNPOD_API_KEY),
       studio: studioState,
+      // Live Draw's engines: off | loading | ready | error each (the site shows "warming up").
+      ...(canvas ? { canvas: canvas.engines() } : {}),
     };
   }
   return {
@@ -371,6 +432,7 @@ async function status() {
     // Runpod gives each pod a key scoped to itself; without it the machine can't turn itself off.
     canStopSelf: Boolean(env.RUNPOD_POD_ID && env.RUNPOD_API_KEY),
     studio: studioState,
+    ...(canvas ? { canvas: canvas.engines() } : {}),
   };
 }
 
@@ -396,6 +458,7 @@ const server = createGate({
   lab,
   liveDraw,
   liveVideo,
+  canvas,
   r2test,
   studioKey: env.STUDIO_KEY || '',
   store,

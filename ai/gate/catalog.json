@@ -1072,6 +1072,51 @@
     "a paper boat drifting down a rainy street, cinematic",
     "a fox running through autumn leaves"
    ]
+  },
+  "canvas-fast": {
+   "publisher": "Gaurav Parmar et al. (img2img-turbo); Stability AI (SD-Turbo); Ollin Boer Bohan (TAESD)",
+   "base": "pix2pix-turbo (sketch to image) and SD-Turbo img2img, on Stability AI's SD-Turbo",
+   "repo": "stabilityai/sd-turbo",
+   "code": "https://github.com/GaParmar/img2img-turbo",
+   "license": "SD-Turbo: Stability AI Community License (free for personal use, research and businesses under US$1M a year after registering; not for studio members). pix2pix-turbo code and LoRA: MIT. TAESD: MIT.",
+   "output": "A picture under your strokes while you draw, in Live Draw",
+   "resolution": "512 × 512 (shown at 512, 768 or 1024)",
+   "gpu": "About 6–8 GB while Live Draw is open (an estimate, not measured yet)",
+   "speed": "One step per picture: meant for 8–20 pictures a second at 512; not measured on the drawing machine yet",
+   "about": "The fast engine behind Live Draw: a sketch alone goes through pix2pix-turbo; with colour or a kept picture, SD-Turbo repaints the canvas as it looks in one step. Uses the same files as Live draw plus a tiny decoder.",
+   "tryIt": [
+    "a cat on a windowsill, oil painting",
+    "a lighthouse in a storm, watercolour"
+   ]
+  },
+  "canvas-licensed": {
+   "publisher": "Stability AI and Runway (SD 1.5); Latent Consistency (LCM-LoRA); Lvmin Zhang (ControlNet 1.1); Tencent AI Lab (IP-Adapter)",
+   "base": "Stable Diffusion 1.5 + LCM-LoRA (4 steps) + ControlNet line art and openpose + IP-Adapter",
+   "repo": "stable-diffusion-v1-5/stable-diffusion-v1-5",
+   "code": "https://github.com/huggingface/diffusers",
+   "license": "SD 1.5: CreativeML OpenRAIL-M. LCM-LoRA: OpenRAIL++. ControlNet 1.1: OpenRAIL. IP-Adapter: Apache 2.0. TAESD: MIT. All allow commercial use (the OpenRAIL use restrictions pass on to whoever uses it).",
+   "output": "A picture under your strokes while you draw, for studio members",
+   "resolution": "512 × 512 or 768 × 768",
+   "gpu": "About 6–9 GB while Live Draw is open (an estimate, not measured yet)",
+   "speed": "Four steps per picture; not measured on the drawing machine yet",
+   "about": "The engine studio members draw with in Live Draw: it follows your lines with ControlNet, takes a pose from the stick figure, and matches a style reference with IP-Adapter.",
+   "tryIt": [
+    "a knight in shining armour, comic book",
+    "a cosy cabin in the woods, watercolour"
+   ]
+  },
+  "canvas-reader": {
+   "publisher": "Microsoft (Florence-2)",
+   "base": "Florence-2 large (0.77B), captioning",
+   "repo": "florence-community/Florence-2-large",
+   "code": "https://huggingface.co/microsoft/Florence-2-large",
+   "license": "MIT",
+   "output": "Up to three guesses of what your drawing is, each with words to make it",
+   "resolution": "Reads the drawing at 768 × 768",
+   "gpu": "About 2 GB once used (an estimate, not measured yet)",
+   "speed": "Under a second per drawing on the drawing machine (an estimate, not measured yet)",
+   "about": "The orb looks at your sketch and suggests what it is; tap a guess to use its words.",
+   "tryIt": []
   }
  },
  "files": {
@@ -1526,6 +1571,246 @@
    "repo": "krea/krea-realtime-video",
    "path": "krea-realtime-video-14b.safetensors",
    "size": 28577102160
+  },
+  "canvasSd15Unet": {
+   "dir": "live/canvas/sd15/unet",
+   "name": "diffusion_pytorch_model.fp16.safetensors",
+   "repo": "stable-diffusion-v1-5/stable-diffusion-v1-5",
+   "path": "unet/diffusion_pytorch_model.fp16.safetensors",
+   "revision": "451f4fe16113bff5a5d2269ed5ad43b0592e9a14",
+   "size": 1719125304
+  },
+  "canvasSd15UnetConfig": {
+   "dir": "live/canvas/sd15/unet",
+   "name": "config.json",
+   "repo": "stable-diffusion-v1-5/stable-diffusion-v1-5",
+   "path": "unet/config.json",
+   "revision": "451f4fe16113bff5a5d2269ed5ad43b0592e9a14",
+   "size": 743
+  },
+  "canvasSd15Te": {
+   "dir": "live/canvas/sd15/text_encoder",
+   "name": "model.fp16.safetensors",
+   "repo": "stable-diffusion-v1-5/stable-diffusion-v1-5",
+   "path": "text_encoder/model.fp16.safetensors",
+   "revision": "451f4fe16113bff5a5d2269ed5ad43b0592e9a14",
+   "size": 246144864
+  },
+  "canvasSd15TeConfig": {
+   "dir": "live/canvas/sd15/text_encoder",
+   "name": "config.json",
+   "repo": "stable-diffusion-v1-5/stable-diffusion-v1-5",
+   "path": "text_encoder/config.json",
+   "revision": "451f4fe16113bff5a5d2269ed5ad43b0592e9a14",
+   "size": 617
+  },
+  "canvasSd15Merges": {
+   "dir": "live/canvas/sd15/tokenizer",
+   "name": "merges.txt",
+   "repo": "stable-diffusion-v1-5/stable-diffusion-v1-5",
+   "path": "tokenizer/merges.txt",
+   "revision": "451f4fe16113bff5a5d2269ed5ad43b0592e9a14",
+   "size": 524619
+  },
+  "canvasSd15SpecialTokens": {
+   "dir": "live/canvas/sd15/tokenizer",
+   "name": "special_tokens_map.json",
+   "repo": "stable-diffusion-v1-5/stable-diffusion-v1-5",
+   "path": "tokenizer/special_tokens_map.json",
+   "revision": "451f4fe16113bff5a5d2269ed5ad43b0592e9a14",
+   "size": 472
+  },
+  "canvasSd15TokenizerConfig": {
+   "dir": "live/canvas/sd15/tokenizer",
+   "name": "tokenizer_config.json",
+   "repo": "stable-diffusion-v1-5/stable-diffusion-v1-5",
+   "path": "tokenizer/tokenizer_config.json",
+   "revision": "451f4fe16113bff5a5d2269ed5ad43b0592e9a14",
+   "size": 806
+  },
+  "canvasSd15Vocab": {
+   "dir": "live/canvas/sd15/tokenizer",
+   "name": "vocab.json",
+   "repo": "stable-diffusion-v1-5/stable-diffusion-v1-5",
+   "path": "tokenizer/vocab.json",
+   "revision": "451f4fe16113bff5a5d2269ed5ad43b0592e9a14",
+   "size": 1059962
+  },
+  "canvasSd15Scheduler": {
+   "dir": "live/canvas/sd15/scheduler",
+   "name": "scheduler_config.json",
+   "repo": "stable-diffusion-v1-5/stable-diffusion-v1-5",
+   "path": "scheduler/scheduler_config.json",
+   "revision": "451f4fe16113bff5a5d2269ed5ad43b0592e9a14",
+   "size": 308
+  },
+  "canvasLcmLora": {
+   "dir": "live/canvas/lcm-lora-sdv1-5",
+   "name": "pytorch_lora_weights.safetensors",
+   "repo": "latent-consistency/lcm-lora-sdv1-5",
+   "path": "pytorch_lora_weights.safetensors",
+   "revision": "cf2fced511dbe7e26c8d1d397e728fbab875db4b",
+   "size": 134621556
+  },
+  "canvasLineart": {
+   "dir": "live/canvas/control_v11p_sd15_lineart",
+   "name": "diffusion_pytorch_model.fp16.safetensors",
+   "repo": "lllyasviel/control_v11p_sd15_lineart",
+   "path": "diffusion_pytorch_model.fp16.safetensors",
+   "revision": "8a158f547e031c5b8fbca19ead09a74767ff4db0",
+   "size": 722598642
+  },
+  "canvasLineartConfig": {
+   "dir": "live/canvas/control_v11p_sd15_lineart",
+   "name": "config.json",
+   "repo": "lllyasviel/control_v11p_sd15_lineart",
+   "path": "config.json",
+   "revision": "8a158f547e031c5b8fbca19ead09a74767ff4db0",
+   "size": 998
+  },
+  "canvasOpenpose": {
+   "dir": "live/canvas/control_v11p_sd15_openpose",
+   "name": "diffusion_pytorch_model.fp16.safetensors",
+   "repo": "lllyasviel/control_v11p_sd15_openpose",
+   "path": "diffusion_pytorch_model.fp16.safetensors",
+   "revision": "9ae9f970358db89e211b87c915f9535c6686d5ba",
+   "size": 722598642
+  },
+  "canvasOpenposeConfig": {
+   "dir": "live/canvas/control_v11p_sd15_openpose",
+   "name": "config.json",
+   "repo": "lllyasviel/control_v11p_sd15_openpose",
+   "path": "config.json",
+   "revision": "9ae9f970358db89e211b87c915f9535c6686d5ba",
+   "size": 999
+  },
+  "canvasIpAdapter": {
+   "dir": "live/canvas/ip-adapter/models",
+   "name": "ip-adapter_sd15.safetensors",
+   "repo": "h94/IP-Adapter",
+   "path": "models/ip-adapter_sd15.safetensors",
+   "revision": "018e402774aeeddd60609b4ecdb7e298259dc729",
+   "size": 44642768
+  },
+  "canvasIpEncoder": {
+   "dir": "live/canvas/ip-adapter/models/image_encoder",
+   "name": "model.safetensors",
+   "repo": "h94/IP-Adapter",
+   "path": "models/image_encoder/model.safetensors",
+   "revision": "018e402774aeeddd60609b4ecdb7e298259dc729",
+   "size": 2528373448
+  },
+  "canvasIpEncoderConfig": {
+   "dir": "live/canvas/ip-adapter/models/image_encoder",
+   "name": "config.json",
+   "repo": "h94/IP-Adapter",
+   "path": "models/image_encoder/config.json",
+   "revision": "018e402774aeeddd60609b4ecdb7e298259dc729",
+   "size": 560
+  },
+  "canvasTaesd": {
+   "dir": "live/canvas/taesd",
+   "name": "diffusion_pytorch_model.safetensors",
+   "repo": "madebyollin/taesd",
+   "path": "diffusion_pytorch_model.safetensors",
+   "revision": "614f76814bbe30edbe2e627ace1c2234c81a2c0e",
+   "size": 9793292
+  },
+  "canvasTaesdConfig": {
+   "dir": "live/canvas/taesd",
+   "name": "config.json",
+   "repo": "madebyollin/taesd",
+   "path": "config.json",
+   "revision": "614f76814bbe30edbe2e627ace1c2234c81a2c0e",
+   "size": 597
+  },
+  "canvasFlorenceConfigJson": {
+   "dir": "live/canvas/florence-2-large",
+   "name": "config.json",
+   "repo": "florence-community/Florence-2-large",
+   "path": "config.json",
+   "revision": "4271c66b88cdbc05735372ec13b2360108de5317",
+   "size": 2396
+  },
+  "canvasFlorenceGenerationConfigJson": {
+   "dir": "live/canvas/florence-2-large",
+   "name": "generation_config.json",
+   "repo": "florence-community/Florence-2-large",
+   "path": "generation_config.json",
+   "revision": "4271c66b88cdbc05735372ec13b2360108de5317",
+   "size": 292
+  },
+  "canvasFlorencePreprocessorConfigJson": {
+   "dir": "live/canvas/florence-2-large",
+   "name": "preprocessor_config.json",
+   "repo": "florence-community/Florence-2-large",
+   "path": "preprocessor_config.json",
+   "revision": "4271c66b88cdbc05735372ec13b2360108de5317",
+   "size": 603
+  },
+  "canvasFlorenceProcessorConfigJson": {
+   "dir": "live/canvas/florence-2-large",
+   "name": "processor_config.json",
+   "repo": "florence-community/Florence-2-large",
+   "path": "processor_config.json",
+   "revision": "4271c66b88cdbc05735372ec13b2360108de5317",
+   "size": 2264
+  },
+  "canvasFlorenceSpecialTokensMapJson": {
+   "dir": "live/canvas/florence-2-large",
+   "name": "special_tokens_map.json",
+   "repo": "florence-community/Florence-2-large",
+   "path": "special_tokens_map.json",
+   "revision": "4271c66b88cdbc05735372ec13b2360108de5317",
+   "size": 146627
+  },
+  "canvasFlorenceTokenizerJson": {
+   "dir": "live/canvas/florence-2-large",
+   "name": "tokenizer.json",
+   "repo": "florence-community/Florence-2-large",
+   "path": "tokenizer.json",
+   "revision": "4271c66b88cdbc05735372ec13b2360108de5317",
+   "size": 3748144
+  },
+  "canvasFlorenceTokenizerConfigJson": {
+   "dir": "live/canvas/florence-2-large",
+   "name": "tokenizer_config.json",
+   "repo": "florence-community/Florence-2-large",
+   "path": "tokenizer_config.json",
+   "revision": "4271c66b88cdbc05735372ec13b2360108de5317",
+   "size": 197922
+  },
+  "canvasFlorenceVocabJson": {
+   "dir": "live/canvas/florence-2-large",
+   "name": "vocab.json",
+   "repo": "florence-community/Florence-2-large",
+   "path": "vocab.json",
+   "revision": "4271c66b88cdbc05735372ec13b2360108de5317",
+   "size": 798293
+  },
+  "canvasFlorenceMergesTxt": {
+   "dir": "live/canvas/florence-2-large",
+   "name": "merges.txt",
+   "repo": "florence-community/Florence-2-large",
+   "path": "merges.txt",
+   "revision": "4271c66b88cdbc05735372ec13b2360108de5317",
+   "size": 456318
+  },
+  "canvasFlorenceAddedTokensJson": {
+   "dir": "live/canvas/florence-2-large",
+   "name": "added_tokens.json",
+   "repo": "florence-community/Florence-2-large",
+   "path": "added_tokens.json",
+   "revision": "4271c66b88cdbc05735372ec13b2360108de5317",
+   "size": 22430
+  },
+  "canvasFlorenceModelSafetensors": {
+   "dir": "live/canvas/florence-2-large",
+   "name": "model.safetensors",
+   "repo": "florence-community/Florence-2-large",
+   "path": "model.safetensors",
+   "revision": "4271c66b88cdbc05735372ec13b2360108de5317",
+   "size": 1553541016
   }
  },
  "makerDefs": [
@@ -1957,6 +2242,74 @@
     "wan13Tokenizer",
     "wan13TokConfig",
     "kreaRealtime"
+   ]
+  },
+  {
+   "id": "canvas-fast",
+   "kind": "live",
+   "name": "Live Draw: Fast engine",
+   "blurb": "Live Draw's own engine: pix2pix-turbo and SD-Turbo, a picture per stroke. Personal use only.",
+   "files": [
+    "sdTurboUnet",
+    "sdTurboUnetConfig",
+    "sdTurboVae",
+    "sdTurboVaeConfig",
+    "sdTurboTe",
+    "sdTurboTeConfig",
+    "sdTurboMerges",
+    "sdTurboSpecialTokens",
+    "sdTurboTokenizerConfig",
+    "sdTurboVocab",
+    "sdTurboScheduler",
+    "pix2pixSketchLora",
+    "canvasTaesd",
+    "canvasTaesdConfig"
+   ]
+  },
+  {
+   "id": "canvas-licensed",
+   "kind": "live",
+   "name": "Live Draw: Members engine",
+   "blurb": "Live Draw for studio members: SD 1.5 with LCM-LoRA, line-art and pose ControlNets and IP-Adapter.",
+   "files": [
+    "canvasSd15Unet",
+    "canvasSd15UnetConfig",
+    "canvasSd15Te",
+    "canvasSd15TeConfig",
+    "canvasSd15Merges",
+    "canvasSd15SpecialTokens",
+    "canvasSd15TokenizerConfig",
+    "canvasSd15Vocab",
+    "canvasSd15Scheduler",
+    "canvasLcmLora",
+    "canvasLineart",
+    "canvasLineartConfig",
+    "canvasOpenpose",
+    "canvasOpenposeConfig",
+    "canvasIpAdapter",
+    "canvasIpEncoder",
+    "canvasIpEncoderConfig",
+    "canvasTaesd",
+    "canvasTaesdConfig"
+   ]
+  },
+  {
+   "id": "canvas-reader",
+   "kind": "live",
+   "name": "Live Draw: Sketch reader",
+   "blurb": "Looks at your drawing and suggests what it is and the words to make it (Florence-2).",
+   "files": [
+    "canvasFlorenceConfigJson",
+    "canvasFlorenceGenerationConfigJson",
+    "canvasFlorencePreprocessorConfigJson",
+    "canvasFlorenceProcessorConfigJson",
+    "canvasFlorenceSpecialTokensMapJson",
+    "canvasFlorenceTokenizerJson",
+    "canvasFlorenceTokenizerConfigJson",
+    "canvasFlorenceVocabJson",
+    "canvasFlorenceMergesTxt",
+    "canvasFlorenceAddedTokensJson",
+    "canvasFlorenceModelSafetensors"
    ]
   }
  ]

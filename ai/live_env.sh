@@ -75,6 +75,11 @@ if [ "$name" = sdv2 ]; then
 else
   log "installing its packages from its lockfile (PyTorch 2.8 and friends: a few minutes)"
   (cd "$D/src" && "$UV" sync -q --frozen --python 3.11) || exit 1
+  # Its lockfile's PyTorch 2.8 (CUDA 12.8 wheels from PyPI) runs on Hopper (H100/H200) and Blackwell.
+  # The SageAttention wheel it ships is built for Hopper: on the H200 Krea uses it; on another card
+  # (the drawing machine's RTX PRO 6000 Blackwell backup) the gate tries it once before starting Krea
+  # (livevideo.js sageWorks) and, when it has no kernel there, starts Krea with
+  # DISABLE_SAGEATTENTION=1, which Krea's own code turns into PyTorch's scaled_dot_product_attention.
   "$UV" pip install -q --python "$D/src/.venv/bin/python" "$D/src/libs/sageattention-2.2.1-cp311-cp311-linux_x86_64.whl" || exit 1
   "$UV" pip install -q --python "$D/src/.venv/bin/python" "uvicorn==0.37.0" || true
 fi
