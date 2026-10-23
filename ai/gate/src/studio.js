@@ -214,6 +214,9 @@ export function outputFiles(outputs) {
  *   files      model files per kind (STUDIO_FILES)
  *   r2         Cloudflare R2 client (createR2) when the machine has no network volume: model files,
  *              the gallery and settings are kept there and come back down after a restart
+ *   gallery    an R2 client for the gallery only (GALLERY=r2 on a volume: the drawing machine); r2 when unset
+ *   role       main | helper | canvas (its own state file, timings and ComfyUI folder per role)
+ *   makers     maker ids this machine keeps instead of the built-ins (the drawing machine's short list)
  *   hfToken    a Hugging Face token (HF_TOKEN), for gated model files (LTX-2.5); never logged or shown
  *   fetchImpl, WebSocketImpl, log, now, ffmpeg, probe     (tests)
  */
@@ -231,9 +234,16 @@ export function createStudio(o) {
   // A helper machine shares the main machine's files: it makes things but never downloads or
   // deletes model files (the main machine does that). With R2 each machine has its own disk, so a
   // helper downloads what it needs too (from R2).
-  const helper = Boolean(o.helper);
+  const role = o.role || (o.helper ? 'helper' : 'main');
+  const helper = role === 'helper';
+  // Files named per role, so machines sharing a folder never write each other's.
+  const perRole = (name, ext = '') => (role === 'main' ? `${name}${ext}` : `${name}-${role}${ext}`);
   const r2 = o.r2 || null;
-  const mirror = r2 ? createMirror({ r2, root: path.join(dir, 'output'), prefix: 'gallery/', log }) : null;
+  // The gallery can be in R2 while everything else is on a volume (the drawing machine).
+  const galleryR2 = o.gallery || r2;
+  const mirror = galleryR2 ? createMirror({ r2: galleryR2, root: path.join(dir, 'output'), prefix: 'gallery/', log }) : null;
+  // A machine with its own short list keeps only those makers (and what is added), not the built-ins.
+  const only = Array.isArray(o.makers) ? new Set(o.makers) : null;
   const modelKey = (file) => `models/${file.dir}/${file.name}`;
   const ffmpeg = o.ffmpeg || runFfmpeg;
   const probe = o.probe || probeMedia;
@@ -292,11 +302,14 @@ export function createStudio(o) {
     if (m.id === 'ltx') return files.video;
     return m.files.map((k) => (k in QWEN_KEYS ? files.image[QWEN_KEYS[k]] : k.startsWith('style:') ? m.loraFile : FILES[k])).filter(Boolean);
   }
-  const kept = () => MAKERS.filter((m) => m.builtIn || wanted.has(m.id));
+  const keeps = (m) => (only ? only.has(m.id) : m.builtIn) || wanted.has(m.id);
+  // A short list also sets the download order (what is needed first comes down first).
+  const rank = (m) => (only?.has(m.id) ? [...only].indexOf(m.id) : Infinity);
+  const kept = () => (only ? MAKERS.filter(keeps).sort((a, b) => rank(a) - rank(b)) : MAKERS.filter(keeps));
   /** Every file to keep on the machine, in download order: the built-in image and video makers first. */
   function neededFiles() {
     const seen = new Map();
-    for (const kind of ['image', 'video']) for (const file of files[kind]) seen.set(fid(file), file);
+    if (!only) for (const kind of ['image', 'video']) for (const file of files[kind]) seen.set(fid(file), file);
     for (const m of kept()) for (const file of makerFiles(m)) if (!seen.has(fid(file))) seen.set(fid(file), file);
     return [...seen.values()];
   }
@@ -613,7 +626,7 @@ export function createStudio(o) {
         // Its files are here and its Python is being set up: what it is doing.
         setup: filesHere && env?.installing ? env.step || 'Setting up' : undefined,
         builtIn: Boolean(m.builtIn),
-        wanted: Boolean(m.builtIn || wanted.has(m.id)),
+        wanted: keeps(m),
         installed,
         size: total,
         percent: installed ? 100 : filesHere ? 99 : total ? Math.min(99, Math.floor((done / total) * 100)) : 0,
@@ -624,7 +637,7 @@ export function createStudio(o) {
             ? /disk space/.test(why)
               ? 'disk'
               : 'blocked'
-            : !(m.builtIn || wanted.has(m.id))
+            : !keeps(m)
               ? undefined
               : mine
                 ? download.current.saving
@@ -746,7 +759,7 @@ export function createStudio(o) {
   const comfyUp = () => comfyJson('/system_stats', { timeout: 3000 }).then(() => true, () => false);
 
   async function setupState() {
-    return (await fsp.readFile(path.join(dir, helper ? 'state-helper' : 'state'), 'utf8').catch(() => 'installing')).trim();
+    return (await fsp.readFile(path.join(dir, perRole('state')), 'utf8').catch(() => 'installing')).trim();
   }
 
   let wsOpen = false;
@@ -853,7 +866,7 @@ export function createStudio(o) {
   let loadedMaker = null; // the maker whose models ComfyUI has in memory
 
   // Learned timings (ms per unit), kept on the volume.
-  const timingsPath = path.join(dir, helper ? 'timings-helper.json' : 'timings.json');
+  const timingsPath = path.join(dir, perRole('timings', '.json'));
   let timings = {};
   try {
     timings = JSON.parse(fs.readFileSync(timingsPath, 'utf8')) || {};
@@ -1462,7 +1475,7 @@ export function createStudio(o) {
   /** Hard reset: end the ComfyUI process; studio.sh starts a fresh one within seconds. */
   async function restartComfy() {
     if (o.restartComfy) return o.restartComfy();
-    const pidFile = path.join(dir, `machine-${helper ? 'helper' : 'main'}`, 'comfy.pid');
+    const pidFile = path.join(dir, `machine-${role}`, 'comfy.pid');
     const pid = Number((await fsp.readFile(pidFile, 'utf8').catch(() => '')).trim());
     if (!pid) return false;
     try {

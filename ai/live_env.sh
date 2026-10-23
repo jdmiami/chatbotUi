@@ -5,7 +5,8 @@
 # separately, like every maker's (studio.js). With STORAGE=r2 the finished folder is kept in R2 as
 # one tar and comes back at the next start instead of being installed again.
 #
-#   live_env.sh sdv2   StreamDiffusionV2 (Apache-2.0): pip install of its checkout, Python 3.11
+#   live_env.sh sdv2   StreamDiffusionV2 (Apache-2.0): pip install of its checkout, Python 3.11, on
+#                      PyTorch 2.11 for CUDA 12.8 (Blackwell GPUs: the drawing machine's RTX PRO 6000)
 #   live_env.sh krea   Krea Realtime 14B (code CC BY-NC-SA 4.0): uv sync of its lockfile, Python 3.11,
 #                      plus the SageAttention wheel it ships for H100
 #
@@ -15,12 +16,19 @@ set -uo pipefail
 name="${1:?which maker: sdv2 | krea}"
 S="${STUDIO_DIR:?STUDIO_DIR is required}"
 UV_VERSION=0.12.24
+# StreamDiffusionV2 pins PyTorch 2.6, which has no kernels for Blackwell GPUs. Its README (Blackwell
+# support since 2026-05-17, in the commit below: main as of 2026-09-14) says to use torch 2.11 and
+# torchvision 0.26 there; they run on the older GPUs too, so every machine gets them.
+SDV2_TORCH="torch==2.11.0 torchvision==0.26.0 torchaudio==2.11.0"
+TORCH_INDEX=https://download.pytorch.org/whl/cu128
+EXTRA=""
 case "$name" in
-  sdv2) REPO=https://github.com/chenfengxu714/StreamDiffusionV2 COMMIT=6961a5cf2045d1dda05a04ef229698bdc04e873a ;;
+  sdv2) REPO=https://github.com/chenfengxu714/StreamDiffusionV2 COMMIT=6961a5cf2045d1dda05a04ef229698bdc04e873a EXTRA="$SDV2_TORCH cu128" ;;
   krea) REPO=https://github.com/krea-ai/realtime-video COMMIT=acf4b7b4e1a3049a0e04782e751d12203334038d ;;
   *) echo "unknown live maker: $name" >&2; exit 2 ;;
 esac
-STAMP="$name $COMMIT uv $UV_VERSION"
+# A new PyTorch changes the stamp, so a Python set up with the old one is set up again.
+STAMP="$name $COMMIT uv $UV_VERSION${EXTRA:+ $EXTRA}"
 ROOT="$S/live-env"
 D="$ROOT/$name"
 log() { echo "[live-env $name] $*"; }
@@ -48,9 +56,22 @@ log "downloading its code ($COMMIT)"
 git clone -q "$REPO" "$D/src" && git -C "$D/src" checkout -q "$COMMIT" || exit 1
 
 if [ "$name" = sdv2 ]; then
-  log "installing its packages (PyTorch 2.6 and friends: a few minutes)"
+  log "installing its packages (PyTorch 2.11 for CUDA 12.8 and friends: a few minutes)"
+  PY="$D/src/.venv/bin/python"
   "$UV" venv -q --python 3.11 "$D/src/.venv" || exit 1
-  "$UV" pip install -q --python "$D/src/.venv/bin/python" "$D/src" || exit 1
+  # PyTorch first, from PyTorch's own CUDA 12.8 index; the override keeps it when the package (which
+  # asks for 2.6) installs.
+  # shellcheck disable=SC2086
+  "$UV" pip install -q --python "$PY" --index-url "$TORCH_INDEX" $SDV2_TORCH || exit 1
+  # shellcheck disable=SC2086
+  printf '%s\n' $SDV2_TORCH > "$D/torch-override.txt"
+  "$UV" pip install -q --python "$PY" --override "$D/torch-override.txt" "$D/src" || exit 1
+  # If the package install swapped in another PyTorch build anyway, put the CUDA 12.8 one back.
+  if ! "$PY" -c 'import sys, torch; sys.exit(0 if torch.version.cuda == "12.8" else 1)'; then
+    log "putting back PyTorch for CUDA 12.8"
+    # shellcheck disable=SC2086
+    "$UV" pip install -q --python "$PY" --index-url "$TORCH_INDEX" --reinstall $SDV2_TORCH || exit 1
+  fi
 else
   log "installing its packages from its lockfile (PyTorch 2.8 and friends: a few minutes)"
   (cd "$D/src" && "$UV" sync -q --frozen --python 3.11) || exit 1

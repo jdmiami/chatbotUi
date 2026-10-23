@@ -117,6 +117,17 @@ in North America first. `AI_WORLDWIDE=off` keeps it in North America.
 4. Open **AI playground** on the start screen. The very first start downloads the models from their
    home sites and saves them in R2 (20–30 minutes); later starts bring them back from R2.
 
+## Drawing machine (Live Draw)
+
+Live Draw has its own GPU machine (`lib/canvas.ts`, `/api/canvas`, design in `docs/livedraw/DESIGN.md`):
+the pod `<AI_POD_NAME>-canvas`, an RTX PRO 6000 (backup: H200) in the data centre of its network volume
+`CANVAS_VOLUME_ID`, started with `AI_ROLE=canvas`. `setup.sh` starts no Open WebUI and no Ollama there;
+ComfyUI, the makers Live Draw uses (the gate's `CANVAS_MAKERS`) and their Pythons install once onto the
+volume, so later starts download nothing. `GALLERY=r2` keeps its pictures and videos in R2, in the one
+gallery. It turns itself off by the same rule, and the watchdog and the cost meter include it.
+
+Set `CANVAS_VOLUME_ID` in Vercel to turn it on from the site.
+
 ## Coding
 
 The Linux machine runs VS Code in the browser (code-server) at `/code/` with the

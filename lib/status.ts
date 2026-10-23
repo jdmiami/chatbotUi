@@ -3,15 +3,16 @@ import { SignJWT, jwtVerify } from 'jose';
 import { aiBase, aiConsole, aiStatus, aiTiers, aiToken, findAiPod } from './ai';
 import { linuxIdle, linuxKeepAwake, linuxSaveHome, podHttpBase, podId, runpod } from './runpod';
 import { autoOffInfo, autoOffMinutes, keepOnMinutes } from './autoOff';
+import { canvasKeepOn, canvasStatus } from './canvas';
 
 /**
  * Everything the status pill and task manager show, in one call: Runpod money (balance, spend per
- * hour, today's spend), both machines (state, cost, uptime, auto-off countdown, Runpod's live
+ * hour, today's spend), the machines (AI, Linux, and Live Draw's drawing machine when set up) (state, cost, uptime, auto-off countdown, Runpod's live
  * readings) and each machine's own detail (processes, GPU memory users, disks, network).
  */
 
 export interface MachineCard {
-  id: 'ai' | 'linux';
+  id: 'ai' | 'linux' | 'canvas';
   name: string;
   state: string;
   detail?: string;
@@ -256,10 +257,40 @@ async function aiCard(user: string, detail: boolean): Promise<MachineCard | null
   };
 }
 
+/** Live Draw's drawing machine (lib/canvas.ts), so its cost shows with the others. Null when not set up. */
+async function canvasCard(user: string, detail: boolean): Promise<MachineCard | null> {
+  const s = await canvasStatus(user).catch(() => null);
+  if (!s || s.state === 'unconfigured') return null;
+  const pod = s.podId && s.state !== 'off' ? ((await runpod(`/pods/${encodeURIComponent(s.podId)}`).catch(() => null)) as RunpodPod | null) : null;
+  const on = s.state === 'on' || s.state === 'downloading';
+  const stats = detail && on && s.podId ? ((await getJson(`${aiBase(s.podId)}/_orbit/stats`, await aiToken(user, 'orbit-ai'))) as { idle?: { offAt?: string; heldUntil?: string | null } } | null) : null;
+  return {
+    id: 'canvas',
+    name: 'Drawing machine',
+    state: s.state,
+    detail: s.detail,
+    costPerHour: s.costPerHour,
+    uptimeSeconds: on || s.state === 'starting' ? (pod?.runtime?.uptime ?? null) : null,
+    offAt: on ? (stats?.idle?.offAt ?? s.idle?.offAt ?? (s.idle ? new Date(Date.now() + (s.idle.limitMinutes - s.idle.idleMinutes) * 60_000).toISOString() : null)) : null,
+    heldUntil: on ? (stats?.idle?.heldUntil ?? s.idle?.heldUntil ?? null) : null,
+    autoOff: true,
+    autoOffMinutes: autoOffMinutes(),
+    gpuName: s.gpu || null,
+    live: live(pod),
+    stats,
+    consoleUrl: s.podId ? aiConsole(s.podId) : undefined,
+  };
+}
+
 /** `detail` = also ask each machine for its process list (the open task manager). */
 export async function fullStatus(user: string, detail: boolean) {
-  const [m, ai, linux] = await Promise.all([money(), aiCard(user, detail), linuxCard(user, detail)]);
-  return { at: new Date().toISOString(), money: m, autoOff: autoOffInfo(), machines: [ai, linux].filter(Boolean) as MachineCard[] };
+  const [m, ai, linux, canvas] = await Promise.all([money(), aiCard(user, detail), linuxCard(user, detail), canvasCard(user, detail)]);
+  return { at: new Date().toISOString(), money: m, autoOff: autoOffInfo(), machines: [ai, linux, canvas].filter(Boolean) as MachineCard[] };
+}
+
+/** "Keep on" for the drawing machine: the same rule and limits as the AI machine's. */
+export async function canvasMachineExtend(user: string, minutes?: number) {
+  return canvasKeepOn(user, keepOnMinutes(minutes));
 }
 
 /** Actions that only reach the AI machine itself: keep it on longer, take a model out of GPU memory. */

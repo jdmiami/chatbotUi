@@ -20,6 +20,11 @@
 #   AI_ROLE=helper: a second machine that only makes images and videos (no Open WebUI, no Ollama);
 #   its creations land in the same gallery. STORAGE, R2_ACCOUNT_ID, R2_ACCESS_KEY_ID,
 #   R2_SECRET_ACCESS_KEY (Runpod secrets).
+#   AI_ROLE=canvas: Live Draw's drawing machine (lib/canvas.ts). Like the helper, no Open WebUI and no
+#   Ollama; it keeps its software and models on its own volume (STORAGE=volume) and only the makers
+#   Live Draw needs (the gate's CANVAS_MAKERS).
+#   GALLERY=r2: with STORAGE=volume, the gallery still goes to R2 (the drawing machine's pictures show
+#   up in the one gallery); everything else stays on the volume.
 set -euo pipefail
 
 : "${GATEWAY_SECRET:?GATEWAY_SECRET is required}"
@@ -82,9 +87,12 @@ STUDIO_DIR="$P/studio"
 
 public_url="https://${RUNPOD_POD_ID:-localhost}-8080.proxy.runpod.net"
 
-if [ "${AI_ROLE:-main}" = "helper" ]; then
-  log "helper machine: images and videos only (no chat)"
-else
+case "${AI_ROLE:-main}" in
+  helper) NO_CHAT=1; log "helper machine: images and videos only (no chat)" ;;
+  canvas) NO_CHAT=1; log "drawing machine (Live Draw): no chat; gallery in ${GALLERY:-the volume}" ;;
+  *) NO_CHAT="" ;;
+esac
+if [ -z "$NO_CHAT" ]; then
 # The playground's chats and settings, as last saved (the gate saves them every few minutes).
 if [ "$STORAGE" = r2 ] && [ ! -s "$P/open-webui/data/webui.db" ]; then
   log "bringing back the playground's chats from R2"
@@ -119,7 +127,7 @@ fi
 
 # Image and video maker (ComfyUI). Installs once onto the volume, then runs on 127.0.0.1:8188.
 log "starting the image and video maker"
-(env -u GATEWAY_SECRET -u RUNPOD_API_KEY -u HF_TOKEN AI_ROLE="${AI_ROLE:-main}" STUDIO_DIR="$STUDIO_DIR" PERSIST_DIR="$P" NODE="$NODE_DIR/bin/node" bash /opt/gate/studio.sh) 2>&1 | sed -u 's/^/[studio] /' &
+(env -u GATEWAY_SECRET -u RUNPOD_API_KEY -u HF_TOKEN AI_ROLE="${AI_ROLE:-main}" GALLERY="${GALLERY:-}" STUDIO_DIR="$STUDIO_DIR" PERSIST_DIR="$P" NODE="$NODE_DIR/bin/node" bash /opt/gate/studio.sh) 2>&1 | sed -u 's/^/[studio] /' &
 
 log "starting the gate on :8080"
 cd "$GATE"
@@ -128,7 +136,7 @@ while true; do
     SITE_URL="${SITE_URL:-}" ALLOWED_ORIGINS="${ALLOWED_ORIGINS:-}" IDLE_MINUTES="${IDLE_MINUTES:-60}" \
     DEFAULT_MODELS="$DEFAULT_MODELS" AI_USER_EMAIL="${AI_USER_EMAIL:-owner@orbit.local}" \
     STUDIO_DIR="$STUDIO_DIR" STUDIO_KEY="$STUDIO_KEY" AI_ROLE="${AI_ROLE:-main}" PERSIST_DIR="$P" \
-    STORAGE="$STORAGE" OLLAMA_MODELS="$P/ollama/models" WEBUI_DIR="$P/open-webui" \
+    STORAGE="$STORAGE" GALLERY="${GALLERY:-}" OLLAMA_MODELS="$P/ollama/models" WEBUI_DIR="$P/open-webui" \
     "$NODE_DIR/bin/node" src/index.js || true
   log "gate exited, restarting in 2s"
   sleep 2

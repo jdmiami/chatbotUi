@@ -13,6 +13,21 @@ import fsp from 'node:fs/promises';
 import path from 'node:path';
 import { downloadFile, uploadFile, uploadStream } from './r2.js';
 
+/**
+ * What this machine keeps in R2, from its env. STORAGE=r2: everything (no volume). GALLERY=r2 with a
+ * volume (the drawing machine): only the gallery, so its pictures show up in the one gallery while
+ * its software and models stay on its own volume.
+ */
+export function keptInR2(env) {
+  const all = env.STORAGE === 'r2';
+  return { all, gallery: all || env.GALLERY === 'r2' };
+}
+
+/** Which AI machine this is: main (chat and makers), helper (makers only) or canvas (Live Draw's drawing machine). */
+export function machineRole(env) {
+  return env.AI_ROLE === 'helper' || env.AI_ROLE === 'canvas' ? env.AI_ROLE : 'main';
+}
+
 /** Every file under `root` as [{ rel, abs, size }] (forward slashes in rel). */
 export async function walk(root, skip = () => false) {
   const out = [];

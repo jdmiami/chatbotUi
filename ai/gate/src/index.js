@@ -20,7 +20,7 @@ import { createSearch } from './search.js';
 import { createVoice } from './voice.js';
 import { createR2, createR2Test, r2FromEnv } from './r2.js';
 import { createStorageReport } from './storage.js';
-import { createOllamaSync, createWebuiBackup } from './cloud.js';
+import { createOllamaSync, createWebuiBackup, keptInR2, machineRole } from './cloud.js';
 import { FILES, STUDIO_FILES } from './workflows.js';
 import { createLiveDraw, createLiveWorker } from './live.js';
 import { TURBO_GPU_BYTES, TURBO_MESSAGE, createLiveEnvs, createLiveServer, createLiveVideo } from './livevideo.js';
@@ -32,7 +32,17 @@ if (!env.GATEWAY_SECRET || env.GATEWAY_SECRET.length < 32) {
 }
 // helper: a second AI machine that only makes images and videos (no chat, no downloads); it
 // shares the main machine's volume, so its creations show up in the same gallery.
-const HELPER = env.AI_ROLE === 'helper';
+// canvas: Live Draw's drawing machine. No chat either, but its own volume: it downloads its own
+// makers (CANVAS_MAKERS only, not the built-ins) and its gallery goes to R2 (GALLERY=r2).
+const ROLE = machineRole(env);
+const HELPER = ROLE === 'helper';
+const CANVAS = ROLE === 'canvas';
+// No Open WebUI and no Ollama here (ai/setup.sh starts neither).
+const NO_CHAT = ROLE !== 'main';
+// What the drawing machine keeps, in download order: pix2pix-turbo (the fast live engine, small),
+// Sketch finish (Z-Image + ControlNet: Finish), StreamDiffusionV2 (Living canvas) and LTX (Animate:
+// image to video, the biggest). CANVAS_MAKERS (comma-separated maker ids) replaces the list.
+const CANVAS_MAKERS = (env.CANVAS_MAKERS || 'live-draw,sketch-finish,live-sdv2,ltx').split(',').map((s) => s.trim()).filter(Boolean);
 const OLLAMA = env.OLLAMA_URL || 'http://127.0.0.1:11434';
 const WEBUI = env.WEBUI_URL || 'http://127.0.0.1:8081';
 const startedAt = Date.now();
@@ -40,14 +50,18 @@ const startedAt = Date.now();
 // No network volume (STORAGE=r2): the disk is wiped at every stop, so chat models, the gallery,
 // the maker's files and the playground's chats are kept in Cloudflare R2 (see cloud.js).
 const r2conf = r2FromEnv(env);
-const r2 = env.STORAGE === 'r2' && r2conf ? createR2(r2conf) : null;
-if (env.STORAGE === 'r2' && !r2) console.warn('[gate] STORAGE=r2 but the R2 keys are missing: nothing will be kept after a stop');
-const ollamaSync = r2 && !HELPER && env.OLLAMA_MODELS ? createOllamaSync({ r2, dir: env.OLLAMA_MODELS, log: console }) : null;
-const webuiBackup = r2 && !HELPER && env.WEBUI_DIR ? createWebuiBackup({ r2, dir: env.WEBUI_DIR, log: console }) : null;
+const kept = keptInR2(env);
+const r2 = kept.all && r2conf ? createR2(r2conf) : null;
+if (kept.all && !r2) console.warn('[gate] STORAGE=r2 but the R2 keys are missing: nothing will be kept after a stop');
+// GALLERY=r2 on a volume: R2 for the gallery only (everything else stays on the volume).
+const galleryR2 = r2 || (kept.gallery && r2conf ? createR2(r2conf) : null);
+if (kept.gallery && !galleryR2) console.warn('[gate] GALLERY=r2 but the R2 keys are missing: the gallery stays on this machine');
+const ollamaSync = r2 && !NO_CHAT && env.OLLAMA_MODELS ? createOllamaSync({ r2, dir: env.OLLAMA_MODELS, log: console }) : null;
+const webuiBackup = r2 && !NO_CHAT && env.WEBUI_DIR ? createWebuiBackup({ r2, dir: env.WEBUI_DIR, log: console }) : null;
 
 const models = createModelKeeper({
   ollama: OLLAMA,
-  wanted: HELPER ? [] : (env.DEFAULT_MODELS || '').split(',').map((s) => s.trim()).filter(Boolean),
+  wanted: NO_CHAT ? [] : (env.DEFAULT_MODELS || '').split(',').map((s) => s.trim()).filter(Boolean),
   restore: ollamaSync ? (onProgress) => ollamaSync.restore(onProgress) : null,
   saved: async () => ollamaSync && (await ollamaSync.backup()),
 });
@@ -66,7 +80,10 @@ const studio = env.STUDIO_DIR
       comfy: env.COMFY_URL || 'http://127.0.0.1:8188',
       ollama: OLLAMA,
       helper: HELPER,
+      role: ROLE,
       r2,
+      gallery: galleryR2,
+      makers: CANVAS ? CANVAS_MAKERS : null,
       inUseElsewhere: (id) => movies?.usedElsewhere(id),
       // A video needs the whole graphics card: Live draw lets go of it first.
       makeWayForVideo: async () => {
@@ -169,7 +186,7 @@ const liveVideo =
     : null;
 // soReal movies (chained video shots), kept with the studio's files.
 // A chat model on this machine writes each movie's story (labChat: below, the same as the meme lab's).
-const movies = studio ? createMovies({ dir: env.STUDIO_DIR, studio, machine: HELPER ? 'helper' : 'main', mirror: studio.mirror, chat: ({ system, user }) => labChat({ system, user }) }) : null;
+const movies = studio ? createMovies({ dir: env.STUDIO_DIR, studio, machine: ROLE, mirror: studio.mirror, chat: ({ system, user }) => labChat({ system, user }) }) : null;
 // R2 speed test (only when the R2 keys are set as Runpod secrets): the Qwen image model, volume vs R2.
 const QWEN = STUDIO_FILES.image[0];
 const r2test = studio && r2conf && !r2
@@ -188,7 +205,7 @@ const store = createModelStore({
 // is wiped at each stop, otherwise next to the models.
 const PUSH_KEY = 'orbit/push-subscriptions.json';
 const pushFile = path.join(env.PERSIST_DIR || '/workspace', '.orbit-push.json');
-const push = HELPER
+const push = NO_CHAT
   ? null
   : createPush({
       secret: env.GATEWAY_SECRET,
@@ -260,7 +277,7 @@ async function labChat({ system, user, images, temperature = 0.9 }) {
 const STYLE_KEY = 'state/your-style.json';
 const styleFile = path.join(env.PERSIST_DIR || '/workspace', '.orbit-your-style.json');
 const yourStyle =
-  studio && movies && !HELPER
+  studio && movies && !NO_CHAT
     ? createStyleProfile({
         sources: async () => ({
           items: (await studio.items(1000)).map((it) => ({ ...it, prompt: String(it.prompt || '').replace(ADULT_NOTE, '') })),
@@ -275,7 +292,7 @@ const yourStyle =
       })
     : null;
 const lab =
-  studio && !HELPER
+  studio && !NO_CHAT
     ? createMemeLab({
         studio,
         // Every Lab style makes 30-second movies through soReal's auto flow (chained from each last
@@ -298,7 +315,7 @@ const lab =
 const sys = createSysStats({ volume: env.PERSIST_DIR || '/workspace' });
 const gpu = createGpuStats({ ollama: OLLAMA, comfy: studio ? env.COMFY_URL || 'http://127.0.0.1:8188' : null });
 const storage = createStorageReport({
-  r2,
+  r2: galleryR2,
   items: async () => (studio ? [...(await studio.items(10_000)), ...(await studio.labItems(10_000))] : []),
   disks: () => sys.disks(),
 });
@@ -323,10 +340,10 @@ async function status() {
     webuiUp(),
     studio ? studio.state().catch(() => null) : null,
   ]);
-  if (HELPER) {
+  if (NO_CHAT) {
     // Ready once the maker runs; there is no chat here.
     return {
-      role: 'helper',
+      role: ROLE,
       ready: Boolean(studioState?.running),
       webui: false,
       ollama: false,
@@ -373,7 +390,7 @@ const server = createGate({
   storage,
   keepAwake: (minutes) => idle.extend(minutes),
   // The same shape as the Linux machine's /idle, plus which AI machine this is.
-  idleState: () => ({ ...idle.state(), role: HELPER ? 'helper' : 'main', uptimeMinutes: Math.round((Date.now() - startedAt) / 60000) }),
+  idleState: () => ({ ...idle.state(), role: ROLE, uptimeMinutes: Math.round((Date.now() - startedAt) / 60000) }),
   studio,
   movies,
   lab,
@@ -388,13 +405,13 @@ const server = createGate({
 });
 
 server.listen(Number(env.PORT || 8080), '0.0.0.0', () => console.log(`[gate] listening on :${env.PORT || 8080}`));
-if (!HELPER) models.start();
+if (!NO_CHAT) models.start();
 idle.start();
 webuiBackup?.start();
 
 if (studio) studio.start();
 lab?.start();
-if (studio && !HELPER) {
+if (studio && !NO_CHAT) {
   // Put the Image/Video maker models in the playground once Open WebUI is up.
   const codePath = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'openwebui', 'studio_pipe.py');
   (async () => {

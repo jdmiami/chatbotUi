@@ -66,11 +66,21 @@ export async function runWatchdog(): Promise<WatchdogResult> {
   const linuxId = linuxPodId();
   const fallback = process.env.LINUX_FALLBACK_NAME || 'orbit-linux-fallback';
   const isLinux = (p: Pod) => p.id === linuxId || p.name === fallback;
-  const ours = pods.filter((p) => isLinux(p) || p.name === aiName() || p.name === `${aiName()}-helper`);
+  // The AI machine, its helper and the drawing machine (Live Draw) all run the same gate, with /_orbit/idle.
+  const ours = pods.filter((p) => isLinux(p) || [aiName(), `${aiName()}-helper`, `${aiName()}-canvas`].includes(p.name));
   const result: WatchdogResult = { at: new Date().toISOString(), machines: [] };
   for (const pod of ours) {
     const status = pod.status ?? 'unknown';
-    const label = pod.id === linuxId ? 'Linux machine' : pod.name === fallback ? 'Linux stand-in' : pod.name.endsWith('-helper') ? 'AI helper' : 'AI machine';
+    const label =
+      pod.id === linuxId
+        ? 'Linux machine'
+        : pod.name === fallback
+          ? 'Linux stand-in'
+          : pod.name.endsWith('-helper')
+            ? 'AI helper'
+            : pod.name.endsWith('-canvas')
+              ? 'Drawing machine'
+              : 'AI machine';
     if (status !== 'RUNNING') {
       result.machines.push({ name: label, status, idleMinutes: null, action: 'kept', why: status === 'EXITED' ? 'off' : 'not running' });
       continue;
