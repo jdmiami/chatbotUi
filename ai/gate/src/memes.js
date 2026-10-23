@@ -4,7 +4,9 @@
 // to stay up on the big apps; see spicyProblem), and yours: movies in your own style, written from a
 // profile of your saved prompts (style.js). Every style is made with soReal's auto movie flow
 // (movies.js) in its chained form: a story, one opening picture, then six 5-second shots, each
-// starting from the last frame of the shot before, joined into one final cut.
+// starting from the last frame of the shot before, joined into one final cut. A fourth style,
+// remix, makes pictures and short videos instead: your own prompts from Make, each rewritten in a
+// creative new way and made with the same maker, size and style (remix.js), many an hour.
 //
 //   - Your jobs always come first. Lab movies are background work: the step being made stops the
 //     moment you ask for something and carries on after (movies.js, studio.js).
@@ -17,8 +19,9 @@ import path from 'node:path';
 import { BLOCKED_MESSAGE, blockedPrompt, mentionsMinor } from './studio.js';
 import { checkMovieText } from './story.js';
 import { AUTO_OFF } from '../../../shared/autooff.js';
+import { CLIP_SECONDS, MIXES, REMIX_SCORE_SYSTEM, forMix, pickSource, planRemix, remixMessages, remixSources } from './remix.js';
 
-export const STYLES = ['comedy', 'spicy', 'yours'];
+export const STYLES = ['comedy', 'spicy', 'yours', 'remix'];
 /** Every Lab movie is this long (seconds), vertical, made through soReal's auto flow. */
 export const MOVIE_SECONDS = 30;
 /** How a Lab movie is made in soReal: each shot from the last frame of the one before. */
@@ -104,6 +107,7 @@ export function draftLabMovie(rand = Math.random, recent = [], topics = [], styl
   return { ...idea, kind: 'movie', length: MOVIE_SECONDS, prompt: `${plainOf(idea.prompt)} ${ARCS[idea.style]}`, look: LOOKS[idea.style] };
 }
 
+const squash = (t, max = 1500) => String(t ?? '').replace(/\s+/g, ' ').trim().slice(0, max);
 const cap = (t) => (t ? t[0].toUpperCase() + t.slice(1) : t);
 /** "a my dog" reads badly: no article in front of words that bring their own. */
 const article = (t) => (/^(a|an|the|my|our|your|his|her|their|\d)\b/i.test(t) ? t : /^[aeiou]/i.test(t) ? `an ${t}` : `a ${t}`);
@@ -222,6 +226,22 @@ export function framesOf(file, seconds = 5, run = spawn) {
   ).catch(() => []);
 }
 
+/** A picture (as a base64 JPEG) for the judge to look at. */
+export function stillOf(file, run = spawn) {
+  const out = path.join(os.tmpdir(), `meme-${process.pid}-${Date.now()}-still.jpg`);
+  return new Promise((resolve, reject) => {
+    const p = run('ffmpeg', ['-hide_banner', '-loglevel', 'error', '-y', '-i', file, '-frames:v', '1', '-vf', 'scale=512:-2', out], { stdio: 'ignore' });
+    p.on('error', reject);
+    p.on('close', (code) => (code === 0 ? resolve() : reject(new Error(`ffmpeg exited ${code}`))));
+  })
+    .then(async () => {
+      const b64 = (await fsp.readFile(out)).toString('base64');
+      await fsp.rm(out, { force: true });
+      return [b64];
+    })
+    .catch(() => []);
+}
+
 /**
  * o: {
  *   studio        createStudio() result (labItems, itemPath, remove, promote, hasUserWork, yieldGpu, state)
@@ -234,6 +254,7 @@ export function framesOf(file, seconds = 5, run = spawn) {
  *   readyScore    score from which a movie is marked ready to post (default 75)
  *   quietMinutes  how long nobody must have used the machine before the lab starts (default 0: as soon as it is ready)
  *   maxPerHour    at most this many lab movies an hour (default 12)
+ *   maxRemixesPerHour   at most this many remixes an hour (default 60: a picture takes about a minute)
  *   profile       createStyleProfile() result (style.js): your style, from your saved prompts
  * }
  */
@@ -242,10 +263,15 @@ export function createMemeLab(o) {
   const readyScore = o.readyScore ?? 75;
   const quietMinutes = o.quietMinutes ?? 0;
   const maxPerHour = o.maxPerHour ?? 12;
+  const maxRemixesPerHour = o.maxRemixesPerHour ?? 60;
   const minutesLeft = o.minutesLeft ?? (() => AUTO_OFF.defaultMinutes);
-  let saved = { enabled: true, style: 'spicy', topics: [], queue: [], records: [], making: null };
+  let saved = { enabled: true, style: 'spicy', mix: 'both', topics: [], queue: [], records: [], making: null };
   const spicy = () => saved.style === 'spicy';
   const yours = () => saved.style === 'yours';
+  const remixing = () => saved.style === 'remix';
+  // Your prompts to remix (remix.js), as last read from the gallery: refreshed every couple of minutes.
+  let sources = [];
+  let sourcesAt = 0;
   // Your style, as last read (plan() is not async); null until it is built.
   let profile = null;
   const yoursSpicy = () => Boolean(profile?.spicy);
@@ -278,13 +304,16 @@ export function createMemeLab(o) {
         saved = {
           enabled: s.enabled !== false,
           style: STYLES.includes(s.style) ? s.style : 'spicy',
+          mix: MIXES.includes(s.mix) ? s.mix : 'both',
           topics: Array.isArray(s.topics) ? s.topics.map(String).slice(0, 20) : [],
-          queue: Array.isArray(s.queue) ? s.queue.filter((q) => q && q.prompt).map(asMovie) : [],
+          queue: Array.isArray(s.queue) ? s.queue.filter((q) => q && q.prompt).map((q) => (q.style === 'remix' ? q : asMovie(q))) : [],
           records: Array.isArray(s.records) ? s.records : [],
           // A Lab movie being made when the machine stopped: carried on after the restart.
           making: s.making?.movieId ? s.making : null,
         };
         if (saved.making && o.movies) current = { ...saved.making };
+        // A remix being made when the machine stopped: its job is gone, so it is made again first.
+        if (s.making?.jobId && s.making.idea?.source) saved.queue.unshift({ ...s.making.idea, qid: s.making.idea.qid || qid() });
       }
     } catch {
       /* first run */
@@ -297,14 +326,59 @@ export function createMemeLab(o) {
    * because background work waits behind yours. About 30 to 45 at first on the standard machine.
    */
   function minutesPerVideo() {
+    if (remixing()) return minutesPerRemix();
     const ms = saved.records.filter((r) => r.movieId).map((r) => r.madeMs).filter((x) => x > 0).slice(-6);
     if (ms.length) return Math.max(10, Math.min(240, Math.round(ms.reduce((a, b) => a + b, 0) / ms.length / 60_000)));
     const est = Number(o.movies?.estimate?.(MOVIE_SHAPE)?.seconds);
     return Math.max(10, Math.min(240, Number.isFinite(est) && est > 0 ? Math.ceil((est * 1.2) / 60) : 40));
   }
 
+  /** Minutes one remix takes: learned from the last ones, else what the studio says a picture or clip takes here. */
+  function minutesPerRemix() {
+    const ms = saved.records.filter((r) => r.style === 'remix').map((r) => r.madeMs).filter((x) => x > 0).slice(-10);
+    if (ms.length) return Math.max(1, Math.round(ms.reduce((a, b) => a + b, 0) / ms.length / 60_000));
+    const next = saved.queue.find((q) => q.style === 'remix')?.source;
+    const est = next ? Number(studio.estimate?.({ kind: next.kind === 'clip' ? 'video' : 'image', maker: next.maker, size: next.size, seconds: CLIP_SECONDS })) : NaN;
+    return Math.max(1, Number.isFinite(est) && est > 0 ? Math.ceil((est * 1.2) / 60) : 2);
+  }
+
+  /** How many times each of your prompts was remixed (made or planned), so every one gets its turn. */
+  function remixCounts() {
+    const done = {};
+    for (const r of [...saved.records, ...saved.queue, ...(current?.idea ? [current.idea] : [])]) if (r.source?.id) done[r.source.id] = (done[r.source.id] || 0) + 1;
+    return done;
+  }
+
+  /** Your prompts to remix, read again from the gallery at most every 2 minutes (or now: force). */
+  async function refreshSources(force = false) {
+    if (!force && now() - sourcesAt < 120_000) return;
+    sourcesAt = now();
+    try {
+      const [items, makers] = await Promise.all([studio.items(1000), studio.makers ? studio.makers() : []]);
+      sources = remixSources(items, makers);
+    } catch (err) {
+      log.warn?.(`[lab] could not read your prompts to remix: ${err.message}`);
+    }
+  }
+
+  /** Keep 4 remixes planned (they are quick: the next ones are written just before they are made). */
+  function planRemixes() {
+    const from = forMix(sources, saved.mix);
+    if (!from.length) return false;
+    let added = false;
+    while (saved.queue.length < 4) {
+      const done = remixCounts();
+      const source = pickSource(from, done);
+      if (!source) break;
+      saved.queue.push({ qid: qid(), ...planRemix(source, done[source.id] || 0), planned: true });
+      added = true;
+    }
+    return added;
+  }
+
   /** Keep enough planned movies to fill the time left before the machine turns off: as many as fit, 1 to 3. */
   function plan() {
+    if (remixing()) return planRemixes();
     const per = minutesPerVideo();
     const busyFor = current ? (current.etaMinutes ?? per) : 0;
     const left = Math.max(0, Number(minutesLeft()) || 0) - busyFor;
@@ -335,6 +409,7 @@ export function createMemeLab(o) {
   /** A movie idea sharpened by the chat model for its style (unless you wrote it); your style's gets your profile. */
   async function sharpen(seed) {
     if (!o.chat || seed.yours) return seed;
+    if (seed.style === 'remix') return rewrite(seed);
     const style = IDEA_SYSTEMS[seed.style] ? seed.style : 'comedy';
     try {
       let user;
@@ -372,7 +447,23 @@ export function createMemeLab(o) {
     return seed;
   }
 
-  /** Stop and throw away the movie being made now, with its pictures and shots. */
+  /** One of your prompts rewritten in a creative new way by the chat model (the written turn if it can't). */
+  async function rewrite(seed) {
+    try {
+      const recent = saved.records.filter((r) => r.source?.id === seed.source.id).slice(-6).map((r) => r.title);
+      const j = parseJson(await o.chat(remixMessages(seed, { summary: profile?.summary || '', recent })));
+      const prompt = squash(j?.prompt);
+      if (!prompt) return seed;
+      const out = { ...seed, title: squash(j.title, 120) || seed.title, prompt, caption: squash(j.caption, 200) || seed.caption, hashtags: (Array.isArray(j.hashtags) ? j.hashtags : seed.hashtags).map(String).slice(0, 5) };
+      // A rewrite past the line is thrown away; your words with the turn are made instead.
+      if (blockedPrompt(`${out.title} ${out.prompt} ${out.caption}`)) return seed;
+      return out;
+    } catch (err) {
+      log.warn?.(`[lab] the chat model could not remix it, using the written one: ${err.message}`);
+      return seed;
+    }
+  }
+
   /** Stop and clear what is being made. `wait`: wait until its movie is gone (otherwise it goes in the background). */
   async function dropCurrent({ wait = true } = {}) {
     if (!current) return false;
@@ -383,12 +474,20 @@ export function createMemeLab(o) {
       const gone = o.movies?.remove(c.movieId).catch(() => {});
       if (wait) await gone;
     }
+    if (c.jobId) await studio.cancel?.(c.jobId).catch(() => {});
     return true;
   }
 
   async function judge(record) {
     if (!o.chat) return { score: null, why: 'No chat model is installed to judge it.' };
     const file = await studio.itemPath(record.id).catch(() => null);
+    if (record.style === 'remix') {
+      const images = !file ? [] : record.kind === 'image' ? await stillOf(file) : await framesOf(file, record.seconds || CLIP_SECONDS);
+      const user = `Their original prompt: ${record.source?.prompt || ''}\nThe remix: ${record.title}. ${record.prompt}\nCaption: ${record.caption}`;
+      const j = parseJson(await o.chat({ system: REMIX_SCORE_SYSTEM, user, images })) || {};
+      const score = Number.isFinite(Number(j.score)) ? Math.max(0, Math.min(100, Math.round(Number(j.score)))) : null;
+      return { score, why: String(j.why || '').slice(0, 300), caption: j.better_caption ? String(j.better_caption).slice(0, 200) : undefined, judgedFrames: images.length };
+    }
     // The frames come from the final cut: from the first second to the last.
     const images = file ? await framesOf(file, record.seconds || MOVIE_SECONDS) : [];
     const style = SCORE_SYSTEMS[record.style] ? record.style : 'comedy';
@@ -421,7 +520,16 @@ export function createMemeLab(o) {
           if (rebuilt) await replanYours();
         } else profile ??= await o.profile.current().catch(() => null);
       }
+      if (remixing()) {
+        await refreshSources();
+        // Your style's summary (if built) helps the chat model keep remixes yours.
+        profile ??= (await o.profile?.current().catch(() => null)) || null;
+      }
       if (saved.enabled && plan()) await persist();
+      if (current?.jobId) {
+        await checkRemix();
+        return;
+      }
       // A movie being made: soReal makes it in the background (it makes way for your jobs and
       // carries on after them); when its final cut is ready, it is judged.
       if (current?.movieId) {
@@ -433,10 +541,17 @@ export function createMemeLab(o) {
         await finishJudging(waiting);
         return;
       }
-      if (!saved.enabled || ownerBusy() || !o.movies) return;
+      if (!saved.enabled || ownerBusy() || (!o.movies && !remixing())) return;
       if (quietSeconds() < quietMinutes * 60) return;
-      if (madeLastHour() >= maxPerHour) return;
+      if (madeLastHour() >= (remixing() ? maxRemixesPerHour : maxPerHour)) return;
       const st = await studio.state().catch(() => null);
+      if (remixing()) {
+        const next = saved.queue[0];
+        if (!next?.source || !st?.[next.kind === 'clip' ? 'video' : 'image']?.ready) return;
+        saved.queue.shift();
+        await startRemix(next);
+        return;
+      }
       if (!st?.video?.ready) return;
       const next = saved.queue.shift();
       if (!next) return;
@@ -483,6 +598,60 @@ export function createMemeLab(o) {
     plan();
     await persist();
     log.info?.(`[lab] making the movie "${idea.title}"`);
+  }
+
+  /** Make one remix: your prompt rewritten, with the same maker, size and style, as background work. */
+  async function startRemix(next) {
+    const idea = await sharpen(next);
+    if (blockedPrompt(`${idea.title} ${idea.prompt}`)) {
+      lastError = `Skipped "${idea.title}": ${BLOCKED_MESSAGE}`;
+      plan();
+      await persist();
+      return;
+    }
+    const s = idea.source;
+    try {
+      const job = await studio.createJob({ maker: s.maker, prompt: idea.prompt, size: s.size, ...(s.kind === 'clip' ? { seconds: CLIP_SECONDS } : {}), ...(s.style ? { style: s.style } : {}), background: true });
+      current = { jobId: job.id, idea, startedAt: now() };
+      saved.making = { ...current };
+    } catch (err) {
+      lastError = `Skipped "${idea.title}": ${err.message}`;
+      plan();
+      await persist();
+      return;
+    }
+    lastError = null;
+    plan();
+    await persist();
+    log.info?.(`[lab] remixing "${s.prompt.slice(0, 60)}"`);
+  }
+
+  /** The remix being made: when its picture or clip is ready, record and judge it. */
+  async function checkRemix() {
+    const j = studio.job(current.jobId);
+    if (j && (j.status === 'queued' || j.status === 'running')) return;
+    const { idea, startedAt } = current;
+    current = null;
+    saved.making = null;
+    if (j?.status === 'done' && j.item?.id) {
+      const { qid: _q, planned: _p, nsfw: _n, ...rest } = idea;
+      const record = { id: j.item.id, ...rest, kind: j.kind === 'video' ? 'video' : 'image', seconds: j.item.seconds, madeMs: now() - startedAt, createdAt: new Date(now()).toISOString(), status: 'judging' };
+      saved.records.push(record);
+      saved.records = saved.records.slice(-200);
+      await persist();
+      if (ownerBusy()) {
+        record.status = 'made';
+        await persist();
+        return;
+      }
+      await finishJudging(record);
+      return;
+    }
+    // It made way for your job (or the machine lost it): made again first, once you are done.
+    if (!j || (j.notes || []).some((n) => /made way/i.test(String(n)))) saved.queue.unshift(idea);
+    else lastError = `"${idea.title}" could not be made: ${j.error || 'unknown problem'}`;
+    plan();
+    await persist();
   }
 
   /** The story soReal wrote must keep the style's rules too: never minors, and the spicy rules for spicy movies. */
@@ -573,41 +742,49 @@ export function createMemeLab(o) {
         .filter((r) => live.has(r.id))
         .map((r) => {
           const it = live.get(r.id);
-          const { nsfw: _style, spicyLean: _lean, ...rest } = r;
-          return { ...rest, prompt: plainOf(r.prompt), ...(it.nsfw ? { nsfw: true } : {}), ...(typeof it.nsfwUser === 'boolean' ? { nsfwUser: it.nsfwUser } : {}) };
+          const { nsfw: _style, spicyLean: _lean, source, ...rest } = r;
+          return { ...rest, ...(source ? { remixOf: source.prompt } : {}), prompt: plainOf(r.prompt), ...(it.nsfw ? { nsfw: true } : {}), ...(typeof it.nsfwUser === 'boolean' ? { nsfwUser: it.nsfwUser } : {}) };
         })
         .reverse();
+      const job = current?.jobId ? studio.job(current.jobId) : null;
       const movie = current?.movieId
         ? { id: current.movieId, phase: current.phase || 'story', paused: Boolean(current.paused), shots: current.shots || 0, shotsDone: current.shotsDone || 0, etaSeconds: current.etaSeconds ?? null, seconds: MOVIE_SECONDS }
         : null;
       return {
         enabled: saved.enabled,
         style: saved.style,
+        mix: saved.mix,
+        ...(remixing() ? { remix: { sources: forMix(sources, saved.mix).length, pictures: sources.filter((x) => x.kind === 'picture').length, videos: sources.filter((x) => x.kind === 'clip').length } } : {}),
         topics: saved.topics,
         quietMinutes,
         readyScore,
         minutesPerVideo: minutesPerVideo(),
         minutesLeft: Math.max(0, Math.round(Number(minutesLeft()) || 0)),
-        making: current ? { title: current.idea.title, topic: current.idea.topic || null, prompt: plainOf(current.idea.prompt), style: current.idea.style, job: null, movie } : null,
-        queue: saved.queue.map(({ qid: id, title, prompt, topic, yours: own, length, look }) => ({
+        making: current
+          ? { title: current.idea.title, topic: current.idea.topic || null, prompt: plainOf(current.idea.prompt), style: current.idea.style, job, movie, ...(current.idea.source ? { kind: current.idea.kind, remixOf: current.idea.source.prompt } : {}), ...(current.idea.nsfw ? { nsfw: true } : {}) }
+          : null,
+        queue: saved.queue.map(({ qid: id, title, prompt, topic, yours: own, length, look, kind, source, nsfw }) => ({
           id,
           title,
           prompt: plainOf(prompt),
           topic: topic || null,
           yours: Boolean(own),
-          kind: 'movie',
-          seconds: length || MOVIE_SECONDS,
+          kind: source ? kind : 'movie',
+          seconds: source ? (kind === 'clip' ? CLIP_SECONDS : undefined) : length || MOVIE_SECONDS,
           look: look || '',
+          ...(source ? { remixOf: source.prompt } : {}),
+          ...(nsfw ? { nsfw: true } : {}),
         })),
         madeLastHour: madeLastHour(),
         lastError,
         records,
       };
     },
-    /** { enabled?, style?, topics? } */
-    async configure({ enabled, style, topics } = {}) {
+    /** { enabled?, style?, topics?, mix? } (mix: what Remix makes: both, pictures or videos) */
+    async configure({ enabled, style, topics, mix } = {}) {
       await ensureLoaded();
       if (style !== undefined && !STYLES.includes(style)) throw Object.assign(new Error('The Lab has no such style.'), { status: 400 });
+      if (mix !== undefined && !MIXES.includes(mix)) throw Object.assign(new Error('Remix makes pictures, videos or both.'), { status: 400 });
       if (Array.isArray(topics)) {
         const clean = topics.map((t) => String(t).trim().slice(0, 60)).filter(Boolean);
         const bad = clean.find((t) => mentionsMinor(t) || ((style ?? saved.style) === 'spicy' && spicyProblem(t)));
@@ -621,6 +798,15 @@ export function createMemeLab(o) {
         // Your own ideas belong to the style you wrote them for.
         saved.queue = [];
         if (style === 'yours') profile = (await o.profile?.current().catch(() => null)) || profile;
+        if (style === 'remix') await refreshSources(true);
+      }
+      if (MIXES.includes(mix) && mix !== saved.mix) {
+        saved.mix = mix;
+        // The planned remixes follow the new mix; the one being made finishes.
+        if (remixing()) {
+          saved.queue = saved.queue.filter((q) => q.yours || q.mine);
+          await refreshSources(true);
+        }
       }
       if (typeof enabled === 'boolean') {
         saved.enabled = enabled;
@@ -628,10 +814,10 @@ export function createMemeLab(o) {
       }
       if (Array.isArray(topics)) {
         saved.topics = [...new Set(topics.map((t) => String(t).trim().slice(0, 60)).filter(Boolean))].slice(0, 20);
-        // Planned ideas follow the new topics; the ones you wrote stay.
-        saved.queue = saved.queue.filter((q) => q.yours);
-        if (saved.enabled) plan();
+        // Planned ideas follow the new topics; the ones you wrote stay (remixes don't use topics).
+        if (!remixing()) saved.queue = saved.queue.filter((q) => q.yours);
       }
+      if (saved.enabled) plan();
       await persist();
     },
     async setEnabled(on) {
@@ -650,6 +836,17 @@ export function createMemeLab(o) {
       const p = plainOf(String(prompt || title || '').trim().slice(0, 1500));
       if (!p) return false;
       const t = String(title || p).trim().slice(0, 120);
+      if (remixing()) {
+        // Your own prompt, remixed next with the maker you used last for its kind of work.
+        if (blockedPrompt(`${title || ''} ${p}`)) throw Object.assign(new Error(BLOCKED_MESSAGE), { status: 422 });
+        await refreshSources(true);
+        const like = forMix(sources, saved.mix)[0] || sources[0];
+        if (!like) throw Object.assign(new Error('Make a picture or a video in Make first: Remix uses the same maker.'), { status: 409 });
+        const source = { ...like, id: `own-${qid()}`, prompt: p, nsfw: false };
+        saved.queue.unshift({ qid: qid(), ...planRemix(source, 0), title: `Remix: ${t.slice(0, 60)}`, mine: true });
+        await persist();
+        return true;
+      }
       if (yours()) {
         const problem = yoursProblem(`${title || ''} ${p}`, { spicy: yoursSpicy() });
         if (problem) throw Object.assign(new Error(problem), { status: 422 });

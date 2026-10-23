@@ -50,12 +50,12 @@ export default function LabApp({ isActive }: AppProps) {
 
   return (
     <div className="ag-root ai-root lab-root">
-      <AppHeader title="Lab" subtitle={machineOn ? 'Your AI machine: on' : status ? `Your AI machine: ${status.state === 'starting' || status.state === 'downloading' ? 'waking up' : 'resting'}` : 'Videos made while the machine is on'} />
+      <AppHeader title="Lab" subtitle={machineOn ? 'Your AI machine: on' : status ? `Your AI machine: ${status.state === 'starting' || status.state === 'downloading' ? 'waking up' : 'resting'}` : 'Pictures and videos made while the machine is on'} />
       <div className="lab-scroll">
         {status && !machineOn && status.state === 'off' && (
           <MachineNotice id="lab" label="AI machine off">
             <div className="ai-banner" role="status">
-              <p>Turn the AI machine on and the Lab starts making videos as soon as it is ready.</p>
+              <p>Turn the AI machine on and the Lab starts making pictures and videos as soon as it is ready.</p>
               <button type="button" className="btn primary" onClick={() => void turnOn()} disabled={powering}>
                 {powering ? 'Turning on…' : 'Turn it on'}
               </button>

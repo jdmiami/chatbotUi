@@ -1328,6 +1328,8 @@ export function createStudio(o) {
       height,
       seconds,
       fromImage: inputs.length > 0,
+      // The style picked on top of the maker, so the Lab can remix it the same way (remix.js).
+      style: style ? String(req.style) : undefined,
       background: Boolean(req.background),
       // A studio member's job (gate.js sets it from their key, never from the request body).
       owner: typeof req.owner === 'string' && req.owner ? req.owner.slice(0, 120) : undefined,
@@ -1451,6 +1453,7 @@ export function createStudio(o) {
         height: job.height,
         seconds: job.seconds,
         fromImage: job.fromImage,
+        style: job.style || undefined,
         photo: job.photo || undefined,
         nsfw: job.nsfwSource || undefined,
         // Made by the meme lab: kept out of the gallery until you keep it.

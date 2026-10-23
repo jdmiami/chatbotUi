@@ -800,8 +800,9 @@ export function createGate(cfg, log = console) {
         return j ? send(res, 200, withJobUrl(j)) : send(res, 404, { error: 'No such job' });
       }
       if (movies && path.startsWith('/_orbit/studio/movies')) return await handleMovies(req, res, path, withUrl);
-      // Meme lab: GET its videos and scores; POST { enabled, style, topics } turns it on or off, picks
-      // comedy, spicy or yours (30-second movies in your style), and sets your topics;
+      // Meme lab: GET its videos and scores; POST { enabled, style, topics, mix } turns it on or off, picks
+      // comedy, spicy, yours (30-second movies in your style) or remix (pictures and clips remade from
+      // your Make prompts; mix: both, pictures or videos), and sets your topics;
       // POST /lab/<id>/keep moves a video into the gallery; DELETE /lab/<id> throws it away.
       if (path === '/_orbit/studio/lab' || path.startsWith('/_orbit/studio/lab/')) {
         if (!cfg.lab) return send(res, 404, { error: 'The meme lab runs on the main AI machine only.' });
@@ -811,8 +812,8 @@ export function createGate(cfg, log = console) {
         };
         if (path === '/_orbit/studio/lab' && req.method === 'GET') return send(res, 200, await labState());
         if (path === '/_orbit/studio/lab' && req.method === 'POST') {
-          const { enabled, style, topics } = JSON.parse((await readBody(req, 16_384)) || '{}');
-          await cfg.lab.configure({ enabled: typeof enabled === 'boolean' ? enabled : undefined, style: typeof style === 'string' ? style : undefined, topics: Array.isArray(topics) ? topics : undefined });
+          const { enabled, style, topics, mix } = JSON.parse((await readBody(req, 16_384)) || '{}');
+          await cfg.lab.configure({ enabled: typeof enabled === 'boolean' ? enabled : undefined, style: typeof style === 'string' ? style : undefined, topics: Array.isArray(topics) ? topics : undefined, mix: typeof mix === 'string' ? mix : undefined });
           return send(res, 200, await labState());
         }
         // The queue: POST /lab/cancel stops the video being made; POST /lab/queue { title, prompt } adds
