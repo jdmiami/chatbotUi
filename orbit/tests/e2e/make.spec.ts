@@ -124,3 +124,24 @@ test('Make: a bar at the top shows what is still loading, and a stopped download
   await expectNoHorizontalOverflow(page);
   expect(errors).toEqual([]);
 });
+
+test('Make: the "turn the AI machine on" message hides into a pill, comes back, and stays hidden after a reload', async ({ page }, info) => {
+  await mockAi(page, 'off');
+  await page.route(/\/api\/make(\?.*)?$/, (r) => r.fulfill({ json: { configured: false } }));
+  await openOrbit(page);
+  const win = await openMakeApp(page);
+  const banner = win.locator('.make-banner');
+  await expect(banner).toBeVisible();
+  await win.getByRole('button', { name: 'Hide this message' }).click();
+  await expect(banner).toBeHidden();
+  const pill = win.getByRole('button', { name: /AI machine off/ });
+  await expect(pill).toBeVisible();
+  await page.screenshot({ path: info.outputPath('make-notice-hidden.png') });
+  await page.reload();
+  const again = await openMakeApp(page);
+  await expect(again.locator('.make-banner')).toBeHidden();
+  await again.getByRole('button', { name: /AI machine off/ }).click();
+  await expect(again.locator('.make-banner')).toBeVisible();
+  await page.screenshot({ path: info.outputPath('make-notice-shown.png') });
+  await expectNoHorizontalOverflow(page);
+});

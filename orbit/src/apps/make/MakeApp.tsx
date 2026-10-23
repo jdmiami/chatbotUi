@@ -9,6 +9,7 @@ import { getLocalAi, type AiMachineStatus } from '../../services/ai/LocalAi';
 import { CreateView } from '../ai/CreateView';
 import { CloudMake } from './CloudMake';
 import { MakeDownloads } from './MakeDownloads';
+import { MachineNotice } from '../../ui/MachineNotice';
 import '../agent/agent.css';
 import '../ai/ai.css';
 import './make.css';
@@ -83,14 +84,16 @@ export default function MakeApp({ isActive }: AppProps) {
           />
         )}
         {status && !machineOn && (status.state === 'off' || waking) && (
-          <div className="ai-banner make-banner" role="status">
-            <p>{waking ? 'Your AI machine is waking up. Make is ready the moment it is.' : 'Turn the AI machine on to make pictures and videos (2–4 minutes).'}</p>
-            {!waking && (
-              <button type="button" className="btn primary" onClick={() => void turnOn()} disabled={powering}>
-                {powering ? 'Turning on…' : 'Turn it on'}
-              </button>
-            )}
-          </div>
+          <MachineNotice id="make" label={waking ? 'AI machine waking up' : 'AI machine off'}>
+            <div className="ai-banner make-banner" role="status">
+              <p>{waking ? 'Your AI machine is waking up. Make is ready the moment it is.' : 'Turn the AI machine on to make pictures and videos (2–4 minutes).'}</p>
+              {!waking && (
+                <button type="button" className="btn primary" onClick={() => void turnOn()} disabled={powering}>
+                  {powering ? 'Turning on…' : 'Turn it on'}
+                </button>
+              )}
+            </div>
+          </MachineNotice>
         )}
         {/* No machine on (or you'd rather): pictures and videos from the cloud, in seconds. */}
         {status && (

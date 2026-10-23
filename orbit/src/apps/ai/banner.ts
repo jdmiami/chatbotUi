@@ -6,3 +6,11 @@ export const BANNER_KICKER: Record<string, string> = {
   unconfigured: 'Not set up',
   error: 'A problem',
 };
+
+/** The short line a hidden machine notice folds into (ui/MachineNotice). */
+export function machineLabel(state: string | undefined, name = 'AI machine') {
+  if (state === 'starting' || state === 'downloading') return `${name} waking up`;
+  if (state === 'unconfigured') return `${name} not set up`;
+  if (state === 'error') return `${name}: a problem`;
+  return `${name} off`;
+}

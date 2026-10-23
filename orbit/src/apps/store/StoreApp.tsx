@@ -8,6 +8,7 @@ import { useWorkspace } from '../../state/workspace';
 import { getLocalAi, type AiMachineStatus, type HubFile, type HubModel, type InstalledModel, type StudioMakerInfo } from '../../services/ai/LocalAi';
 import { useModelList } from '../ai/models';
 import { DownloadManager } from './DownloadManager';
+import { MachineNotice } from '../../ui/MachineNotice';
 import { PENDING_TEXT, canResume, offlineMakers, progressText, rememberMakers, withCatalog } from '../ai/makerCatalog';
 import {
   CATALOG,
@@ -378,6 +379,7 @@ export default function StoreApp({ isActive }: AppProps) {
             ))}
           </div>
           {!machineOn && (
+            <MachineNotice id="store" label={status?.state === 'starting' || status?.state === 'downloading' ? 'AI machine waking up' : 'AI machine resting'}>
             <div className="st-off" role="status">
               <p>
                 <strong>Your AI machine is {status?.state === 'starting' || status?.state === 'downloading' ? 'waking up' : 'resting'}.</strong> Browse everything now; adding and removing
@@ -389,6 +391,7 @@ export default function StoreApp({ isActive }: AppProps) {
                 </button>
               )}
             </div>
+            </MachineNotice>
           )}
           {list?.disk && (
             <div className="st-storage" aria-label="Storage">

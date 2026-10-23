@@ -1142,3 +1142,23 @@ a.btn {
 .st-row .uncensored-switch { flex: 1; min-width: 0; }
 .ai-viewer-blur { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 @media (prefers-reduced-motion: reduce) { .censor > *, .censor[data-revealed] > * { transition: none; } }
+
+/* MachineNotice (ui/MachineNotice.tsx): a "turn the machine on" message you can put away and bring back. */
+.notice-wrap { position: relative; }
+.notice-wrap > :first-child { padding-right: calc(var(--tap, 44px) + 4px); }
+.notice-hide {
+  position: absolute; top: 4px; right: 4px;
+  width: var(--tap, 44px); height: var(--tap, 44px);
+  display: inline-flex; align-items: center; justify-content: center;
+  border: 0; border-radius: 999px; background: transparent; color: var(--text-3); cursor: pointer;
+}
+.notice-hide:hover, .notice-hide:focus-visible { color: var(--text); background: var(--surface-2, rgba(127, 127, 127, 0.12)); }
+.notice-pill {
+  display: inline-flex; align-items: center; gap: 8px; align-self: flex-start; width: fit-content;
+  min-height: 36px; margin: var(--space-2, 8px) var(--space-3, 12px) 0; padding: 6px 14px;
+  border: 1px solid var(--border); border-radius: 999px; background: var(--surface);
+  color: var(--text-2); font-size: var(--fs-sm, 14px); cursor: pointer;
+}
+.notice-pill:hover, .notice-pill:focus-visible { color: var(--text); }
+.notice-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--text-3); }
+.notice-pill-act { color: var(--accent); font-weight: 600; }
