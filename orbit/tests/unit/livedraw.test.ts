@@ -506,12 +506,12 @@ describe('Bring to life (live video session)', () => {
   });
 });
 
-describe('Store catalog (the AI machine’s makers, unchanged)', () => {
-  it('Live draw, Sketch finish and both live video makers still arrive from the catalog', () => {
-    const all = withCatalog([]);
-    expect(all.find((m) => m.id === 'live-draw')?.kind).toBe('live');
-    expect(all.find((m) => m.id === 'sketch-finish')?.kind).toBe('sketch');
-    expect(all.find((m) => m.id === 'live-sdv2')?.kind).toBe('live');
-    expect(all.find((m) => m.id === 'live-krea')?.turboOnly).toBe(true);
+describe('Store catalog (the AI machine’s makers)', () => {
+  it('never offers Live draw, Sketch finish or live video: they belong to the drawing machine', () => {
+    const live = { id: 'live-sdv2', kind: 'live', name: 'Live video', blurb: '', for: null, twoImages: false, builtIn: false, wanted: true, installed: false, size: 1, percent: 40 } as const;
+    for (const list of [withCatalog([]), withCatalog([live])]) {
+      expect(list.some((m) => m.kind === 'live' || m.kind === 'sketch')).toBe(false);
+      expect(list.some((m) => m.id === 'qwen')).toBe(true);
+    }
   });
 });

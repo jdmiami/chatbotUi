@@ -325,7 +325,7 @@ async function studioSetup({ nsfwScore = null } = {}) {
     return Response.json({});
   };
   const nsfw = { check: async (p) => (state.nsfw.push(p), nsfwScore == null ? null : { nsfw: nsfwScore >= 0.35, score: nsfwScore }) };
-  const studio = createStudio({ dir, comfy: 'http://127.0.0.1:8188', ollama: 'http://127.0.0.1:11434', files: FILES, fetchImpl, WebSocketImpl: null, log: quiet, retryMs: 20, nsfw });
+  const studio = createStudio({ dir, role: 'canvas', comfy: 'http://127.0.0.1:8188', ollama: 'http://127.0.0.1:11434', files: FILES, fetchImpl, WebSocketImpl: null, log: quiet, retryMs: 20, nsfw });
   return { dir, state, studio };
 }
 

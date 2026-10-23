@@ -30,11 +30,17 @@ export const MAKER_CATALOG: StudioMakerInfo[] = ENTRIES.map(([id, kind, name, bl
   return { id, kind, name, blurb, for: null, twoImages: false, builtIn, wanted: builtIn, installed: builtIn, size: 0, percent: builtIn ? 100 : 0, ...extra };
 });
 
+/**
+ * Live Draw and live video run on the drawing machine, which keeps its own makers: they are never
+ * offered, downloaded or shown for the AI machine, even if an older AI machine still lists them.
+ */
+const forAiMachine = (m: StudioMakerInfo) => m.kind !== 'live' && m.kind !== 'sketch';
+
 /** Every maker Orbit knows: the built-in list and the catalog's extra makers (ai/gate/catalog.json). */
 const ALL: StudioMakerInfo[] = [
   ...MAKER_CATALOG,
   ...CATALOG_MAKERS.filter((m) => !MAKER_CATALOG.some((b) => b.id === m.id)).map((m) => ({ ...m, builtIn: false, wanted: false, installed: false, percent: 0 })),
-];
+].filter(forAiMachine);
 
 /**
  * The machine's list, plus every maker in the catalog it doesn't know yet (it runs older code):
@@ -42,7 +48,7 @@ const ALL: StudioMakerInfo[] = [
  */
 export function withCatalog(list: StudioMakerInfo[]): StudioMakerInfo[] {
   const have = new Set(list.map((m) => m.id));
-  return [...list, ...ALL.filter((m) => !have.has(m.id)).map((m) => ({ ...m, builtIn: false, wanted: false, installed: false, percent: 0, pending: true }))];
+  return [...list.filter(forAiMachine), ...ALL.filter((m) => !have.has(m.id)).map((m) => ({ ...m, builtIn: false, wanted: false, installed: false, percent: 0, pending: true }))];
 }
 export const PENDING_TEXT = 'Arrives when your AI machine restarts';
 
@@ -50,7 +56,7 @@ export const PENDING_TEXT = 'Arrives when your AI machine restarts';
 export function offlineMakers(): StudioMakerInfo[] {
   const base = rememberedMakers() ?? MAKER_CATALOG;
   const have = new Set(base.map((m) => m.id));
-  return [...base, ...ALL.filter((m) => !have.has(m.id))];
+  return [...base.filter(forAiMachine), ...ALL.filter((m) => !have.has(m.id))];
 }
 
 /** The list the machine last reported, so its makers stay pickable while it is off. */
