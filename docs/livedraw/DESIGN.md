@@ -22,7 +22,9 @@ fully visible to hidden. Four modes on the same canvas:
 
 Tools: pen, pencil, marker, airbrush, eraser, fill; colour picker; size; Apple Pencil pressure and
 tilt (reuse `orbit/src/apps/ai/sketch.ts`). Layers: Sketch, Colour (rough colour blocks), Picture
-(AI), Reference (image, optional). History strip (every returned picture, scrub and restore),
+(AI), Reference (image, optional). Since the studio (Phase 1, see `STUDIO.md`): GPU brushes,
+unlimited layers, guides and ink; each layer is marked Lines (sent as `sketch`), Colour (sent as
+`color`) or Not read, so the contract below is unchanged. History strip (every returned picture, scrub and restore),
 time-lapse export (client-side, from the history), PNG export and layered PSD export (`ag-psd`).
 
 Pro: **Regions** (lasso + its own words), **Pose** (drag a stick-figure mannequin → OpenPose image),
