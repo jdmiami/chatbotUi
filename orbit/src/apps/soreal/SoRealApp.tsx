@@ -10,7 +10,8 @@ import { AppHeader, IconButton, Segmented } from '../../ui/components';
 import { TextArea } from '../../ui/TextArea';
 import { getLocalAi, type AiMachine, type AiMachineStatus, type HelperStatus, type Movie, type StudioItem } from '../../services/ai/LocalAi';
 import { canListen, listen, type Listening } from '../../shell/orb/listen';
-import { BANNER_KICKER } from '../ai/banner';
+import { BANNER_KICKER, machineLabel } from '../ai/banner';
+import { MachineNotice } from '../../ui/MachineNotice';
 import { LENGTHS, TEMPLATES, aboutTime, phaseLine, type TemplateId } from './plan';
 import { Walkthrough } from './Walkthrough';
 import { MovieView } from './MovieView';
@@ -175,6 +176,7 @@ export default function SoRealApp({ isActive, placement }: AppProps) {
   };
 
   const machineBanner = !ready && (
+    <MachineNotice id="soreal" label={machineLabel(status?.state)}>
     <div className={`ai-banner ai-banner-${status?.state ?? 'off'}`} role="status">
       <p className="ai-banner-kicker">{BANNER_KICKER[status?.state ?? 'off'] ?? 'Your AI machine'}</p>
       {(!status || status.state === 'off') && (
@@ -189,6 +191,7 @@ export default function SoRealApp({ isActive, placement }: AppProps) {
       {status?.state === 'unconfigured' && <p>{status.detail ?? 'The AI machine is not set up yet.'}</p>}
       {status?.state === 'error' && <p>{status.detail ?? 'The AI machine has a problem.'}</p>}
     </div>
+    </MachineNotice>
   );
 
   const helperBanner = helper && ['off', 'starting', 'on', 'error'].includes(helper.state) && (ready || helper.state !== 'off') && (

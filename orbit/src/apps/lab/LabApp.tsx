@@ -4,6 +4,7 @@ import { AppHeader } from '../../ui/components';
 import { useShell } from '../../state/shell';
 import { getLocalAi, type AiMachineStatus } from '../../services/ai/LocalAi';
 import { MemeLab } from '../ai/MemeLab';
+import { MachineNotice } from '../../ui/MachineNotice';
 import '../agent/agent.css';
 import '../ai/ai.css';
 
@@ -52,12 +53,14 @@ export default function LabApp({ isActive }: AppProps) {
       <AppHeader title="Lab" subtitle={machineOn ? 'Your AI machine: on' : status ? `Your AI machine: ${status.state === 'starting' || status.state === 'downloading' ? 'waking up' : 'resting'}` : 'Videos made while the machine is on'} />
       <div className="lab-scroll">
         {status && !machineOn && status.state === 'off' && (
-          <div className="ai-banner" role="status">
-            <p>Turn the AI machine on and the Lab starts making videos as soon as it is ready.</p>
-            <button type="button" className="btn primary" onClick={() => void turnOn()} disabled={powering}>
-              {powering ? 'Turning on…' : 'Turn it on'}
-            </button>
-          </div>
+          <MachineNotice id="lab" label="AI machine off">
+            <div className="ai-banner" role="status">
+              <p>Turn the AI machine on and the Lab starts making videos as soon as it is ready.</p>
+              <button type="button" className="btn primary" onClick={() => void turnOn()} disabled={powering}>
+                {powering ? 'Turning on…' : 'Turn it on'}
+              </button>
+            </div>
+          </MachineNotice>
         )}
         <MemeLab ai={ai} machineOn={machineOn} isActive={isActive} />
       </div>

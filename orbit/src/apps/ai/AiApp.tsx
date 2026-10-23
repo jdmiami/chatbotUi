@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react';
 import type { AppProps } from '../types';
 import { useShell } from '../../state/shell';
-import { BANNER_KICKER } from './banner';
+import { BANNER_KICKER, machineLabel } from './banner';
+import { MachineNotice } from '../../ui/MachineNotice';
 import { useWorkspace } from '../../state/workspace';
 import { Icon } from '../../ui/Icon';
 import { AppHeader, ConfirmSheet, IconButton, Segmented, Sheet } from '../../ui/components';
@@ -720,6 +721,7 @@ export default function AiApp({ isActive, compact, placement }: AppProps) {
       )}
 
       {machine.state !== 'on' && (
+        <MachineNotice id="ai" label={machineLabel(machine.state)}>
         <div className={`ai-banner ai-banner-${machine.state}`} role="status">
           <p className="ai-banner-kicker">{BANNER_KICKER[machine.state] ?? 'Your AI machine'}</p>
           {machine.state === 'off' && (
@@ -767,6 +769,7 @@ export default function AiApp({ isActive, compact, placement }: AppProps) {
           )}
           {statusError && <p className="ai-error">{statusError}</p>}
         </div>
+        </MachineNotice>
       )}
 
       {/* The Lab stays open once visited (hidden while on another tab): coming back keeps the
