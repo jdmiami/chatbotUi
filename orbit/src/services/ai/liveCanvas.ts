@@ -144,7 +144,7 @@ export function doorPaths(door: CanvasDoor = 'owner', studio = ''): DoorPaths {
       token: null,
       machine: '/_studio/canvas',
       jobs: '/_studio/jobs',
-      liveVideo: '/_studio/live/video',
+      liveVideo: '/_studio/canvas/video',
       liveMaker: 'live-sdv2',
       styleRef: false,
     };
