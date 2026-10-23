@@ -84,7 +84,7 @@ export interface Pod {
 }
 
 // North American Secure Cloud data centers, tried in this order (R2's bucket is in eastern North America).
-const NA_DATA_CENTERS = 'US-NC-1,US-NC-2,US-PA-1,US-MD-1,US-GA-2,US-IL-1,US-MO-1,US-MO-2,US-KS-2,US-NE-1,US-TX-3,US-TX-4,US-CO-1,US-CA-2,US-WA-1,US-WA-2,CA-MTL-1,CA-MTL-3,CA-MTL-4';
+export const NA_DATA_CENTERS = 'US-NC-1,US-NC-2,US-PA-1,US-MD-1,US-GA-2,US-IL-1,US-MO-1,US-MO-2,US-KS-2,US-NE-1,US-TX-3,US-TX-4,US-CO-1,US-CA-2,US-WA-1,US-WA-2,CA-MTL-1,CA-MTL-3,CA-MTL-4';
 const list = (v: string) => v.split(',').map((s) => s.trim()).filter(Boolean);
 
 /** The AI machine's settings from Vercel (the drawing machine, lib/canvas.ts, shares the name, image and secret). */

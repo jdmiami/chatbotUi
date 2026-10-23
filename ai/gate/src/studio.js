@@ -286,6 +286,20 @@ export function createStudio(o) {
   let ws = null;
 
   const modelPath = (file) => path.join(dir, 'models', file.dir, file.name);
+  // On a global volume (the drawing machine) model files are not written in place: its object storage
+  // can't append or rename cheaply, so each file comes down onto the pod's own disk (o.stageDir) and
+  // is then copied over in one pass. Free space is the pod disk's, and it only needs one file at a time.
+  const stageDir = o.stageDir || null;
+  const partPath = (file) => (stageDir ? path.join(stageDir, `${file.dir}/${file.name}`.replace(/[\\/]/g, '__')) + '.part' : `${modelPath(file)}.part`);
+  async function place(part, dest, file) {
+    if (!stageDir) return fsp.rename(part, dest);
+    // A file whose size is known is told apart from a half-copied one by its size; one without is
+    // copied under another name first.
+    const to = file.size ? dest : `${dest}.copying`;
+    await pipeline(fs.createReadStream(part), fs.createWriteStream(to));
+    if (to !== dest) await fsp.rename(to, dest);
+    await fsp.rm(part, { force: true });
+  }
   // Files are told apart by folder and name (Live draw has several config.json files).
   const fid = (file) => `${file.dir}/${file.name}`;
   const wantedPath = path.join(dir, 'makers.json');
@@ -324,7 +338,7 @@ export function createStudio(o) {
   const GB = 1024 ** 3;
   /** Free space where the models go (null when it can't be read). */
   async function freeBytes() {
-    const st = await (o.statfs || fsp.statfs)(path.join(dir, 'models')).catch(() => (o.statfs || fsp.statfs)(dir).catch(() => null));
+    const st = await (o.statfs || fsp.statfs)(stageDir || path.join(dir, 'models')).catch(() => (o.statfs || fsp.statfs)(dir).catch(() => null));
     return st ? Number(st.bavail) * Number(st.bsize) : null;
   }
   const diskFull = (file, free) =>
@@ -340,8 +354,9 @@ export function createStudio(o) {
 
   async function fetchFile(file) {
     const dest = modelPath(file);
-    const part = `${dest}.part`;
+    const part = partPath(file);
     await fsp.mkdir(path.dirname(dest), { recursive: true });
+    await fsp.mkdir(path.dirname(part), { recursive: true });
     // Kept in R2 already: bring it down in parallel pieces (much faster than the model's home site).
     const kept = r2 ? await r2.head(modelKey(file)).catch(() => null) : null;
     if (kept && (!file.size || kept.size === file.size)) {
@@ -356,7 +371,7 @@ export function createStudio(o) {
         await fsp.rm(part, { force: true });
         throw err;
       }
-      await fsp.rename(part, dest);
+      await place(part, dest, file);
       return;
     }
     const have = (await fsp.stat(part).catch(() => null))?.size || 0;
@@ -409,7 +424,8 @@ export function createStudio(o) {
     }
     const size = (await fsp.stat(part)).size;
     if (file.size && size !== file.size) throw new Error(`download ${file.name}: got ${size} of ${file.size} bytes`);
-    await fsp.rename(part, dest);
+    if (stageDir) begin(file, 'the drive', 0, size, true);
+    await place(part, dest, file);
     // Keep a copy in R2 so the next start doesn't download it from its home site again.
     if (r2) {
       begin(file, 'cloud storage', 0, size, true);
@@ -506,7 +522,7 @@ export function createStudio(o) {
       const id = fid(file);
       if (download.done.has(id) || (c && c.id === id)) continue;
       if (await haveFile(file)) continue;
-      const part = (await fsp.stat(`${modelPath(file)}.part`).catch(() => null))?.size || 0;
+      const part = (await fsp.stat(partPath(file)).catch(() => null))?.size || 0;
       queue.push({ id, name: file.name, size: file.size || 0, have: part, makers: owners.get(id) ?? [], problem: blocked.get(id) || null });
     }
     const waiting = queue.filter((q) => !q.problem);
@@ -668,11 +684,13 @@ export function createStudio(o) {
     if (m.turboOnly && (await o.gpuMemory?.().catch(() => 0)) < (o.turboBytes ?? 70e9)) throw Object.assign(new Error(o.turboMessage || 'This maker needs the Turbo machine (80 GB).'), { status: 409, turbo: true });
     // Refused up front when its files can't fit (with 2 GB to spare), instead of stopping half way.
     // What is left to download: a file half-way down (.part) only needs the rest, as fetchFile counts it.
+    // Staged downloads (a global volume) only need room for the biggest file at a time.
     let need = 0;
     for (const file of makerFiles(m)) {
       if (await haveFile(file)) continue;
-      const part = await fsp.stat(`${modelPath(file)}.part`).catch(() => null);
-      need += Math.max(0, (file.size || 0) - (part?.size || 0));
+      const part = await fsp.stat(partPath(file)).catch(() => null);
+      const left = Math.max(0, (file.size || 0) - (part?.size || 0));
+      need = stageDir ? Math.max(need, left) : need + left;
     }
     const free = need ? await freeBytes() : null;
     if (free != null && free < need + 2 * GB) {
@@ -715,7 +733,7 @@ export function createStudio(o) {
       if (keep.has(fid(file))) continue;
       download.done.delete(fid(file));
       await fsp.rm(modelPath(file), { force: true });
-      await fsp.rm(`${modelPath(file)}.part`, { force: true });
+      await fsp.rm(partPath(file), { force: true });
       if (r2) await r2.remove(modelKey(file)).catch(() => {});
     }
     // Its own Python goes too (unless another kept maker uses it).

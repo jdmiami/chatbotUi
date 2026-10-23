@@ -8,6 +8,7 @@ import {
   env as aiEnv,
   findPodNamed,
   hfTokenEnv,
+  NA_DATA_CENTERS,
   idleOf,
   noCapacity,
   r2SecretEnv,
@@ -22,13 +23,14 @@ import {
  * The drawing machine (Live Draw, docs/livedraw/DESIGN.md §3): its own GPU pod, on only while used,
  * with the same image, setup (ai/setup.sh with AI_ROLE=canvas) and sign-in as the AI machine.
  *
- * Unlike the AI machine it keeps its software and models on a Runpod network volume (CANVAS_VOLUME_ID,
- * mounted at /workspace), so a start never downloads anything twice and the first live picture comes
- * quickly. Only the gallery goes to R2 (GALLERY=r2), so its pictures show up in the one gallery.
- * The volume ties it to one data centre, so it tries the H200 there (Bring to life runs Krea Realtime 14B,
- * which needs H100-class compute to stay ahead of playback), then the RTX PRO 6000 there (live drawing is
- * just as fast on it; Krea runs slower).
- * Everything is on the volume, so a stopped pod whose host has no free GPU is simply replaced.
+ * It keeps its model files and its packed software on a Runpod global volume (CANVAS_GLOBAL_VOLUME_ID,
+ * mounted at /workspace-global, STORAGE=global), so a start never downloads anything twice. A global
+ * volume belongs to no data centre, so the pod starts wherever a GPU is free: the H200 first (Bring to
+ * life runs Krea Realtime 14B, which needs H100-class compute to stay ahead of playback), then the
+ * RTX PRO 6000 (live drawing is just as fast on it; Krea runs slower). It stays in North America
+ * (live drawing is a round trip per stroke, so near the owner matters); CANVAS_DATA_CENTERS changes that. Only the gallery goes to R2 (GALLERY=r2), so its
+ * pictures show up in the one gallery.
+ * Everything is on the drive, so a stopped pod whose host has no free GPU is simply replaced.
  */
 
 export type CanvasState = 'unconfigured' | 'off' | 'starting' | 'downloading' | 'on' | 'error';
@@ -51,13 +53,14 @@ const list = (v: string) => v.split(',').map((s) => s.trim()).filter(Boolean);
 
 const canvasEnv = () => ({
   name: `${aiEnv().name}-canvas`,
-  volumeId: process.env.CANVAS_VOLUME_ID || '',
-  // The volume's data centre: the only place the drawing machine can run.
-  dataCenter: process.env.CANVAS_DATA_CENTER || 'US-NC-1',
-  // First choice, then the backup in the same data centre.
+  volumeId: process.env.CANVAS_GLOBAL_VOLUME_ID || '',
+  // Where it may run, in order of preference (the AI machine's North American list by default).
+  dataCenters: list(process.env.CANVAS_DATA_CENTERS || NA_DATA_CENTERS),
+  // First choice, then the backup.
   gpus: list(process.env.CANVAS_GPU_TYPES || 'NVIDIA H200,NVIDIA RTX PRO 6000 Blackwell Server Edition'),
-  // Software and models live on the volume, so the pod's own disk only holds temporary files.
-  diskGb: 60,
+  // The pod's own disk holds the unpacked software (three Python environments) and the one model file
+  // coming down at a time before it goes to the drive.
+  diskGb: 200,
 });
 
 const GPU_NAMES: Record<string, string> = {
@@ -117,14 +120,14 @@ function canvasPodEnv(): Record<string, string> {
     ALLOWED_ORIGINS: allowedOrigins(),
     IDLE_MINUTES: String(autoOffMinutes()),
     AI_ROLE: 'canvas',
-    STORAGE: 'volume',
+    STORAGE: 'global',
     GALLERY: 'r2',
     ...r2SecretEnv(),
     ...hfTokenEnv(),
   };
 }
 
-/** Create the drawing machine on its drive: the H200 first, then the RTX PRO 6000 (`usualOnly`: the first only). */
+/** Create the drawing machine with its drive: the H200 first, then the RTX PRO 6000 (`usualOnly`: the first only). */
 export async function createCanvasPod(usualOnly = false): Promise<Pod> {
   const c = canvasEnv();
   const e = aiEnv();
@@ -141,11 +144,11 @@ export async function createCanvasPod(usualOnly = false): Promise<Pod> {
           cloud: 'SECURE',
           // Blackwell needs CUDA 12.8+ (PyTorch 2.11 cu128 everywhere on this machine).
           gpu: { id: gpu, count: 1, minCudaVersion: '12.8' },
-          dataCenterIds: [c.dataCenter],
+          ...(c.dataCenters.length ? { dataCenterIds: c.dataCenters } : {}),
           image: e.image,
           disk: c.diskGb,
           ports: ['8080/http'],
-          mounts: { network: [{ volumeId: c.volumeId, path: '/workspace' }] },
+          mounts: { global: [{ volumeId: c.volumeId, path: '/workspace-global' }] },
           entrypoint: ['/bin/bash', '-c'],
           cmd: ['curl -fsSL "$REPO_RAW/ai/setup.sh" | bash'],
           env: canvasPodEnv(),
@@ -158,7 +161,7 @@ export async function createCanvasPod(usualOnly = false): Promise<Pod> {
   throw lastError ?? new Error('No GPU type configured for the drawing machine (CANVAS_GPU_TYPES).');
 }
 
-/** Create it, with a plain message when both GPUs are sold out in the drive's data centre. */
+/** Create it, with a plain message when both GPUs are sold out. */
 async function createOrExplain() {
   try {
     return await createCanvasPod();
@@ -167,7 +170,7 @@ async function createOrExplain() {
     const c = canvasEnv();
     const names = c.gpus.map(gpuName);
     throw new Error(
-      `No ${names[0]} GPU${names.length > 1 ? ` (or the backup, ${names.slice(1).join(', ')})` : ''} is free in ${c.dataCenter} right now, where your drawing machine's drive is. ` +
+      `No ${names[0]} GPU${names.length > 1 ? ` (or the backup, ${names.slice(1).join(', ')})` : ''} is free${c.dataCenters.length ? ` in ${c.dataCenters.join(', ')}` : ''} right now. ` +
         'This usually clears within the hour; try again in a few minutes.',
     );
   }
@@ -181,7 +184,7 @@ const removePod = (id: string) => runpod(`/pods/${encodeURIComponent(id)}`, { me
  */
 export async function startCanvas(): Promise<void> {
   if (!process.env.RUNPOD_API_KEY) throw new Error('Add RUNPOD_API_KEY in Vercel so the site can turn the drawing machine on.');
-  if (!canvasEnv().volumeId) throw new Error("Add CANVAS_VOLUME_ID in Vercel (the drawing machine's drive) so the site can turn it on.");
+  if (!canvasEnv().volumeId) throw new Error("Add CANVAS_GLOBAL_VOLUME_ID in Vercel (the drawing machine's drive) so the site can turn it on.");
   const pod = await findCanvasPod();
   if (!pod) {
     await createOrExplain();
@@ -198,7 +201,7 @@ export async function startCanvas(): Promise<void> {
       return;
     }
   }
-  const want: Record<string, string> = { AI_ROLE: 'canvas', STORAGE: 'volume', GALLERY: 'r2', IDLE_MINUTES: String(autoOffMinutes()), ...hfTokenEnv() };
+  const want: Record<string, string> = { AI_ROLE: 'canvas', STORAGE: 'global', GALLERY: 'r2', IDLE_MINUTES: String(autoOffMinutes()), ...hfTokenEnv() };
   if (process.env.VERCEL_GIT_COMMIT_SHA) want.REPO_RAW = repoRaw();
   if (pod.env && Object.entries(want).some(([k, v]) => pod.env![k] !== v)) {
     await runpod(`/pods/${encodeURIComponent(pod.id)}`, { method: 'PATCH', body: JSON.stringify({ env: { ...pod.env, ...want } }) }).catch(() => {});
@@ -234,7 +237,7 @@ export async function canvasStatus(user: string): Promise<CanvasStatus & { podId
       gpu: gpuName(c.gpus[0]),
       autoOffMinutes: minutes,
       idle: null,
-      detail: 'The drawing machine is not set up in Vercel yet (RUNPOD_API_KEY, LINUX_GATEWAY_SECRET and CANVAS_VOLUME_ID).',
+      detail: 'The drawing machine is not set up in Vercel yet (RUNPOD_API_KEY, LINUX_GATEWAY_SECRET and CANVAS_GLOBAL_VOLUME_ID).',
     };
   }
   let pod: Pod | null;

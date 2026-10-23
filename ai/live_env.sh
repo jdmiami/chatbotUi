@@ -3,7 +3,8 @@
 # (both pin a PyTorch that differs from ComfyUI's, so they can't share the studio's venv). Started by
 # the gate (src/livevideo.js) when the maker is added in the Store; the model files come down
 # separately, like every maker's (studio.js). With STORAGE=r2 the finished folder is kept in R2 as
-# one tar and comes back at the next start instead of being installed again.
+# one tar (STORAGE=global: on the global volume, ENV_STORE) and comes back at the next start instead
+# of being installed again.
 #
 #   live_env.sh sdv2   StreamDiffusionV2 (Apache-2.0): pip install of its checkout, Python 3.11, on
 #                      PyTorch 2.11 for CUDA 12.8 (Blackwell GPUs: the drawing machine's RTX PRO 6000)
@@ -37,10 +38,19 @@ installed && exit 0
 mkdir -p "$ROOT"
 KEY="env/live-$name-$(echo "$STAMP" | sha1sum | cut -c1-12).tar"
 r2() { "${NODE:-node}" /opt/gate/src/r2cli.js "$@"; }
+# Kept as one tar on the global volume (counted once its .ok mark is there) or in R2.
+packed() { [ "${STORAGE:-volume}" = r2 ] || [ "${STORAGE:-}" = global ]; }
+env_get() { if [ -n "${ENV_STORE:-}" ]; then [ -e "$ENV_STORE/$1.ok" ] && tar -xf "$ENV_STORE/$1" -C "$2"; else r2 get-tar "$1" "$2"; fi; }
+env_put() {
+  local key="$1" dir="$2"; shift 2
+  if [ -n "${ENV_STORE:-}" ]; then
+    mkdir -p "$(dirname "$ENV_STORE/$key")" && tar -cf "$ENV_STORE/$key" -C "$dir" "$@" && touch "$ENV_STORE/$key.ok"
+  else r2 put-tar "$key" "$dir" "$@"; fi
+}
 
-if [ "${STORAGE:-volume}" = r2 ]; then
-  log "bringing its Python back from R2"
-  if r2 get-tar "$KEY" "$ROOT" && installed; then exit 0; fi
+if packed; then
+  log "bringing its Python back"
+  if env_get "$KEY" "$ROOT" && installed; then exit 0; fi
 fi
 
 # uv: fetches Python 3.11 when the machine has another one, and installs from lockfiles.
@@ -81,7 +91,7 @@ fi
 
 echo "$STAMP" > "$D/.installed"
 log "ready"
-if [ "${STORAGE:-volume}" = r2 ]; then
-  log "keeping it in R2 for next time"
-  r2 put-tar "$KEY" "$ROOT" "$name" python || log "could not keep it in R2; it installs again at the next start"
+if packed; then
+  log "keeping it for next time"
+  env_put "$KEY" "$ROOT" "$name" python || log "could not keep it; it installs again at the next start"
 fi

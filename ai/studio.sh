@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
 # Image and video maker for the AI machine: installs ComfyUI (pinned) with a CUDA build of PyTorch
 # on the network volume (once), then keeps it running on 127.0.0.1:8188. With STORAGE=r2 (no volume)
-# the installed environment is kept in Cloudflare R2 as one tar and unpacked at start instead. Started in the background
+# the installed environment is kept in Cloudflare R2 as one tar and unpacked at start instead; with
+# STORAGE=global the tar is kept on the global volume (ENV_STORE) and the model folder is the volume's
+# (MODELS_DIR). Started in the background
 # by ai/setup.sh. The gate downloads the model files and is the only way in (ComfyUI is never exposed).
 #
 # Writes $STUDIO_DIR/state: installing | starting | running | error: <reason>
@@ -21,9 +23,22 @@ STAMP="$COMFY_VERSION $TORCH $LIVE"
 log() { echo "[studio] $*"; }
 # Each role writes its own state file (the gate's studio.js reads it by role): state, state-helper, state-canvas.
 state() { case "${AI_ROLE:-main}" in helper | canvas) echo "$*" > "$S/state-$AI_ROLE" ;; *) echo "$*" > "$S/state" ;; esac; }
+mkdir -p "$S"
+if [ -n "${MODELS_DIR:-}" ] && [ ! -L "$S/models" ]; then rm -rf "$S/models" && ln -s "$MODELS_DIR" "$S/models"; fi
 mkdir -p "$S/models" "$S/input" "$S/output" "$S/pip-cache"
 ENV_KEY="env/studio-$(echo "$STAMP" | sha1sum | cut -c1-12).tar"
 r2() { "${NODE:-node}" /opt/gate/src/r2cli.js "$@"; }
+# The packed environment: on the global volume (ENV_STORE) or in R2. On the volume a tar counts only
+# once its .ok mark is written (a half-written one is never unpacked).
+packed() { [ "${STORAGE:-volume}" = r2 ] || [ "${STORAGE:-}" = global ]; }
+env_get() { if [ -n "${ENV_STORE:-}" ]; then [ -e "$ENV_STORE/$1.ok" ] && tar -xf "$ENV_STORE/$1" -C "$2"; else r2 get-tar "$1" "$2"; fi; }
+env_has() { if [ -n "${ENV_STORE:-}" ]; then [ -e "$ENV_STORE/$1.ok" ]; else r2 has "$1"; fi; }
+env_put() {
+  local key="$1" dir="$2"; shift 2
+  if [ -n "${ENV_STORE:-}" ]; then
+    mkdir -p "$(dirname "$ENV_STORE/$key")" && tar -cf "$ENV_STORE/$key" -C "$dir" "$@" && touch "$ENV_STORE/$key.ok"
+  else r2 put-tar "$key" "$dir" "$@"; fi
+}
 
 install() {
   state installing
@@ -70,16 +85,16 @@ if ! command -v git >/dev/null || ! python3 -c 'import ensurepip' 2>/dev/null; t
 fi
 
 installed() { [ "$(cat "$S/venv/.installed" 2>/dev/null)" = "$STAMP" ] && [ -d "$S/ComfyUI/.git" ] && [ -L "$S/ComfyUI/models" ]; }
-if [ "${STORAGE:-volume}" = r2 ] && ! installed; then
+if packed && ! installed; then
   state installing
-  log "bringing back the maker's environment from R2"
-  r2 get-tar "$ENV_KEY" "$S" || log "not saved in R2 yet: installing it (a few minutes, then saved for next time)"
+  log "bringing back the maker's environment"
+  env_get "$ENV_KEY" "$S" || log "not saved yet: installing it (a few minutes, then saved for next time)"
 fi
 
 # On a shared volume a helper machine never installs or updates anything there (two machines
 # writing the same files at once could break them); it waits for the main machine. With R2 each
-# machine has its own disk and installs for itself. The drawing machine (AI_ROLE=canvas) has a volume
-# of its own, so it installs there itself: once, then every later start finds it ready.
+# machine has its own disk and installs for itself. The drawing machine (AI_ROLE=canvas) has a drive
+# of its own, so it installs for itself: once, then every later start unpacks it.
 SHARED_HELPER=""
 if [ "${AI_ROLE:-}" = "helper" ] && [ "${STORAGE:-volume}" != r2 ]; then SHARED_HELPER=1; fi
 if [ -n "$SHARED_HELPER" ]; then
@@ -95,9 +110,9 @@ until [ -n "$SHARED_HELPER" ] || install; do
   log "install failed, retrying in 60s"
   sleep 60
 done
-if [ "${STORAGE:-volume}" = r2 ] && ! r2 has "$ENV_KEY"; then
-  log "saving the maker's environment in R2 for next time"
-  (r2 put-tar "$ENV_KEY" "$S" venv ComfyUI || log "could not save it; will try at the next start") &
+if packed && ! env_has "$ENV_KEY"; then
+  log "saving the maker's environment for next time"
+  (env_put "$ENV_KEY" "$S" venv ComfyUI || log "could not save it; will try at the next start") &
 fi
 
 cd "$S/ComfyUI" || exit 1

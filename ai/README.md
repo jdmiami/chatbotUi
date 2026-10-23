@@ -120,13 +120,18 @@ in North America first. `AI_WORLDWIDE=off` keeps it in North America.
 ## Drawing machine (Live Draw)
 
 Live Draw has its own GPU machine (`lib/canvas.ts`, `/api/canvas`, design in `docs/livedraw/DESIGN.md`):
-the pod `<AI_POD_NAME>-canvas`, an H200 (backup: RTX PRO 6000) in the data centre of its network volume
-`CANVAS_VOLUME_ID`, started with `AI_ROLE=canvas`. `setup.sh` starts no Open WebUI and no Ollama there;
-ComfyUI, the makers Live Draw uses (the gate's `CANVAS_MAKERS`) and their Pythons install once onto the
-volume, so later starts download nothing. `GALLERY=r2` keeps its pictures and videos in R2, in the one
-gallery. It turns itself off by the same rule, and the watchdog and the cost meter include it.
+the pod `<AI_POD_NAME>-canvas`, an H200 (backup: RTX PRO 6000) in any North American data centre with
+one free, started with `AI_ROLE=canvas` and `STORAGE=global`. Its drive is a Runpod global volume
+(`CANVAS_GLOBAL_VOLUME_ID`, mounted at `/workspace-global`), which belongs to no data centre. Global
+volumes are object storage (no locks, no cheap renames, no permission bits), so only whole files go
+there: the model files (read straight from it; each download lands on the pod's disk first and is then
+copied over) and one tar per Python environment (ComfyUI's, StreamDiffusionV2's, Krea's), unpacked onto
+the pod's disk at start. The first start installs and downloads everything; later starts download
+nothing. `setup.sh` starts no Open WebUI and no Ollama there. `GALLERY=r2` keeps its pictures and videos
+in R2, in the one gallery. It turns itself off by the same rule, and the watchdog and the cost meter
+include it.
 
-Set `CANVAS_VOLUME_ID` in Vercel to turn it on from the site.
+Set `CANVAS_GLOBAL_VOLUME_ID` in Vercel to turn it on from the site.
 
 ## Coding
 

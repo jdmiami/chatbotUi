@@ -45,18 +45,18 @@ The app passes `engine`; the site decides the default per surface (owner: `fast`
 | Item | Value |
 |---|---|
 | Pod name | `${AI_POD_NAME}-canvas` (e.g. `orbit-ai-canvas`) |
-| GPU | `NVIDIA H200` (141 GB): Bring to life is Krea Realtime 14B, which needs H100-class compute to stay ahead of playback; backup in the same data centre: `NVIDIA RTX PRO 6000 Blackwell Server Edition` (96 GB; live drawing as fast, Krea slower) |
-| Data centre | the drive's: `US-NC-1` (closest with stock to the owner in Miami) |
-| Drive | Runpod network volume `orbit-canvas` (id `zgja8ch0hz`, 200 GB, STANDARD, US-NC-1) mounted at `/workspace`; env `CANVAS_VOLUME_ID` in Vercel |
+| GPU | `NVIDIA H200` (141 GB): Bring to life is Krea Realtime 14B, which needs H100-class compute to stay ahead of playback; backup: `NVIDIA RTX PRO 6000 Blackwell Server Edition` (96 GB; live drawing as fast, Krea slower) |
+| Data centre | any North American one with the GPU free (the AI machine's list; `CANVAS_DATA_CENTERS` overrides) |
+| Drive | Runpod **global volume** `orbit-canvas-global` (id `cmvk8h4pt000007jsesbg0k5d`; no data centre, grows as used) mounted at `/workspace-global`; env `CANVAS_GLOBAL_VOLUME_ID` in Vercel |
 | Image | same as the AI machine (`AI_IMAGE` / the Open WebUI image) so `setup.sh` runs unchanged; role `AI_ROLE=canvas` |
-| Storage | `STORAGE=volume` for software and models (fast start, nothing downloads twice); the **gallery** still goes to R2 so pictures appear in the one gallery (`GALLERY=r2`) |
+| Storage | `STORAGE=global`: model files on the drive (`$STUDIO_DIR/models` links to `/workspace-global/models`; downloads land on the pod's disk, `MODEL_STAGE_DIR`, then are copied over, since object storage has no cheap append or rename) and one tar per Python environment (`/workspace-global/env/*.tar`, unpacked onto the pod's 200 GB disk at start). Nothing on the drive may need file locks, so no Hugging Face cache there: every weight comes through the studio catalog. The **gallery** still goes to R2 so pictures appear in the one gallery (`GALLERY=r2`) |
 | Power | its own start/stop/status, its own idle auto-off (the one auto-off rule, `lib/autoOff.ts`), its own cost line, in the watchdog |
 | Auth | the same signed tokens as the AI machine (audience `orbit-ai`), so Orbit's existing access code works |
 | Start target | under 90 s from Start to first live picture on a warm drive |
 
 Blackwell needs PyTorch ≥ 2.7 with CUDA 12.8 everywhere: ComfyUI's venv is already torch 2.11
 cu128; StreamDiffusionV2's own venv must move to its Blackwell-supporting commit (torch 2.11).
-Krea Realtime 14B is not installed on the drawing machine.
+Krea Realtime 14B (Bring to life) has its own Python from its lockfile (PyTorch 2.8); its SageAttention wheel targets the H100/H200, with a fallback on Blackwell.
 
 ## 4. Site API (machine part)
 

@@ -13,6 +13,9 @@
 #   volume  a Runpod network volume mounted at /workspace: models, chats and settings survive stops.
 #   r2      no volume: the disk is wiped at every stop, so everything worth keeping lives in
 #           Cloudflare R2 (bucket orbit-models) and comes back down at start (see gate/src/cloud.js).
+#   global  a Runpod global volume at /workspace-global (the drawing machine; any data centre): model
+#           files and the packed software live there; the pod's own disk (/workspace) holds the unpacked
+#           software and is wiped at every stop. Object storage, so nothing is unpacked or locked on it.
 #   auto    (default) r2 when the R2 keys are set and /workspace isn't a mounted volume.
 #
 # Required env: GATEWAY_SECRET
@@ -21,10 +24,10 @@
 #   its creations land in the same gallery. STORAGE, R2_ACCOUNT_ID, R2_ACCESS_KEY_ID,
 #   R2_SECRET_ACCESS_KEY (Runpod secrets).
 #   AI_ROLE=canvas: Live Draw's drawing machine (lib/canvas.ts). Like the helper, no Open WebUI and no
-#   Ollama; it keeps its software and models on its own volume (STORAGE=volume) and only the makers
-#   Live Draw needs (the gate's CANVAS_MAKERS).
-#   GALLERY=r2: with STORAGE=volume, the gallery still goes to R2 (the drawing machine's pictures show
-#   up in the one gallery); everything else stays on the volume.
+#   Ollama; it keeps its software and models on its own global volume (STORAGE=global) and only the
+#   makers Live Draw needs (the gate's CANVAS_MAKERS).
+#   GALLERY=r2: with STORAGE=volume or global, the gallery still goes to R2 (the drawing machine's
+#   pictures show up in the one gallery); everything else stays on the drive.
 set -euo pipefail
 
 : "${GATEWAY_SECRET:?GATEWAY_SECRET is required}"
@@ -49,6 +52,14 @@ if [ "$STORAGE" = auto ]; then
 fi
 log "storage: $STORAGE"
 export STORAGE
+if [ "$STORAGE" = global ]; then
+  G="${GLOBAL_DIR:-/workspace-global}"
+  grep -qs " $G " /proc/mounts || log "warning: no global volume at $G; model files will not be kept after a stop"
+  # Models are read straight from the drive; downloads land on the pod's disk first (stage), then
+  # are copied over. ENV_STORE: where studio.sh and live_env.sh keep their packed environments.
+  mkdir -p "$G/models" "$G/env" "$P/stage"
+  export MODELS_DIR="$G/models" ENV_STORE="$G" MODEL_STAGE_DIR="$P/stage"
+fi
 
 # Node.js for the gate, kept on the volume so later starts skip the download.
 if [ ! -x "$NODE_DIR/bin/node" ]; then

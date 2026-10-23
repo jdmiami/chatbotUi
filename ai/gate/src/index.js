@@ -83,6 +83,8 @@ const studio = env.STUDIO_DIR
       role: ROLE,
       r2,
       gallery: galleryR2,
+      // STORAGE=global (the drawing machine): files come down onto the pod's disk, then go to the drive.
+      stageDir: env.MODEL_STAGE_DIR || null,
       makers: CANVAS ? CANVAS_MAKERS : null,
       inUseElsewhere: (id) => movies?.usedElsewhere(id),
       // A video needs the whole graphics card: Live draw lets go of it first.
