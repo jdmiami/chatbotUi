@@ -301,7 +301,7 @@ async function studioSetup({ engines = ['canvas-fast', 'canvas-licensed', 'canva
     }
     return Response.json({});
   };
-  const studio = createStudio({ dir, comfy: 'http://127.0.0.1:8188', ollama: 'http://127.0.0.1:11434', files: FILES, fetchImpl, WebSocketImpl: null, log: quiet, retryMs: 20, nsfw: { check: async () => null } });
+  const studio = createStudio({ dir, comfy: 'http://127.0.0.1:8188', ollama: 'http://127.0.0.1:11434', role: 'canvas', files: FILES, fetchImpl, WebSocketImpl: null, log: quiet, retryMs: 20, nsfw: { check: async () => null } });
   return { dir, state, studio };
 }
 
