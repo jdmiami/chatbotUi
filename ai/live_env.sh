@@ -84,6 +84,10 @@ if [ "$name" = sdv2 ]; then
   fi
 else
   log "installing its packages from its lockfile (PyTorch 2.8 and friends: a few minutes)"
+  # OpenAI's CLIP (pinned by Krea) builds with setup.py and imports pkg_resources, which setuptools
+  # 81 removed: build it with an older setuptools. Only the build changes; the lockfile is used as is.
+  grep -q '^build-constraint-dependencies' "$D/src/pyproject.toml" ||
+    printf '\n[tool.uv]\nbuild-constraint-dependencies = ["setuptools<81"]\n' >> "$D/src/pyproject.toml"
   (cd "$D/src" && "$UV" sync -q --frozen --python 3.11) || exit 1
   # Its lockfile's PyTorch 2.8 (CUDA 12.8 wheels from PyPI) runs on Hopper (H100/H200) and Blackwell.
   # The SageAttention wheel it ships is built for Hopper: on the H200 Krea uses it; on another card
@@ -98,5 +102,8 @@ echo "$STAMP" > "$D/.installed"
 log "ready"
 if packed; then
   log "keeping it for next time"
-  env_put "$KEY" "$ROOT" "$name" python || log "could not keep it; it installs again at the next start"
+  # uv's own Python only exists when the machine's Python wasn't 3.11 (it was fetched then).
+  keep="$name"; [ -d "$ROOT/python" ] && keep="$name python"
+  # shellcheck disable=SC2086
+  env_put "$KEY" "$ROOT" $keep || log "could not keep it; it installs again at the next start"
 fi
