@@ -13,6 +13,9 @@
 #   volume  a Runpod network volume mounted at /workspace: models, chats and settings survive stops.
 #   r2      no volume: the disk is wiped at every stop, so everything worth keeping lives in
 #           Cloudflare R2 (bucket orbit-models) and comes back down at start (see gate/src/cloud.js).
+#   global  a Runpod global volume at /workspace-global (the drawing machine; any data centre): model
+#           files and the packed software live there; the pod's own disk (/workspace) holds the unpacked
+#           software and is wiped at every stop. Object storage, so nothing is unpacked or locked on it.
 #   auto    (default) r2 when the R2 keys are set and /workspace isn't a mounted volume.
 #
 # Required env: GATEWAY_SECRET
@@ -20,6 +23,11 @@
 #   AI_ROLE=helper: a second machine that only makes images and videos (no Open WebUI, no Ollama);
 #   its creations land in the same gallery. STORAGE, R2_ACCOUNT_ID, R2_ACCESS_KEY_ID,
 #   R2_SECRET_ACCESS_KEY (Runpod secrets).
+#   AI_ROLE=canvas: Live Draw's drawing machine (lib/canvas.ts). Like the helper, no Open WebUI and no
+#   Ollama; it keeps its software and models on its own global volume (STORAGE=global) and only the
+#   makers Live Draw needs (the gate's CANVAS_MAKERS).
+#   GALLERY=r2: with STORAGE=volume or global, the gallery still goes to R2 (the drawing machine's
+#   pictures show up in the one gallery); everything else stays on the drive.
 set -euo pipefail
 
 : "${GATEWAY_SECRET:?GATEWAY_SECRET is required}"
@@ -44,6 +52,14 @@ if [ "$STORAGE" = auto ]; then
 fi
 log "storage: $STORAGE"
 export STORAGE
+if [ "$STORAGE" = global ]; then
+  G="${GLOBAL_DIR:-/workspace-global}"
+  grep -qs " $G " /proc/mounts || log "warning: no global volume at $G; model files will not be kept after a stop"
+  # Models are read straight from the drive; downloads land on the pod's disk first (stage), then
+  # are copied over. ENV_STORE: where studio.sh and live_env.sh keep their packed environments.
+  mkdir -p "$G/models" "$G/env" "$P/stage"
+  export MODELS_DIR="$G/models" ENV_STORE="$G" MODEL_STAGE_DIR="$P/stage"
+fi
 
 # Node.js for the gate, kept on the volume so later starts skip the download.
 if [ ! -x "$NODE_DIR/bin/node" ]; then
@@ -59,7 +75,7 @@ log "fetching the gate"
 APP=/opt/orbit
 GATE="$APP/ai/gate"
 rm -rf /opt/gate "$APP" && mkdir -p "$GATE/src" "$GATE/openwebui" "$APP/shared"
-for f in package.json catalog.json src/index.js src/gate.js src/jwt.js src/machine.js src/store.js src/studio.js src/sysstats.js src/gpustats.js src/workflows.js src/openwebui.js src/search.js src/voice.js src/movies.js src/story.js src/prompting.js src/r2.js src/storage.js src/r2cli.js src/cloud.js src/push.js src/memes.js src/style.js src/nsfwcheck.js nsfw_worker.py src/media.js src/live.js src/wsock.js live_draw_worker.py src/livevideo.js src/msgpack.js live_video_worker.py openwebui/studio_pipe.py; do
+for f in package.json catalog.json src/index.js src/gate.js src/jwt.js src/machine.js src/store.js src/studio.js src/sysstats.js src/gpustats.js src/workflows.js src/openwebui.js src/search.js src/voice.js src/movies.js src/story.js src/prompting.js src/r2.js src/storage.js src/r2cli.js src/cloud.js src/push.js src/memes.js src/style.js src/nsfwcheck.js nsfw_worker.py src/media.js src/live.js src/wsock.js live_draw_worker.py src/livevideo.js src/msgpack.js live_video_worker.py src/canvas.js canvas_worker.py openwebui/studio_pipe.py; do
   curl -fsSL "${REPO_RAW}/ai/gate/${f}" -o "$GATE/${f}"
 done
 for f in shared/package.json shared/autooff.js; do
@@ -82,9 +98,12 @@ STUDIO_DIR="$P/studio"
 
 public_url="https://${RUNPOD_POD_ID:-localhost}-8080.proxy.runpod.net"
 
-if [ "${AI_ROLE:-main}" = "helper" ]; then
-  log "helper machine: images and videos only (no chat)"
-else
+case "${AI_ROLE:-main}" in
+  helper) NO_CHAT=1; log "helper machine: images and videos only (no chat)" ;;
+  canvas) NO_CHAT=1; log "drawing machine (Live Draw): no chat; gallery in ${GALLERY:-the volume}" ;;
+  *) NO_CHAT="" ;;
+esac
+if [ -z "$NO_CHAT" ]; then
 # The playground's chats and settings, as last saved (the gate saves them every few minutes).
 if [ "$STORAGE" = r2 ] && [ ! -s "$P/open-webui/data/webui.db" ]; then
   log "bringing back the playground's chats from R2"
@@ -119,7 +138,7 @@ fi
 
 # Image and video maker (ComfyUI). Installs once onto the volume, then runs on 127.0.0.1:8188.
 log "starting the image and video maker"
-(env -u GATEWAY_SECRET -u RUNPOD_API_KEY -u HF_TOKEN AI_ROLE="${AI_ROLE:-main}" STUDIO_DIR="$STUDIO_DIR" PERSIST_DIR="$P" NODE="$NODE_DIR/bin/node" bash /opt/gate/studio.sh) 2>&1 | sed -u 's/^/[studio] /' &
+(env -u GATEWAY_SECRET -u RUNPOD_API_KEY -u HF_TOKEN AI_ROLE="${AI_ROLE:-main}" GALLERY="${GALLERY:-}" STUDIO_DIR="$STUDIO_DIR" PERSIST_DIR="$P" NODE="$NODE_DIR/bin/node" bash /opt/gate/studio.sh) 2>&1 | sed -u 's/^/[studio] /' &
 
 log "starting the gate on :8080"
 cd "$GATE"
@@ -128,7 +147,7 @@ while true; do
     SITE_URL="${SITE_URL:-}" ALLOWED_ORIGINS="${ALLOWED_ORIGINS:-}" IDLE_MINUTES="${IDLE_MINUTES:-60}" \
     DEFAULT_MODELS="$DEFAULT_MODELS" AI_USER_EMAIL="${AI_USER_EMAIL:-owner@orbit.local}" \
     STUDIO_DIR="$STUDIO_DIR" STUDIO_KEY="$STUDIO_KEY" AI_ROLE="${AI_ROLE:-main}" PERSIST_DIR="$P" \
-    STORAGE="$STORAGE" OLLAMA_MODELS="$P/ollama/models" WEBUI_DIR="$P/open-webui" \
+    STORAGE="$STORAGE" GALLERY="${GALLERY:-}" OLLAMA_MODELS="$P/ollama/models" WEBUI_DIR="$P/open-webui" \
     "$NODE_DIR/bin/node" src/index.js || true
   log "gate exited, restarting in 2s"
   sleep 2

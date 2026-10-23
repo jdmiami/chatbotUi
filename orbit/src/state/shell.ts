@@ -7,6 +7,7 @@ export type AppId =
   | 'agent'
   | 'ai'
   | 'make'
+  | 'livedraw'
   | 'store'
   | 'soreal'
   | 'lab'
@@ -229,4 +230,4 @@ function migrate(s: Settings): Settings {
   return { ...m, skin: 'o5' };
 }
 
-export const APP_ORDER: AppId[] = ['terminal', 'editor', 'agent', 'ai', 'make', 'store', 'soreal', 'lab', 'stats', 'playground', 'vscode', 'desktop', 'windows', 'settings'];
+export const APP_ORDER: AppId[] = ['terminal', 'editor', 'agent', 'ai', 'make', 'livedraw', 'store', 'soreal', 'lab', 'stats', 'playground', 'vscode', 'desktop', 'windows', 'settings'];

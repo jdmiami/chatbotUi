@@ -10,7 +10,7 @@ import { PassThrough } from 'node:stream';
 import { createGate } from '../src/gate.js';
 import { signJwt } from '../src/jwt.js';
 import { createLiveWorker } from '../src/live.js';
-import { SAVE_SECONDS, TURBO_MESSAGE, createLiveEnvs, createLiveServer, createLiveVideo, frameBytes, measuredFps } from '../src/livevideo.js';
+import { CANVAS_KREA_GPU_BYTES, SAVE_SECONDS, TURBO_MESSAGE, createLiveEnvs, createLiveServer, createLiveVideo, frameBytes, liveEnvStamp, measuredFps, sageWorks } from '../src/livevideo.js';
 import { packb, unpackb } from '../src/msgpack.js';
 import { BLOCKED_MESSAGE, PHOTO_MESSAGE, createStudio } from '../src/studio.js';
 import { acceptWebSocket } from '../src/wsock.js';
@@ -117,7 +117,7 @@ async function place(dir, file) {
 }
 
 /** A studio with fake ComfyUI and the live makers' files in place; envs "ready" unless told. */
-async function setup({ gpu = 48e9, envReady = true, install = ['live-sdv2', 'live-krea'], kreaUrl = 'ws://127.0.0.1:9', krea } = {}) {
+async function setup({ gpu = 48e9, envReady = true, install = ['live-sdv2', 'live-krea'], kreaUrl = 'ws://127.0.0.1:9', krea, turboBytes, holdMs } = {}) {
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'livevideo-'));
   const FILES = { image: [{ dir: 'diffusion_models', name: 'img.safetensors', repo: 'o/r', path: 'img.safetensors', size: 4 }], video: [] };
   await place(dir, FILES.image[0]);
@@ -165,6 +165,8 @@ async function setup({ gpu = 48e9, envReady = true, install = ['live-sdv2', 'liv
     krea: krea || createLiveServer({ name: 'Krea Realtime', cmd: 'none', args: [], url: 'http://127.0.0.1:9', spawn: () => new EventEmitter(), log: quiet }),
     kreaUrl,
     gpuMemory: async () => gpu,
+    turboBytes,
+    holdMs,
     makeWay: async () => void made.draw++,
     ffmpeg: async (args) => {
       ffmpegCalls.push(args);
@@ -417,4 +419,164 @@ test('gate: /_orbit/live/video is a signed-in WebSocket', async () => {
   } finally {
     server.close();
   }
+});
+
+// ---- Live Draw: Animate and Living canvas are live video started from the canvas picture
+
+const STILL = Buffer.from([0xff, 0xd8, 0xff, 0xe0, 7, 7, 7, 0xff, 0xd9]);
+const DRAWN = Buffer.from([0xff, 0xd8, 0xff, 0xe0, 8, 8, 8, 0xff, 0xd9]);
+
+test('Live Draw: a session started from a still picture keeps sending it until the canvas sends frames', async () => {
+  const s = await setup({ holdMs: 10 });
+  const p = page(s.video);
+  await p.conn.message({ type: 'start', maker: 'live-sdv2', source: 'canvas', prompt: 'a watercolour', image: `data:image/jpeg;base64,${STILL.toString('base64')}` });
+  await p.next('state');
+  await p.next('state');
+  // Nothing sent by the page: the picture goes up again and again, and video comes back.
+  await p.next('frame');
+  const w = s.sd.made[0];
+  const sent = () => w.requests.filter((r) => r.op === 'frames').flatMap((r) => r.frames);
+  assert.ok(sent().length >= 5);
+  assert.ok(sent().every((f) => f === STILL.toString('base64')));
+  // The person draws: the canvas's frames go up, and its last one is held when they stop.
+  await p.conn.message({ type: 'frame', image: DRAWN.toString('base64') });
+  await until(() => sent().filter((f) => f === DRAWN.toString('base64')).length >= 3);
+  // A new kept picture to hold.
+  await p.conn.message({ type: 'still', image: STILL.toString('base64') });
+  const before = sent().length;
+  await until(() => sent().length > before + 2 && sent().at(-1) === STILL.toString('base64'));
+  await p.conn.message({ type: 'stop' });
+  await p.next('state');
+  const after = sent().length;
+  await wait(60);
+  assert.ok(sent().length <= after + 1, 'stopped: nothing more is sent');
+  // Not a picture: refused at start.
+  await p.conn.message({ type: 'start', maker: 'live-sdv2', source: 'canvas', prompt: 'a fox', image: 'data:image/gif;base64,R0lGOD' });
+  assert.match((await p.next('error')).error, /not a picture/);
+  p.conn.close();
+});
+
+test('Live Draw: on the drawing machine Krea Realtime only has to fit (40 GB), and starts from the canvas picture', async () => {
+  const k = await fakeKrea();
+  const server = createLiveServer({
+    name: 'Krea Realtime',
+    cmd: '/venv/python',
+    args: [],
+    url: `http://127.0.0.1:${k.port}`,
+    spawn: () => Object.assign(new EventEmitter(), { kill() {} }),
+    pollMs: 10,
+    log: quiet,
+  });
+  // The RTX PRO 6000 backup (96 GB) and the H200 (141 GB) both pass; 32 GB doesn't.
+  const small = await setup({ gpu: 32e9, turboBytes: CANVAS_KREA_GPU_BYTES, kreaUrl: `ws://127.0.0.1:${k.port}`, krea: server });
+  const p0 = page(small.video);
+  await p0.conn.message({ type: 'start', maker: 'live-krea', source: 'canvas', prompt: 'a fox' });
+  assert.equal((await p0.next('error')).error, TURBO_MESSAGE);
+  for (const gpu of [96e9, 141e9]) {
+    k.seen.params = null;
+    k.seen.frames = [];
+    const s = await setup({ gpu, turboBytes: CANVAS_KREA_GPU_BYTES, kreaUrl: `ws://127.0.0.1:${k.port}`, krea: server, holdMs: 10 });
+    const p = page(s.video);
+    await p.conn.message({ type: 'start', maker: 'live-krea', source: 'canvas', prompt: 'the fox runs', strength: 0.6, image: STILL.toString('base64') });
+    assert.equal((await p.next('state')).state, 'loading');
+    assert.equal((await p.next('state')).state, 'live');
+    await until(() => k.seen.frames.length >= 3);
+    assert.equal(k.seen.params.webcam_mode, true);
+    assert.equal(k.seen.params.strength, 0.6);
+    assert.ok(k.seen.frames.every((f) => Buffer.from(f.image).equals(STILL)));
+    await p.next('frame');
+    await p.conn.message({ type: 'stop' });
+    p.conn.close();
+  }
+  server.close();
+  k.srv.close();
+});
+
+test('Live Draw: a studio member’s live video door is StreamDiffusionV2 from their canvas, and the clip is theirs', async () => {
+  const s = await setup({ holdMs: 10 });
+  const server = createGate({ secret: SECRET, webui: 'http://127.0.0.1:9', ollama: 'http://127.0.0.1:9', allowedOrigins: 'https://site.example', liveVideo: s.video, canvas: { open() {} } }, quiet);
+  await new Promise((r) => server.listen(0, '127.0.0.1', r));
+  const base = `127.0.0.1:${server.address().port}`;
+  const open = (p, protocols) =>
+    new Promise((resolve) => {
+      const ws = new WebSocket(`ws://${base}${p}`, protocols);
+      const got = [];
+      ws.onmessage = (ev) => got.push(JSON.parse(ev.data));
+      ws.onopen = () => resolve({ ws, got });
+      ws.onerror = () => resolve(null);
+    });
+  try {
+    const owner = signJwt({ sub: 'o', aud: 'orbit-ai' }, SECRET, { expiresIn: 600 });
+    assert.equal(await open('/_studio/canvas/video', ['orbit-live', owner]), null, 'the owner token is not a member key');
+    const member = signJwt({ sub: 'ann', aud: 'studio-member' }, SECRET, { expiresIn: 600 });
+    const c = await open('/_studio/canvas/video', ['orbit-live', member]);
+    // Asks for Krea and the camera: gets StreamDiffusionV2 and the canvas.
+    c.ws.send(JSON.stringify({ type: 'start', maker: 'live-krea', source: 'camera', prompt: 'a comic book', image: STILL.toString('base64') }));
+    await until(() => c.got.some((m) => m.type === 'state' && m.state === 'live'));
+    const live = c.got.find((m) => m.state === 'live');
+    assert.deepEqual([live.maker, live.source], ['live-sdv2', 'canvas']);
+    await until(() => c.got.filter((m) => m.type === 'frame').length >= 2);
+    c.ws.send(JSON.stringify({ type: 'save' }));
+    await until(() => c.got.some((m) => m.type === 'saved'));
+    const saved = c.got.find((m) => m.type === 'saved');
+    assert.equal(saved.item.owner, 'm:ann');
+    assert.equal(saved.item.photo, undefined, 'a drawing, not a camera');
+    c.ws.close();
+  } finally {
+    server.close();
+  }
+});
+
+test('live envs: a Python set up for an older live_env.sh (another PyTorch) is not ready: it is set up again', async () => {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'liveenv-'));
+  const script = path.join(dir, 'live_env.sh');
+  await fs.writeFile(
+    script,
+    [
+      '#!/usr/bin/env bash',
+      'name="${1:?which}"',
+      'S="${STUDIO_DIR:?required}"',
+      'UV_VERSION=0.12.24',
+      'SDV2_TORCH="torch==2.11.0 torchvision==0.26.0"',
+      'EXTRA=""',
+      'case "$name" in',
+      '  sdv2) COMMIT=abc EXTRA="$SDV2_TORCH cu128" ;;',
+      '  krea) COMMIT=def ;;',
+      '  *) exit 2 ;;',
+      'esac',
+      'STAMP="$name $COMMIT uv $UV_VERSION${EXTRA:+ $EXTRA}"',
+      'echo should not run',
+      'exit 1',
+    ].join('\n'),
+  );
+  assert.equal(liveEnvStamp(script, 'sdv2'), 'sdv2 abc uv 0.12.24 torch==2.11.0 torchvision==0.26.0 cu128');
+  assert.equal(liveEnvStamp(script, 'krea'), 'krea def uv 0.12.24');
+  assert.equal(liveEnvStamp(path.join(dir, 'missing.sh'), 'sdv2'), null);
+  // The real script reads the same way.
+  assert.match(liveEnvStamp(new URL('../../live_env.sh', import.meta.url).pathname, 'sdv2'), /^sdv2 [0-9a-f]{40} uv [\d.]+ torch==2\.11\.0 .*cu128$/);
+  const envs = createLiveEnvs({ dir, script, log: quiet });
+  await fs.mkdir(path.join(dir, 'live-env', 'sdv2'), { recursive: true });
+  await fs.writeFile(path.join(dir, 'live-env', 'sdv2', '.installed'), 'sdv2 abc uv 0.12.24\n');
+  assert.equal(envs.ready('sdv2'), false, 'the old PyTorch 2.6 setup');
+  await fs.writeFile(path.join(dir, 'live-env', 'sdv2', '.installed'), 'sdv2 abc uv 0.12.24 torch==2.11.0 torchvision==0.26.0 cu128\n');
+  assert.equal(envs.ready('sdv2'), true);
+  assert.equal(envs.ready('krea'), false);
+});
+
+test('Krea’s SageAttention: tried once with Krea’s Python; a card without its kernel falls back', async () => {
+  const runs = [];
+  const fakeSpawn = (code) => (cmd, args, opts) => {
+    runs.push({ cmd, args, env: opts.env });
+    const c = new EventEmitter();
+    c.kill = () => {};
+    setImmediate(() => c.emit('exit', code));
+    return c;
+  };
+  assert.equal(await sageWorks({ python: '/k/python', spawn: fakeSpawn(0) }), true);
+  assert.equal(await sageWorks({ python: '/k/python', spawn: fakeSpawn(1) }), false);
+  assert.equal(runs[0].cmd, '/k/python');
+  assert.match(runs[0].args[1], /from sageattention import sageattn/);
+  assert.equal(runs[0].env.GATEWAY_SECRET, undefined);
+  const hung = (cmd, args, opts) => Object.assign(new EventEmitter(), { kill() {} });
+  assert.equal(await sageWorks({ python: '/k/python', spawn: hung, timeoutMs: 20 }), false);
 });

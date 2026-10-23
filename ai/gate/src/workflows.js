@@ -704,7 +704,29 @@ export function sketchStrength(follow) {
  * reads: core ComfyUI has no HED preprocessor, and a drawing needs none. `strength` is the
  * ControlNet's strength (what VideoX-Fun calls control_context_scale).
  */
-export function zimageSketchWorkflow({ prompt, sketch, width = 1024, height = 1024, strength = 0.85, seed = randomSeed(), steps = 8, prefix = 'orbit/image' }) {
+export function zimageSketchWorkflow({ prompt, sketch, width = 1024, height = 1024, strength = 0.85, seed = randomSeed(), steps = 8, prefix = 'orbit/image', sketchSize = null, start = null, denoise = 0.7 }) {
+  const wf = zimageSketchBase({ prompt, sketch, width, height, strength, seed, steps, prefix });
+  // Live Draw sends its strokes on a transparent background: lay them on white first (LoadImage's MASK is
+  // 1 - alpha, so its inverse is where the strokes are; an opaque drawing passes through unchanged).
+  if (sketchSize?.width && sketchSize?.height) {
+    wf[16] = { class_type: 'EmptyImage', inputs: { width: sketchSize.width, height: sketchSize.height, batch_size: 1, color: 0xffffff } };
+    wf[17] = { class_type: 'InvertMask', inputs: { mask: ['5', 1] } };
+    wf[18] = { class_type: 'ImageCompositeMasked', inputs: { destination: ['16', 0], source: ['5', 0], x: 0, y: 0, resize_source: false, mask: ['17', 0] } };
+    wf[6].inputs.image = ['18', 0];
+  }
+  // Live Draw's Finish: start from the canvas as it looks (its colours and composition) instead of noise.
+  if (start) {
+    wf[19] = { class_type: 'LoadImage', inputs: { image: start } };
+    wf[20] = { class_type: 'ImageScale', inputs: { image: ['19', 0], upscale_method: 'lanczos', width, height, crop: 'center' } };
+    wf[21] = { class_type: 'VAEEncode', inputs: { pixels: ['20', 0], vae: ['3', 0] } };
+    wf[13].inputs.latent_image = ['21', 0];
+    wf[13].inputs.denoise = Math.min(1, Math.max(0.3, Number(denoise) || 0.7));
+    delete wf[12];
+  }
+  return wf;
+}
+
+function zimageSketchBase({ prompt, sketch, width, height, strength, seed, steps, prefix }) {
   return {
     1: { class_type: 'UNETLoader', inputs: { unet_name: FILES.zImageUnet.name, weight_dtype: 'default' } },
     2: { class_type: 'CLIPLoader', inputs: { clip_name: FILES.zImageTe.name, type: 'lumina2', device: 'default' } },

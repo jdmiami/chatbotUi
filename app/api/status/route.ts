@@ -2,7 +2,8 @@ import { currentUser } from '@/lib/auth';
 import { sameOrigin } from '@/lib/request';
 import { startAi, stopAi } from '@/lib/ai';
 import { setMachinePower } from '@/lib/runpod';
-import { aiMachineAction, fullStatus, islandCors, islandUser, linuxMachineExtend, linuxSaveBeforeStop } from '@/lib/status';
+import { startCanvas, stopCanvas } from '@/lib/canvas';
+import { aiMachineAction, canvasMachineExtend, fullStatus, islandCors, islandUser, linuxMachineExtend, linuxSaveBeforeStop } from '@/lib/status';
 import { listMachines } from '@/lib/machines';
 
 export const dynamic = 'force-dynamic';
@@ -48,12 +49,16 @@ export async function POST(request: Request) {
       await aiMachineAction(caller.user, b.action, b);
     } else if (b.machine === 'linux' && b.action === 'extend') {
       await linuxMachineExtend(caller.user, b.minutes);
+    } else if (b.machine === 'canvas' && b.action === 'extend') {
+      await canvasMachineExtend(caller.user, b.minutes);
     } else if (!caller.full) {
       return Response.json({ error: 'Open your workspace site to turn machines on or off.' }, { status: 403, headers: cors });
     } else if (b.machine === 'ai' && b.action === 'start') {
       await startAi(typeof b.tier === 'string' ? b.tier : undefined);
     } else if (b.machine === 'ai' && b.action === 'stop') {
       await stopAi();
+    } else if (b.machine === 'canvas' && (b.action === 'start' || b.action === 'stop')) {
+      await (b.action === 'start' ? startCanvas() : stopCanvas());
     } else if (b.machine === 'linux' && (b.action === 'start' || b.action === 'stop')) {
       if (!process.env.RUNPOD_API_KEY) throw new Error('RUNPOD_API_KEY is not set in Vercel.');
       if (b.action === 'stop') await linuxSaveBeforeStop(caller.user);

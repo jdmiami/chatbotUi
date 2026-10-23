@@ -51,7 +51,7 @@ const NEED_WORDS: Record<string, string> = { video: 'a video', audio: 'a voice o
 /** "A video and a voice or song" */
 function needsText(m: StudioMakerInfo): string | null {
   const list = (m.needs ?? []).map((n) => NEED_WORDS[n]).filter(Boolean);
-  if (!list.length) return m.twoImages ? 'Two pictures' : m.kind === 'edit' || m.kind === 'upscale' ? 'A picture to start from' : m.kind === 'live' || m.kind === 'sketch' ? 'Your drawing (Make → Live draw)' : null;
+  if (!list.length) return m.twoImages ? 'Two pictures' : m.kind === 'edit' || m.kind === 'upscale' ? 'A picture to start from' : m.kind === 'live' || m.kind === 'sketch' ? 'Your drawing (in Live Draw)' : null;
   const s = list.length > 1 ? `${list.slice(0, -1).join(', ')} and ${list.at(-1)}` : list[0];
   return s[0].toUpperCase() + s.slice(1);
 }

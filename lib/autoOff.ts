@@ -3,9 +3,9 @@ import { AUTO_OFF, clampAutoOffMinutes } from '@/shared/autooff.js';
 
 /**
  * The one auto-off rule, on the site's side. Every Runpod machine (the AI machine, its helper, every
- * speed, the Linux machine and its stand-in) turns itself off after autoOffMinutes() without use.
- * The site sends this number to each machine as IDLE_MINUTES when it turns it on (lib/ai.ts,
- * lib/runpod.ts), the watchdog uses it (lib/watchdog.ts), and every screen shows it (/api/status,
+ * speed, Live Draw's drawing machine, the Linux machine and its stand-in) turns itself off after
+ * autoOffMinutes() without use. The site sends this number to each machine as IDLE_MINUTES when it
+ * turns it on (lib/ai.ts, lib/canvas.ts, lib/runpod.ts), the watchdog uses it (lib/watchdog.ts), and every screen shows it (/api/status,
  * /api/ai). The timer the machines run is shared/autooff.js.
  *
  * Set AUTO_OFF_MINUTES in Vercel (10–60, default 60). The older AI_IDLE_MINUTES still works.

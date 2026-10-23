@@ -72,7 +72,7 @@ export interface AiTier {
   speed: string;
 }
 
-interface Pod {
+export interface Pod {
   id: string;
   name: string;
   status?: PodStatus;
@@ -84,10 +84,11 @@ interface Pod {
 }
 
 // North American Secure Cloud data centers, tried in this order (R2's bucket is in eastern North America).
-const NA_DATA_CENTERS = 'US-NC-1,US-NC-2,US-PA-1,US-MD-1,US-GA-2,US-IL-1,US-MO-1,US-MO-2,US-KS-2,US-NE-1,US-TX-3,US-TX-4,US-CO-1,US-CA-2,US-WA-1,US-WA-2,CA-MTL-1,CA-MTL-3,CA-MTL-4';
+export const NA_DATA_CENTERS = 'US-NC-1,US-NC-2,US-PA-1,US-MD-1,US-GA-2,US-IL-1,US-MO-1,US-MO-2,US-KS-2,US-NE-1,US-TX-3,US-TX-4,US-CO-1,US-CA-2,US-WA-1,US-WA-2,CA-MTL-1,CA-MTL-3,CA-MTL-4';
 const list = (v: string) => v.split(',').map((s) => s.trim()).filter(Boolean);
 
-const env = () => ({
+/** The AI machine's settings from Vercel (the drawing machine, lib/canvas.ts, shares the name, image and secret). */
+export const env = () => ({
   name: process.env.AI_POD_NAME || 'orbit-ai',
   // 'r2' (default): no network volume, everything kept in R2. 'volume': the network volume AI_VOLUME_ID.
   storage: process.env.AI_STORAGE === 'volume' ? ('volume' as const) : ('r2' as const),
@@ -189,18 +190,18 @@ export const aiBase = (podId: string) => `https://${podId}-8080.proxy.runpod.net
 export const aiConsole = (podId: string) => `https://console.runpod.io/pods?id=${encodeURIComponent(podId)}`;
 
 /** The code version the machine runs: the same commit as this deployment (falls back to main). */
-function repoRaw() {
+export function repoRaw() {
   const sha = process.env.VERCEL_GIT_COMMIT_SHA;
   return `https://raw.githubusercontent.com/jdmiami/chatbotUi/${sha || 'main'}`;
 }
 
-function siteUrl() {
+export function siteUrl() {
   const prod = process.env.VERCEL_PROJECT_PRODUCTION_URL;
   return prod ? `https://${prod}` : '';
 }
 
 /** The newest live pod with this name, or null. */
-async function findPodNamed(name: string): Promise<Pod | null> {
+export async function findPodNamed(name: string): Promise<Pod | null> {
   const body = (await runpod('/pods')) as { pods?: Pod[] } | Pod[];
   const pods = (Array.isArray(body) ? body : (body.pods ?? [])).filter((p) => p.name === name && p.status !== 'TERMINATED');
   pods.sort((a, b) => String(b.createdAt ?? '').localeCompare(String(a.createdAt ?? '')));
@@ -251,9 +252,23 @@ export function aiDiskGb() {
   return Number.isFinite(n) && n >= 100 && n <= 2000 ? Math.round(n) : 700;
 }
 
+/** The pages that may call a machine's gate from the browser. */
+export function allowedOrigins() {
+  return process.env.LINUX_ALLOWED_ORIGINS || [siteUrl(), 'https://chatbot-ui-62nj-*-jdmiamis-projects.vercel.app'].filter(Boolean).join(',');
+}
+
+/** The R2 keys, as Runpod secret templates: Runpod fills them in, the site never sees the keys. */
+export function r2SecretEnv(): Record<string, string> {
+  return {
+    R2_ACCOUNT_ID: '{{ RUNPOD_SECRET_r2_account_id }}',
+    R2_ACCESS_KEY_ID: '{{ RUNPOD_SECRET_r2_access_key_id }}',
+    R2_SECRET_ACCESS_KEY: '{{ RUNPOD_SECRET_r2_secret_access_key }}',
+  };
+}
+
 async function createAiPod(tier: AiTier, role: 'main' | 'helper' = 'main', usualOnly = false): Promise<Pod> {
   const e = env();
-  const origins = process.env.LINUX_ALLOWED_ORIGINS || [siteUrl(), 'https://chatbot-ui-62nj-*-jdmiamis-projects.vercel.app'].filter(Boolean).join(',');
+  const origins = allowedOrigins();
   let lastError: Error | null = null;
   const r2 = e.storage === 'r2';
   const started = Date.now();
@@ -284,15 +299,7 @@ async function createAiPod(tier: AiTier, role: 'main' | 'helper' = 'main', usual
             ALLOWED_ORIGINS: origins,
             IDLE_MINUTES: String(autoOffMinutes()),
             DEFAULT_MODELS: e.models,
-            ...(r2
-              ? {
-                  STORAGE: 'r2',
-                  // Runpod fills these in from its secrets; the site never sees the keys.
-                  R2_ACCOUNT_ID: '{{ RUNPOD_SECRET_r2_account_id }}',
-                  R2_ACCESS_KEY_ID: '{{ RUNPOD_SECRET_r2_access_key_id }}',
-                  R2_SECRET_ACCESS_KEY: '{{ RUNPOD_SECRET_r2_secret_access_key }}',
-                }
-              : {}),
+            ...(r2 ? { STORAGE: 'r2', ...r2SecretEnv() } : {}),
             ...hfTokenEnv(),
             ...(role === 'helper' ? { AI_ROLE: 'helper' } : {}),
           },
@@ -309,13 +316,13 @@ async function createAiPod(tier: AiTier, role: 'main' | 'helper' = 'main', usual
  * Gated model files (LTX-2.5) need a Hugging Face token on the AI machine: Runpod fills it in from the
  * secret named in AI_HF_TOKEN_SECRET (the site never sees the token). Unset: nothing is passed.
  */
-function hfTokenEnv(): Record<string, string> {
+export function hfTokenEnv(): Record<string, string> {
   const name = (process.env.AI_HF_TOKEN_SECRET || '').trim();
   return /^[A-Za-z0-9_-]{1,64}$/.test(name) ? { HF_TOKEN: `{{ RUNPOD_SECRET_${name} }}` } : {};
 }
 
 /** Runpod says there's no GPU left on the stopped pod's own machine (it can only resume there). */
-const noCapacity = (msg: string) =>
+export const noCapacity = (msg: string) =>
   /not enough|no (gpu|longer|instances?)|insufficient|capacity|unavailable|not available|free gpu/i.test(msg);
 
 const noGpu = (tier: AiTier, others: AiTier[]) =>
@@ -332,7 +339,7 @@ async function createOrExplain(tier: AiTier, role: 'main' | 'helper' = 'main') {
   }
 }
 
-async function waitStopped(podId: string, ms = 45_000) {
+export async function waitStopped(podId: string, ms = 45_000) {
   const until = Date.now() + ms;
   while (Date.now() < until) {
     const p = (await runpod(`/pods/${encodeURIComponent(podId)}`).catch(() => null)) as Pod | null;
@@ -512,7 +519,7 @@ export async function studioToken(studio: string, user: string) {
     .sign(new TextEncoder().encode(env().secret));
 }
 
-interface GateStatus {
+export interface GateStatus {
   ready: boolean;
   models: { name: string }[];
   pulling: { model: string; percent: number } | null;
@@ -521,7 +528,7 @@ interface GateStatus {
 }
 
 /** The gate's timer, as the screens need it. */
-function idleOf(i: AiIdle | undefined | null): AiIdle | null {
+export function idleOf(i: AiIdle | undefined | null): AiIdle | null {
   return i ? { limitMinutes: i.limitMinutes, idleMinutes: i.idleMinutes, offAt: i.offAt ?? null, heldUntil: i.heldUntil ?? null } : null;
 }
 

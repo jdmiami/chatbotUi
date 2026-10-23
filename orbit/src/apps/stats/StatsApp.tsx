@@ -37,7 +37,8 @@ interface MachineStats {
   users?: { kind: string; name: string; label: string; memory: number }[];
 }
 interface Machine {
-  id: 'ai' | 'linux';
+  /** canvas: the drawing machine (Live Draw). */
+  id: 'ai' | 'linux' | 'canvas';
   name: string;
   state: string;
   costPerHour: number | null;
@@ -287,7 +288,8 @@ export default function StatsApp({ isActive }: AppProps) {
     try {
       const res = await fetch('/api/status?detail=1', { credentials: 'same-origin', cache: 'no-store' });
       if (!res.ok || !(res.headers.get('content-type') ?? '').includes('json')) throw new Error(String(res.status));
-      const next = (await res.json()) as Status;
+      const raw = (await res.json()) as Status;
+      const next: Status = { ...raw, machines: (raw.machines ?? []).map((m) => (m.id === 'canvas' ? { ...m, name: 'Drawing machine' } : m)) };
       setStatus(next);
       setUnavailable(false);
       setHistory((prev) => {

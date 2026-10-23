@@ -82,6 +82,7 @@ const APP_NAME: Record<AppId, string> = {
   agent: 'Antigravity',
   ai: 'AI',
   make: 'Make',
+  livedraw: 'Live Draw',
   store: 'Store',
   soreal: 'soReal',
   lab: 'Lab',

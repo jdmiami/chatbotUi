@@ -11,6 +11,7 @@ export type ArtId =
   | 'agent'
   | 'ai'
   | 'make'
+  | 'livedraw'
   | 'store'
   | 'soreal'
   | 'lab'
@@ -27,6 +28,7 @@ const TILES: Record<ArtId, [string, string, string?]> = {
   agent: ['#19c3a6', '#0a4f6e'],
   ai: ['#9b6bff', '#2563eb', '#06b6d4'],
   make: ['#ff9a62', '#e0457b', '#5b2a86'],
+  livedraw: ['#3b2a6e', '#7b3fd1', '#ff6fae'],
   store: ['#f5c16c', '#d9663a', '#6d2a5c'],
   soreal: ['#ff6a6a', '#c2185b', '#4a148c'],
   lab: ['#ffd36b', '#ff7a59', '#8a2be2'],
@@ -98,6 +100,29 @@ function Glyph({ id, uid }: { id: ArtId; uid: string }) {
           <circle cx="38" cy="42" r="6" fill="#fff4ea" />
           <path d="M27 69l16-17 10 10 8-8 13 15" fill="none" stroke={INK} strokeWidth="5" strokeLinejoin="round" strokeLinecap="round" />
           <path d="M70 16l2.5 6 6 2.5-6 2.5-2.5 6-2.5-6-6-2.5 6-2.5z" fill="#ffe2b8" />
+        </g>
+      );
+    case 'livedraw':
+      // A pen nib over a glowing frame: the picture lights up under the line.
+      return (
+        <g>
+          <defs>
+            <radialGradient id={`${uid}-glow`} cx="0.42" cy="0.58" r="0.6">
+              <stop offset="0" stopColor="#ffd6ec" stopOpacity="0.95" />
+              <stop offset="0.55" stopColor="#ff8fc8" stopOpacity="0.35" />
+              <stop offset="1" stopColor="#ff8fc8" stopOpacity="0" />
+            </radialGradient>
+          </defs>
+          <rect x="20" y="30" width="50" height="48" rx="7" fill={`url(#${uid}-glow)`} />
+          <rect x="20" y="30" width="50" height="48" rx="7" fill="none" stroke={INK} strokeWidth="4.5" />
+          <path d="M27 67c6-9 12-11 17-6s10 3 16-6" fill="none" stroke={INK} strokeWidth="3.5" strokeLinecap="round" opacity="0.85" />
+          <g transform="rotate(38 66 36)">
+            <path d="M58 14h16v14l-8 20-8-20z" fill={INK} />
+            <path d="M58 28h16" stroke="#7b3fd1" strokeWidth="2.5" />
+            <path d="M66 31v10" stroke="#7b3fd1" strokeWidth="2" strokeLinecap="round" />
+            <circle cx="66" cy="41" r="2" fill="#7b3fd1" />
+          </g>
+          <path d="M78 66l1.8 4.2 4.2 1.8-4.2 1.8-1.8 4.2-1.8-4.2-4.2-1.8 4.2-1.8z" fill="#ffe2f1" />
         </g>
       );
     case 'soreal':

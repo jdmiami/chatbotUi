@@ -113,7 +113,11 @@ const bearer = (req) => {
  *   liveDraw                Live draw (live.js createLiveDraw), optional: /_orbit/live/draw, as a
  *                           WebSocket or (fallback) one POST per preview
  *   liveVideo               Live video (livevideo.js createLiveVideo), optional: /_orbit/live/video
- *                           (WebSocket only: frames both ways while it runs)
+ *                           (WebSocket only: frames both ways while it runs); studio members get
+ *                           /_studio/canvas/video (StreamDiffusionV2 from their canvas only)
+ *   canvas                  Live Draw's engines (canvas.js createCanvas), optional: /_orbit/canvas/*
+ *                           for the owner, /_studio/canvas/* for studio members (always the licensed
+ *                           engine), each with a WebSocket at …/canvas/live (docs/livedraw/DESIGN.md §5)
  */
 // Open WebUI requests that ask a model for something (chat, images, speech, title/tag tasks).
 const WEBUI_WORK = /\/(chat\/completions|api\/chat|api\/generate|images|audio|tasks)(\/|$)/;
@@ -136,6 +140,7 @@ export function createGate(cfg, log = console) {
   const studioKey = cfg.studioKey ? Buffer.from(cfg.studioKey) : null;
   const liveDraw = cfg.liveDraw || null;
   const liveVideo = cfg.liveVideo || null;
+  const canvas = cfg.canvas || null;
 
   const apiToken = (req) => {
     try {
@@ -386,6 +391,20 @@ export function createGate(cfg, log = console) {
       return handleStore(req, res, url, path);
     }
 
+    // ---- Live Draw (canvas.js): the owner's door and the studio members' door (licensed engine only)
+    const canvasRoute = canvas && /^\/_(orbit|studio)\/canvas(\/(warm|frame|read|finish))?$/.exec(path);
+    if (canvasRoute) {
+      if (!cors(req, res)) return send(res, 403, { error: 'Origin not allowed' });
+      if (req.method === 'OPTIONS') return send(res, 204, '');
+      if (canvasRoute[1] === 'studio') {
+        const owner = memberOf(req);
+        if (!owner) return send(res, 401, { error: 'Unauthorized' });
+        return handleCanvas(req, res, canvasRoute[3] || '', { member: true, owner });
+      }
+      if (!apiToken(req) && !session(req)) return send(res, 401, { error: 'Unauthorized' });
+      return handleCanvas(req, res, canvasRoute[3] || '', { member: false });
+    }
+
     // ---- studio members (After Dark…): their own narrow door, see handleMember
     if (studio && path.startsWith('/_studio/')) {
       if (!cors(req, res)) return send(res, 403, { error: 'Origin not allowed' });
@@ -561,24 +580,60 @@ export function createGate(cfg, log = console) {
       return null;
     }
   };
+  // What a member sees of a job and of a gallery item (only their own, and nothing else of the machine's).
+  const fileUrl = (id) => `/_orbit/studio/file/${id}?t=${fileToken(id)}`;
+  const itemView = (it) =>
+    it ? { id: it.id, kind: it.kind, prompt: it.prompt, width: it.width, height: it.height, seconds: it.seconds, movie: it.movie, nsfw: it.nsfw, createdAt: it.createdAt, url: fileUrl(it.id) } : null;
+  const jobView = (j) => ({
+    id: j.id,
+    kind: j.kind,
+    status: j.status,
+    progress: j.progress,
+    error: j.error,
+    position: j.position,
+    expectedSeconds: j.expectedSeconds,
+    etaSeconds: j.etaSeconds,
+    item: itemView(j.item),
+  });
+
+  /**
+   * Live Draw's HTTP routes (DESIGN.md §5.2): GET state, POST warm, frame (the socket's fallback: one
+   * CanvasReply), read, finish. A studio member always gets the licensed engine, can't send a style
+   * reference, and their Finish is tagged with them (followed at /_studio/jobs/:id).
+   */
+  async function handleCanvas(req, res, sub, { member, owner }) {
+    const forced = member ? { engine: 'licensed', member: true } : {};
+    let id = null;
+    try {
+      if (!sub && req.method === 'GET') return send(res, 200, await canvas.state(forced));
+      if (req.method !== 'POST') return send(res, 405, { error: 'Method not allowed' });
+      const body = JSON.parse((await readBody(req, sub === 'frame' || sub === 'finish' ? 24 * 1024 * 1024 : 8 * 1024 * 1024)) || '{}');
+      if (sub === 'warm') return send(res, 200, canvas.warm(forced.engine || body.engine));
+      if (sub === 'frame') {
+        id = body.id ?? null;
+        return send(res, 200, canvas.reply(id, await canvas.frame(body, forced)));
+      }
+      if (sub === 'read') return send(res, 200, await canvas.read(body.image));
+      if (sub === 'finish') {
+        activity();
+        const job = await canvas.finish({ ...body, engine: forced.engine || body.engine }, member ? { owner } : {});
+        return send(res, 200, member ? jobView(job) : job);
+      }
+      return send(res, 404, { error: 'Not found' });
+    } catch (err) {
+      if (sub === 'frame') {
+        const out = canvas.errorReply(id, err);
+        return send(res, out.status < 600 ? out.status : 500, out);
+      }
+      const code = err.status || (err instanceof SyntaxError ? 400 : 500);
+      return send(res, code, { error: err.message, blocked: Boolean(err.blocked), paused: Boolean(err.paused) });
+    }
+  }
+
   async function handleMember(req, res, path) {
     const owner = memberOf(req);
     if (!owner) return send(res, 401, { error: 'Unauthorized' });
     if (req.method !== 'GET' && req.method !== 'HEAD') activity();
-    const fileUrl = (id) => `/_orbit/studio/file/${id}?t=${fileToken(id)}`;
-    const itemView = (it) =>
-      it ? { id: it.id, kind: it.kind, prompt: it.prompt, width: it.width, height: it.height, seconds: it.seconds, movie: it.movie, nsfw: it.nsfw, createdAt: it.createdAt, url: fileUrl(it.id) } : null;
-    const jobView = (j) => ({
-      id: j.id,
-      kind: j.kind,
-      status: j.status,
-      progress: j.progress,
-      error: j.error,
-      position: j.position,
-      expectedSeconds: j.expectedSeconds,
-      etaSeconds: j.etaSeconds,
-      item: itemView(j.item),
-    });
     const movieView = (m) => ({
       id: m.id,
       title: m.title,
@@ -933,32 +988,59 @@ export function createGate(cfg, log = console) {
   // sends its API token as the second sub-protocol (["orbit-live", token]); a signed-in browser on
   // this address can use its cookie instead. The origin must be one of Orbit's.
   /** Accept one of the gate's own live WebSockets after the origin and sign-in checks (null when refused). */
-  function liveAccept(req, socket, head) {
+  // opts: { audience ('orbit-ai', or 'studio-member' for a member's key: no cookie then), maxPayload }.
+  // The accepted connection carries who it is as ws.auth (the token's payload, or the cookie's).
+  function liveAccept(req, socket, head, { audience = 'orbit-ai', maxPayload = 8 * 1024 * 1024 } = {}) {
     const origin = req.headers.origin;
     if (origin && !allowed(origin) && origin !== `https://${req.headers.host}`) {
       socket.end('HTTP/1.1 403 Forbidden\r\nConnection: close\r\n\r\n');
       return null;
     }
     const asked = askedProtocols(req);
-    const tokenOk = asked.some((p) => {
+    let auth = null;
+    for (const p of asked) {
       try {
-        return Boolean(verifyJwt(p, secret, { audience: 'orbit-ai', maxAgeSec: 65 * 60 }));
+        auth = verifyJwt(p, secret, { audience, maxAgeSec: 65 * 60 });
+        break;
       } catch {
-        return false;
+        /* not a token */
       }
-    });
-    if (!tokenOk && !session(req)) {
+    }
+    if (!auth && audience === 'orbit-ai') auth = session(req);
+    if (!auth || (audience === 'studio-member' && !(typeof auth.sub === 'string' && auth.sub))) {
       socket.end('HTTP/1.1 401 Unauthorized\r\nConnection: close\r\n\r\n');
       return null;
     }
-    return acceptWebSocket(req, socket, head, { protocol: asked.includes('orbit-live') ? 'orbit-live' : null, maxPayload: 8 * 1024 * 1024 });
+    const ws = acceptWebSocket(req, socket, head, { protocol: asked.includes('orbit-live') ? 'orbit-live' : null, maxPayload });
+    if (ws) ws.auth = auth;
+    return ws;
+  }
+
+  // Live Draw's socket (DESIGN.md §5.1): CanvasFrame in, CanvasReply out, the newest frame only.
+  function canvasSocket(req, socket, head, member) {
+    const ws = liveAccept(req, socket, head, { audience: member ? 'studio-member' : 'orbit-ai', maxPayload: 24 * 1024 * 1024 });
+    if (!ws) return;
+    const conn = canvas.open((msg) => ws.send(JSON.stringify(msg)), member ? { engine: 'licensed', member: true } : {});
+    ws.on('message', (data, binary) => {
+      if (binary) return ws.send(JSON.stringify({ type: 'error', id: null, status: 400, error: 'Send frames as JSON.' }));
+      let msg;
+      try {
+        msg = JSON.parse(data.toString('utf8'));
+      } catch {
+        return ws.send(JSON.stringify({ type: 'error', id: null, status: 400, error: 'Not JSON.' }));
+      }
+      void conn.message(msg);
+    });
+    ws.on('close', () => conn.close());
   }
 
   // Live video: one stream per connection; frames both ways as JSON (base64 JPEGs).
-  function liveVideoSocket(req, socket, head) {
-    const ws = liveAccept(req, socket, head);
+  // A studio member (Live Draw's Animate and Living canvas): StreamDiffusionV2 only (Apache-2.0; Krea's
+  // code is non-commercial), from their canvas only (never a camera), the saved clip tagged with them.
+  function liveVideoSocket(req, socket, head, member = false) {
+    const ws = liveAccept(req, socket, head, member ? { audience: 'studio-member' } : {});
     if (!ws) return;
-    const conn = liveVideo.open((msg) => ws.send(JSON.stringify(msg)));
+    const conn = liveVideo.open((msg) => ws.send(JSON.stringify(msg)), member ? { maker: 'live-sdv2', source: 'canvas', owner: `m:${ws.auth.sub}` } : {});
     ws.on('message', (data, binary) => {
       if (binary) return;
       let msg;
@@ -1006,6 +1088,9 @@ export function createGate(cfg, log = console) {
     const upPath = new URL(req.url, 'http://gate.local').pathname;
     if (liveDraw && upPath === '/_orbit/live/draw') return liveSocket(req, socket, head);
     if (liveVideo && upPath === '/_orbit/live/video') return liveVideoSocket(req, socket, head);
+    if (liveVideo && canvas && upPath === '/_studio/canvas/video') return liveVideoSocket(req, socket, head, true);
+    if (canvas && upPath === '/_orbit/canvas/live') return canvasSocket(req, socket, head, false);
+    if (canvas && upPath === '/_studio/canvas/live') return canvasSocket(req, socket, head, true);
     const user = session(req);
     if (!user) {
       socket.end('HTTP/1.1 401 Unauthorized\r\nConnection: close\r\n\r\n');

@@ -10,7 +10,7 @@
 // Orbit talks to the gate only (/_orbit/live/video, a WebSocket, behind the gate's sign-in); the
 // gate keeps the last 10 seconds of returned frames so "Save last 10 s" can join them into a video
 // with ffmpeg and put it in the gallery.
-import { spawn as nodeSpawn } from 'node:child_process';
+import { execFileSync, spawn as nodeSpawn } from 'node:child_process';
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import fsp from 'node:fs/promises';
@@ -31,10 +31,32 @@ const bad = (message, status = 400, extra = {}) => Object.assign(new Error(messa
 /** Krea Realtime needs 40 GB+ of GPU memory: only the Turbo machine (H100 80 GB) has room. */
 export const TURBO_GPU_BYTES = 70e9;
 export const TURBO_MESSAGE = 'Krea Realtime 14B needs the Turbo machine (H100, 80 GB): it does not fit the Standard machine’s 48 GB. Turn the AI machine off, pick Turbo, and turn it on again.';
+/** On the drawing machine (H200 141 GB, or the RTX PRO 6000 96 GB backup) Krea only needs to fit: 40 GB. */
+export const CANVAS_KREA_GPU_BYTES = 40e9;
 /** How much of the stream "Save last 10 s" keeps. */
 export const SAVE_SECONDS = 10;
 
 // ---------------------------------------------------------------- their Python environments
+
+/**
+ * The stamp live_env.sh writes into .installed for `name` (its code commit, uv and, for sdv2, the
+ * PyTorch it was set up with), read from the script itself: the lines from UV_VERSION= to STAMP= are
+ * plain assignments and a case. Null when the script isn't there or can't be read that way.
+ */
+export function liveEnvStamp(script, name, exec = execFileSync) {
+  try {
+    const text = fs.readFileSync(script, 'utf8');
+    const from = text.indexOf('\nUV_VERSION=');
+    const at = text.indexOf('\nSTAMP=');
+    if (from < 0 || at < from) return null;
+    const end = text.indexOf('\n', at + 1);
+    const snippet = text.slice(from + 1, end < 0 ? text.length : end);
+    const out = exec('bash', ['-c', `name="$1"\n${snippet}\nprintf %s "$STAMP"`, 'live-env-stamp', name], { encoding: 'utf8', timeout: 5000, env: { PATH: process.env.PATH || '/usr/bin:/bin' } });
+    return String(out).trim() || null;
+  } catch {
+    return null;
+  }
+}
 
 /**
  * The Python each live video maker runs in, set up once by ai/live_env.sh (code at a pinned commit and
@@ -46,7 +68,22 @@ export function createLiveEnvs(o) {
   const log = o.log || console;
   const jobs = new Map(); // name -> { running, error, line }
   const root = path.join(o.dir, 'live-env');
-  const ready = (name) => fs.existsSync(path.join(root, name, '.installed'));
+  // Set up with what live_env.sh asks for now (an older PyTorch, an older commit: set up again).
+  const stamps = new Map();
+  const stampOf = (name) => {
+    if (!stamps.has(name)) stamps.set(name, o.stamp ? o.stamp(name) : liveEnvStamp(o.script, name));
+    return stamps.get(name);
+  };
+  const ready = (name) => {
+    let have;
+    try {
+      have = fs.readFileSync(path.join(root, name, '.installed'), 'utf8').trim();
+    } catch {
+      return false;
+    }
+    const want = stampOf(name);
+    return want == null || have === want;
+  };
   return {
     root,
     ready,
@@ -86,6 +123,49 @@ export function createLiveEnvs(o) {
 }
 
 // ---------------------------------------------------------------- Krea's own server
+
+/**
+ * Krea ships a SageAttention 2.2.1 wheel built for H100-class cards (Hopper, sm_90: the H200 too).
+ * On another card (the RTX PRO 6000 Blackwell, sm_120) it may import but have no kernel for it, so
+ * the gate runs one tiny attention with Krea's own Python first; when that fails, Krea starts with
+ * DISABLE_SAGEATTENTION=1 (its wan/modules/sage.py honours it) and uses PyTorch's own attention
+ * (scaled_dot_product_attention; FlashAttention isn't in its lockfile). Resolves true when Sage works.
+ */
+export const SAGE_PROBE = [
+  'import torch',
+  'from sageattention import sageattn',
+  'q = torch.randn(1, 8, 256, 64, device="cuda", dtype=torch.bfloat16)',
+  'o = sageattn(q, q, q, tensor_layout="HND", is_causal=False)',
+  'torch.cuda.synchronize()',
+  'assert torch.isfinite(o).all()',
+].join('\n');
+export function sageWorks({ python, spawn = nodeSpawn, timeoutMs = 180_000, env } = {}) {
+  return new Promise((resolve) => {
+    let done = false;
+    const finish = (ok) => {
+      if (!done) {
+        done = true;
+        resolve(ok);
+      }
+    };
+    let c;
+    try {
+      c = spawn(python, ['-c', SAGE_PROBE], { stdio: 'ignore', env: cleanEnv(env) });
+    } catch {
+      return finish(false);
+    }
+    const t = setTimeout(() => {
+      c.kill?.('SIGKILL');
+      finish(false);
+    }, timeoutMs);
+    t.unref?.();
+    c.on('error', () => finish(false));
+    c.on('exit', (code) => {
+      clearTimeout(t);
+      finish(code === 0);
+    });
+  });
+}
 
 /**
  * A local HTTP/WebSocket server process (Krea's release_server.py under uvicorn on 127.0.0.1),
@@ -206,6 +286,8 @@ export function measuredFps(frames) {
  *   sdv2Worker    () => createLiveWorker(...) for live_video_worker.py (made once, reused)
  *   krea          createLiveServer(...) for Krea's server; kreaUrl: its ws:// base
  *   gpuMemory     async () => bytes of GPU memory on this machine (0 when unknown)
+ *   turboBytes    GPU memory Krea needs here (TURBO_GPU_BYTES; CANVAS_KREA_GPU_BYTES on the drawing machine)
+ *   holdMs        how often a held picture is sent again while nothing new comes (125 ms: 8 a second)
  *   makeWay       async () => void: Live draw lets go of the graphics card
  *   activity      () => void
  *   ffmpeg        async (args) => void
@@ -219,11 +301,21 @@ export function createLiveVideo(o) {
   const WS = o.WebSocketImpl || globalThis.WebSocket;
   let current = null; // the one live session on this machine
   let sdv2 = null;
+  const turboBytes = o.turboBytes ?? TURBO_GPU_BYTES;
+  const holdMs = o.holdMs ?? 125;
 
-  /** Open one page's connection. send(msg) delivers to the page. Returns { message(msg), close() }. */
-  function open(send) {
+  /**
+   * Open one page's connection. send(msg) delivers to the page. Returns { message(msg), close() }.
+   * opts (the gate's studio-member door): { maker, source } forced, owner (tags the saved clip).
+   */
+  function open(send, opts = {}) {
     const s = {
       send,
+      // Live Draw's Animate and Living canvas: the picture to start from (or the canvas's last frame),
+      // sent again and again while the page sends nothing newer, so the video keeps going.
+      hold: null,
+      lastInputAt: 0,
+      ticker: null,
       maker: null,
       source: null,
       prompt: '',
@@ -252,8 +344,10 @@ export function createLiveVideo(o) {
     }
 
     async function start(msg) {
-      const maker = msg.maker === 'live-krea' ? 'live-krea' : 'live-sdv2';
-      const source = ['camera', 'canvas', 'text'].includes(msg.source) ? msg.source : 'camera';
+      const maker = opts.maker || (msg.maker === 'live-krea' ? 'live-krea' : 'live-sdv2');
+      const source = opts.source || (['camera', 'canvas', 'text'].includes(msg.source) ? msg.source : 'camera');
+      const still = msg.image != null && msg.image !== '' ? frameBytes(msg.image) : null;
+      if (msg.image != null && msg.image !== '' && !still) throw bad('The picture to start from is not a picture.');
       if (maker === 'live-sdv2' && source === 'text') throw bad('StreamDiffusionV2 restyles your camera or your drawing. Making video from words alone is Krea Realtime’s.');
       s.maker = maker;
       s.source = source;
@@ -262,7 +356,7 @@ export function createLiveVideo(o) {
       if (!s.prompt) throw bad('Describe the look, e.g. “a watercolour painting”.');
       checkWords(s.prompt);
       if (!(await o.studio.makerInstalled(maker))) throw bad(`${maker === 'live-krea' ? 'Krea Realtime' : 'StreamDiffusionV2'} is not installed. Add it in the Store (Makers).`, 503);
-      if (maker === 'live-krea' && (await o.gpuMemory()) < TURBO_GPU_BYTES) throw bad(TURBO_MESSAGE, 409, { turbo: true });
+      if (maker === 'live-krea' && (await o.gpuMemory()) < turboBytes) throw bad(TURBO_MESSAGE, 409, { turbo: true });
       if (o.studio.videoInFlight()) throw bad('Your AI machine is making a video: live video can start when it is done.', 409);
       // One live stream per machine: a newer one takes over.
       if (current && current !== s) {
@@ -277,13 +371,18 @@ export function createLiveVideo(o) {
       s.startedAt = now();
       s.frames = [];
       s.pending = [];
+      s.hold = source === 'text' ? null : still;
+      s.lastInputAt = 0;
       send({ type: 'state', state: 'loading', maker, source });
       if (maker === 'live-sdv2') {
         sdv2 ||= o.sdv2Worker();
         // Loads the model (or answers that it can't).
         const r = await sdv2.request({ op: 'reset' }, { timeout: 15 * 60_000 });
         if (r.error) throw bad(`StreamDiffusionV2 could not start: ${r.error}`, 503);
-        if (s.running) send({ type: 'state', state: 'live', maker, source });
+        if (s.running) {
+          send({ type: 'state', state: 'live', maker, source });
+          holdOn();
+        }
       } else {
         await startKrea();
       }
@@ -324,6 +423,7 @@ export function createLiveVideo(o) {
               }),
             );
             send({ type: 'state', state: 'live', maker: s.maker, source: s.source });
+            holdOn();
           } else if (m.error) send({ type: 'error', status: 502, error: `Krea Realtime: ${JSON.stringify(m.error).slice(0, 200)}` });
           else if (m.status === 'completed' && s.running) send({ type: 'state', state: 'stopped' });
           return;
@@ -360,10 +460,35 @@ export function createLiveVideo(o) {
       }
     }
 
+    /** Repeat the held picture while the page sends nothing newer (a still start, or a pause in drawing). */
+    function holdOn() {
+      if (s.ticker || s.source === 'text') return;
+      s.ticker = setInterval(() => {
+        if (!s.running) return;
+        if (s.hold && now() - s.lastInputAt >= holdMs * 2) feed(s.hold);
+      }, holdMs);
+      s.ticker.unref?.();
+    }
+
     function frame(msg) {
       if (!s.running || s.source === 'text') return;
       const buf = frameBytes(msg.image);
       if (!buf) return send({ type: 'error', status: 400, error: 'That frame is not a picture.' });
+      s.hold = buf;
+      s.lastInputAt = now();
+      feed(buf);
+    }
+
+    /** A new picture to hold (Live Draw: the kept picture changed), sent until frames come again. */
+    function still(msg) {
+      const buf = frameBytes(msg.image);
+      if (!buf) return send({ type: 'error', status: 400, error: 'That picture is not a picture.' });
+      s.hold = buf;
+      s.lastInputAt = 0;
+      if (s.running && s.source !== 'text') feed(buf);
+    }
+
+    function feed(buf) {
       if (s.maker === 'live-sdv2') {
         s.pending.push(buf);
         // Never more than about a second behind: the oldest frames go.
@@ -386,6 +511,10 @@ export function createLiveVideo(o) {
     }
 
     s.stop = () => {
+      if (s.ticker) {
+        clearInterval(s.ticker);
+        s.ticker = null;
+      }
       if (!s.running && !s.krea) return;
       s.running = false;
       s.pending = [];
@@ -417,7 +546,7 @@ export function createLiveVideo(o) {
         await fsp.rm(tmp, { recursive: true, force: true });
       }
       const seconds = Math.round(((frames.length / fps) * 10)) / 10;
-      return o.studio.addItem({ kind: 'video', maker: s.maker, prompt: s.prompt, file: rel, seconds, photo: s.source === 'camera' });
+      return o.studio.addItem({ kind: 'video', maker: s.maker, prompt: s.prompt, file: rel, seconds, photo: s.source === 'camera', ...(opts.owner ? { owner: opts.owner } : {}) });
     }
 
     return {
@@ -425,6 +554,7 @@ export function createLiveVideo(o) {
         try {
           if (msg.type === 'start') return await start(msg);
           if (msg.type === 'frame') return frame(msg);
+          if (msg.type === 'still') return still(msg);
           if (msg.type === 'prompt') return prompt(msg);
           if (msg.type === 'strength') {
             s.strength = Math.min(0.95, Math.max(0.3, Number(msg.strength) || s.strength));

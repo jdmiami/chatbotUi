@@ -229,3 +229,23 @@ test('download manager: pausing a copy from cloud storage leaves no full-size pl
   studio2.resumeDownloads();
   await until(async () => (await studio2.makers()).find((m) => m.id === 'qwen')?.installed);
 });
+
+test('downloads: on a global volume a file comes down onto the pod disk first, then is copied to the drive', async () => {
+  const dir = await dirWithout('img.safetensors');
+  const stageDir = await fs.mkdtemp(path.join(os.tmpdir(), 'stage-'));
+  const staged = [];
+  const fetchImpl = async (url) => {
+    const u = new URL(url);
+    if (u.hostname !== 'huggingface.co') return services(u);
+    staged.push(...(await fs.readdir(stageDir)));
+    return new Response(new Uint8Array([1, 2, 3, 4, 5, 6, 7, 8]), { status: 200, headers: { 'content-length': '8' } });
+  };
+  // The drive reports no free space (object storage); only the pod disk's counts.
+  const statfs = async (p) => (p === stageDir ? { bavail: 1e6, bsize: 1024 ** 2 } : { bavail: 0, bsize: 1024 });
+  const studio = createStudio({ dir, files: FILES, fetchImpl, WebSocketImpl: null, log: quiet, retryMs: 10, statfs, stageDir, nsfwDelayMs: 1e9 });
+  studio.start();
+  await until(async () => (await studio.makers()).find((m) => m.id === 'qwen')?.installed);
+  assert.deepEqual([...(await fs.readFile(path.join(dir, 'models', 'diffusion_models', 'img.safetensors')))], [1, 2, 3, 4, 5, 6, 7, 8]);
+  await assert.rejects(fs.stat(path.join(dir, 'models', 'diffusion_models', 'img.safetensors.part')), 'no .part on the drive');
+  assert.deepEqual(await fs.readdir(stageDir), [], 'the staged copy is removed');
+});

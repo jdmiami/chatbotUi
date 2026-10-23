@@ -12,8 +12,13 @@ import { AUTO_OFF, autoOffMinutesOf, autoOffSentence, untilText } from '../../se
  * turns itself off, how busy it is), with the switches. Read from the site's /api/status.
  */
 
+type MachineId = 'ai' | 'linux' | 'canvas';
+const MACHINE_NAME: Record<MachineId, string> = { ai: 'AI machine', linux: 'Linux machine', canvas: 'Drawing machine' };
+/** The drawing machine is always called that here, whatever the site calls it. */
+const named = (s: Status): Status => ({ ...s, machines: (s.machines ?? []).map((m) => (m.id === 'canvas' ? { ...m, name: MACHINE_NAME.canvas } : m)) });
+
 interface Machine {
-  id: 'ai' | 'linux';
+  id: MachineId;
   name: string;
   state: string;
   detail?: string;
@@ -50,7 +55,7 @@ export function UsageSection({ active }: { active: boolean }) {
   const [busy, setBusy] = useState<string | null>(null);
   const [now, setNow] = useState(() => Date.now());
   // Turning a machine off ends what runs on it (terminals, jobs): the first tap asks, the second does it.
-  const [armed, setArmed] = useState<'ai' | 'linux' | null>(null);
+  const [armed, setArmed] = useState<MachineId | null>(null);
   useEffect(() => {
     if (!armed) return;
     const t = setTimeout(() => setArmed(null), 4000);
@@ -61,7 +66,7 @@ export function UsageSection({ active }: { active: boolean }) {
     try {
       const res = await fetch('/api/status', { credentials: 'same-origin', cache: 'no-store' });
       if (!res.ok || !(res.headers.get('content-type') ?? '').includes('json')) throw new Error(String(res.status));
-      setStatus((await res.json()) as Status);
+      setStatus(named((await res.json()) as Status));
       setUnavailable(false);
     } catch {
       setUnavailable(true);
@@ -78,7 +83,7 @@ export function UsageSection({ active }: { active: boolean }) {
 
   const minutes = autoOffMinutesOf(status?.autoOff?.minutes, status?.machines[0]?.autoOffMinutes);
   const step = status?.autoOff?.keepOnMinutes ?? AUTO_OFF.keepOnMinutes;
-  const act = async (machine: 'ai' | 'linux', action: 'start' | 'stop' | 'extend') => {
+  const act = async (machine: MachineId, action: 'start' | 'stop' | 'extend') => {
     setBusy(`${machine}:${action}`);
     try {
       const res = await fetch('/api/status', {
@@ -89,8 +94,8 @@ export function UsageSection({ active }: { active: boolean }) {
       });
       const body = (await res.json().catch(() => ({}))) as Status & { error?: string };
       if (!res.ok) throw new Error(body.error ?? `Request failed (${res.status})`);
-      setStatus(body);
-      if (action === 'extend') toast(`The ${machine === 'ai' ? 'AI' : 'Linux'} machine stays on ${step} more minutes.`, 'success');
+      setStatus(named(body));
+      if (action === 'extend') toast(`The ${MACHINE_NAME[machine]} stays on ${step} more minutes.`, 'success');
     } catch (err) {
       toast((err as Error).message, 'error');
     } finally {

@@ -34,6 +34,7 @@ const raw: Record<AppId, () => Promise<{ default: ComponentType<AppProps> }>> = 
   agent: () => import('./agent/AgentApp'),
   ai: () => import('./ai/AiApp'),
   make: () => import('./make/MakeApp'),
+  livedraw: () => import('./livedraw/LiveDrawApp'),
   store: () => import('./store/StoreApp'),
   soreal: () => import('./soreal/SoRealApp'),
   lab: () => import('./lab/LabApp'),
@@ -118,6 +119,15 @@ export const APPS: Record<AppId, AppMeta> = {
     tile: 'linear-gradient(145deg, #ff9a62, #e0457b 55%, #5b2a86)',
     glyph: '#fff4ea',
     component: lazy(loaders.make),
+  },
+  livedraw: {
+    id: 'livedraw',
+    name: 'Live Draw',
+    description: 'Draw, and watch the drawing machine turn it into a picture underneath your lines',
+    icon: 'pencil',
+    tile: 'linear-gradient(145deg, #3b2a6e, #7b3fd1 55%, #ff6fae)',
+    glyph: '#fff4fb',
+    component: lazy(loaders.livedraw),
   },
   soreal: {
     id: 'soreal',

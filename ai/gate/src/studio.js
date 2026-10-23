@@ -214,6 +214,9 @@ export function outputFiles(outputs) {
  *   files      model files per kind (STUDIO_FILES)
  *   r2         Cloudflare R2 client (createR2) when the machine has no network volume: model files,
  *              the gallery and settings are kept there and come back down after a restart
+ *   gallery    an R2 client for the gallery only (GALLERY=r2 on a volume: the drawing machine); r2 when unset
+ *   role       main | helper | canvas (its own state file, timings and ComfyUI folder per role)
+ *   makers     maker ids this machine keeps instead of the built-ins (the drawing machine's short list)
  *   hfToken    a Hugging Face token (HF_TOKEN), for gated model files (LTX-2.5); never logged or shown
  *   fetchImpl, WebSocketImpl, log, now, ffmpeg, probe     (tests)
  */
@@ -231,9 +234,16 @@ export function createStudio(o) {
   // A helper machine shares the main machine's files: it makes things but never downloads or
   // deletes model files (the main machine does that). With R2 each machine has its own disk, so a
   // helper downloads what it needs too (from R2).
-  const helper = Boolean(o.helper);
+  const role = o.role || (o.helper ? 'helper' : 'main');
+  const helper = role === 'helper';
+  // Files named per role, so machines sharing a folder never write each other's.
+  const perRole = (name, ext = '') => (role === 'main' ? `${name}${ext}` : `${name}-${role}${ext}`);
   const r2 = o.r2 || null;
-  const mirror = r2 ? createMirror({ r2, root: path.join(dir, 'output'), prefix: 'gallery/', log }) : null;
+  // The gallery can be in R2 while everything else is on a volume (the drawing machine).
+  const galleryR2 = o.gallery || r2;
+  const mirror = galleryR2 ? createMirror({ r2: galleryR2, root: path.join(dir, 'output'), prefix: 'gallery/', log }) : null;
+  // A machine with its own short list keeps only those makers (and what is added), not the built-ins.
+  const only = Array.isArray(o.makers) ? new Set(o.makers) : null;
   const modelKey = (file) => `models/${file.dir}/${file.name}`;
   const ffmpeg = o.ffmpeg || runFfmpeg;
   const probe = o.probe || probeMedia;
@@ -276,6 +286,20 @@ export function createStudio(o) {
   let ws = null;
 
   const modelPath = (file) => path.join(dir, 'models', file.dir, file.name);
+  // On a global volume (the drawing machine) model files are not written in place: its object storage
+  // can't append or rename cheaply, so each file comes down onto the pod's own disk (o.stageDir) and
+  // is then copied over in one pass. Free space is the pod disk's, and it only needs one file at a time.
+  const stageDir = o.stageDir || null;
+  const partPath = (file) => (stageDir ? path.join(stageDir, `${file.dir}/${file.name}`.replace(/[\\/]/g, '__')) + '.part' : `${modelPath(file)}.part`);
+  async function place(part, dest, file) {
+    if (!stageDir) return fsp.rename(part, dest);
+    // A file whose size is known is told apart from a half-copied one by its size; one without is
+    // copied under another name first.
+    const to = file.size ? dest : `${dest}.copying`;
+    await pipeline(fs.createReadStream(part), fs.createWriteStream(to));
+    if (to !== dest) await fsp.rename(to, dest);
+    await fsp.rm(part, { force: true });
+  }
   // Files are told apart by folder and name (Live draw has several config.json files).
   const fid = (file) => `${file.dir}/${file.name}`;
   const wantedPath = path.join(dir, 'makers.json');
@@ -292,11 +316,14 @@ export function createStudio(o) {
     if (m.id === 'ltx') return files.video;
     return m.files.map((k) => (k in QWEN_KEYS ? files.image[QWEN_KEYS[k]] : k.startsWith('style:') ? m.loraFile : FILES[k])).filter(Boolean);
   }
-  const kept = () => MAKERS.filter((m) => m.builtIn || wanted.has(m.id));
+  const keeps = (m) => (only ? only.has(m.id) : m.builtIn) || wanted.has(m.id);
+  // A short list also sets the download order (what is needed first comes down first).
+  const rank = (m) => (only?.has(m.id) ? [...only].indexOf(m.id) : Infinity);
+  const kept = () => (only ? MAKERS.filter(keeps).sort((a, b) => rank(a) - rank(b)) : MAKERS.filter(keeps));
   /** Every file to keep on the machine, in download order: the built-in image and video makers first. */
   function neededFiles() {
     const seen = new Map();
-    for (const kind of ['image', 'video']) for (const file of files[kind]) seen.set(fid(file), file);
+    if (!only) for (const kind of ['image', 'video']) for (const file of files[kind]) seen.set(fid(file), file);
     for (const m of kept()) for (const file of makerFiles(m)) if (!seen.has(fid(file))) seen.set(fid(file), file);
     return [...seen.values()];
   }
@@ -311,7 +338,7 @@ export function createStudio(o) {
   const GB = 1024 ** 3;
   /** Free space where the models go (null when it can't be read). */
   async function freeBytes() {
-    const st = await (o.statfs || fsp.statfs)(path.join(dir, 'models')).catch(() => (o.statfs || fsp.statfs)(dir).catch(() => null));
+    const st = await (o.statfs || fsp.statfs)(stageDir || path.join(dir, 'models')).catch(() => (o.statfs || fsp.statfs)(dir).catch(() => null));
     return st ? Number(st.bavail) * Number(st.bsize) : null;
   }
   const diskFull = (file, free) =>
@@ -327,8 +354,9 @@ export function createStudio(o) {
 
   async function fetchFile(file) {
     const dest = modelPath(file);
-    const part = `${dest}.part`;
+    const part = partPath(file);
     await fsp.mkdir(path.dirname(dest), { recursive: true });
+    await fsp.mkdir(path.dirname(part), { recursive: true });
     // Kept in R2 already: bring it down in parallel pieces (much faster than the model's home site).
     const kept = r2 ? await r2.head(modelKey(file)).catch(() => null) : null;
     if (kept && (!file.size || kept.size === file.size)) {
@@ -343,13 +371,14 @@ export function createStudio(o) {
         await fsp.rm(part, { force: true });
         throw err;
       }
-      await fsp.rename(part, dest);
+      await place(part, dest, file);
       return;
     }
     const have = (await fsp.stat(part).catch(() => null))?.size || 0;
     await roomFor(file, (file.size || 0) - have);
     // Most files come from Hugging Face; a few only from their makers' own site (`url`, pix2pix-turbo's LoRA).
-    const url = file.url || `https://huggingface.co/${file.repo}/resolve/main/${file.path.split('/').map(encodeURIComponent).join('/')}`;
+    // A file pinned to a revision (Live Draw's engines: sizes are checked exactly) comes from that commit.
+    const url = file.url || `https://huggingface.co/${file.repo}/resolve/${file.revision || 'main'}/${file.path.split('/').map(encodeURIComponent).join('/')}`;
     if (file.gated && !hfToken) throw Object.assign(new Error(TOKEN_MESSAGE), { permanent: true });
     const headers = { ...(have ? { range: `bytes=${have}-` } : {}), ...(file.gated ? { authorization: `Bearer ${hfToken}` } : {}) };
     // A connection that stops sending is cut after STALL_DOWNLOAD_MS and the file picks up where it was.
@@ -396,7 +425,8 @@ export function createStudio(o) {
     }
     const size = (await fsp.stat(part)).size;
     if (file.size && size !== file.size) throw new Error(`download ${file.name}: got ${size} of ${file.size} bytes`);
-    await fsp.rename(part, dest);
+    if (stageDir) begin(file, 'the drive', 0, size, true);
+    await place(part, dest, file);
     // Keep a copy in R2 so the next start doesn't download it from its home site again.
     if (r2) {
       begin(file, 'cloud storage', 0, size, true);
@@ -493,7 +523,7 @@ export function createStudio(o) {
       const id = fid(file);
       if (download.done.has(id) || (c && c.id === id)) continue;
       if (await haveFile(file)) continue;
-      const part = (await fsp.stat(`${modelPath(file)}.part`).catch(() => null))?.size || 0;
+      const part = (await fsp.stat(partPath(file)).catch(() => null))?.size || 0;
       queue.push({ id, name: file.name, size: file.size || 0, have: part, makers: owners.get(id) ?? [], problem: blocked.get(id) || null });
     }
     const waiting = queue.filter((q) => !q.problem);
@@ -613,7 +643,7 @@ export function createStudio(o) {
         // Its files are here and its Python is being set up: what it is doing.
         setup: filesHere && env?.installing ? env.step || 'Setting up' : undefined,
         builtIn: Boolean(m.builtIn),
-        wanted: Boolean(m.builtIn || wanted.has(m.id)),
+        wanted: keeps(m),
         installed,
         size: total,
         percent: installed ? 100 : filesHere ? 99 : total ? Math.min(99, Math.floor((done / total) * 100)) : 0,
@@ -624,7 +654,7 @@ export function createStudio(o) {
             ? /disk space/.test(why)
               ? 'disk'
               : 'blocked'
-            : !(m.builtIn || wanted.has(m.id))
+            : !keeps(m)
               ? undefined
               : mine
                 ? download.current.saving
@@ -655,11 +685,13 @@ export function createStudio(o) {
     if (m.turboOnly && (await o.gpuMemory?.().catch(() => 0)) < (o.turboBytes ?? 70e9)) throw Object.assign(new Error(o.turboMessage || 'This maker needs the Turbo machine (80 GB).'), { status: 409, turbo: true });
     // Refused up front when its files can't fit (with 2 GB to spare), instead of stopping half way.
     // What is left to download: a file half-way down (.part) only needs the rest, as fetchFile counts it.
+    // Staged downloads (a global volume) only need room for the biggest file at a time.
     let need = 0;
     for (const file of makerFiles(m)) {
       if (await haveFile(file)) continue;
-      const part = await fsp.stat(`${modelPath(file)}.part`).catch(() => null);
-      need += Math.max(0, (file.size || 0) - (part?.size || 0));
+      const part = await fsp.stat(partPath(file)).catch(() => null);
+      const left = Math.max(0, (file.size || 0) - (part?.size || 0));
+      need = stageDir ? Math.max(need, left) : need + left;
     }
     const free = need ? await freeBytes() : null;
     if (free != null && free < need + 2 * GB) {
@@ -702,7 +734,7 @@ export function createStudio(o) {
       if (keep.has(fid(file))) continue;
       download.done.delete(fid(file));
       await fsp.rm(modelPath(file), { force: true });
-      await fsp.rm(`${modelPath(file)}.part`, { force: true });
+      await fsp.rm(partPath(file), { force: true });
       if (r2) await r2.remove(modelKey(file)).catch(() => {});
     }
     // Its own Python goes too (unless another kept maker uses it).
@@ -746,7 +778,7 @@ export function createStudio(o) {
   const comfyUp = () => comfyJson('/system_stats', { timeout: 3000 }).then(() => true, () => false);
 
   async function setupState() {
-    return (await fsp.readFile(path.join(dir, helper ? 'state-helper' : 'state'), 'utf8').catch(() => 'installing')).trim();
+    return (await fsp.readFile(path.join(dir, perRole('state')), 'utf8').catch(() => 'installing')).trim();
   }
 
   let wsOpen = false;
@@ -853,7 +885,7 @@ export function createStudio(o) {
   let loadedMaker = null; // the maker whose models ComfyUI has in memory
 
   // Learned timings (ms per unit), kept on the volume.
-  const timingsPath = path.join(dir, helper ? 'timings-helper.json' : 'timings.json');
+  const timingsPath = path.join(dir, perRole('timings', '.json'));
   let timings = {};
   try {
     timings = JSON.parse(fs.readFileSync(timingsPath, 'utf8')) || {};
@@ -1227,7 +1259,20 @@ export function createStudio(o) {
     } else if (mode === 'sketch') {
       // Your drawing, finished: Z-Image-Turbo follows its lines (Fun ControlNet Union 2.1).
       [width, height] = SIZES.sketch[req.size] || SIZES.sketch.square;
-      workflow = zimageSketchWorkflow({ prompt, sketch: inputs[0], width, height, strength: sketchStrength(req.follow), prefix });
+      // Strokes on a transparent background (Live Draw) are laid on white; a second picture (Live Draw's
+      // canvas as it looks) is where the finished picture starts from.
+      const sketchSize = await pngSize(path.join(dir, 'input', inputs[0]));
+      workflow = zimageSketchWorkflow({
+        prompt,
+        sketch: inputs[0],
+        width,
+        height,
+        strength: sketchStrength(req.follow),
+        prefix,
+        sketchSize,
+        start: inputs[1] || null,
+        denoise: req.startStrength,
+      });
     } else if (mode === 'upscale') {
       prompt = prompt || 'Sharpened 4×';
       workflow = upscaleWorkflow({ image: inputs[0], prefix, model: FILES[maker.files[0]].name });
@@ -1462,7 +1507,7 @@ export function createStudio(o) {
   /** Hard reset: end the ComfyUI process; studio.sh starts a fresh one within seconds. */
   async function restartComfy() {
     if (o.restartComfy) return o.restartComfy();
-    const pidFile = path.join(dir, `machine-${helper ? 'helper' : 'main'}`, 'comfy.pid');
+    const pidFile = path.join(dir, `machine-${role}`, 'comfy.pid');
     const pid = Number((await fsp.readFile(pidFile, 'utf8').catch(() => '')).trim());
     if (!pid) return false;
     try {
