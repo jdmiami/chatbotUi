@@ -2,7 +2,7 @@ import { expect, test } from '@playwright/test';
 import { expectNoHorizontalOverflow } from './helpers';
 import { mockAi, setShowNsfw } from './aiMocks';
 
-/** The Lab as its own app (from the Index): the same Lab screen as the AI app's Lab tab. */
+/** The Lab as its own app (from the Index). */
 test('the Lab app opens from the Index and shows what it is making and what comes next', async ({ page }) => {
   await mockAi(page, 'on');
   const lab = {
@@ -16,7 +16,7 @@ test('the Lab app opens from the Index and shows what it is making and what come
   page.on('pageerror', (e) => errors.push(e.message));
   await page.addInitScript(() => {
     if (!localStorage.getItem('orbit:shell:v1'))
-      localStorage.setItem('orbit:shell:v1', JSON.stringify({ state: { settings: { orb: false, motion: 'reduce', motionPicked: true, skin: 'o5', introSeen: true } }, version: 0 }));
+      localStorage.setItem('orbit:shell:v1', JSON.stringify({ state: { settings: { orb: false, motion: 'reduce', motionPicked: true, introSeen: true } }, version: 0 }));
   });
   await page.goto('/');
   await page.getByRole('button', { name: /^Index/ }).click();
@@ -47,7 +47,7 @@ test('the Lab switches between spicy and comedy', async ({ page }) => {
   });
   await page.addInitScript(() => {
     if (!localStorage.getItem('orbit:shell:v1'))
-      localStorage.setItem('orbit:shell:v1', JSON.stringify({ state: { settings: { orb: false, motion: 'reduce', motionPicked: true, skin: 'o5', introSeen: true } }, version: 0 }));
+      localStorage.setItem('orbit:shell:v1', JSON.stringify({ state: { settings: { orb: false, motion: 'reduce', motionPicked: true, introSeen: true } }, version: 0 }));
   });
   await page.goto('/');
   await page.getByRole('button', { name: /^Index/ }).click();
@@ -106,7 +106,7 @@ test('Your style: 30-second movies from your own prompts, with a profile you can
   });
   await page.addInitScript(() => {
     if (!localStorage.getItem('orbit:shell:v1'))
-      localStorage.setItem('orbit:shell:v1', JSON.stringify({ state: { settings: { orb: false, motion: 'reduce', motionPicked: true, skin: 'o5', introSeen: true } }, version: 0 }));
+      localStorage.setItem('orbit:shell:v1', JSON.stringify({ state: { settings: { orb: false, motion: 'reduce', motionPicked: true, introSeen: true } }, version: 0 }));
   });
   await page.goto('/');
   await page.getByRole('button', { name: /^Index/ }).click();
@@ -185,10 +185,10 @@ const labState = () => ({
   ],
 });
 
-async function openLabIn(page: import('@playwright/test').Page, skin: 'classic' | 'o5') {
-  await page.addInitScript((s) => {
+async function openLab(page: import('@playwright/test').Page) {
+  await page.addInitScript(() => {
     if (!localStorage.getItem('orbit:shell:v1'))
-      localStorage.setItem('orbit:shell:v1', JSON.stringify({ state: { settings: { orb: false, motion: 'reduce', motionPicked: true, introSeen: true, ...(s === 'o5' ? { skin: 'o5' } : {}) } }, version: 0 }));
+      localStorage.setItem('orbit:shell:v1', JSON.stringify({ state: { settings: { orb: false, motion: 'reduce', motionPicked: true, introSeen: true } }, version: 0 }));
     // Count play() and pause() (the test files are not real videos).
     const w = window as unknown as { plays: number; pauses: number };
     w.plays = 0;
@@ -200,133 +200,123 @@ async function openLabIn(page: import('@playwright/test').Page, skin: 'classic' 
     HTMLMediaElement.prototype.pause = function () {
       w.pauses++;
     };
-  }, skin);
-  await page.goto('/');
-  if (skin === 'o5') {
-    await page.getByRole('button', { name: /^Index/ }).click();
-    await page.getByRole('dialog', { name: 'Index' }).locator('.o5-index-list').getByRole('button', { name: /Lab/ }).click();
-    return page.locator('.app-window[data-app="lab"]').getByRole('region', { name: 'Lab' });
-  }
-  const icon = page.getByRole('button', { name: /^AI\./ });
-  const win = page.locator('.app-window[data-app="ai"]');
-  await expect(win.or(icon).first()).toBeVisible();
-  if (!(await win.isVisible())) await icon.click();
-  await page.getByRole('group', { name: 'Chat or lab' }).getByRole('button', { name: 'Lab' }).click();
-  return page.getByRole('region', { name: 'Lab' });
-}
-
-for (const skin of ['classic', 'o5'] as const) {
-  test(`Lab gallery (${skin}): the Make gallery's tiles, a viewer with the score and why, NSFW hidden until shown, plays`, async ({ page }, testInfo) => {
-    await mockAi(page, 'on');
-    let lab = labState();
-    const calls: string[] = [];
-    const marks: unknown[] = [];
-    await page.route('**/fake-ai/_orbit/studio/lab**', async (route) => {
-      const req = route.request();
-      const p = new URL(req.url()).pathname.replace(/.*\/_orbit\/studio/, '');
-      calls.push(`${req.method()} ${p}`);
-      const keep = /^\/lab\/(\w+)\/keep$/.exec(p);
-      if (keep) lab = { ...lab, records: lab.records.filter((r) => r.id !== keep[1]) };
-      const del = /^\/lab\/(\w+)$/.exec(p);
-      if (del && req.method() === 'DELETE') lab = { ...lab, records: lab.records.filter((r) => r.id !== del[1]) };
-      await route.fulfill({ json: lab });
-    });
-    await page.route('**/fake-ai/_orbit/studio/items/*/nsfw', (route) => {
-      marks.push(route.request().postDataJSON());
-      return route.fulfill({ json: { ok: true } });
-    });
-    await page.route('**/fake-ai/_orbit/studio/file/**', (route) => route.fulfill({ status: 200, headers: { 'content-type': 'video/mp4' }, body: '' }));
-    const errors: string[] = [];
-    page.on('pageerror', (e) => errors.push(e.message));
-    const section = await openLabIn(page, skin);
-
-    // The same tile grid as Make, best first, the score on each judged one.
-    const gallery = section.getByRole('list', { name: 'Lab movies, best first' });
-    await expect(gallery).toHaveClass(/ai-gallery/);
-    // The NSFW one is hidden (no blur): two show.
-    await expect(gallery.getByRole('listitem')).toHaveCount(2);
-    await expect(gallery.getByRole('button', { name: 'Video: Pool night' })).toHaveCount(0);
-    await expect(gallery.getByRole('listitem').first()).toContainText('91');
-    // As wide as the screen allows, never wider (no sideways scroll inside the Lab either).
-    const gb = (await gallery.boundingBox())!;
-    expect(gb.x).toBeGreaterThanOrEqual(0);
-    expect(gb.x + gb.width).toBeLessThanOrEqual(page.viewportSize()!.width + 1);
-    expect(await page.evaluate(() => [...document.querySelectorAll('.meme-lab, .ai-create, .lab-scroll')].some((e) => e.scrollWidth > e.clientWidth + 1))).toBe(false);
-    await expect(gallery.locator('.censor')).toHaveCount(0);
-    // Every video shows its first frame (not black): a tenth of a second in, metadata loaded.
-    for (const v of await gallery.locator('video').all()) {
-      expect(await v.getAttribute('src')).toMatch(/#t=0\.1$/);
-      expect(await v.getAttribute('preload')).toBe('metadata');
-    }
-
-    // Tap the best one: the viewer, with the judge's scouting report.
-    await gallery.getByRole('button', { name: 'Video: Rooftop glance' }).click();
-    const viewer = page.getByRole('dialog', { name: 'Lab movie' });
-    const report = viewer.getByRole('region', { name: 'Scouting report' });
-    await expect(report).toContainText('Ready to post');
-    await expect(report).toContainText('30 s movie');
-    await expect(report.getByLabel('Viral score 91 of 100')).toHaveText('91');
-    await expect(report).toContainText('Why: Eye contact in the first second and a clean loop.');
-    await expect(viewer).toContainText('Rooftop glance caption');
-    await expect(viewer).toContainText('#fyp');
-    // No blur, and it plays with its own controls.
-    const video = viewer.locator('.ai-viewer-media video');
-    await expect(video).toHaveAttribute('controls', '');
-    expect(await video.evaluate((el) => getComputedStyle(el).pointerEvents)).not.toBe('none');
-    expect(await video.evaluate((el) => getComputedStyle(el).filter)).toBe('none');
-    // The Make viewer's switch: mark it NSFW (saved on the AI machine), then unmark it.
-    const sw = viewer.getByRole('switch', { name: 'NSFW', exact: true });
-    await expect(sw).not.toBeChecked();
-    await sw.click();
-    await expect(sw).toBeChecked();
-    await expect.poll(() => marks).toEqual([{ nsfw: true }]);
-    await sw.click();
-    await expect(sw).not.toBeChecked();
-    expect(await video.evaluate((el) => getComputedStyle(el).filter)).toBe('none');
-    await expect(viewer.getByRole('button', { name: 'Copy caption' })).toBeVisible();
-    for (const b of await viewer.getByRole('button').all()) {
-      const bb = await b.boundingBox();
-      if (bb) expect(Math.min(bb.width, bb.height), `${await b.getAttribute('aria-label') ?? await b.textContent()} is a 44 px target`).toBeGreaterThanOrEqual(44);
-    }
-    await expectNoHorizontalOverflow(page);
-    await page.screenshot({ path: testInfo.outputPath(`lab-viewer-${skin}.png`) });
-
-    // Keep: into your gallery.
-    await viewer.getByRole('button', { name: 'Keep in my gallery' }).click();
-    await expect(viewer).toHaveCount(0);
-    expect(calls).toContain('POST /lab/clear1/keep');
-    await expect(gallery.getByRole('listitem')).toHaveCount(1);
-
-    // Waiting to be judged: says so. Delete asks first.
-    await gallery.getByRole('button', { name: 'Video: Gym crush energy' }).click();
-    await expect(viewer.getByRole('region', { name: 'Scouting report' })).toContainText('Waiting to be judged');
-    await viewer.getByRole('button', { name: 'Delete' }).click();
-    await page.getByRole('dialog', { name: 'Delete this?' }).getByRole('button', { name: 'Delete' }).click();
-    expect(calls).toContain('DELETE /lab/wait1');
-    // Only the hidden NSFW one is left.
-    await expect(section.getByText(/One NSFW result is hidden/)).toBeVisible();
-
-    // Show NSFW: it shows, blurred; in the viewer it plays while held.
-    await expect(section.getByRole('switch', { name: 'Show NSFW' })).toHaveCount(0);
-    await setShowNsfw(page, true);
-    await expect(gallery.locator('.censor')).toHaveCount(1);
-    await gallery.getByRole('button', { name: 'Video: Pool night' }).click();
-    await expect(viewer.getByRole('switch', { name: 'NSFW', exact: true })).toBeChecked();
-    const media = viewer.locator('.ai-viewer-media.censor');
-    await expect(media).toBeVisible();
-    expect(await media.locator('video').evaluate((el) => getComputedStyle(el).filter)).toContain('blur');
-    const plays = await page.evaluate(() => (window as unknown as { plays: number }).plays);
-    const mb = (await media.boundingBox())!;
-    await page.mouse.move(mb.x + mb.width / 2, mb.y + Math.min(mb.height / 2, 120));
-    await page.mouse.down();
-    await expect(media).toHaveAttribute('data-revealed', '');
-    await expect.poll(() => page.evaluate(() => (window as unknown as { plays: number }).plays)).toBeGreaterThan(plays);
-    await page.mouse.up();
-    await expect(media).not.toHaveAttribute('data-revealed', '');
-    await expectNoHorizontalOverflow(page);
-    expect(errors).toEqual([]);
   });
+  await page.goto('/');
+  await page.getByRole('button', { name: /^Index/ }).click();
+  await page.getByRole('dialog', { name: 'Index' }).locator('.o5-index-list').getByRole('button', { name: /Lab/ }).click();
+  return page.locator('.app-window[data-app="lab"]').getByRole('region', { name: 'Lab' });
 }
+
+test(`Lab gallery: the Make gallery's tiles, a viewer with the score and why, NSFW hidden until shown, plays`, async ({ page }, testInfo) => {
+  await mockAi(page, 'on');
+  let lab = labState();
+  const calls: string[] = [];
+  const marks: unknown[] = [];
+  await page.route('**/fake-ai/_orbit/studio/lab**', async (route) => {
+    const req = route.request();
+    const p = new URL(req.url()).pathname.replace(/.*\/_orbit\/studio/, '');
+    calls.push(`${req.method()} ${p}`);
+    const keep = /^\/lab\/(\w+)\/keep$/.exec(p);
+    if (keep) lab = { ...lab, records: lab.records.filter((r) => r.id !== keep[1]) };
+    const del = /^\/lab\/(\w+)$/.exec(p);
+    if (del && req.method() === 'DELETE') lab = { ...lab, records: lab.records.filter((r) => r.id !== del[1]) };
+    await route.fulfill({ json: lab });
+  });
+  await page.route('**/fake-ai/_orbit/studio/items/*/nsfw', (route) => {
+    marks.push(route.request().postDataJSON());
+    return route.fulfill({ json: { ok: true } });
+  });
+  await page.route('**/fake-ai/_orbit/studio/file/**', (route) => route.fulfill({ status: 200, headers: { 'content-type': 'video/mp4' }, body: '' }));
+  const errors: string[] = [];
+  page.on('pageerror', (e) => errors.push(e.message));
+  const section = await openLab(page);
+
+  // The same tile grid as Make, best first, the score on each judged one.
+  const gallery = section.getByRole('list', { name: 'Lab movies, best first' });
+  await expect(gallery).toHaveClass(/ai-gallery/);
+  // The NSFW one is hidden (no blur): two show.
+  await expect(gallery.getByRole('listitem')).toHaveCount(2);
+  await expect(gallery.getByRole('button', { name: 'Video: Pool night' })).toHaveCount(0);
+  await expect(gallery.getByRole('listitem').first()).toContainText('91');
+  // As wide as the screen allows, never wider (no sideways scroll inside the Lab either).
+  const gb = (await gallery.boundingBox())!;
+  expect(gb.x).toBeGreaterThanOrEqual(0);
+  expect(gb.x + gb.width).toBeLessThanOrEqual(page.viewportSize()!.width + 1);
+  expect(await page.evaluate(() => [...document.querySelectorAll('.meme-lab, .ai-create, .lab-scroll')].some((e) => e.scrollWidth > e.clientWidth + 1))).toBe(false);
+  await expect(gallery.locator('.censor')).toHaveCount(0);
+  // Every video shows its first frame (not black): a tenth of a second in, metadata loaded.
+  for (const v of await gallery.locator('video').all()) {
+    expect(await v.getAttribute('src')).toMatch(/#t=0\.1$/);
+    expect(await v.getAttribute('preload')).toBe('metadata');
+  }
+
+  // Tap the best one: the viewer, with the judge's scouting report.
+  await gallery.getByRole('button', { name: 'Video: Rooftop glance' }).click();
+  const viewer = page.getByRole('dialog', { name: 'Lab movie' });
+  const report = viewer.getByRole('region', { name: 'Scouting report' });
+  await expect(report).toContainText('Ready to post');
+  await expect(report).toContainText('30 s movie');
+  await expect(report.getByLabel('Viral score 91 of 100')).toHaveText('91');
+  await expect(report).toContainText('Why: Eye contact in the first second and a clean loop.');
+  await expect(viewer).toContainText('Rooftop glance caption');
+  await expect(viewer).toContainText('#fyp');
+  // No blur, and it plays with its own controls.
+  const video = viewer.locator('.ai-viewer-media video');
+  await expect(video).toHaveAttribute('controls', '');
+  expect(await video.evaluate((el) => getComputedStyle(el).pointerEvents)).not.toBe('none');
+  expect(await video.evaluate((el) => getComputedStyle(el).filter)).toBe('none');
+  // The Make viewer's switch: mark it NSFW (saved on the AI machine), then unmark it.
+  const sw = viewer.getByRole('switch', { name: 'NSFW', exact: true });
+  await expect(sw).not.toBeChecked();
+  await sw.click();
+  await expect(sw).toBeChecked();
+  await expect.poll(() => marks).toEqual([{ nsfw: true }]);
+  await sw.click();
+  await expect(sw).not.toBeChecked();
+  expect(await video.evaluate((el) => getComputedStyle(el).filter)).toBe('none');
+  await expect(viewer.getByRole('button', { name: 'Copy caption' })).toBeVisible();
+  for (const b of await viewer.getByRole('button').all()) {
+    const bb = await b.boundingBox();
+    if (bb) expect(Math.min(bb.width, bb.height), `${await b.getAttribute('aria-label') ?? await b.textContent()} is a 44 px target`).toBeGreaterThanOrEqual(44);
+  }
+  await expectNoHorizontalOverflow(page);
+  await page.screenshot({ path: testInfo.outputPath('lab-viewer.png') });
+
+  // Keep: into your gallery.
+  await viewer.getByRole('button', { name: 'Keep in my gallery' }).click();
+  await expect(viewer).toHaveCount(0);
+  expect(calls).toContain('POST /lab/clear1/keep');
+  await expect(gallery.getByRole('listitem')).toHaveCount(1);
+
+  // Waiting to be judged: says so. Delete asks first.
+  await gallery.getByRole('button', { name: 'Video: Gym crush energy' }).click();
+  await expect(viewer.getByRole('region', { name: 'Scouting report' })).toContainText('Waiting to be judged');
+  await viewer.getByRole('button', { name: 'Delete' }).click();
+  await page.getByRole('dialog', { name: 'Delete this?' }).getByRole('button', { name: 'Delete' }).click();
+  expect(calls).toContain('DELETE /lab/wait1');
+  // Only the hidden NSFW one is left.
+  await expect(section.getByText(/One NSFW result is hidden/)).toBeVisible();
+
+  // Show NSFW: it shows, blurred; in the viewer it plays while held.
+  await expect(section.getByRole('switch', { name: 'Show NSFW' })).toHaveCount(0);
+  await setShowNsfw(page, true);
+  await expect(gallery.locator('.censor')).toHaveCount(1);
+  await gallery.getByRole('button', { name: 'Video: Pool night' }).click();
+  await expect(viewer.getByRole('switch', { name: 'NSFW', exact: true })).toBeChecked();
+  const media = viewer.locator('.ai-viewer-media.censor');
+  await expect(media).toBeVisible();
+  expect(await media.locator('video').evaluate((el) => getComputedStyle(el).filter)).toContain('blur');
+  const plays = await page.evaluate(() => (window as unknown as { plays: number }).plays);
+  const mb = (await media.boundingBox())!;
+  await page.mouse.move(mb.x + mb.width / 2, mb.y + Math.min(mb.height / 2, 120));
+  await page.mouse.down();
+  await expect(media).toHaveAttribute('data-revealed', '');
+  await expect.poll(() => page.evaluate(() => (window as unknown as { plays: number }).plays)).toBeGreaterThan(plays);
+  await page.mouse.up();
+  await expect(media).not.toHaveAttribute('data-revealed', '');
+  await expectNoHorizontalOverflow(page);
+  expect(errors).toEqual([]);
+});
 
 test('Your style on an older AI machine: a plain message, not a raw error', async ({ page }) => {
   await mockAi(page, 'on');
@@ -337,7 +327,7 @@ test('Your style on an older AI machine: a plain message, not a raw error', asyn
     if (p.endsWith('/lab/profile')) return route.fulfill({ status: 404, json: { error: 'Not found' } });
     await route.fulfill({ json: lab });
   });
-  const section = await openLabIn(page, 'o5');
+  const section = await openLab(page);
   await section.getByRole('group', { name: 'Lab style' }).getByRole('button', { name: 'Your style' }).click();
   await expect(section).toContainText('Your AI machine is on an older version. Turn it off and on again to get this.');
   await expect(section).not.toContainText('Not found');
@@ -356,7 +346,7 @@ test('Lab refreshes keep the same pictures and videos (no reloading) and the sam
     await route.fulfill({ json: { ...s, records: s.records.map((r) => ({ ...r, url: `/_orbit/studio/file/${r.id}?t=tok${n}` })) } });
   });
   await page.route('**/fake-ai/_orbit/studio/file/**', (route) => route.fulfill({ status: 200, headers: { 'content-type': 'video/mp4' }, body: '' }));
-  const section = await openLabIn(page, 'o5');
+  const section = await openLab(page);
   const gallery = section.getByRole('list', { name: 'Lab movies, best first' });
   await expect(gallery.getByRole('listitem').first()).toBeVisible();
   const src = await gallery.locator('video').first().getAttribute('src');
@@ -399,7 +389,7 @@ test('Remix: remakes your Make prompts as pictures and videos, picks what it mak
   });
   await page.addInitScript(() => {
     if (!localStorage.getItem('orbit:shell:v1'))
-      localStorage.setItem('orbit:shell:v1', JSON.stringify({ state: { settings: { orb: false, motion: 'reduce', motionPicked: true, skin: 'o5', introSeen: true } }, version: 0 }));
+      localStorage.setItem('orbit:shell:v1', JSON.stringify({ state: { settings: { orb: false, motion: 'reduce', motionPicked: true, introSeen: true } }, version: 0 }));
   });
   await page.goto('/');
   await page.getByRole('button', { name: /^Index/ }).click();

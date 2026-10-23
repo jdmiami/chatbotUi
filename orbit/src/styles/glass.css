@@ -36,7 +36,7 @@
   -webkit-backdrop-filter: var(--glass-blur);
   backdrop-filter: var(--glass-blur);
 }
-.glass:not(.dock):not(.toast) { box-shadow: var(--depth-3); }
+.glass:not(.toast) { box-shadow: var(--depth-3); }
 .sheet,
 .cc-panel.glass {
   background: var(--sheen), var(--glass-tint-strong);
@@ -50,10 +50,6 @@
   backdrop-filter: var(--glass-blur);
   box-shadow: inset 0 -0.5px 0 var(--glass-edge);
 }
-
-/* Liquid: pressing a pane makes its glass gather toward your finger for a moment. */
-:root[data-motion='full'] .dock.glass:active { scale: 0.985; transition: scale var(--dur-snappy) var(--spring-snappy); }
-:root[data-motion='full'] .dock.glass { transition: scale var(--dur-playful) var(--spring-playful); }
 
 /* People who ask the device for less transparency get solid panes (same layers, same rims). */
 @media (prefers-reduced-transparency: reduce) {

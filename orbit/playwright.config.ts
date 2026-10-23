@@ -30,9 +30,6 @@ export default defineConfig({
     // Orbit's Motion "Auto" turns animation off for this, so layout tests measure settled screens.
     // tests/e2e/motion.spec.ts switches Full / Lite on explicitly.
     contextOptions: { reducedMotion: 'reduce' },
-    // Orbit 0.5 (MagStyle) is the only look for people; most tests still drive the classic one,
-    // which this flag keeps available in the test browser (tests opt into 0.5 with skin: 'o5').
-    storageState: { cookies: [], origins: [{ origin: `http://localhost:${port}`, localStorage: [{ name: 'orbit:classic', value: '1' }] }] },
   },
   projects: [
     { name: 'iphone-portrait', use: chromiumWith(devices['iPhone 14 Pro Max']) },

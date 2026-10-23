@@ -1,15 +1,13 @@
 import { expect, test, type Page } from '@playwright/test';
-import { expectNoHorizontalOverflow, openOrbit } from './helpers';
+import { expectNoHorizontalOverflow, openApp, openOrbit } from './helpers';
 import { mockAi } from './aiMocks';
 
-/** Orbit 0.5: the optional look. The path home, the index, the line at the bottom, tucked headers. */
+/** Orbit 0.5 (MagStyle), the only look. The path home, the index, the line at the bottom, tucked headers. */
 
-async function turnOn(page: Page) {
-  await page.getByRole('button', { name: /^Settings\./ }).click();
-  const look = page.getByRole('group', { name: 'Look' });
-  await look.scrollIntoViewIfNeeded();
-  await look.getByRole('button', { name: 'Orbit 0.5' }).click();
+/** Orbit 0.5 is on from the start; open Settings (some tests carry on from it). */
+async function openSettings(page: Page) {
   await expect(page.locator('html')).toHaveAttribute('data-skin', 'o5');
+  await openApp(page, 'settings');
 }
 
 async function expectTappable(page: Page, scope: string) {
@@ -28,27 +26,30 @@ async function expectTappable(page: Page, scope: string) {
 
 test.describe('Orbit 0.5', () => {
   test('MagStyle is the only look: a saved classic look moves over, and there is no switch back', async ({ browser }) => {
-    // A browser without the test suite's classic flag: what people get.
-    const ctx = await browser.newContext({ reducedMotion: 'reduce', storageState: { cookies: [], origins: [] } });
+    // Someone who had picked the classic look before it was removed.
+    const ctx = await browser.newContext({ reducedMotion: 'reduce' });
     await ctx.addInitScript(() =>
       localStorage.setItem('orbit:shell:v1', JSON.stringify({ state: { settings: { orb: false, skin: 'classic', introSeen: true } }, version: 0 })),
     );
     const page = await ctx.newPage();
     await page.goto('/');
     await expect(page.locator('html')).toHaveAttribute('data-skin', 'o5');
+    await expect(page.getByRole('main', { name: 'Home' }).getByRole('button', { name: /Classic look/ })).toHaveCount(0);
     await page.getByRole('button', { name: /^Index/ }).click();
     const index = page.getByRole('dialog', { name: 'Index' });
     await expect(index.getByRole('button', { name: 'Classic look' })).toHaveCount(0);
     await index.locator('.o5-index-list').getByRole('button', { name: /Settings/ }).click();
     await expect(page.locator('.app-window[data-app="settings"]')).toBeVisible();
     await expect(page.getByRole('group', { name: 'Look' })).toHaveCount(0);
+    // The old choice is not kept.
+    expect(await page.evaluate(() => JSON.parse(localStorage.getItem('orbit:shell:v1') ?? '{}').state.settings.skin)).toBeUndefined();
     await ctx.close();
   });
 
-  test('switch it on in Settings: the path replaces the icons and the dock', async ({ page }) => {
+  test('the path is home: chapters instead of icons, and no dock', async ({ page }) => {
     await mockAi(page, 'off');
     const errors = await openOrbit(page);
-    await turnOn(page);
+    await openSettings(page);
     // Back home through the index.
     await page.getByRole('button', { name: /^Index/ }).click();
     const index = page.getByRole('dialog', { name: 'Index' });
@@ -67,12 +68,12 @@ test.describe('Orbit 0.5', () => {
   test('walk the path: Begin scrolls to chapter one, a chapter link opens the app, the line goes home', async ({ page }) => {
     await mockAi(page, 'on');
     const errors = await openOrbit(page);
-    await turnOn(page);
+    await openSettings(page);
     await page.getByRole('button', { name: /^Index/ }).click();
     await page.getByRole('dialog', { name: 'Index' }).getByRole('button', { name: /Home/ }).click();
     await page.getByRole('button', { name: 'Begin' }).click();
     await expect(page.getByRole('heading', { name: 'Continue' })).toBeInViewport();
-    // Settings is still open from switching the look: it is the thing to continue.
+    // Settings is still open: it is the thing to continue.
     await page.getByRole('main', { name: 'Home' }).getByRole('button', { name: /^Settings/ }).first().click();
     await expect(page.locator('.app-window[data-app="settings"]')).toBeVisible();
 
@@ -89,7 +90,7 @@ test.describe('Orbit 0.5', () => {
   test('headers tuck away while scrolling down and come back scrolling up', async ({ page }) => {
     await mockAi(page, 'on');
     await openOrbit(page);
-    await turnOn(page);
+    await openSettings(page);
     const win = page.locator('.app-window[data-app="settings"]');
     const scroller = win.locator('.st-scroll');
     // Something scrolling by itself leaves the header alone…
@@ -105,22 +106,12 @@ test.describe('Orbit 0.5', () => {
     await expect(win).toHaveAttribute('data-chrome', 'shown');
   });
 
-  test('the classic look comes back from the index', async ({ page }) => {
-    await mockAi(page, 'off');
-    await openOrbit(page);
-    await turnOn(page);
-    await page.getByRole('button', { name: /^Index/ }).click();
-    await page.getByRole('dialog', { name: 'Index' }).getByRole('button', { name: 'Classic look' }).click();
-    await expect(page.locator('html')).toHaveAttribute('data-skin', 'classic');
-    await expect(page.getByRole('navigation', { name: 'Dock' })).toBeVisible();
-  });
-
   test('full motion: pages carry their depth as they scroll', async ({ page }) => {
     const errors: string[] = [];
     page.on('pageerror', (e) => errors.push(e.message));
     await mockAi(page, 'off');
     await page.addInitScript(() =>
-      localStorage.setItem('orbit:shell:v1', JSON.stringify({ state: { settings: { orb: false, motion: 'full', motionPicked: true, skin: 'o5', introSeen: true } }, version: 0 })),
+      localStorage.setItem('orbit:shell:v1', JSON.stringify({ state: { settings: { orb: false, motion: 'full', motionPicked: true, introSeen: true } }, version: 0 })),
     );
     await page.goto('/');
     const path = page.getByRole('main', { name: 'Home' });
@@ -135,7 +126,7 @@ test.describe('Orbit 0.5', () => {
   test('the index asks before closing an app with unsaved work, and keeps keyboard focus inside', async ({ page }) => {
     await mockAi(page, 'off');
     await openOrbit(page);
-    await turnOn(page);
+    await openSettings(page);
     await page.getByRole('button', { name: /^Index/ }).click();
     await page.getByRole('dialog', { name: 'Index' }).getByRole('button', { name: /^\d+ Code / }).click();
     const editor = page.locator('.app-window[data-app="editor"] .cm-content');

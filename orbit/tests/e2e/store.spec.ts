@@ -30,7 +30,7 @@ async function openStore(page: Page) {
   page.on('pageerror', (e) => errors.push(e.message));
   await page.addInitScript(() => {
     if (!localStorage.getItem('orbit:shell:v1'))
-      localStorage.setItem('orbit:shell:v1', JSON.stringify({ state: { settings: { orb: false, motion: 'reduce', motionPicked: true, skin: 'o5', introSeen: true } }, version: 0 }));
+      localStorage.setItem('orbit:shell:v1', JSON.stringify({ state: { settings: { orb: false, motion: 'reduce', motionPicked: true, introSeen: true } }, version: 0 }));
   });
   await page.goto('/');
   await page.getByRole('button', { name: /^Index/ }).click();
@@ -150,7 +150,7 @@ test.describe('AI Store', () => {
     await expect(specs.getByText('A video', { exact: true })).toBeVisible();
     await expect(specs.getByText('About 28 GB of the 48 GB')).toBeVisible();
     await vace.getByRole('button', { name: 'Get Wan VACE' }).click();
-    expect(calls).toEqual(['install vace']);
+    await expect.poll(() => calls).toEqual(['install vace']);
     await page.keyboard.press('Escape');
     await expect(editing.getByRole('status', { name: 'Adding Wan VACE: 25%' })).toBeVisible();
     expect(errors).toEqual([]);
@@ -174,7 +174,7 @@ test.describe('AI Store', () => {
     const sheet = page.getByRole('dialog', { name: 'Talking photo' });
     await expect(sheet.getByRole('status', { name: 'Adding Talking photo: 40% · paused' })).toBeVisible();
     await sheet.getByRole('button', { name: 'Resume Talking photo' }).click();
-    expect(calls).toEqual(['install s2v']);
+    await expect.poll(() => calls).toEqual(['install s2v']);
     // The open sheet shows the new state at once: no second Resume.
     await expect(sheet.getByRole('status', { name: 'Adding Talking photo: 41%' })).toBeVisible();
     await expect(sheet.getByRole('button', { name: 'Resume Talking photo' })).toHaveCount(0);

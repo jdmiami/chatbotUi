@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { AppProps } from '../types';
-import { AppHeader } from '../../ui/components';
 import { MagCover } from '../../ui/Magazine';
 import { useShell } from '../../state/shell';
 import { useWorkspace } from '../../state/workspace';
@@ -22,14 +21,13 @@ import './make.css';
 export default function MakeApp({ isActive }: AppProps) {
   const ai = useMemo(() => getLocalAi(), []);
   const toast = useShell((s) => s.toast);
-  const o5 = useShell((s) => s.settings.skin === 'o5');
   const launch = useShell((s) => s.launch);
   const [status, setStatus] = useState<AiMachineStatus | null>(null);
   const [powering, setPowering] = useState(false);
   const [cloudOpen, setCloudOpen] = useState(false);
   const [moved, setMoved] = useState(0);
   const scroller = useRef<HTMLDivElement>(null);
-  useScrollDepth(scroller, isActive && o5, 'edges');
+  useScrollDepth(scroller, isActive, 'edges');
 
   const refresh = useCallback(async () => {
     try {
@@ -73,16 +71,13 @@ export default function MakeApp({ isActive }: AppProps) {
 
   return (
     <div className="ag-root ai-root make-root">
-      {!o5 && <AppHeader title="Make" subtitle={state ? `Your AI machine: ${state}` : 'Pictures and videos'} />}
       <div className="make-scroll" ref={scroller}>
         <MakeDownloads ai={ai} status={status} machineOn={machineOn} isActive={isActive} />
-        {o5 && (
-          <MagCover
-            kicker={<>Make{state ? ` · your AI machine is ${state}` : ''}</>}
-            title="Make"
-            dek="Pictures, videos and edits from a few words, a sketch or your camera. Everything you make lands in the gallery below, on every device."
-          />
-        )}
+        <MagCover
+          kicker={<>Make{state ? ` · your AI machine is ${state}` : ''}</>}
+          title="Make"
+          dek="Pictures, videos and edits from a few words, a sketch or your camera. Everything you make lands in the gallery below, on every device."
+        />
         {status && !machineOn && (status.state === 'off' || waking) && (
           <MachineNotice id="make" label={waking ? 'AI machine waking up' : 'AI machine off'}>
             <div className="ai-banner make-banner" role="status">

@@ -164,7 +164,6 @@ describe('orb agent', () => {
   it('settings steps become patches', () => {
     expect(settingPatch({ do: 'setting', name: 'motion', value: 'off' }, DEFAULT_SETTINGS)).toEqual({ motion: 'reduce', motionPicked: true });
     expect(settingPatch({ do: 'setting', name: 'text', value: 'up' }, DEFAULT_SETTINGS)).toEqual({ textScale: 1.1 });
-    expect(settingPatch({ do: 'setting', name: 'skin', value: 'o5' }, DEFAULT_SETTINGS)).toEqual({ skin: 'o5' });
   });
 
   it('finds things on screen by what a person would call them', () => {

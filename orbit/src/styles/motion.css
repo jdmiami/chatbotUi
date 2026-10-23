@@ -57,30 +57,16 @@
 }
 
 /* Layer 1 · surface */
-.app-icon .glyph, .home .widget, .ai-card, .ai-suggest-btn, .ai-tile, .cc-tile { box-shadow: var(--depth-1); }
+.ai-card, .ai-suggest-btn, .ai-tile, .cc-tile { box-shadow: var(--depth-1); }
 /* Layer 2 · raised */
-.dock, .ai-composer-card { box-shadow: var(--depth-2); }
-/* The dock can be swiped up to go home, so the browser mustn't scroll on it. */
-.dock { touch-action: none; }
+.ai-composer-card { box-shadow: var(--depth-2); }
 .app-window:not([data-placement='full']):not([data-placement^='split']) { box-shadow: var(--depth-2); }
 /* Layer 3 · floating */
 .sheet { box-shadow: var(--depth-3); }
 /* Layer 4 · top */
 .toast { box-shadow: var(--depth-4); }
 
-/* The highlight: a soft sheen on the side facing the light, sliding as you tilt. */
-.app-icon .glyph, .home .widget { position: relative; }
-.app-icon .glyph::after,
-.home .widget::after {
-  content: ''; position: absolute; inset: 0; border-radius: inherit; pointer-events: none;
-  background: radial-gradient(120% 80% at calc(25% - var(--tx, 0) * 30%) calc(0% - var(--ty, 0) * 30%), rgb(255 255 255 / 0.26), transparent 55%);
-  mix-blend-mode: soft-light;
-}
-:root[data-theme='light'] .home .widget::after { background: radial-gradient(120% 80% at calc(25% - var(--tx, 0) * 30%) calc(0% - var(--ty, 0) * 30%), rgb(255 255 255 / 0.7), transparent 60%); mix-blend-mode: normal; }
-
-/* Parallax: the far layer moves against the tilt, the surface layer slightly with it. Full only. */
-:root[data-motion='full'] .home-inner { translate: calc(var(--tx, 0) * 2px) calc(var(--ty, 0) * 2px); }
-:root[data-motion='full'] .dock { translate: calc(var(--tx, 0) * 3px) calc(var(--ty, 0) * 2px); }
+/* Parallax: the far layer moves against the tilt. Full only. */
 .shell::before {
   content: ''; position: absolute; inset: -30px; z-index: -1; pointer-events: none;
   background:
@@ -90,28 +76,20 @@
   opacity: 0.75;
 }
 :root[data-theme='light'] .shell::before { opacity: 0.45; }
-/* The GPU light on the far layer (shell/HomeLight.tsx). */
-.home-light { position: absolute; inset: 0; width: 100%; height: 100%; z-index: 0; pointer-events: none; opacity: 0; animation: mo-light-in 0.6s ease-out forwards; }
-@keyframes mo-light-in { to { opacity: 1; } }
 
 /* ---------------------------------------------------------------- Pressing: squish and spring back */
-:root[data-motion='full'] :is(.btn, .icon-btn, .segmented button, button.chip, .cc-tile, button.row, .ai-suggest-btn, .ai-model-row, .ai-model-chip, .ai-send, .ai-tile, .dock-item .glyph, .app-icon .glyph) {
+:root[data-motion='full'] :is(.btn, .icon-btn, .segmented button, button.chip, .cc-tile, button.row, .ai-suggest-btn, .ai-model-row, .ai-model-chip, .ai-send, .ai-tile) {
   transition-property: transform, background-color, border-color, box-shadow, color, opacity;
   transition-duration: var(--dur-playful), 0.15s, 0.15s, 0.2s, 0.15s, 0.15s;
   transition-timing-function: var(--spring-playful), ease, ease, ease, ease, ease;
 }
 /* Press = pushed into the surface: smaller and its shadow tucks in (MOTION.md §2). */
-:root[data-motion='full'] :is(.app-icon, .dock-item):active .glyph,
 :root[data-motion='full'] :is(.ai-suggest-btn, .ai-tile, .cc-tile):active { box-shadow: var(--depth-1-pressed); transition-duration: var(--dur-snappy), 0.1s, 0.1s, 0.1s, 0.1s, 0.1s; transition-timing-function: var(--spring-snappy); }
 :root[data-motion='full'] :is(.btn, .icon-btn, .segmented button, button.chip, .cc-tile, button.row, .ai-suggest-btn, .ai-model-row, .ai-model-chip, .ai-send, .ai-tile):active:not(:disabled) {
   transform: scale(0.92);
 }
-:root[data-motion='full'] .app-icon:active .glyph,
-:root[data-motion='full'] .dock-item:active .glyph {
-  transform: scale(0.8);
-}
 
-/* ---------------------------------------------------------------- Start screen */
+/* ---------------------------------------------------------------- Shared entrances */
 @keyframes mo-icon-pop {
   from { opacity: 0; transform: translateY(26px) scale(0.55); }
 }
@@ -119,33 +97,10 @@
   from { opacity: 0; transform: translateY(10px); }
 }
 
-:root[data-motion='full'] .home-grid .app-icon {
-  animation: mo-icon-pop var(--dur-playful) var(--spring-playful) both;
-  animation-delay: calc(var(--i, 0) * 55ms + 100ms);
-}
-:root[data-motion='full'] .home .widget {
-  animation: mo-fade-up 0.6s var(--ease-soft) both;
-}
-:root[data-motion='full'] .home .widget:nth-child(1) { animation-delay: 0.45s; }
-:root[data-motion='full'] .home .widget:nth-child(2) { animation-delay: 0.52s; }
-:root[data-motion='full'] .home .widget:nth-child(3) { animation-delay: 0.59s; }
-:root[data-motion='lite'] .home-grid .app-icon {
-  animation: mo-fade-up 0.25s var(--ease-soft) both;
-  animation-delay: calc(var(--i, 0) * 25ms);
-}
-
 /* ---------------------------------------------------------------- Windows */
 /* Full-motion windows are animated by script (motion/morph.ts); the CSS fade would fight it. */
 :root[data-motion='full'] .app-window {
   transition: left var(--dur-med) var(--ease-out), right var(--dur-med) var(--ease-out);
-}
-:root[data-motion='full'] .home {
-  transition: transform var(--dur-default) var(--spring-default), opacity 0.3s var(--ease-soft), filter 0.3s ease;
-}
-/* An app in front: the home screen is now further away, so it shrinks back and dims. */
-:root[data-motion='full'] .home[data-hidden='true'] {
-  transform: scale(0.92);
-  filter: brightness(0.7);
 }
 
 /* ---------------------------------------------------------------- Sheets and toasts */
@@ -193,8 +148,9 @@
   animation-duration: 0.15s !important;
 }
 
-/* The sheet's handle and title are the drag area; the body keeps normal scrolling. */
-.sheet-grip { touch-action: none; cursor: grab; }
+/* The sheet's handle and title are the drag area; the body keeps normal scrolling. Dragging it must
+   not select the title (a selected title turns the next drag into a text drag, which cancels it). */
+.sheet-grip { touch-action: none; cursor: grab; -webkit-user-select: none; user-select: none; }
 .sheet-grip .icon-btn { cursor: pointer; }
 
 /* ---------------------------------------------------------------- Pictures that develop */
@@ -264,9 +220,7 @@
    While the status pill shows, everything starts below it. Children treat the pill's strip as the
    top of the screen (so headers don't add the notch inset twice). */
 .shell[data-island='true'] { --island-top: calc(env(safe-area-inset-top, 0px) + 44px); }
-.shell[data-island='true'] > .app-host,
-.shell[data-island='true'] > .home,
-.shell[data-island='true'] > .shell-topbar { top: var(--island-top); --safe-top: 0px; }
+.shell[data-island='true'] > .app-host { top: var(--island-top); --safe-top: 0px; }
 @media (max-height: 520px) {
   /* iPhone sideways: a slimmer strip. */
   .shell[data-island='true'] { --island-top: calc(env(safe-area-inset-top, 0px) + 40px); }

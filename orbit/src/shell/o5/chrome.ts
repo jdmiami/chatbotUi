@@ -4,9 +4,8 @@ import { useEffect } from 'react';
  * Orbit 0.5 keeps the screen for the content: scrolling down inside an app tucks its header away,
  * scrolling back up (or reaching the top) brings it back. Marked on the app window as data-chrome.
  */
-export function useChromeOnScroll(enabled: boolean) {
+export function useChromeOnScroll() {
   useEffect(() => {
-    if (!enabled) return;
     const last = new WeakMap<Element, number>();
     // Only your own scrolling hides things: an app following a reply, or opening at the bottom, doesn't.
     // …and only in the place you're scrolling: the scroll must contain where your input went.
@@ -45,5 +44,5 @@ export function useChromeOnScroll(enabled: boolean) {
       document.removeEventListener('scroll', onScroll, { capture: true });
       for (const w of document.querySelectorAll<HTMLElement>('.app-window[data-chrome]')) delete w.dataset.chrome;
     };
-  }, [enabled]);
+  }, []);
 }

@@ -1,5 +1,5 @@
 import { expect, test, type Locator, type Page } from '@playwright/test';
-import { expectNoHorizontalOverflow, openOrbit } from './helpers';
+import { expectNoHorizontalOverflow, openApp, openOrbit } from './helpers';
 import { mockAi } from './aiMocks';
 import { mockMovies, type Shot } from './soRealMocks';
 
@@ -8,10 +8,7 @@ import { mockMovies, type Shot } from './soRealMocks';
 const PNG = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==', 'base64');
 
 async function openSoReal(page: Page) {
-  const win = page.locator('.app-window[data-app="soreal"]');
-  const icon = page.getByRole('button', { name: /^soReal\./ });
-  await expect(win.or(icon).first()).toBeVisible();
-  if (!(await win.isVisible())) await icon.click();
+  const win = await openApp(page, 'soreal');
   await expect(win.getByRole('heading', { name: 'soReal' })).toBeVisible();
   return win;
 }

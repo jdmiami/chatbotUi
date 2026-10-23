@@ -1,6 +1,6 @@
 import { expect, test, type Page } from '@playwright/test';
-import { dock, expectNoHorizontalOverflow, openOrbit } from './helpers';
-import { INSTALLED, expectTappable, mockAi, openAi, openMakeApp, recordChats, sendText, setShowNsfw } from './aiMocks';
+import { expectNoHorizontalOverflow, indexButton, openApp, openOrbit } from './helpers';
+import { INSTALLED, aiMenu, expectTappable, mockAi, openAi, openMakeApp, recordChats, sendText, setShowNsfw, showTools, typeAndSend } from './aiMocks';
 
 /**
  * AI app on iPhone / iPad viewports. The site's /api/ai endpoints and the AI machine's
@@ -23,9 +23,11 @@ test.describe('AI app', () => {
     await expect(banner).toContainText('$2.89/h');
     await expect(banner).toContainText('Turns itself off after 60 minutes unused.');
     await page.getByRole('button', { name: 'Turn on' }).click();
-    await expect(page.getByText('Your AI machine: Ready · Turbo')).toBeVisible();
+    await expect(page.getByRole('button', { name: /^Your AI: Ready/ })).toBeVisible();
     expect(powerCalls[0]).toMatchObject({ action: 'start', tier: 'turbo' });
     await expect(banner).toHaveCount(0);
+    // The AI's menu (the orb at the top) says it is on, at Turbo's price.
+    await expect(await aiMenu(page)).toContainText('Ready · $2.89/h');
     expect(errors).toEqual([]);
   });
 
@@ -33,7 +35,9 @@ test.describe('AI app', () => {
     await mockAi(page, 'on');
     const errors = await openOrbit(page);
     await openAi(page);
-    const chip = page.getByRole('button', { name: /^Model: .*Change model$/ });
+    // The model lives in the AI's menu (the orb at the top).
+    const menu = await aiMenu(page);
+    const chip = menu.getByRole('button', { name: /^Model / });
     await expect(chip).toBeEnabled();
     await chip.click();
     const picker = page.getByRole('dialog', { name: 'Choose a model' });
@@ -42,7 +46,10 @@ test.describe('AI app', () => {
     await expect(picker.getByText('in the GPU now')).toBeVisible();
     await picker.getByRole('button', { name: /^qwen3\.8-obliterated:27b/ }).click();
     await expect(picker).toHaveCount(0);
-    await expect(chip).toHaveAccessibleName('Model: qwen3.8-obliterated:27b. Change model');
+    await aiMenu(page);
+    await expect(chip).toHaveAccessibleName(/^Model qwen3\.8-obliterated:27b/);
+    await page.keyboard.press('Escape');
+    await expect(menu).toHaveCount(0);
 
     const box = page.getByRole('textbox', { name: 'Message' });
     await box.fill('Show me some code');
@@ -61,12 +68,12 @@ test.describe('AI app', () => {
     const fits = await code.evaluate((el) => el.getBoundingClientRect().right <= document.documentElement.clientWidth + 1);
     expect(fits, 'code block fits the screen').toBe(true);
 
-    // The composer is fully on screen and not covered by the dock.
+    // The composer is fully on screen and not covered by the line at the bottom.
     const composer = await page.locator('.ai-composer').boundingBox();
-    const dockBox = await dock(page).boundingBox();
+    const line = await page.locator('.o5-handle-line').boundingBox();
     const vh = page.viewportSize()!.height;
     expect(composer!.y + composer!.height).toBeLessThanOrEqual(vh + 1);
-    if (dockBox) expect(composer!.y + composer!.height, 'composer above the dock').toBeLessThanOrEqual(dockBox.y + 1);
+    if (line) expect(composer!.y + composer!.height, 'composer above the line').toBeLessThanOrEqual(line.y + 1);
 
     await expectTappable(page);
     await expect(page.getByRole('button', { name: 'Again' })).toBeEnabled();
@@ -100,25 +107,12 @@ test.describe('AI app', () => {
     expect(sent[0]).toEqual({ task: 'chat', prefer: undefined, last: 'hi there' });
 
     // Settings: put the backup first; the next chat asks for it.
-    const index = page.getByRole('button', { name: /^Index/ });
-    if (await index.isVisible()) {
-      await index.click();
-      await page.getByRole('dialog', { name: 'Index' }).locator('.o5-index-list').getByRole('button', { name: /Settings/ }).click();
-    } else {
-      await page.getByRole('navigation', { name: 'Dock' }).getByRole('button', { name: 'Home screen' }).click();
-      await page.getByRole('button', { name: /^Settings\./ }).first().click();
-    }
+    await openApp(page, 'settings');
     const first = page.locator('.app-window[data-app="settings"]').getByRole('group', { name: 'Cloud AI to try first' });
     await first.scrollIntoViewIfNeeded();
     await first.getByRole('button', { name: 'Groq' }).click();
     await expect(first.getByRole('button', { name: 'Groq' })).toHaveAttribute('aria-pressed', 'true');
-    if (await index.isVisible()) {
-      await index.click();
-      await page.getByRole('dialog', { name: 'Index' }).locator('.o5-index-list').getByRole('button', { name: /Talk/ }).click();
-    } else {
-      await page.getByRole('navigation', { name: 'Dock' }).getByRole('button', { name: 'Home screen' }).click();
-      await page.getByRole('button', { name: /^AI\./ }).first().click();
-    }
+    await openApp(page, 'ai');
     await box.fill('again');
     await win.getByRole('button', { name: 'Send' }).click();
     await expect.poll(() => sent.length).toBe(2);
@@ -126,34 +120,24 @@ test.describe('AI app', () => {
     expect(errors).toEqual([]);
   });
 
-  test('chats list: sheet on narrow screens, sidebar on wide ones; survives reload', async ({ page }) => {
+  test('chats list: a sheet from the AI menu; survives reload', async ({ page }) => {
     await mockAi(page, 'on');
     await openOrbit(page);
     await openAi(page);
-    await page.getByRole('textbox', { name: 'Message' }).fill('First question');
-    await page.getByRole('button', { name: 'Send' }).click();
+    await typeAndSend(page, 'First question');
     await expect(page.getByText('Done.')).toBeVisible();
 
-    const sidebar = page.locator('.ai-side');
-    if (await sidebar.isVisible()) {
-      await expect(sidebar.getByRole('button', { name: /^First question/ })).toBeVisible();
-    } else {
-      await page.getByRole('button', { name: 'Chats' }).click();
-      const sheet = page.getByRole('dialog', { name: 'Chats' });
-      await expect(sheet.getByRole('button', { name: /^First question/ })).toBeVisible();
-      await expectNoHorizontalOverflow(page);
-      await sheet.getByRole('button', { name: 'New chat' }).click();
-      await expect(sheet).toHaveCount(0);
-    }
+    await aiMenu(page, 'Conversations');
+    const sheet = page.getByRole('dialog', { name: 'Chats' });
+    await expect(sheet.getByRole('button', { name: /^First question/ })).toBeVisible();
+    await expectNoHorizontalOverflow(page);
+    await sheet.getByRole('button', { name: 'New chat' }).click();
+    await expect(sheet).toHaveCount(0);
 
     await page.reload();
     await openAi(page);
-    if (await page.locator('.ai-side').isVisible()) {
-      await expect(page.locator('.ai-side').getByRole('button', { name: /^First question/ })).toBeVisible();
-    } else {
-      await page.getByRole('button', { name: 'Chats' }).click();
-      await expect(page.getByRole('dialog', { name: 'Chats' }).getByRole('button', { name: /^First question/ })).toBeVisible();
-    }
+    await aiMenu(page, 'Conversations');
+    await expect(page.getByRole('dialog', { name: 'Chats' }).getByRole('button', { name: /^First question/ })).toBeVisible();
   });
 
   test('empty chat: suggestions fill the message box', async ({ page }) => {
@@ -169,6 +153,12 @@ test.describe('AI app', () => {
 });
 
 // ---- Create: image and video maker
+
+/** "What will it be?" in Make: a picture, a video, an edit, or a video edit. */
+const KINDS = { image: /^A picture/, video: /^A video/, edit: /^An edit/, vedit: /^Edit a video/ } as const;
+const kindRadio = (page: Page, kind: keyof typeof KINDS) =>
+  page.locator('.app-window[data-app="make"]').getByRole('radiogroup', { name: 'What to make' }).getByRole('radio', { name: KINDS[kind] });
+const pickKind = (page: Page, kind: keyof typeof KINDS) => kindRadio(page, kind).click();
 
 const PNG = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==', 'base64');
 const READY = { ready: true, downloaded: true, percent: 100 };
@@ -300,9 +290,7 @@ test.describe('AI app: Create', () => {
       return route.fulfill({ json: lab });
     });
     const errors = await openOrbit(page);
-    await openAi(page);
-    await page.getByRole('group', { name: 'Chat or lab' }).getByRole('button', { name: 'Lab' }).click();
-    const section = page.getByRole('region', { name: 'Lab' });
+    const section = (await openApp(page, 'lab')).getByRole('region', { name: 'Lab' });
 
     const now = section.getByRole('status', { name: 'Making now' });
     await expect(now).toContainText('Grandma discovers bubble tea');
@@ -344,7 +332,6 @@ test.describe('AI app: Create', () => {
     await section.getByRole('switch', { name: 'Make comedy movies while the machine is on' }).click();
     await expect.poll(() => lab.enabled).toBe(false);
     await expectNoHorizontalOverflow(page);
-    await expectTappable(page);
     expect(errors).toEqual([]);
   });
 
@@ -375,7 +362,7 @@ test.describe('AI app: Create', () => {
     const studio = await mockStudio(page);
     await openOrbit(page);
     await openCreate(page);
-    await page.getByRole('group', { name: 'What to make' }).getByRole('button', { name: 'Video', exact: true }).click();
+    await pickKind(page, 'video');
     await page.locator('.ai-create input[type="file"]').setInputFiles({ name: 'me.png', mimeType: 'image/png', buffer: PNG });
     await expect(page.getByRole('img', { name: 'Starting photo' })).toBeVisible();
     await page.getByRole('group', { name: 'Length' }).getByRole('button', { name: '8 s' }).click();
@@ -402,7 +389,7 @@ test.describe('AI app: Create', () => {
     await expectNoHorizontalOverflow(page);
     await sheet.getByRole('button', { name: 'Make it move' }).click();
     await expect(page.getByRole('img', { name: 'Starting photo' })).toBeVisible();
-    await expect(page.getByRole('group', { name: 'What to make' }).getByRole('button', { name: 'Video', exact: true })).toHaveAttribute('aria-pressed', 'true');
+    await expect(kindRadio(page, 'video')).toHaveAttribute('aria-checked', 'true');
 
     await page.getByRole('button', { name: 'Video: waves at sunset' }).click();
     await page.getByRole('dialog', { name: 'Video' }).getByRole('button', { name: 'Delete' }).click();
@@ -471,8 +458,8 @@ test.describe('AI app: Create', () => {
     await setShowNsfw(page, true);
     await expect(portrait).toBeVisible();
     await page.reload();
-    // Orbit reopens Make: the switch is off again.
-    await expect(win.or(page.getByRole('button', { name: /^Make\./ })).first()).toBeVisible();
+    // A fresh visit: the switch is off again.
+    await expect(win.or(indexButton(page)).first()).toBeVisible();
     await openMakeApp(page);
     await expect(portrait).toHaveCount(0);
   });
@@ -548,10 +535,8 @@ test.describe('AI app: Create', () => {
     await win.locator('.ai-gallery li').first().evaluate((el) => el.setAttribute('data-probe', 'kept'));
     const before = n;
     // Go to the AI app and back: the gallery is listed again.
-    await page.getByRole('navigation', { name: 'Dock' }).getByRole('button', { name: 'Home screen' }).click();
-    await page.getByRole('button', { name: /^AI\./ }).first().click();
-    await page.getByRole('navigation', { name: 'Dock' }).getByRole('button', { name: 'Home screen' }).click();
-    await page.getByRole('button', { name: /^Make\./ }).first().click();
+    await openApp(page, 'ai');
+    await openApp(page, 'make');
     await expect.poll(() => n).toBeGreaterThan(before);
     await page.waitForTimeout(500);
     expect(await img()).toBe(img0);
@@ -584,7 +569,7 @@ test.describe('AI app: Create', () => {
 test.describe('AI app with full motion', () => {
   test.use({ contextOptions: { reducedMotion: 'no-preference' } });
 
-  test('messages pop in, the send button launches, the orb reacts to typing, pictures develop', async ({ page }, testInfo) => {
+  test('messages come up out of the page, the send button launches, the orb reacts to typing, pictures develop', async ({ page }, testInfo) => {
     await page.addInitScript(() =>
       localStorage.setItem('orbit:shell:v1', JSON.stringify({ state: { settings: { orb: false, motion: 'full', introSeen: true } }, version: 0 })),
     );
@@ -608,9 +593,10 @@ test.describe('AI app with full motion', () => {
     // With the box empty again the button becomes Stop (while answering) or Talk.
     await expect(page.getByRole('button', { name: 'Stop' }).or(page.getByRole('button', { name: 'Talk' }))).toBeVisible();
     const user = page.locator('.ai-msg-user').first();
-    expect(await user.evaluate((el) => getComputedStyle(el).animationName)).toBe('mo-pop-right');
+    // Orbit 0.5: messages rise out of the page and sink away at the top edge as they scroll.
+    expect(await user.evaluate((el) => getComputedStyle(el).animationName)).toBe('o5-depth');
     await expect(page.getByText('Done.')).toBeVisible();
-    expect(await page.locator('.ai-msg-assistant').first().evaluate((el) => getComputedStyle(el).animationName)).toBe('mo-pop-left');
+    expect(await page.locator('.ai-msg-assistant').first().evaluate((el) => getComputedStyle(el).animationName)).toBe('o5-depth');
     await expectNoHorizontalOverflow(page);
     // The open animation has finished: no leftover transform, the window fills the screen.
     await expect.poll(() => page.locator('.app-window[data-app="ai"]').evaluate((el) => getComputedStyle(el).transform), { timeout: 4000 }).toBe('none');
@@ -642,8 +628,7 @@ test.describe('AI app: chat powers', () => {
     ]);
     const chips = page.getByRole('list', { name: 'Attached' });
     await expect(chips.locator('li')).toHaveCount(2);
-    await page.getByRole('textbox', { name: 'Message' }).fill('What is in these?');
-    await page.getByRole('button', { name: 'Send' }).click();
+    await typeAndSend(page, 'What is in these?');
     await expect(page.locator('.ai-msg-assistant').last()).toContainText('Done.');
     await expect(page.locator('.ai-msg-user .ai-attached-img')).toHaveCount(1);
     await expect(page.locator('.ai-msg-user .ai-file-chip')).toContainText('notes.txt');
@@ -666,6 +651,8 @@ test.describe('AI app: chat powers', () => {
     await sendText(page, 'Second question');
     await expect(page.locator('.ai-msg')).toHaveCount(4);
 
+    // Your message's actions show once you tap it.
+    await page.locator('.ai-msg-user .ai-user-text').first().click();
     await page.locator('.ai-msg-user').first().getByRole('button', { name: 'Edit' }).click();
     await expect(page.getByText(/Editing your message/)).toBeVisible();
     await expect(page.getByRole('textbox', { name: 'Message' })).toHaveValue('First try');
@@ -704,8 +691,7 @@ test.describe('AI app: chat powers', () => {
     await recordChats(page, 'A long first draft about the sea.');
     await openOrbit(page);
     await openAi(page);
-    await page.getByRole('textbox', { name: 'Message' }).fill('Write about the sea');
-    await page.getByRole('button', { name: 'Send' }).click();
+    await typeAndSend(page, 'Write about the sea');
     await expect(page.locator('.ai-msg-assistant').last()).toContainText('first draft');
     await page.locator('.ai-msg-assistant').getByRole('button', { name: 'Canvas' }).click();
     const doc = page.getByRole('textbox', { name: 'Document' });
@@ -725,7 +711,7 @@ test.describe('AI app: chat powers', () => {
     const bodies = await recordChats(page);
     await openOrbit(page);
     await openAi(page);
-    await page.getByRole('button', { name: 'Personas & memory' }).click();
+    await aiMenu(page, 'Personas & memory');
     const sheet = page.getByRole('dialog', { name: 'Personas & memory' });
     await sheet.getByRole('radio', { name: /^Coder/ }).click();
     await sheet.getByRole('textbox', { name: 'Something to remember' }).fill('My name is Johnny');
@@ -738,7 +724,8 @@ test.describe('AI app: chat powers', () => {
     expect(system.role).toBe('system');
     expect(String(system.content)).toContain('senior software engineer');
     expect(String(system.content)).toContain('My name is Johnny');
-    // Remember straight from a message.
+    // Remember straight from a message (tap it for its actions).
+    await page.locator('.ai-msg-user .ai-user-text').click();
     await page.locator('.ai-msg-user').getByRole('button', { name: 'Remember' }).click();
     await expect(page.getByText('Remembered for future chats.')).toBeVisible();
   });
@@ -748,6 +735,7 @@ test.describe('AI app: chat powers', () => {
     const studio = await mockStudio(page);
     await openOrbit(page);
     await openAi(page);
+    await showTools(page);
     await page.getByRole('button', { name: 'Picture' }).click();
     await page.getByRole('textbox', { name: 'Message' }).fill('a lighthouse at dusk');
     await page.getByRole('button', { name: 'Make picture' }).click();
@@ -779,6 +767,7 @@ test.describe('AI app: web search', () => {
     });
     await openOrbit(page);
     await openAi(page);
+    await showTools(page);
     const web = page.getByRole('button', { name: 'Search the web' });
     await web.click();
     await expect(web).toHaveAttribute('aria-pressed', 'true');
@@ -834,16 +823,18 @@ test.describe('AI app: maker store', () => {
     Object.assign(studio.makers.find((m) => m.id === 'h3-max')!, { wanted: true, percent: 40, status: 'waiting', waitingFor: 'wan2.2_i2v_high_noise.safetensors' });
     Object.assign(studio.makers.find((m) => m.id === 'krea-real')!, { wanted: true, percent: 12, status: 'disk', problem: 'Not enough disk space for krea.safetensors (3 GB free, needs about 21 GB). Remove a maker or a chat model you don\'t use.' });
     Object.assign(studio.makers.find((m) => m.id === 'sharpen')!, { wanted: true, percent: 100, status: 'saving' });
+    // These downloads stay where they are (the shared mock finishes H3 Max on its second listing).
+    await page.route('**/fake-ai/_orbit/studio/makers', (route) => route.fulfill({ json: { makers: studio.makers } }));
     await openOrbit(page);
     await openCreate(page);
     // Video: H3 Max is in line behind another file, and the note says which.
-    await page.getByRole('group', { name: 'What to make' }).getByRole('button', { name: 'Video', exact: true }).click();
+    await pickKind(page, 'video');
     const picks = page.getByRole('radiogroup', { name: 'Maker' });
     await expect(picks.getByRole('radio', { name: /H3 Max/ })).toContainText('40% · in line');
     await picks.getByRole('radio', { name: /H3 Max/ }).click();
     await expect(page.getByText('H3 Max is 40% done, waiting for wan2.2_i2v_high_noise.safetensors to finish first')).toBeVisible();
     // Image: Krea Real can't fit on the disk, and says so.
-    await page.getByRole('group', { name: 'What to make' }).getByRole('button', { name: 'Image', exact: true }).click();
+    await pickKind(page, 'image');
     await expect(picks.getByRole('radio', { name: /Krea Real/ })).toContainText('Disk full');
     await picks.getByRole('radio', { name: /Krea Real/ }).click();
     await expect(page.getByText(/Not enough disk space for krea\.safetensors \(3 GB free/)).toBeVisible();
@@ -859,7 +850,7 @@ test.describe('AI app: maker store', () => {
     const studio = await mockStudio(page);
     await openOrbit(page);
     await openCreate(page);
-    await page.getByRole('group', { name: 'What to make' }).getByRole('button', { name: 'Video', exact: true }).click();
+    await pickKind(page, 'video');
     // Makers live in the Store app now.
     await page.getByRole('button', { name: 'Makers' }).click();
     const store = page.locator('.app-window[data-app="store"]');
@@ -889,7 +880,7 @@ test.describe('AI app: maker store', () => {
     await openCreate(page);
     await page.getByRole('button', { name: /^Image: a red fox in snow/ }).click();
     await page.getByRole('dialog').getByRole('button', { name: 'Edit' }).click();
-    await expect(page.getByRole('group', { name: 'What to make' }).getByRole('button', { name: 'Edit', pressed: true })).toBeVisible();
+    await expect(kindRadio(page, 'edit')).toHaveAttribute('aria-checked', 'true');
     await expect(page.getByRole('img', { name: 'Picture to edit' })).toBeVisible();
     await page.getByRole('textbox', { name: 'Describe it' }).fill('make it night with a full moon');
     await page.getByRole('button', { name: /^Edit$/ }).last().click();
@@ -926,7 +917,7 @@ test.describe('AI app: video makers', () => {
     const sheet = page.getByRole('dialog', { name: 'Video' });
     for (const name of ['Edit this video', 'Erase from video', 'Sharpen video']) await expect(sheet.getByRole('button', { name })).toBeVisible();
     await sheet.getByRole('button', { name: 'Edit this video' }).click();
-    await expect(page.getByRole('group', { name: 'What to make' }).getByRole('button', { name: 'Video edit', pressed: true })).toBeVisible();
+    await expect(kindRadio(page, 'vedit')).toHaveAttribute('aria-checked', 'true');
     await expect(page.locator('video[aria-label="Video to work on"]')).toBeVisible();
     const make = page.getByRole('button', { name: 'Edit video' });
     await expect(make).toBeDisabled();
@@ -965,7 +956,7 @@ test.describe('AI app: video makers', () => {
     const studio = await mockStudio(page);
     await openOrbit(page);
     await openCreate(page);
-    await page.getByRole('group', { name: 'What to make' }).getByRole('button', { name: 'Video edit' }).click();
+    await pickKind(page, 'vedit');
     await page.getByRole('radiogroup', { name: 'Maker' }).getByRole('radio', { name: 'Erase from video' }).click();
     await page.locator('input[aria-label="Video file"]').setInputFiles({ name: 'clip.mp4', mimeType: 'video/mp4', buffer: MP4 });
     await expect(page.locator('video[aria-label="Video to work on"]')).toBeVisible();
@@ -989,7 +980,7 @@ test.describe('AI app: video makers', () => {
     const studio = await mockStudio(page);
     await openOrbit(page);
     await openCreate(page);
-    await page.getByRole('group', { name: 'What to make' }).getByRole('button', { name: 'Video', exact: true }).click();
+    await pickKind(page, 'video');
     const picks = page.getByRole('radiogroup', { name: 'Maker' });
     await picks.getByRole('radio', { name: 'Talking photo' }).click();
     await expect(page.getByRole('group', { name: 'Length' })).toHaveCount(0);

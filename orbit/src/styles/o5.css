@@ -1,7 +1,7 @@
 /*
- * Orbit 0.5: an optional look on top of Orbit (Settings → Look). Full screen, editorial, quiet.
+ * Orbit 0.5 (MagStyle): Orbit's look. Full screen, editorial, quiet.
  * No boxes, borders or tiles: type, space and depth do the work. Everything here is scoped to
- * <html data-skin="o5">, so the classic look is untouched.
+ * <html data-skin="o5">, which Orbit always sets.
  */
 
 /* ---------------------------------------------------------------- palette and type */
@@ -441,7 +441,7 @@
 :root[data-skin='o5'] .icon-btn { border-radius: 50%; background: transparent; }
 
 /* Lists, cards, tiles, banners: no boxes. Hairlines only where rows need separating. */
-:root[data-skin='o5'] :is(.list, .widget, .glass, .banner, .ai-banner, .state, .cc-tile, .switcher-card) {
+:root[data-skin='o5'] :is(.list, .glass, .banner, .ai-banner, .state, .cc-tile, .switcher-card) {
   background: transparent;
   border-color: transparent;
   box-shadow: none;
@@ -629,7 +629,7 @@
 :root[data-skin='o5'] .ai-user-text { border-radius: 22px 22px 6px 22px; background: color-mix(in srgb, var(--text) 8%, transparent); }
 :root[data-skin='o5'] :is(.ai-body-text, .ag-body-text) { font-size: calc(16.5px * var(--text-scale)); line-height: 1.62; }
 
-/* Overlays from the classic look still work (keyboard shortcuts); they lose their boxes too. */
+/* Overlays opened by keyboard shortcuts (Control Center, App Switcher) lose their boxes too. */
 :root[data-skin='o5'] .cc-panel { border: 0; background: var(--glass-strong); }
 
 @media (prefers-reduced-motion: reduce) {
@@ -637,9 +637,9 @@
 }
 :root[data-motion='off'] :is(.o5-cue svg, .o5-index-list li, .o5-index) { animation: none; }
 
-/* The classic look's raised 3D rims (motion.css) are boxes too: flat ink here. Doubled attribute
+/* The raised 3D rims (motion.css) are boxes too: flat ink here. Doubled attribute
    selectors outrank motion.css without !important. */
-:root[data-skin='o5'][data-skin] :is(.app-icon .glyph, .home .widget, .ai-card, .ai-suggest-btn, .ai-tile, .cc-tile, .btn, .icon-btn, .segmented button, button.chip, button.row, .ai-model-row, .ai-model-chip),
+:root[data-skin='o5'][data-skin] :is(.ai-card, .ai-suggest-btn, .ai-tile, .cc-tile, .btn, .icon-btn, .segmented button, button.chip, button.row, .ai-model-row, .ai-model-chip),
 :root[data-skin='o5'][data-skin] :is(.ai-suggest-btn, .ai-tile, .cc-tile, .btn, .icon-btn, .segmented button):active {
   box-shadow: none;
 }
@@ -712,7 +712,6 @@
 :root[data-skin='o5'] .ai-composer-bar[data-tools='folded'] .o5-tool { display: none; }
 :root[data-skin='o5'] .ai-composer-bar { justify-content: flex-start; }
 :root[data-skin='o5'] .ai-composer-bar .ai-send { margin-left: auto; }
-:root:not([data-skin='o5']) .o5-tools-btn { display: none; }
 
 /* The keyboard is up: only the conversation and what you're typing. Everything else steps aside. */
 :root[data-skin='o5'] .shell[data-keyboard='true'] :is(.o5-ai-bar, .app-header, .ai-banner, .ai-tabs) {

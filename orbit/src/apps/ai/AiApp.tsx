@@ -5,7 +5,7 @@ import { BANNER_KICKER, machineLabel } from './banner';
 import { MachineNotice } from '../../ui/MachineNotice';
 import { useWorkspace } from '../../state/workspace';
 import { Icon } from '../../ui/Icon';
-import { AppHeader, ConfirmSheet, IconButton, Segmented, Sheet } from '../../ui/components';
+import { ConfirmSheet, IconButton, Segmented, Sheet } from '../../ui/components';
 import { MessageBody } from '../agent/Transcript';
 import { AiError, getLocalAi, type AiMachineStatus, type ChatMessage } from '../../services/ai/LocalAi';
 import { loadChats, saveChats, newChat, titleFrom, toHistory, shown, branchChat, withWeb, type AiChat, type AiChatStore, type AiMessage } from './chats';
@@ -16,7 +16,6 @@ import { MemorySheet } from './MemorySheet';
 import { VoiceMode } from './VoiceMode';
 import { canSpeak, createSpeaker, unlockSpeech } from './speech';
 import { cue } from '../../motion/feedback';
-import { MemeLab } from './MemeLab';
 import { ModelPicker, useModelList } from './models';
 import '../agent/agent.css';
 import './ai.css';
@@ -92,11 +91,10 @@ async function copyText(text: string) {
  * Chats are kept in this browser. The full playground (documents, web search, voice, images) and
  * the coding workspace open from the header.
  */
-export default function AiApp({ isActive, compact, placement }: AppProps) {
+export default function AiApp({ isActive, placement }: AppProps) {
   const ai = useMemo(() => getLocalAi(), []);
   const toast = useShell((s) => s.toast);
-  // Orbit 0.5: no header or tabs, just "Talk · Make" and the orb; everything else is behind the orb.
-  const o5 = useShell((s) => s.settings.skin === 'o5');
+  // Orbit 0.5: no header or tabs, just "Talk" and the orb; everything else is behind the orb.
   // There is only ever one orb: with the orb on, it comes to rest where the AI's face was.
   const orbOn = useShell((s) => s.settings.orb !== false);
   const [orbMenu, setOrbMenu] = useState(false);
@@ -114,17 +112,6 @@ export default function AiApp({ isActive, compact, placement }: AppProps) {
   const [pickerOpen, setPickerOpen] = useState(false);
   const [atBottom, setAtBottom] = useState(true);
   const [now, setNow] = useState(() => Date.now());
-  // Make is its own app now; the Lab tab stays (classic look) beside the chat.
-  const [mode, setMode] = useState<'chat' | 'lab'>(() => {
-    try {
-      const m = sessionStorage.getItem('orbit:ai:mode');
-      return m === 'lab' && useShell.getState().settings.skin !== 'o5' ? m : 'chat';
-    } catch {
-      return 'chat';
-    }
-  });
-  const visited = useRef({ lab: false }).current;
-  if (mode !== 'chat') visited[mode] = true;
   const [memory, setMemoryState] = useState<MemoryStore>(() => loadMemory());
   const setMemory = useCallback((fn: (m: MemoryStore) => MemoryStore) => {
     setMemoryState((prev) => {
@@ -157,12 +144,6 @@ export default function AiApp({ isActive, compact, placement }: AppProps) {
     if (hasPictures && isActive && status?.state === 'on') void refreshFlags(ai);
   }, [ai, hasPictures, isActive, status?.state, chat?.id]);
   const ready = status?.state === 'on';
-  // For the Lab and Make: once on, stay on screen until the machine is really off (one odd status
-  // answer must not swap them out and back, which looked like the page reloading).
-  const wasOn = useRef(false);
-  if (ready) wasOn.current = true;
-  else if (status && status.state !== 'error') wasOn.current = false;
-  const steadyOn = ready || wasOn.current;
   // With the AI machine off, chats go to the cloud (NVIDIA, then the backups) instead of waiting.
   const [cloudOk, setCloudOk] = useState(false);
   useEffect(() => {
@@ -214,15 +195,11 @@ export default function AiApp({ isActive, compact, placement }: AppProps) {
     if (intent?.app !== 'ai') return;
     useWorkspace.getState().consumeIntent(intent.seq);
     if (intent.type === 'use-model') {
-      chooseMode('chat');
       setModel(intent.model);
       if (ready) ai.loadModel(intent.model).catch(() => {});
     } else if (intent.type === 'open-chat') {
       const id = intent.chatId;
-      chooseMode('chat');
       update((s) => (s.chats.some((c) => c.id === id) ? { ...s, activeId: id } : s));
-    } else if (intent.type === 'open-lab') {
-      chooseMode('lab');
     }
   }, [intent]); // eslint-disable-line react-hooks/exhaustive-deps
   const installed = modelStore.list?.installed;
@@ -270,14 +247,6 @@ export default function AiApp({ isActive, compact, placement }: AppProps) {
   const modelInfo = installed?.find((m) => m.name === model);
 
   const [speed, setSpeed] = useState<string | null>(null);
-  const chooseMode = (m: 'chat' | 'lab') => {
-    setMode(m);
-    try {
-      sessionStorage.setItem('orbit:ai:mode', m);
-    } catch {
-      /* private mode */
-    }
-  };
   const power = async (action: 'start' | 'stop', tier?: string) => {
     setPowering(true);
     try {
@@ -660,65 +629,20 @@ export default function AiApp({ isActive, compact, placement }: AppProps) {
 
   return (
     <div className="ag-root ai-root" data-placement={placement}>
-      {o5 ? (
-        <div className="o5-ai-bar">
-          <p className="o5-ai-title">Talk</p>
-          <button
-            type="button"
-            className="o5-orb-btn"
-            data-state={machine.state}
-            data-busy={busy}
-            aria-label={`Your AI: ${STATE_TEXT[machine.state]}${busy ? ', answering' : ''}. Open its menu.`}
-            onClick={() => setOrbMenu(true)}
-          >
-            <span className={`ai-dot ai-dot-${machine.state}`} aria-hidden />
-            <span className="o5-ai-menu-label">Menu</span>
-          </button>
-        </div>
-      ) : (
-        <>
-      <AppHeader
-          title="AI"
-          subtitle={
-            <span className="ai-status">
-              <span className={`ai-dot ai-dot-${machine.state}`} aria-hidden />
-              Your AI machine: {STATE_TEXT[machine.state]}
-              {currentTier && tiers.length > 1 && machine.state !== 'off' ? ` · ${currentTier.label}` : ''}
-              {machine.state === 'on' && !compact ? ` · off after ${autoOffMinutesOf(machine.idle?.limitMinutes, machine.autoOffMinutes)} min unused` : ''}
-            </span>
-          }
-          leading={compact && mode === 'chat' ? <IconButton icon="sidebar" label="Chats" onClick={() => setListOpen(true)} /> : undefined}
-          actions={
-            <>
-              {mode === 'chat' && <IconButton icon="plus" label="New chat" onClick={startChat} disabled={busy} />}
-              {mode === 'chat' && <IconButton icon="user" label="Personas & memory" onClick={() => setMemoryOpen(true)} />}
-              <IconButton icon="download" label="Store" onClick={() => openStore('chat')} />
-              <IconButton icon="external" label="Open the full AI playground" onClick={() => window.open('/ai', '_blank', 'noopener')} />
-              <IconButton icon="code" label="Code with AI (VS Code)" onClick={() => window.open('/code', '_blank', 'noopener')} />
-            </>
-          }
-        />
-  
-        <div className="ai-tabs">
-          <Segmented
-            label="Chat or lab"
-            value={mode}
-            onChange={(m) => {
-              setMode(m);
-              try {
-                sessionStorage.setItem('orbit:ai:mode', m);
-              } catch {
-                /* private mode */
-              }
-            }}
-            options={[
-              { value: 'chat', label: 'Chat' },
-              { value: 'lab', label: 'Lab' },
-            ]}
-          />
-        </div>
-        </>
-      )}
+      <div className="o5-ai-bar">
+        <p className="o5-ai-title">Talk</p>
+        <button
+          type="button"
+          className="o5-orb-btn"
+          data-state={machine.state}
+          data-busy={busy}
+          aria-label={`Your AI: ${STATE_TEXT[machine.state]}${busy ? ', answering' : ''}. Open its menu.`}
+          onClick={() => setOrbMenu(true)}
+        >
+          <span className={`ai-dot ai-dot-${machine.state}`} aria-hidden />
+          <span className="o5-ai-menu-label">Menu</span>
+        </button>
+      </div>
 
       {machine.state !== 'on' && (
         <MachineNotice id="ai" label={machineLabel(machine.state)}>
@@ -772,31 +696,18 @@ export default function AiApp({ isActive, compact, placement }: AppProps) {
         </MachineNotice>
       )}
 
-      {/* The Lab stays open once visited (hidden while on another tab): coming back keeps the
-          gallery, the pictures and where you were, instead of loading it all again. */}
-      {(mode === 'lab' || visited.lab) && (
-        <div className="ai-create lab-tab" hidden={mode !== 'lab'}>
-          <MemeLab ai={ai} machineOn={steadyOn} isActive={isActive && mode === 'lab'} />
-        </div>
-      )}
-
-      <div className="ag-layout ai-layout" hidden={mode !== 'chat'}>
-        {!compact && !o5 && <aside className="ai-side">{list}</aside>}
+      <div className="ag-layout ai-layout">
         <section className="ai-main" aria-label={chat?.title ?? 'New chat'}>
           <div
             className="ai-scroll"
             ref={scroller}
             onScroll={onScroll}
-            onClick={
-              o5
-                ? (e) => {
-                    // Orbit 0.5 keeps a message's actions out of sight until you tap that message.
-                    const msg = (e.target as HTMLElement).closest<HTMLElement>('.ai-msg');
-                    if (!msg || (e.target as HTMLElement).closest('button, a, textarea, input, summary')) return;
-                    msg.dataset.open = msg.dataset.open === 'true' ? 'false' : 'true';
-                  }
-                : undefined
-            }
+            onClick={(e) => {
+              // Orbit 0.5 keeps a message's actions out of sight until you tap that message.
+              const msg = (e.target as HTMLElement).closest<HTMLElement>('.ai-msg');
+              if (!msg || (e.target as HTMLElement).closest('button, a, textarea, input, summary')) return;
+              msg.dataset.open = msg.dataset.open === 'true' ? 'false' : 'true';
+            }}
           >
             {!chat || chat.messages.length === 0 ? (
               <div className="ai-hello" data-typing={draft.trim().length > 0}>
@@ -1092,11 +1003,9 @@ export default function AiApp({ isActive, compact, placement }: AppProps) {
                 aria-label="Message"
                 enterKeyHint="send"
               />
-              <div className="ai-composer-bar" data-tools={o5 ? (toolsOpen || webMode || pictureMode ? 'open' : 'folded') : undefined}>
-                {o5 && (
-                  <IconButton icon={toolsOpen ? 'close' : 'plus'} label={toolsOpen ? 'Hide tools' : 'Tools: photos, web, picture'} className="o5-tools-btn" aria-expanded={toolsOpen} onClick={() => setToolsOpen((v) => !v)} />
-                )}
-                <IconButton icon={o5 ? "upload" : "plus"} label="Add photos or files" className="o5-tool" onClick={() => fileInput.current?.click()} disabled={pictureMode} />
+              <div className="ai-composer-bar" data-tools={toolsOpen || webMode || pictureMode ? 'open' : 'folded'}>
+                <IconButton icon={toolsOpen ? 'close' : 'plus'} label={toolsOpen ? 'Hide tools' : 'Tools: photos, web, picture'} className="o5-tools-btn" aria-expanded={toolsOpen} onClick={() => setToolsOpen((v) => !v)} />
+                <IconButton icon="upload" label="Add photos or files" className="o5-tool" onClick={() => fileInput.current?.click()} disabled={pictureMode} />
                 <button
                   type="button"
                   className="ai-pill-toggle ai-pill-icon o5-tool"
@@ -1151,7 +1060,7 @@ export default function AiApp({ isActive, compact, placement }: AppProps) {
         </section>
       </div>
 
-      {(compact || o5) && listOpen && mode === 'chat' && (
+      {listOpen && (
         <Sheet title="Chats" onClose={() => setListOpen(false)}>
           {list}
         </Sheet>
@@ -1223,7 +1132,6 @@ export default function AiApp({ isActive, compact, placement }: AppProps) {
                     disabled={off}
                     onClick={() => {
                       setOrbMenu(false);
-                      if (label === 'New conversation' || label === 'Conversations') chooseMode('chat');
                       run();
                     }}
                   >

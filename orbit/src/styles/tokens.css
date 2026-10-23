@@ -41,9 +41,6 @@
   --app-height: 100dvh;
   --keyboard-inset: 0px;
 
-  --dock-height: 64px;
-  --dock-gap: 10px;
-
   --dur-fast: 140ms;
   --dur-med: 240ms;
   --ease-out: cubic-bezier(0.2, 0.8, 0.2, 1);

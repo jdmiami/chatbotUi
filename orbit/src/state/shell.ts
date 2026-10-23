@@ -22,8 +22,6 @@ export type Overlay = null | 'switcher' | 'control-center' | 'index';
 export type ThemePref = 'system' | 'dark' | 'light';
 export type AccentId = 'indigo' | 'teal' | 'amber' | 'rose' | 'sky';
 export type WallpaperId = 'orbit' | 'dusk' | 'aurora' | 'graphite';
-/** classic = the original Orbit look; o5 = Orbit 0.5 (editorial, full screen, chrome hides away). */
-export type SkinId = 'classic' | 'o5';
 /** system = Auto, reduce = Off. */
 export type MotionPref = 'system' | 'reduce' | 'full' | 'lite';
 
@@ -57,8 +55,6 @@ export interface Settings {
   sound: boolean;
   /** A short vibration for key moments, where the device allows it. */
   haptics: boolean;
-  /** The look. Orbit 0.5 (MagStyle) is the only look; classic stays only for the test suite. */
-  skin?: SkinId;
   /** The orb on every screen (tap to talk, hold to ask it to do something). Unset = on. */
   orb?: boolean;
   /** The orb drifts to what matters on screen; false = it stays where you put it. Unset = follows. */
@@ -125,20 +121,7 @@ export const DEFAULT_SETTINGS: Settings = {
   sound: false,
   haptics: false,
   introSeen: false,
-  skin: classicAllowed() ? 'classic' : 'o5',
 };
-
-/**
- * Orbit 0.5 (MagStyle) is the only look. The classic one is kept only where the test suite asks for
- * it (a flag set in its browser storage), until its tests move over; nobody else can land in it.
- */
-export function classicAllowed(): boolean {
-  try {
-    return typeof localStorage !== 'undefined' && localStorage.getItem('orbit:classic') === '1';
-  } catch {
-    return false;
-  }
-}
 
 const DEFAULT_SPLIT: SplitState = { enabled: false, left: 'editor', right: 'agent', ratio: 0.55 };
 
@@ -193,8 +176,7 @@ export const useShell = create<ShellState>()(
         set({ split: { ...split, enabled: true }, openApps: apps, activeApp: split.left, overlay: null });
       },
       updateSettings(patch) {
-        const next = patch.skin === 'classic' && !classicAllowed() ? { ...patch, skin: 'o5' as const } : patch;
-        set({ settings: { ...get().settings, ...next } });
+        set({ settings: { ...get().settings, ...patch } });
       },
       toast(text, tone = 'info') {
         const id = toastSeq++;
@@ -225,9 +207,9 @@ export const useShell = create<ShellState>()(
 
 function migrate(s: Settings): Settings {
   const m = s.motion === 'system' && !s.motionPicked ? { ...s, motion: 'full' as const } : s;
-  // Everyone is on MagStyle (a saved "classic" moves over), except the test suite's classic runs.
-  if (classicAllowed()) return { ...m, skin: s.skin === 'o5' ? 'o5' : 'classic' };
-  return { ...m, skin: 'o5' };
+  // Orbit 0.5 (MagStyle) is the only look: the old saved look choice ("classic" or "o5") is dropped.
+  const { skin: _oldLook, ...rest } = m as Settings & { skin?: unknown };
+  return rest;
 }
 
 export const APP_ORDER: AppId[] = ['terminal', 'editor', 'agent', 'ai', 'make', 'livedraw', 'store', 'soreal', 'lab', 'stats', 'playground', 'vscode', 'desktop', 'windows', 'settings'];

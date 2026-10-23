@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { APPS } from '../../apps/registry';
-import { classicAllowed, useShell, type AppId } from '../../state/shell';
+import { useShell, type AppId } from '../../state/shell';
 import { useWorkspace } from '../../state/workspace';
 import { Icon } from '../../ui/Icon';
 import { ConfirmSheet } from '../../ui/components';
@@ -146,11 +146,6 @@ export function IndexMenu() {
           >
             Motion · {MOTION_NAME[settings.motion]}
           </button>
-          {classicAllowed() && (
-            <button type="button" className="o5-switch" onClick={go(() => updateSettings({ skin: 'classic' }))}>
-              Classic look
-            </button>
-          )}
           <a className="o5-switch" href="/?choose=1">
             Switch workspace
           </a>

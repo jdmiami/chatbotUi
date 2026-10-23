@@ -1055,17 +1055,34 @@ function Orb() {
       const offscreen = before.bottom < 0 || before.top > innerHeight;
       el.scrollIntoView?.({ block: offscreen ? 'center' : 'nearest', behavior: levelRef.current === 'full' ? 'smooth' : 'auto' });
       await wait(levelRef.current === 'full' ? (offscreen ? 420 : 180) : 30);
-      const r = el.getBoundingClientRect();
-      // Look where it's going.
-      const dx = r.left + r.width / 2 - x.value, dy = r.top + r.height / 2 - y.value;
-      const dist = Math.max(1, Math.hypot(dx, dy));
-      setGaze([dx / dist, -dy / dist]);
-      clearTimeout(faceTimers.current.gaze);
-      faceTimers.current.gaze = setTimeout(() => setGaze(null), 1400);
+      // A long smooth scroll (a tall page like Settings) can start late and take longer than that:
+      // wait until the target is on screen and has come to rest.
+      for (let i = 0, top = el.getBoundingClientRect().top; i < 40 && !signal.aborted; i++) {
+        await wait(50);
+        const now = el.getBoundingClientRect();
+        const onScreen = now.bottom > 0 && now.top < innerHeight;
+        if (onScreen && Math.abs(now.top - top) < 0.5) break;
+        top = now.top;
+      }
       mode.current = 'acting';
-      moveTo(r.left + r.width / 2, r.top + r.height / 2, AIM);
-      const t0 = performance.now();
-      while (!signal.aborted && performance.now() - t0 < 900 && Math.hypot(x.value - x.target, y.value - y.target) > 4) await wait(16);
+      // Fly there; if the target still moved meanwhile, follow it (a few times at most).
+      for (let tries = 0; tries < 3 && !signal.aborted; tries++) {
+        const r = el.getBoundingClientRect();
+        const tx = r.left + r.width / 2, ty = r.top + r.height / 2;
+        if (tries > 0 && Math.hypot(tx - x.target, ty - y.target) < 4) break;
+        if (tries === 0) {
+          // Look where it's going.
+          const dx = tx - x.value, dy = ty - y.value;
+          const dist = Math.max(1, Math.hypot(dx, dy));
+          setGaze([dx / dist, -dy / dist]);
+          clearTimeout(faceTimers.current.gaze);
+          faceTimers.current.gaze = setTimeout(() => setGaze(null), 1400);
+        }
+        moveTo(tx, ty, AIM);
+        const t0 = performance.now();
+        // Press only once it is there (a busy device can take longer than the usual flight).
+        while (!signal.aborted && performance.now() - t0 < 2000 && Math.hypot(x.value - x.target, y.value - y.target) > 4) await wait(16);
+      }
       // Press it like a finger would.
       depth.target = 1;
       kick();

@@ -19,7 +19,7 @@ export type Step =
   | { do: 'click'; target: string }
   | { do: 'type'; text: string; target?: string; submit?: boolean }
   | { do: 'scroll'; dir: 'up' | 'down' | 'top' | 'bottom' }
-  | { do: 'setting'; name: 'theme' | 'motion' | 'skin' | 'text'; value: string }
+  | { do: 'setting'; name: 'theme' | 'motion' | 'text'; value: string }
   | { do: 'machine'; which: 'ai' | 'linux'; power: 'on' | 'off' }
   | { do: 'say'; text: string }
   | { do: 'done'; say?: string };
@@ -177,7 +177,6 @@ export function parseCommand(input: string): Step[] | null {
     const v = m[1] === 'on' ? 'full' : m[1];
     return [{ do: 'setting', name: 'motion', value: v }];
   }
-  if (/\b(orbit 0\.5|new look|magazine look)\b/.test(t)) return [{ do: 'setting', name: 'skin', value: 'o5' }];
   if (/\b(bigger|larger) text\b|\btext (bigger|larger)\b/.test(t)) return [{ do: 'setting', name: 'text', value: 'up' }];
   if (/\bsmaller text\b|\btext smaller\b/.test(t)) return [{ do: 'setting', name: 'text', value: 'down' }];
 
@@ -219,7 +218,7 @@ Reply with ONE JSON object and nothing else, one of:
 {"do":"click","target":"#3"}            (use the item number)
 {"do":"type","target":"#5","text":"...","submit":true|false}
 {"do":"scroll","dir":"up|down|top|bottom"}
-{"do":"setting","name":"theme|motion|skin|text","value":"dark|light|off|lite|full|classic|o5|up|down"}
+{"do":"setting","name":"theme|motion|text","value":"dark|light|off|lite|full|up|down"}
 {"do":"machine","which":"ai|linux","power":"on|off"}
 {"do":"done","say":"one short sentence for the owner"}
 Rules: only use items that are listed. Prefer the fewest steps. If the goal is a question you can answer, answer it with done. If you can't do it, say why with done. Never invent passwords or personal data.`;
@@ -250,7 +249,7 @@ export function parseStep(text: string): Step | null {
   return null;
 }
 
-export type SettingsPatch = Partial<Pick<Settings, 'theme' | 'motion' | 'skin' | 'textScale' | 'motionPicked'>>;
+export type SettingsPatch = Partial<Pick<Settings, 'theme' | 'motion' | 'textScale' | 'motionPicked'>>;
 
 /** A settings step as a patch (null if the value isn't understood). */
 export function settingPatch(step: Extract<Step, { do: 'setting' }>, current: Settings): SettingsPatch | null {
@@ -260,7 +259,6 @@ export function settingPatch(step: Extract<Step, { do: 'setting' }>, current: Se
     const map: Record<string, Settings['motion']> = { off: 'reduce', reduce: 'reduce', lite: 'lite', full: 'full', on: 'full', auto: 'system', system: 'system' };
     return map[v] ? { motion: map[v], motionPicked: true } : null;
   }
-  if (step.name === 'skin' && (v === 'classic' || v === 'o5')) return { skin: v };
   if (step.name === 'text') {
     const next = Math.round((current.textScale + (v === 'down' ? -0.1 : 0.1)) * 100) / 100;
     return { textScale: Math.min(1.3, Math.max(0.9, next)) };
@@ -293,7 +291,7 @@ export function submitField(el: HTMLElement) {
 
 /** The scroller under the main content (the active app's, or the home path). */
 export function mainScroller(skip?: Element | null): HTMLElement | null {
-  const candidates = [...document.querySelectorAll<HTMLElement>('.app-window:not([data-hidden="true"]) *, .o5-path, .home')].filter((el) => {
+  const candidates = [...document.querySelectorAll<HTMLElement>('.app-window:not([data-hidden="true"]) *, .o5-path')].filter((el) => {
     if (skip?.contains(el)) return false;
     const s = getComputedStyle(el);
     return /(auto|scroll)/.test(s.overflowY) && el.scrollHeight > el.clientHeight + 40 && el.clientHeight > 120;

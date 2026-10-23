@@ -9,7 +9,7 @@ import { AGY_CAPABILITIES } from '../../services/runner/agyCapabilities';
 import type { CapabilityStatus } from '../../services/runner/types';
 import { cue } from '../../motion/feedback';
 import { requestTiltPermission, tiltNeedsPermission } from '../../motion/tilt';
-import { classicAllowed, useShell, type AppId, type MotionPref, type ThemePref, type WallpaperId } from '../../state/shell';
+import { useShell, type AppId, type MotionPref, type ThemePref, type WallpaperId } from '../../state/shell';
 import { useWorkspace } from '../../state/workspace';
 import { useLayout } from '../../state/viewport';
 // Read only inside components: Shell.tsx imports the app registry, which imports this file.
@@ -140,7 +140,6 @@ export default function SettingsApp({ isActive }: AppProps) {
   const settings = useShell((s) => s.settings);
   const updateSettings = useShell((s) => s.updateSettings);
   const toast = useShell((s) => s.toast);
-  const o5 = settings.skin === 'o5';
   const host = connection.mode === 'host';
 
   const [pending, setPending] = useState<Pending>(null);
@@ -272,27 +271,25 @@ export default function SettingsApp({ isActive }: AppProps) {
       />
       <div className="st-scroll">
         <div className="st-page">
-          {o5 && (
-            <nav className="st-contents" aria-label="Chapters">
-              <p className="o5-kicker">Settings</p>
-              <h2 className="o5-chapter-title">Make it yours</h2>
-              <ul className="o5-links">
-                {CHAPTERS.map((title, i) => (
-                  <li key={title}>
-                    <button
-                      type="button"
-                      className="o5-go"
-                      onClick={() => document.getElementById(chapterId(title))?.scrollIntoView({ behavior: 'smooth', block: 'start' })}
-                    >
-                      <span className="o5-go-label">{title}</span>
-                      <span className="o5-go-hint">{String(i + 1).padStart(2, '0')}</span>
-                      <Icon name="down" size={20} />
-                    </button>
-                  </li>
-                ))}
-              </ul>
-            </nav>
-          )}
+          <nav className="st-contents" aria-label="Chapters">
+            <p className="o5-kicker">Settings</p>
+            <h2 className="o5-chapter-title">Make it yours</h2>
+            <ul className="o5-links">
+              {CHAPTERS.map((title, i) => (
+                <li key={title}>
+                  <button
+                    type="button"
+                    className="o5-go"
+                    onClick={() => document.getElementById(chapterId(title))?.scrollIntoView({ behavior: 'smooth', block: 'start' })}
+                  >
+                    <span className="o5-go-label">{title}</span>
+                    <span className="o5-go-hint">{String(i + 1).padStart(2, '0')}</span>
+                    <Icon name="down" size={20} />
+                  </button>
+                </li>
+              ))}
+            </ul>
+          </nav>
           <ConnectionSection onReconnect={reconnect} />
           <AppearanceSection />
           <OrbSection />
@@ -583,27 +580,6 @@ function AppearanceSection() {
       caption="Motion: Auto picks Full or Lite for your device and follows its Reduce Motion setting. Full is the bounciest. Lite keeps short, light movement. Off turns animation off."
     >
       <div className="list">
-        {/* MagStyle is the only look; the switch is left only for the test suite's classic runs. */}
-        {classicAllowed() && (
-        <div className="row st-row st-wrap">
-          <div className="st-main st-shrink">
-            <span className="st-label">Look</span>
-            <span className="row-sub">Orbit 0.5: full screen, magazine-style, menus tucked away behind one line at the bottom.</span>
-          </div>
-          <div className="st-control">
-            <Segmented
-              label="Look"
-              value={settings.skin ?? 'classic'}
-              options={[
-                { value: 'classic', label: 'Classic' },
-                { value: 'o5', label: 'Orbit 0.5' },
-              ]}
-              onChange={(skin) => updateSettings({ skin })}
-            />
-          </div>
-        </div>
-        )}
-
         <div className="row st-row st-wrap">
           <span className="st-label">Theme</span>
           <div className="st-control">
