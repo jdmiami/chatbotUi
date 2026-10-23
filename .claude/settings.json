@@ -4,6 +4,9 @@
       "Bash",
       "Edit",
       "Write",
+      "Read",
+      "Glob",
+      "Grep",
       "WebFetch",
       "WebSearch",
       "Agent",
@@ -11,15 +14,31 @@
       "ToolSearch",
       "ReadNotifications",
       "SendUserFile",
+      "Artifact",
+      "TaskCreate",
+      "TaskUpdate",
+      "TaskList",
+      "TaskGet",
+      "TaskStop",
+      "SendMessage",
+      "Monitor",
       "mcp__github",
       "mcp__Vercel",
       "mcp__claude-code-remote",
       "mcp__Run_pods",
-      "mcp__Hugging_Face"
+      "mcp__Hugging_Face",
+      "mcp__Cloudflare_Developer_Platform"
     ],
     "ask": [
       "mcp__Run_pods__delete-network-volume",
-      "mcp__Run_pods__delete-global-volume"
+      "mcp__Run_pods__delete-global-volume",
+      "mcp__Run_pods__delete-template",
+      "mcp__Run_pods__delete-endpoint",
+      "mcp__Run_pods__delete-secret",
+      "mcp__github__delete_file",
+      "mcp__Cloudflare_Developer_Platform__r2_bucket_delete",
+      "mcp__Cloudflare_Developer_Platform__kv_namespace_delete",
+      "mcp__Cloudflare_Developer_Platform__d1_database_delete"
     ]
   }
 }
