@@ -120,7 +120,7 @@ in North America first. `AI_WORLDWIDE=off` keeps it in North America.
 ## Drawing machine (Live Draw)
 
 Live Draw has its own GPU machine (`lib/canvas.ts`, `/api/canvas`, design in `docs/livedraw/DESIGN.md`):
-the pod `<AI_POD_NAME>-canvas`, an RTX PRO 6000 (backup: H200) in the data centre of its network volume
+the pod `<AI_POD_NAME>-canvas`, an H200 (backup: RTX PRO 6000) in the data centre of its network volume
 `CANVAS_VOLUME_ID`, started with `AI_ROLE=canvas`. `setup.sh` starts no Open WebUI and no Ollama there;
 ComfyUI, the makers Live Draw uses (the gate's `CANVAS_MAKERS`) and their Pythons install once onto the
 volume, so later starts download nothing. `GALLERY=r2` keeps its pictures and videos in R2, in the one

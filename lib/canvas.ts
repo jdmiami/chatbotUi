@@ -25,7 +25,9 @@ import {
  * Unlike the AI machine it keeps its software and models on a Runpod network volume (CANVAS_VOLUME_ID,
  * mounted at /workspace), so a start never downloads anything twice and the first live picture comes
  * quickly. Only the gallery goes to R2 (GALLERY=r2), so its pictures show up in the one gallery.
- * The volume ties it to one data centre, so it tries the RTX PRO 6000 there, then the H200 there.
+ * The volume ties it to one data centre, so it tries the H200 there (Bring to life runs Krea Realtime 14B,
+ * which needs H100-class compute to stay ahead of playback), then the RTX PRO 6000 there (live drawing is
+ * just as fast on it; Krea runs slower).
  * Everything is on the volume, so a stopped pod whose host has no free GPU is simply replaced.
  */
 
@@ -53,7 +55,7 @@ const canvasEnv = () => ({
   // The volume's data centre: the only place the drawing machine can run.
   dataCenter: process.env.CANVAS_DATA_CENTER || 'US-NC-1',
   // First choice, then the backup in the same data centre.
-  gpus: list(process.env.CANVAS_GPU_TYPES || 'NVIDIA RTX PRO 6000 Blackwell Server Edition,NVIDIA H200'),
+  gpus: list(process.env.CANVAS_GPU_TYPES || 'NVIDIA H200,NVIDIA RTX PRO 6000 Blackwell Server Edition'),
   // Software and models live on the volume, so the pod's own disk only holds temporary files.
   diskGb: 60,
 });
@@ -98,11 +100,11 @@ async function runpodPrice(gpu: string): Promise<number | null> {
   return value;
 }
 
-/** The price per hour shown before Start: CANVAS_PRICE_PER_HOUR when set, else Runpod's, else 2.49. */
+/** The price per hour shown before Start: CANVAS_PRICE_PER_HOUR when set, else Runpod's, else 5.29 (the H200). */
 async function pricePerHour(gpu: string): Promise<number> {
   const set = Number(process.env.CANVAS_PRICE_PER_HOUR);
   if (Number.isFinite(set) && set > 0) return set;
-  return (await runpodPrice(gpu).catch(() => null)) ?? 2.49;
+  return (await runpodPrice(gpu).catch(() => null)) ?? 5.29;
 }
 
 /** What the drawing machine starts with. The R2 keys are only for the gallery. */
@@ -122,7 +124,7 @@ function canvasPodEnv(): Record<string, string> {
   };
 }
 
-/** Create the drawing machine on its drive: the RTX PRO 6000 first, then the H200 (`usualOnly`: the first only). */
+/** Create the drawing machine on its drive: the H200 first, then the RTX PRO 6000 (`usualOnly`: the first only). */
 export async function createCanvasPod(usualOnly = false): Promise<Pod> {
   const c = canvasEnv();
   const e = aiEnv();

@@ -45,7 +45,7 @@ The app passes `engine`; the site decides the default per surface (owner: `fast`
 | Item | Value |
 |---|---|
 | Pod name | `${AI_POD_NAME}-canvas` (e.g. `orbit-ai-canvas`) |
-| GPU | `NVIDIA RTX PRO 6000 Blackwell Server Edition` (96 GB); backup in the same data centre: `NVIDIA H200` |
+| GPU | `NVIDIA H200` (141 GB): Bring to life is Krea Realtime 14B, which needs H100-class compute to stay ahead of playback; backup in the same data centre: `NVIDIA RTX PRO 6000 Blackwell Server Edition` (96 GB; live drawing as fast, Krea slower) |
 | Data centre | the drive's: `US-NC-1` (closest with stock to the owner in Miami) |
 | Drive | Runpod network volume `orbit-canvas` (id `zgja8ch0hz`, 200 GB, STANDARD, US-NC-1) mounted at `/workspace`; env `CANVAS_VOLUME_ID` in Vercel |
 | Image | same as the AI machine (`AI_IMAGE` / the Open WebUI image) so `setup.sh` runs unchanged; role `AI_ROLE=canvas` |
