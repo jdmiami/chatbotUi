@@ -1,5 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
-import { dock, expectNoHorizontalOverflow } from './helpers';
+import { expectNoHorizontalOverflow, goHome, indexButton, openApp, openIndex } from './helpers';
 
 /**
  * Motion levels. The rest of the suite runs with the device's Reduce Motion on (Orbit's Auto then means
@@ -16,57 +16,82 @@ async function open(page: Page, motion: Level) {
   const errors: string[] = [];
   page.on('pageerror', (e) => errors.push(e.message));
   await page.goto('/');
-  await expect(page.getByRole('button', { name: /^Terminal\./ })).toBeVisible();
+  await expect(indexButton(page)).toBeVisible();
   return errors;
+}
+
+/** Watch the Terminal window every frame for a while (start it before opening the app). */
+function watchTerminal(page: Page, ms: number) {
+  return page.evaluate(
+    (ms) =>
+      new Promise<{ minOpacity: number; moved: boolean; clipped: boolean }>((res) => {
+        let minOpacity = 1;
+        let moved = false;
+        let clipped = false;
+        const start = performance.now();
+        const tick = () => {
+          const el = document.querySelector('.app-window[data-app="terminal"]');
+          if (el) {
+            const cs = getComputedStyle(el);
+            minOpacity = Math.min(minOpacity, Number(cs.opacity));
+            if (cs.transform !== 'none' && cs.transform !== 'matrix(1, 0, 0, 1, 0, 0)') moved = true;
+            if (cs.clipPath !== 'none') clipped = true;
+          }
+          if (performance.now() - start < ms) requestAnimationFrame(tick);
+          else res({ minOpacity, moved, clipped });
+        };
+        requestAnimationFrame(tick);
+      }),
+    ms,
+  );
+}
+
+/** Open the Terminal from the Index while watching it arrive. */
+async function openTerminalWatched(page: Page, ms = 1200) {
+  const index = await openIndex(page);
+  const watched = watchTerminal(page, ms);
+  await index.locator('.o5-index-list').getByRole('button', { name: /^\d+\s+Terminal\b/ }).click();
+  return watched;
+}
+
+/** A sheet to play with: the Terminal's options. */
+async function openSheet(page: Page) {
+  const win = await openApp(page, 'terminal');
+  const more = win.getByRole('button', { name: 'More terminal options' });
+  await more.click();
+  return more;
 }
 
 const level = (page: Page) => page.evaluate(() => document.documentElement.dataset.motion);
 const terminalWindow = (page: Page) => page.locator('.app-window[data-app="terminal"]');
 
 test.describe('motion levels', () => {
-  test('full: icons pop in, the app grows out of its icon and settles clean, then shrinks back', async ({ page }) => {
+  test('full: the index rises in; the app eases open and settles clean, then eases away home', async ({ page }) => {
     const errors = await open(page, 'full');
     expect(await level(page)).toBe('full');
-    const icon = page.locator('.home-grid .app-icon').first();
-    expect(await icon.evaluate((el) => getComputedStyle(el).animationName)).toContain('mo-icon-pop');
-
-    await page.getByRole('button', { name: /^Terminal\./ }).click();
-    // Mid-flight the window is scaled down and clipped to the icon (watched frame by frame: when it
-    // starts depends on how fast the app's code arrives).
-    const mid = await terminalWindow(page).evaluate(
-      (el) =>
-        new Promise<{ clip: string; transform: string }>((res) => {
-          const t0 = performance.now();
-          const look = () => {
-            const s = getComputedStyle(el);
-            if ((s.clipPath.includes('inset') && s.transform !== 'none') || performance.now() - t0 > 1500) return res({ clip: s.clipPath, transform: s.transform });
-            requestAnimationFrame(look);
-          };
-          look();
-        }),
-    );
-    expect(mid.clip).toContain('inset');
-    expect(mid.transform).not.toBe('none');
+    const index = await openIndex(page);
+    expect(await index.locator('.o5-index-list li').first().evaluate((el) => getComputedStyle(el).animationName)).toContain('o5-rise');
+    // Mid-flight the window is faded and scaled a little (watched frame by frame).
+    const seen = await openTerminalWatched(page);
+    expect(seen.minOpacity).toBeLessThan(1);
+    expect(seen.moved).toBe(true);
     // Settled: no leftover inline animation styles, fully on screen.
     await expect.poll(() => terminalWindow(page).evaluate((el) => el.style.clipPath + el.style.transform + el.style.opacity), { timeout: 4000 }).toBe('');
     await expect(terminalWindow(page)).toHaveAttribute('data-placement', 'full');
     await expectNoHorizontalOverflow(page);
 
-    // Home: the app shrinks into its icon and hides afterwards.
-    await dock(page).getByRole('button', { name: 'Home screen' }).click();
-    await expect(terminalWindow(page)).toBeVisible();
+    // Home: the app eases away and hides afterwards.
+    await goHome(page);
     await expect.poll(() => terminalWindow(page).evaluate((el) => getComputedStyle(el).visibility), { timeout: 4000 }).toBe('hidden');
-    await expect(page.getByRole('button', { name: /^Terminal\./ })).toBeVisible();
     expect(errors).toEqual([]);
   });
 
-  test('lite: short fades only, no icon pop or clip', async ({ page }) => {
+  test('lite: short fades only, no clip', async ({ page }) => {
     await open(page, 'lite');
     expect(await level(page)).toBe('lite');
-    const icon = page.locator('.home-grid .app-icon').first();
-    expect(await icon.evaluate((el) => getComputedStyle(el).animationName)).toContain('mo-fade-up');
-    await page.getByRole('button', { name: /^Terminal\./ }).click();
+    const seen = await openTerminalWatched(page);
     await expect(terminalWindow(page)).toHaveAttribute('data-placement', 'full');
+    expect(seen.clipped).toBe(false);
     expect(await terminalWindow(page).evaluate((el) => getComputedStyle(el).clipPath)).toBe('none');
     await expect.poll(() => terminalWindow(page).evaluate((el) => el.style.opacity + el.style.transform), { timeout: 3000 }).toBe('');
   });
@@ -74,15 +99,14 @@ test.describe('motion levels', () => {
   test('off: nothing animates and apps open instantly', async ({ page }) => {
     await open(page, 'reduce');
     expect(await level(page)).toBe('off');
-    await page.getByRole('button', { name: /^Terminal\./ }).click();
+    const index = await openIndex(page);
+    expect(await index.locator('.o5-index-list li').first().evaluate((el) => getComputedStyle(el).animationName)).toBe('none');
+    await index.locator('.o5-index-list').getByRole('button', { name: /^\d+\s+Terminal\b/ }).click();
     expect(await terminalWindow(page).evaluate((el) => el.style.clipPath + el.style.transform)).toBe('');
-    const dur = await page.locator('.home-grid .app-icon').first().evaluate((el) => getComputedStyle(el).animationDuration);
-    expect(parseFloat(dur)).toBeLessThan(0.01);
   });
 
   test('auto follows the device: Reduce Motion on means off', async ({ browser }) => {
     const ctx = await browser.newContext({ reducedMotion: 'reduce' });
-    await ctx.addInitScript(() => localStorage.setItem('orbit:classic', '1'));
     const page = await ctx.newPage();
     await open(page, 'system');
     expect(await level(page)).toBe('off');
@@ -99,7 +123,7 @@ test.describe('motion levels', () => {
 
   test('Settings: pick a level and it applies at once; sounds and vibration start off', async ({ page }) => {
     await open(page, 'system');
-    await page.getByRole('button', { name: /^Settings\./ }).click();
+    await openApp(page, 'settings');
     const group = page.getByRole('group', { name: 'Motion', exact: true });
     await expect(group.getByRole('button')).toHaveText(['Auto', 'Full', 'Lite', 'Off']);
     await group.getByRole('button', { name: 'Lite' }).click();
@@ -114,8 +138,8 @@ test.describe('motion levels', () => {
 
   test('full: a sheet can be dragged down to dismiss, and springs back if let go early', async ({ page }) => {
     await open(page, 'full');
-    await page.getByRole('button', { name: /Show details/ }).click();
-    const sheet = page.getByRole('dialog');
+    await openSheet(page);
+    const sheet = page.getByRole('dialog', { name: 'Terminal options' });
     await expect(sheet).toBeVisible();
     await page.waitForTimeout(900); // entrance spring settles
     const grip = await page.locator('.sheet-grabber').boundingBox();
@@ -141,21 +165,17 @@ test.describe('motion levels', () => {
     await expect(sheet).toHaveCount(0, { timeout: 3000 });
   });
 
-  test('full: nothing drifts on its own; the background, light and shadows follow the tilt', async ({ page }) => {
+  test('full: nothing drifts on its own; the background follows the tilt', async ({ page }) => {
     await open(page, 'full');
     await page.waitForTimeout(1200);
     await expectNoHorizontalOverflow(page);
     // The decorative float and drift are cut (MOTION.md §5).
     expect(await page.evaluate(() => getComputedStyle(document.querySelector('.shell')!, '::before').animationName)).toBe('none');
-    expect(await page.locator('.home-grid .app-icon .glyph').first().evaluate((el) => getComputedStyle(el).animationName)).toBe('none');
-    // The one GPU layer is running on the home screen.
-    await expect(page.locator('canvas.home-light[data-live="true"]')).toHaveCount(1);
 
     const read = () =>
       page.evaluate(() => ({
         tx: Number(document.documentElement.style.getPropertyValue('--tx') || 0),
         bg: getComputedStyle(document.querySelector('.shell')!, '::before').translate,
-        shadow: getComputedStyle(document.querySelector('.home-grid .app-icon .glyph')!).boxShadow,
       }));
     const before = await read();
     // Tilt the phone 15° to the right of how it's held.
@@ -170,46 +190,63 @@ test.describe('motion levels', () => {
     await expect.poll(async () => (await read()).tx).toBeGreaterThan(0.3);
     const after = await read();
     expect(after.bg).not.toBe(before.bg);
-    expect(after.shadow).not.toBe(before.shadow);
     await expectNoHorizontalOverflow(page);
   });
 
-  test('liquid glass: floating panes blur what is behind and carry a lit rim', async ({ page }) => {
+  test('frosted: the index and the backdrop of a sheet blur what is behind them', async ({ page }) => {
     await open(page, 'full');
-    const look = await dock(page).evaluate((el) => {
-      const cs = getComputedStyle(el);
-      return { blur: cs.backdropFilter || (cs as unknown as Record<string, string>).webkitBackdropFilter, shadow: cs.boxShadow, bg: cs.backgroundImage };
-    });
-    expect(look.blur).toContain('blur(26px)');
-    expect(look.shadow).toContain('inset');
-    expect(look.bg).toContain('radial-gradient');
+    const blurOf = (sel: string) =>
+      page.locator(sel).evaluate((el) => {
+        const cs = getComputedStyle(el);
+        return cs.backdropFilter || (cs as unknown as Record<string, string>).webkitBackdropFilter;
+      });
+    await openIndex(page);
+    expect(await blurOf('.o5-index')).toContain('blur(28px)');
+    await page.keyboard.press('Escape');
+    await openSheet(page);
+    expect(await blurOf('.sheet-scrim')).toContain('blur(14px)');
   });
 
   test('full: sheets grow out of the button you tapped', async ({ page }) => {
     await open(page, 'full');
-    const chip = page.getByRole('button', { name: /Show details/ });
+    const chip = (await openApp(page, 'terminal')).getByRole('button', { name: 'More terminal options' });
     const box = (await chip.boundingBox())!;
+    // Watch the sheet's first frames (however busy the machine running the test is) and keep the smallest.
+    await page.evaluate(() => {
+      const w = window as unknown as { smallest: DOMRect | null };
+      w.smallest = null;
+      new MutationObserver((_, obs) => {
+        const el = document.querySelector('.sheet');
+        if (!el) return;
+        obs.disconnect();
+        const t0 = performance.now();
+        const look = () => {
+          const r = el.getBoundingClientRect().toJSON() as DOMRect;
+          if (!w.smallest || r.width < w.smallest.width) w.smallest = r;
+          if (performance.now() - t0 < 400) requestAnimationFrame(look);
+        };
+        requestAnimationFrame(look);
+      }).observe(document.body, { childList: true, subtree: true });
+    });
     await chip.click();
     const sheet = page.locator('.sheet');
     await expect(sheet).toHaveAttribute('data-grown', '');
     // Early in the entrance the sheet is small and centred near the chip.
-    const mid = await sheet.evaluate(
-      (el) => new Promise<DOMRect>((res) => requestAnimationFrame(() => requestAnimationFrame(() => res(el.getBoundingClientRect().toJSON())))),
-    );
+    await page.waitForTimeout(500);
+    const mid = (await page.evaluate(() => (window as unknown as { smallest: DOMRect | null }).smallest))!;
     const vp = page.viewportSize()!;
     expect(mid.width).toBeLessThan(vp.width * 0.8);
     expect(Math.abs(mid.y + mid.height / 2 - (box.y + box.height / 2))).toBeLessThan(vp.height * 0.45);
     await expect.poll(() => sheet.evaluate((el) => el.style.transform)).toBe('');
   });
 
-  test('full: swipe up on the dock to go home; a short swipe springs back', async ({ page }) => {
+  test('full: swipe up on the line at the bottom to go home; a short swipe springs back', async ({ page }) => {
     await open(page, 'full');
-    await page.getByRole('button', { name: /^Terminal\./ }).click();
-    const win = terminalWindow(page);
+    const win = await openApp(page, 'terminal');
     await expect(win).toHaveAttribute('data-placement', 'full');
     await page.waitForTimeout(900);
-    const d = (await dock(page).boundingBox())!;
-    const x = d.x + d.width - 6;
+    const d = (await indexButton(page).boundingBox())!;
+    const x = d.x + d.width / 2;
     const y = d.y + d.height / 2;
 
     // A short, slow drag: the window follows, then springs back to full size.
@@ -222,48 +259,30 @@ test.describe('motion levels', () => {
     await page.mouse.up();
     await expect.poll(() => win.evaluate((el) => el.style.transform)).toBe('');
     await expect(win).toHaveAttribute('data-placement', 'full');
+    // The drag was not a tap: the index stays shut.
+    await expect(page.getByRole('dialog', { name: 'Index' })).toHaveCount(0);
 
-    // A long throw: it flies home.
+    // A long throw: it goes home.
     await page.mouse.move(x, y);
     await page.mouse.down();
     await page.mouse.move(x, y - 320, { steps: 5 });
     await page.mouse.up();
     await expect(win).toHaveAttribute('data-placement', 'hidden');
-    await expect(page.getByRole('button', { name: /^Terminal\./ })).toBeVisible();
+    await expect(page.getByRole('main', { name: 'Home' })).toHaveAttribute('data-hidden', 'false');
+    await expect(page.getByRole('dialog', { name: 'Index' })).toHaveCount(0);
     await expect.poll(() => win.evaluate((el) => el.style.transform)).toBe('');
   });
 
   test('off: designed, not empty — still, but apps and sheets cross-fade', async ({ page }) => {
     await open(page, 'reduce');
     expect(await level(page)).toBe('off');
-    await expect(page.locator('canvas.home-light')).toHaveCount(0);
-    await page.getByRole('button', { name: /Show details/ }).click();
-    expect(await page.locator('.sheet').evaluate((el) => getComputedStyle(el).animationName)).toBe('mo-xfade');
-    await page.keyboard.press('Escape');
-    // Sample the window every frame while it opens: it fades, but never moves or scales.
-    const sampled = page.evaluate(
-      () =>
-        new Promise<{ minOpacity: number; moved: boolean }>((res) => {
-          let minOpacity = 1;
-          let moved = false;
-          const start = performance.now();
-          const tick = () => {
-            const el = document.querySelector('.app-window[data-app="terminal"]');
-            if (el) {
-              const cs = getComputedStyle(el);
-              minOpacity = Math.min(minOpacity, Number(cs.opacity));
-              if (cs.transform !== 'none' && cs.transform !== 'matrix(1, 0, 0, 1, 0, 0)') moved = true;
-            }
-            if (performance.now() - start < 600) requestAnimationFrame(tick);
-            else res({ minOpacity, moved });
-          };
-          requestAnimationFrame(tick);
-        }),
-    );
-    await page.getByRole('button', { name: /^Terminal\./ }).click();
-    const t = await sampled;
+    // The window fades in, but never moves or scales.
+    const t = await openTerminalWatched(page, 600);
     expect(t.minOpacity).toBeLessThan(1);
     expect(t.moved).toBe(false);
     await expect.poll(() => terminalWindow(page).evaluate((el) => getComputedStyle(el).opacity)).toBe('1');
+    await openSheet(page);
+    expect(await page.locator('.sheet').evaluate((el) => getComputedStyle(el).animationName)).toBe('mo-xfade');
+    await page.keyboard.press('Escape');
   });
 });

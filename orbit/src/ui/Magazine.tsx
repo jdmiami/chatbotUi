@@ -4,7 +4,7 @@ import { Icon } from './Icon';
 /**
  * Pieces for pages that read like the home screen (Orbit 0.5's magazine): a cover, numbered
  * chapters that sink back as they scroll away (inside a Sheet with `page`), and a contents line
- * that jumps between them. In the classic look they are plain headed sections.
+ * that jumps between them.
  */
 export function MagCover({ kicker, title, dek, children }: { kicker: ReactNode; title: ReactNode; dek?: ReactNode; children?: ReactNode }) {
   return (

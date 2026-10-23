@@ -103,9 +103,8 @@ export function CreateView({
 }) {
   const toast = useShell((s) => s.toast);
   const launch = useShell((s) => s.launch);
-  const o5 = useShell((s) => s.settings.skin === 'o5');
   // The next step glides into view once this one is answered.
-  const next = (id: string) => nextStep(o5, id);
+  const next = nextStep;
   const [kind, setKind] = useState<Mode>('image');
   const [prompt, setPrompt] = useState('');
   const [size, setSize] = useState<Record<StudioKind, string>>({ image: 'square', video: 'landscape' });
@@ -401,59 +400,40 @@ export function CreateView({
           });
         }}
       >
-        <Step on={o5} n="01" id="o5-make-what" title="What will it be?">
-          {o5 ? (
-            <div className="o5-choices" role="radiogroup" aria-label="What to make">
-              {(
-                [
-                  ['image', 'A picture', 'From a description'],
-                  ['video', 'A video', 'With sound, from words or a photo'],
-                  ['edit', 'An edit', 'Change a photo with words'],
-                  ['vedit', 'Edit a video', 'Change, erase or sharpen one you have'],
-                ] as const
-              ).map(([v, label, hint]) => (
-                <button
-                  key={v}
-                  type="button"
-                  role="radio"
-                  aria-checked={kind === v}
-                  className="o5-choice"
-                  onClick={() => {
-                    setKind(v);
-                    next('o5-make-who');
-                  }}
-                >
-                  <span className="o5-go-label">{label}</span>
-                  <span className="o5-go-hint">{hint}</span>
-                </button>
-              ))}
-              {/* Drawing has its own app now: this opens it. */}
-              <button type="button" className="o5-choice" onClick={() => launch('livedraw')}>
-                <span className="o5-go-label">Draw it</span>
-                <span className="o5-go-hint">Opens Live Draw: draw, and watch it become a picture</span>
+        <Step n="01" id="o5-make-what" title="What will it be?">
+          <div className="o5-choices" role="radiogroup" aria-label="What to make">
+            {(
+              [
+                ['image', 'A picture', 'From a description'],
+                ['video', 'A video', 'With sound, from words or a photo'],
+                ['edit', 'An edit', 'Change a photo with words'],
+                ['vedit', 'Edit a video', 'Change, erase or sharpen one you have'],
+              ] as const
+            ).map(([v, label, hint]) => (
+              <button
+                key={v}
+                type="button"
+                role="radio"
+                aria-checked={kind === v}
+                className="o5-choice"
+                onClick={() => {
+                  setKind(v);
+                  next('o5-make-who');
+                }}
+              >
+                <span className="o5-go-label">{label}</span>
+                <span className="o5-go-hint">{hint}</span>
               </button>
-            </div>
-          ) : (
-            <>
-            <Segmented
-              label="What to make"
-              value={kind}
-              onChange={setKind}
-              options={[
-                { value: 'image', label: 'Image' },
-                { value: 'video', label: 'Video' },
-                { value: 'edit', label: 'Edit' },
-                { value: 'vedit', label: 'Video edit' },
-              ]}
-            />
-            <button type="button" className="btn ghost ai-draw-it" onClick={() => launch('livedraw')}>
-              <Icon name="pencil" size={16} /> Draw it
+            ))}
+            {/* Drawing has its own app now: this opens it. */}
+            <button type="button" className="o5-choice" onClick={() => launch('livedraw')}>
+              <span className="o5-go-label">Draw it</span>
+              <span className="o5-go-hint">Opens Live Draw: draw, and watch it become a picture</span>
             </button>
-            </>
-          )}
+          </div>
         </Step>
         <>
-        <Step on={o5} n="02" id="o5-make-who" title="Who makes it">
+        <Step n="02" id="o5-make-who" title="Who makes it">
         <div className="ai-maker-picks" role="radiogroup" aria-label="Maker">
           {(choices.length ? choices : chosen ? [chosen] : []).map((m) => (
             <button key={m.id} type="button" role="radio" aria-checked={m.id === chosenId} className="ai-maker-chip" onClick={() => {
@@ -481,7 +461,7 @@ export function CreateView({
           </div>
         )}
         </Step>
-        <Step on={o5} n="03" id="o5-make-describe" title={kind === 'edit' || kind === 'vedit' ? 'Show it, then say the change' : 'Describe it'}>
+        <Step n="03" id="o5-make-describe" title={kind === 'edit' || kind === 'vedit' ? 'Show it, then say the change' : 'Describe it'}>
         {kind === 'vedit' && (
           <>
             <VideoSource ai={ai} value={video} onChange={setVideo} onError={(m) => toast(m, 'error')} />
@@ -595,8 +575,8 @@ export function CreateView({
           </div>
         )}
         </Step>
-        {((kind !== 'edit' && kind !== 'vedit') || !o5) && (
-        <Step on={o5} n="04" id="o5-make-shape" title={kind === 'video' ? (talking ? 'Shape, photo and sound' : 'Shape, length and start') : 'Shape'}>
+        {kind !== 'edit' && kind !== 'vedit' && (
+        <Step n="04" id="o5-make-shape" title={kind === 'video' ? (talking ? 'Shape, photo and sound' : 'Shape, length and start') : 'Shape'}>
         {(kind === 'image' || kind === 'video') && !restyling && (
           <div className="ai-create-options">
             <Segmented label="Shape" value={size[kind]} onChange={(v) => setSize((s) => ({ ...s, [kind]: v }))} options={SIZES[kind]} />
@@ -680,7 +660,7 @@ export function CreateView({
         )}
         </Step>
         )}
-        <Step on={o5} n={kind === 'edit' || kind === 'vedit' ? '04' : '05'} id="o5-make-go" title="Make it">
+        <Step n={kind === 'edit' || kind === 'vedit' ? '04' : '05'} id="o5-make-go" title="Make it">
         <button type="submit" className="btn primary ai-make" disabled={!canMake}>
           <Icon name={kind === 'video' || kind === 'vedit' ? 'film' : kind === 'edit' ? 'pencil' : 'image'} size={18} /> {submitting ? 'Starting…' : verb}
         </button>
@@ -692,7 +672,7 @@ export function CreateView({
       </form>
 
 
-      {o5 && jobs.length > 0 && (
+      {jobs.length > 0 && (
         <h3 className="o5-chapter-title" id="o5-making">
           In the making
         </h3>
@@ -734,7 +714,7 @@ export function CreateView({
         </ul>
       )}
 
-      {o5 && items.length > 0 && (
+      {items.length > 0 && (
         <header className="o5-gallery-head">
           <p className="o5-kicker">The gallery</p>
           <h3 className="o5-chapter-title">Your creations</h3>

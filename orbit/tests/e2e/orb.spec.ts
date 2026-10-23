@@ -1,6 +1,6 @@
 import { expect, test, type Page } from '@playwright/test';
-import { expectNoHorizontalOverflow } from './helpers';
-import { mockAi } from './aiMocks';
+import { expectNoHorizontalOverflow, openApp } from './helpers';
+import { aiMenu, mockAi } from './aiMocks';
 
 /** The orb: on every screen, physics you can grab and throw, and it uses Orbit for you. */
 
@@ -43,7 +43,7 @@ test.describe('the orb', () => {
   test('is on every screen; the old pill at the top is gone', async ({ page }) => {
     const { errors, orb } = await openWithOrb(page);
     await expect(page.locator('orbit-island')).toHaveCount(0);
-    await page.getByRole('button', { name: /^Settings\./ }).click();
+    await openApp(page, 'settings');
     await expect(page.locator('.app-window[data-app="settings"]')).toBeVisible();
     await expect(orb).toBeVisible();
     await expectNoHorizontalOverflow(page);
@@ -100,7 +100,7 @@ test.describe('the orb', () => {
   test('cloud AI can be switched off in Settings; it says what is sent', async ({ page }) => {
     await page.route('**/api/orb/ai', (route) => route.fulfill({ json: { configured: true, models: {} } }));
     await openWithOrb(page);
-    await page.getByRole('button', { name: /^Settings\./ }).click();
+    await openApp(page, 'settings');
     const status = page.getByTestId('cloud-ai-status');
     await status.scrollIntoViewIfNeeded();
     await expect(status).toContainText('Ready');
@@ -161,7 +161,9 @@ test.describe('the orb', () => {
     await expect(panel.getByRole('list', { name: 'What happened' })).toContainText('each line opens an app');
     expect(asked).toHaveLength(1);
     expect(asked[0].text).toContain('Text on screen');
-    expect(asked[0].text).toMatch(/Recent files|Settings|Terminal|Talk/);
+    // What the home path shows: its greeting and where you are.
+    expect(asked[0].text).toMatch(/Good (morning|afternoon|evening|night)\./);
+    expect(asked[0].text).toContain('demo workspace');
     expect(errors).toEqual([]);
   });
 
@@ -196,7 +198,7 @@ test.describe('the orb', () => {
     await expect(win).toContainText('Montmartre');
 
     // Bring: into the message box I was typing in.
-    await page.getByRole('button', { name: /New chat/ }).first().click().catch(() => {});
+    await aiMenu(page, 'New conversation');
     const box = win.getByRole('textbox', { name: 'Message' });
     await box.click();
     await ask('bring me the paris plan');
@@ -277,11 +279,23 @@ test.describe('the orb', () => {
     const { errors } = await openWithOrb(page, { orbFollow: false });
     const start = await settled(page);
     const vw = page.viewportSize()!.width;
-    await page.mouse.move(start.x, start.y);
-    await page.mouse.down();
-    // A quick, decisive throw to the left (well past the middle even on a wide screen).
-    for (let i = 1; i <= 8; i++) await page.mouse.move(start.x - i * 60, start.y - i * 12);
-    await page.mouse.up();
+    // A quick, decisive throw to the left (well past the middle even on a wide screen). The events carry
+    // their own times, 12 ms apart, so the throw is as fast however busy the machine running the test is.
+    const cdp = await page.context().newCDPSession(page);
+    const t0 = Date.now() / 1000;
+    const send = (type: 'mouseMoved' | 'mousePressed' | 'mouseReleased', i: number) =>
+      cdp.send('Input.dispatchMouseEvent', {
+        type,
+        x: start.x - i * 60,
+        y: start.y - i * 12,
+        button: 'left',
+        buttons: type === 'mouseReleased' ? 0 : 1,
+        clickCount: type === 'mouseMoved' ? 0 : 1,
+        timestamp: t0 + i * 0.012,
+      });
+    await send('mousePressed', 0);
+    for (let i = 1; i <= 8; i++) await send('mouseMoved', i);
+    await send('mouseReleased', 8);
     const end = await settled(page);
     expect(end.x).toBeLessThan(vw / 2);
     expect(end.x).toBeGreaterThan(20);
@@ -297,7 +311,7 @@ test.describe('the orb', () => {
   test('typing: the machine banner steps aside and the orb becomes the text cursor', async ({ page }) => {
     await mockAi(page, 'off');
     const { errors } = await openWithOrb(page);
-    await page.getByRole('button', { name: /^AI\./ }).click();
+    await openApp(page, 'ai');
     const win = page.locator('.app-window[data-app="ai"]');
     const banner = win.locator('.ai-banner');
     await expect(banner).toBeVisible();
@@ -339,7 +353,7 @@ test.describe('the orb', () => {
   test('it glides from where it is into the caret, round until it lands, and back', async ({ page }) => {
     await mockAi(page, 'off');
     const { errors } = await openWithOrb(page);
-    await page.getByRole('button', { name: /^AI\./ }).click();
+    await openApp(page, 'ai');
     const box = page.locator('.app-window[data-app="ai"]').getByRole('textbox', { name: 'Message' });
     await expect(box).toBeVisible();
     await settled(page);
@@ -390,7 +404,7 @@ test.describe('the orb', () => {
 
   test('in Code and Terminal too: the orb takes the place of their own cursor', async ({ page }) => {
     const { errors } = await openWithOrb(page);
-    await page.getByRole('button', { name: /^Code\./ }).click();
+    await openApp(page, 'editor');
     const editor = page.locator('.app-window[data-app="editor"] .cm-content');
     await editor.click();
     await expect(page.locator('.orb-layer')).toHaveAttribute('data-caret', 'true');
@@ -405,7 +419,7 @@ test.describe('the orb', () => {
     }).toBeLessThan(6);
 
     await page.goto('/');
-    await page.getByRole('button', { name: /^Terminal\./ }).click();
+    await openApp(page, 'terminal');
     const term = page.locator('.app-window[data-app="terminal"] .xterm');
     await expect(term).toBeVisible();
     await term.click();
@@ -424,7 +438,7 @@ test.describe('the orb', () => {
   test('one orb: the AI has no orb of its own, the orb rests on its face, grown', async ({ page }) => {
     await mockAi(page, 'off');
     const { errors } = await openWithOrb(page);
-    await page.getByRole('button', { name: /^AI\./ }).click();
+    await openApp(page, 'ai');
     const spot = page.locator('.app-window[data-app="ai"] .ai-hello-spot');
     await expect(spot).toBeVisible();
     // Only one orb on the screen: the orb itself.
@@ -474,15 +488,17 @@ test.describe('the orb', () => {
   test('as a cursor: what it passes over lights up, and setting it down there presses it', async ({ page }) => {
     const { errors } = await openWithOrb(page, { orbFollow: false });
     const start = await settled(page);
-    const icon = page.getByRole('button', { name: /^Terminal\./ });
-    const r = (await icon.boundingBox())!;
+    // The Begin link on the home path.
+    const begin = page.getByRole('button', { name: 'Begin' });
+    const r = (await begin.boundingBox())!;
     await page.mouse.move(start.x, start.y);
     await page.mouse.down();
     await page.mouse.move(r.x + r.width / 2, r.y + r.height / 2, { steps: 12 });
-    await expect(icon).toHaveAttribute('data-orb-hover', '');
+    await expect(begin).toHaveAttribute('data-orb-hover', '');
     await page.waitForTimeout(350);
     await page.mouse.up();
-    await expect(page.locator('.app-window[data-app="terminal"]')).toBeVisible();
+    // Pressed: the path scrolls on to its first chapter.
+    await expect(page.getByRole('heading', { name: 'Continue' })).toBeInViewport();
     await expect(page.locator('[data-orb-hover]')).toHaveCount(0);
     expect(errors).toEqual([]);
   });
@@ -490,7 +506,7 @@ test.describe('the orb', () => {
   test('as a cursor: set down on a text box, you type right where it landed', async ({ page }) => {
     await mockAi(page, 'off');
     const { errors } = await openWithOrb(page, { orbFollow: false });
-    await page.getByRole('button', { name: /^AI\./ }).click();
+    await openApp(page, 'ai');
     const box = page.locator('.app-window[data-app="ai"]').getByRole('textbox', { name: 'Message' });
     await box.fill('hello world');
     await box.evaluate((el) => (el as HTMLElement).blur());

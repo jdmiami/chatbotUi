@@ -10,7 +10,7 @@ async function openO5SoReal(page: Page, { orb = false } = {}) {
   page.on('pageerror', (e) => errors.push(e.message));
   await page.addInitScript((orbOn) => {
     if (!localStorage.getItem('orbit:shell:v1'))
-      localStorage.setItem('orbit:shell:v1', JSON.stringify({ state: { settings: { orb: orbOn, motion: 'reduce', motionPicked: true, skin: 'o5', introSeen: true } }, version: 0 }));
+      localStorage.setItem('orbit:shell:v1', JSON.stringify({ state: { settings: { orb: orbOn, motion: 'reduce', motionPicked: true, introSeen: true } }, version: 0 }));
   }, orb);
   await page.goto('/');
   await page.getByRole('button', { name: /^Index/ }).click();

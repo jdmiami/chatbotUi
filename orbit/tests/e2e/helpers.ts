@@ -24,14 +24,59 @@ export async function openOrbit(page: Page, opts: { keepIntro?: boolean } = {}) 
 
 export const isTablet = (testInfo: TestInfo) => testInfo.project.name.startsWith('ipad');
 
-/** Launch an app from the home screen icon (accessible name "<App>. <description>"). */
-export async function launchFromHome(page: Page, app: 'Terminal' | 'Code' | 'Antigravity' | 'Settings') {
-  await page.getByRole('button', { name: new RegExp(`^${app}\\.`) }).click();
-  await expect(page.locator(`.app-window[data-placement="full"], .app-window[data-placement^="split"]`).first()).toBeVisible();
+/** The Index's title for each app (Orbit 0.5's contents page, shell/o5/IndexMenu.tsx). */
+const INDEX_TITLES = {
+  ai: 'Talk',
+  make: 'Make',
+  livedraw: 'Live Draw',
+  store: 'Store',
+  soreal: 'soReal',
+  lab: 'Lab',
+  editor: 'Code',
+  terminal: 'Terminal',
+  agent: 'Antigravity',
+  playground: 'Playground',
+  vscode: 'VS Code',
+  desktop: 'Linux desktop',
+  windows: 'Windows PC',
+  stats: 'Stats',
+  settings: 'Settings',
+} as const;
+export type OrbitApp = keyof typeof INDEX_TITLES;
+
+/** The line at the bottom of the screen ("Index"; inside an app, "Index. Swipe up to go home."). */
+export function indexButton(page: Page) {
+  return page.getByRole('button', { name: /^Index/ });
 }
 
-export function dock(page: Page) {
-  return page.getByRole('navigation', { name: 'Dock' });
+/** Open the Index (the full-screen contents page) from the line at the bottom. */
+export async function openIndex(page: Page) {
+  const index = page.getByRole('dialog', { name: 'Index' });
+  if (!(await index.isVisible())) await indexButton(page).click();
+  await expect(index).toBeVisible();
+  return index;
+}
+
+/** Open an app from the Index (or leave it as it is if it is already on screen). */
+export async function openApp(page: Page, id: OrbitApp) {
+  const win = page.locator(`.app-window[data-app="${id}"]`);
+  // On screen = placed full (or in split view); a window still fading out after another app took over is not.
+  if ((await win.count()) && /^(full|split)/.test((await win.getAttribute('data-placement')) ?? '')) return win;
+  const index = await openIndex(page);
+  const title = INDEX_TITLES[id].replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  await index.locator('.o5-index-list').getByRole('button', { name: new RegExp(`^\\d+\\s+${title}\\b`) }).click();
+  await expect(index).toHaveCount(0);
+  await expect(win).toHaveAttribute('data-placement', /^(full|split)/);
+  await expect(win).toBeVisible();
+  return win;
+}
+
+/** Back to the home path, through the Index. */
+export async function goHome(page: Page) {
+  const index = await openIndex(page);
+  await index.locator('.o5-index-list').getByRole('button', { name: /^00\s+Home/ }).click();
+  await expect(index).toHaveCount(0);
+  await expect(page.getByRole('main', { name: 'Home' })).toHaveAttribute('data-hidden', 'false');
 }
 
 export function appWindow(page: Page, id: 'terminal' | 'editor' | 'agent' | 'settings') {

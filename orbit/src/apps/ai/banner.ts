@@ -1,4 +1,4 @@
-/** MagStyle: the small-caps line over a machine banner, by machine state (hidden in the classic look). */
+/** MagStyle: the small-caps line over a machine banner, by machine state. */
 export const BANNER_KICKER: Record<string, string> = {
   off: 'The machine is resting',
   starting: 'Waking up',

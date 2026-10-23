@@ -1,5 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
-import { expectNoHorizontalOverflow, launchFromHome, openOrbit } from './helpers';
+import { expectNoHorizontalOverflow, openApp, openOrbit } from './helpers';
 
 /** Settings → Usage: what the old status pill showed (money, machines, timers), with /api/status mocked. */
 
@@ -96,7 +96,7 @@ test.describe('Settings: usage', () => {
     const { calls } = await mockStatus(page);
     const errors = await openOrbit(page);
     await expect(page.locator('orbit-island')).toHaveCount(0);
-    await launchFromHome(page, 'Settings');
+    await openApp(page, 'settings');
     const win = page.locator('.app-window[data-app="settings"]');
     const usage = win.getByRole('region', { name: 'Usage' });
     await usage.scrollIntoViewIfNeeded();
@@ -134,7 +134,7 @@ test.describe('Settings: usage', () => {
     const { set } = await mockStatus(page);
     set(status({}, 30));
     const errors = await openOrbit(page);
-    await launchFromHome(page, 'Settings');
+    await openApp(page, 'settings');
     const win = page.locator('.app-window[data-app="settings"]');
     const usage = win.getByRole('region', { name: 'Usage' });
     await expect(usage).toContainText('Each machine turns itself off after 30 minutes unused.');
@@ -147,7 +147,7 @@ test.describe('Settings: usage', () => {
   test('without the site behind Orbit it says where the numbers come from', async ({ page }) => {
     await page.route('**/api/status**', (route) => route.fulfill({ status: 404, body: 'nope' }));
     const errors = await openOrbit(page);
-    await launchFromHome(page, 'Settings');
+    await openApp(page, 'settings');
     const usage = page.locator('.app-window[data-app="settings"]').getByRole('region', { name: 'Usage' });
     await expect(usage).toContainText('when Orbit is opened from your workspace site');
     expect(errors.filter((e) => !e.includes('404'))).toEqual([]);

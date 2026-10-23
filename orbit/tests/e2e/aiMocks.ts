@@ -1,4 +1,5 @@
 import { expect, type Page } from '@playwright/test';
+import { openApp, type OrbitApp } from './helpers';
 
 /** Mocks of the site's AI endpoints and the AI machine, shared by the AI test files. */
 export const MODELS = ['qwen3.6:35b', 'qwen3.8-obliterated:27b', 'qwen3.8:27b'];
@@ -84,7 +85,11 @@ export async function mockStore(page: Page) {
   return calls;
 }
 
+/** Which pages have the AI machine mocked as on (openAi waits for the app to see it). */
+const machineOn = new WeakSet<Page>();
+
 export async function mockAi(page: Page, initial: 'off' | 'on', powerCalls: Record<string, unknown>[] = []) {
+  if (initial === 'on') machineOn.add(page);
   let state: string = initial;
   let tier = 'standard';
   await page.route('**/api/ai', async (route) => {
@@ -116,14 +121,34 @@ export async function mockAi(page: Page, initial: 'off' | 'on', powerCalls: Reco
   return mockStore(page);
 }
 
+/** Open the AI app (Talk) from the Index. */
 export async function openAi(page: Page) {
-  // After a reload Orbit reopens the app that was open.
-  const win = page.locator('.app-window[data-app="ai"]');
-  const icon = page.getByRole('button', { name: /^AI\./ });
-  await expect(win.or(icon).first()).toBeVisible();
-  if (!(await win.isVisible())) await icon.click();
+  const win = await openApp(page, 'ai');
   await expect(win.locator('.ai-composer')).toBeVisible();
-  await expect(page.locator('.app-window[data-app="ai"]')).toBeVisible();
+  // With the machine on, wait until the app knows it (the message box is set up again then, and
+  // anything typed before that would be lost).
+  if (machineOn.has(page)) await expect(win.getByRole('textbox', { name: 'Message' })).toHaveAttribute('placeholder', 'Message your model…');
+  return win;
+}
+
+/** Open the AI's menu (the orb at the top of Talk) and, if given, pick an item from it. */
+export async function aiMenu(page: Page, item?: string) {
+  await page.locator('.app-window[data-app="ai"]').getByRole('button', { name: /^Your AI:/ }).click();
+  const menu = page.getByRole('dialog', { name: 'Your AI' });
+  await expect(menu).toBeVisible();
+  if (item) {
+    await menu.getByRole('button', { name: new RegExp(`^${item.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`) }).click();
+    await expect(menu).toHaveCount(0);
+  }
+  return menu;
+}
+
+/** Show the message box's folded tools (photos, web, picture) behind its +. */
+export async function showTools(page: Page) {
+  const win = page.locator('.app-window[data-app="ai"]');
+  const more = win.getByRole('button', { name: 'Tools: photos, web, picture' });
+  if (await more.isVisible()) await more.click();
+  await expect(win.getByRole('button', { name: 'Search the web' })).toBeVisible();
 }
 
 /** Every visible button in the AI window is on screen and at least `min` px tall and wide. */
@@ -152,51 +177,37 @@ export async function recordChats(page: Page, reply = REPLY) {
   return bodies;
 }
 
+/** Type a message and send it. */
+export async function typeAndSend(page: Page, text: string) {
+  const box = page.getByRole('textbox', { name: 'Message' });
+  const send = page.getByRole('button', { name: 'Send' });
+  // A chat that is still opening can reset the box once: type again until Send is offered.
+  await expect(async () => {
+    await box.fill(text);
+    await expect(send).toBeVisible({ timeout: 1000 });
+  }).toPass();
+  await send.click();
+}
+
 export async function sendText(page: Page, text: string) {
-  await page.getByRole('textbox', { name: 'Message' }).fill(text);
-  await page.getByRole('button', { name: 'Send' }).click();
+  await typeAndSend(page, text);
   await expect(page.locator('.ai-msg-assistant').last()).toContainText('Done.');
 }
 
-
 /** Turn "Show NSFW" on or off: it lives in Settings. Opens Settings, flips it, and goes back to the app that was open. */
 export async function setShowNsfw(page: Page, on: boolean) {
-  const app = await page.locator('.app-window:visible').first().getAttribute('data-app');
-  const index = page.getByRole('button', { name: /^Index/ });
-  const o5 = await index.isVisible();
-  const go = async (entry: RegExp, dockName: RegExp) => {
-    if (o5) {
-      await index.click();
-      await page.getByRole('dialog', { name: 'Index' }).locator('.o5-index-list').getByRole('button', { name: entry }).click();
-    } else {
-      await page.getByRole('navigation', { name: 'Dock' }).getByRole('button', { name: 'Home screen' }).click();
-      await page.getByRole('button', { name: dockName }).first().click();
-    }
-  };
-  await go(/Settings/, /^Settings\./);
-  const sw = page.locator('.app-window[data-app="settings"]').getByRole('switch', { name: 'Show NSFW' });
+  const app = ((await page.locator('.app-window[data-placement="full"]').first().getAttribute('data-app')) ?? 'ai') as OrbitApp;
+  const settings = await openApp(page, 'settings');
+  const sw = settings.getByRole('switch', { name: 'Show NSFW' });
   await sw.scrollIntoViewIfNeeded();
   if ((await sw.isChecked()) !== on) await sw.click();
   await expect(sw).toBeChecked({ checked: on });
-  const back: Record<string, [RegExp, RegExp]> = { make: [/^\d*\s*Make/, /^Make\./], ai: [/Talk/, /^AI\./], lab: [/Lab/, /^Lab\./], soreal: [/soReal/i, /^soReal\./i] };
-  const [entry, dockName] = back[app ?? 'ai'] ?? back.ai;
-  await go(entry, dockName);
-  await expect(page.locator(`.app-window[data-app="${app}"]`)).toBeVisible();
+  await openApp(page, app);
 }
 
-/** Open the Make app (its own app now): from the Index in the magazine look, from home otherwise. */
+/** Open the Make app from the Index. */
 export async function openMakeApp(page: Page) {
-  const win = page.locator('.app-window[data-app="make"]');
-  if (await win.isVisible()) return win;
-  const index = page.getByRole('button', { name: /^Index/ });
-  if (await index.isVisible()) {
-    await index.click();
-    await page.getByRole('dialog', { name: 'Index' }).locator('.o5-index-list').getByRole('button', { name: /^\d*\s*Make/ }).click();
-  } else {
-    const icon = page.getByRole('button', { name: /^Make\./ }).first();
-    if (!(await icon.isVisible())) await page.getByRole('navigation', { name: 'Dock' }).getByRole('button', { name: 'Home screen' }).click();
-    await icon.click();
-  }
+  const win = await openApp(page, 'make');
   await expect(win.locator('.ai-create')).toBeVisible();
   return win;
 }

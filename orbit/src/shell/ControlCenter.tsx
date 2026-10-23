@@ -67,12 +67,6 @@ export function ControlCenter() {
           <span className="cc-value">{MOTION_NAME[settings.motion]}</span>
         </button>
 
-        <button type="button" className="cc-tile" aria-pressed={settings.skin === 'o5'} onClick={() => { updateSettings({ skin: 'o5' }); setOverlay(null); }}>
-          <Icon name="sparkle" />
-          <span className="cc-label">Orbit 0.5</span>
-          <span className="cc-value">Try the new look</span>
-        </button>
-
         {layout.canSplit && (
           <button
             type="button"

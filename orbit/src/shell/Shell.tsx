@@ -4,9 +4,6 @@ import { useLayout } from '../state/viewport';
 import { useVisualViewport } from '../hooks/useVisualViewport';
 import { useApplySettings } from '../hooks/useApplySettings';
 import { useTyping } from '../hooks/useTyping';
-import { HomeScreen } from './HomeScreen';
-import { HomeLight } from './HomeLight';
-import { Dock } from './Dock';
 import { AppHost } from './AppHost';
 import { AppSwitcher } from './AppSwitcher';
 import { ControlCenter } from './ControlCenter';
@@ -33,8 +30,7 @@ export function Shell() {
   useShortcuts();
 
   const inApp = activeApp !== null;
-  const o5 = settings.skin === 'o5';
-  useChromeOnScroll(o5);
+  useChromeOnScroll();
   return (
     <div
       className="shell"
@@ -43,25 +39,14 @@ export function Shell() {
       data-keyboard={layout.keyboardOpen}
       style={
         {
-          // Apps reserve space for the floating dock, except while the keyboard is up (dock hides).
-          '--app-bottom-inset': layout.keyboardOpen
-            ? '0px'
-            : o5
-              ? 'calc(var(--safe-bottom) + 22px)' // Orbit 0.5: only a thin line at the bottom
-              : `calc(var(--safe-bottom) + ${layout.compact ? 58 : 64}px + var(--dock-gap) * 2)`,
+          // Apps leave room for the thin line at the bottom, except while the keyboard is up (it hides).
+          '--app-bottom-inset': layout.keyboardOpen ? '0px' : 'calc(var(--safe-bottom) + 22px)',
         } as React.CSSProperties
       }
     >
-      {o5 ? (
-        <Path hidden={inApp} />
-      ) : (
-        <>
-          <HomeLight active={!inApp} />
-          <HomeScreen hidden={inApp} />
-        </>
-      )}
+      <Path hidden={inApp} />
       <AppHost />
-      {o5 ? <Handle /> : <Dock />}
+      <Handle />
       {overlay === 'index' && <IndexMenu />}
       {overlay === 'switcher' && <AppSwitcher />}
       {overlay === 'control-center' && <ControlCenter />}

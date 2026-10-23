@@ -15,11 +15,10 @@ import { ENTRIES } from './o5/IndexMenu';
 export function AppHost() {
   const { openApps, activeApp, split, launch } = useShell();
   const setSplit = useShell((s) => s.setSplit);
-  const o5 = useShell((s) => s.settings.skin === 'o5');
   const layout = useLayout();
   // MagStyle: going straight from one app to another turns the page (instead of growing from an icon).
   const lastApp = useRef<AppId | null>(activeApp);
-  const turning = o5 && lastApp.current !== null && activeApp !== null && lastApp.current !== activeApp;
+  const turning = lastApp.current !== null && activeApp !== null && lastApp.current !== activeApp;
   useLayoutEffect(() => {
     lastApp.current = activeApp;
   }, [activeApp]);
@@ -75,9 +74,7 @@ export function AppHost() {
             isActive={isActive}
             style={style}
             compact={paneWidth < 600}
-            goingHome={activeApp === null}
             turning={turning}
-            o5={o5}
             onFocusApp={() => {
               if (visible && activeApp !== id) launch(id);
             }}
@@ -90,7 +87,7 @@ export function AppHost() {
   );
 }
 
-/** One open app. Opening grows it out of its icon; closing shrinks it back (see motion/morph). */
+/** One open app. It eases in and out, or turns like a page from one app to the next (see motion/morph). */
 function AppWindow({
   id,
   name,
@@ -99,9 +96,7 @@ function AppWindow({
   isActive,
   style,
   compact,
-  goingHome,
   turning,
-  o5,
   onFocusApp,
   Component,
 }: {
@@ -112,9 +107,7 @@ function AppWindow({
   isActive: boolean;
   style: React.CSSProperties;
   compact: boolean;
-  goingHome: boolean;
   turning: boolean;
-  o5: boolean;
   onFocusApp: () => void;
   Component: (typeof APPS)[AppId]['component'];
 }) {
@@ -133,10 +126,10 @@ function AppWindow({
     const split = (p: Placement) => p === 'split-left' || p === 'split-right';
     if (split(was) || split(placement)) return cancelMorph(el);
     if (was === 'hidden') {
-      if (o5 && level !== 'off') setOpener((n) => n + 1);
-      void (turning ? pageTurnIn(el, level) : morphIn(el, id, level));
-    } else if (placement === 'hidden') void (turning ? pageTurnOut(el, level) : morphOut(el, id, level, goingHome));
-  }, [placement, id, level, goingHome, turning, o5]);
+      if (level !== 'off') setOpener((n) => n + 1);
+      void (turning ? pageTurnIn(el, level) : morphIn(el, level));
+    } else if (placement === 'hidden') void (turning ? pageTurnOut(el, level) : morphOut(el, level));
+  }, [placement, id, level, turning]);
   const chapter = ENTRIES.findIndex((e) => e.id === id);
   const entry = ENTRIES[chapter];
 
@@ -162,12 +155,12 @@ function AppWindow({
           </Suspense>
         </AppLoadBoundary>
       </div>
-      {o5 && entry && (
+      {entry && (
         <p className="o5-runhead" aria-hidden>
           Orbit · {String(chapter + 1).padStart(2, '0')} · {entry.title}
         </p>
       )}
-      {o5 && entry && opener > 0 && placement === 'full' && (
+      {entry && opener > 0 && placement === 'full' && (
         <div key={opener} className="o5-opener" aria-hidden onAnimationEnd={(e) => e.target === e.currentTarget && setOpener(0)}>
           <span className="o5-opener-n">{String(chapter + 1).padStart(2, '0')}</span>
           <span className="o5-opener-kicker">Chapter {String(chapter + 1).padStart(2, '0')}</span>

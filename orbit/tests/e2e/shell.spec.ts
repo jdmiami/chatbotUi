@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { appWindow, dock, expectNoHorizontalOverflow, isTablet, launchFromHome, openOrbit } from './helpers';
+import { appWindow, expectNoHorizontalOverflow, goHome, indexButton, isTablet, openApp, openIndex, openOrbit } from './helpers';
 
 test.describe('shell', () => {
   test('first-run sheet discloses what is simulated', async ({ page }) => {
@@ -13,36 +13,41 @@ test.describe('shell', () => {
     await expect(page.getByRole('dialog', { name: /Welcome to Orbit/ })).toHaveCount(0);
   });
 
-  test('home screen shows apps, demo state and no horizontal overflow', async ({ page }) => {
+  test('home path and index show the apps, the demo state and no horizontal overflow', async ({ page }) => {
     const errors = await openOrbit(page);
+    await expect(page.locator('html')).toHaveAttribute('data-skin', 'o5');
+    const home = page.getByRole('main', { name: 'Home' });
+    await expect(home).toHaveAttribute('data-hidden', 'false');
+    await expect(home).toContainText('You are in the demo workspace');
+    await expectNoHorizontalOverflow(page);
+    const index = await openIndex(page);
     for (const name of ['Terminal', 'Code', 'Antigravity', 'Settings']) {
-      await expect(page.getByRole('button', { name: new RegExp(`^${name}\\.`) })).toBeVisible();
+      await expect(index.locator('.o5-index-list').getByRole('button', { name: new RegExp(`^\\d+\\s+${name}\\b`) })).toBeVisible();
     }
-    await expect(page.getByRole('button', { name: /Demo mode/ })).toBeVisible();
-    await expect(page.getByText('Not connected', { exact: true })).toBeVisible();
-    await expect(dock(page)).toBeVisible();
     await expectNoHorizontalOverflow(page);
     expect(errors).toEqual([]);
   });
 
-  test('dock launches apps, shows Home, and returns home', async ({ page }) => {
+  test('the index opens apps, lists what is open, and goes home', async ({ page }) => {
     await openOrbit(page);
-    await dock(page).getByRole('button', { name: /^Terminal/ }).click();
+    await openApp(page, 'terminal');
     await expect(appWindow(page, 'terminal')).toHaveAttribute('data-placement', 'full');
-    await dock(page).getByRole('button', { name: /^Code/ }).click();
+    await openApp(page, 'editor');
     await expect(appWindow(page, 'editor')).toHaveAttribute('data-placement', 'full');
     await expect(appWindow(page, 'terminal')).toHaveAttribute('data-placement', 'hidden');
-    // running indicator: Terminal stays open
-    await expect(dock(page).getByRole('button', { name: 'Terminal (open)' })).toBeVisible();
-    await dock(page).getByRole('button', { name: 'Home screen' }).click();
-    await expect(page.locator('main.home')).toHaveAttribute('data-hidden', 'false');
+    // Terminal stays open: the index lists it under "Open now".
+    const index = await openIndex(page);
+    await expect(index.getByRole('region', { name: 'Open now' })).toContainText('Terminal');
+    await page.keyboard.press('Escape');
+    await expect(index).toHaveCount(0);
+    await goHome(page);
   });
 
-  test('App Switcher lists open apps and closes them', async ({ page }) => {
+  test('App Switcher (keyboard) lists open apps and closes them', async ({ page }) => {
     await openOrbit(page);
-    await launchFromHome(page, 'Settings');
-    await dock(page).getByRole('button', { name: /^Terminal/ }).click();
-    await dock(page).getByRole('button', { name: 'App Switcher' }).click();
+    await openApp(page, 'settings');
+    await openApp(page, 'terminal');
+    await page.keyboard.press('Control+Shift+KeyA');
     const switcher = page.getByRole('dialog', { name: 'App Switcher' });
     await expect(switcher).toBeVisible();
     await expect(switcher.getByRole('button', { name: 'Open Terminal' })).toBeVisible();
@@ -55,12 +60,14 @@ test.describe('shell', () => {
     await expect(appWindow(page, 'settings')).toHaveCount(0);
   });
 
-  test('Control Center toggles theme and accent, Escape closes it', async ({ page }) => {
+  test('Control Center (keyboard) toggles theme and accent, Escape closes it', async ({ page }) => {
     await openOrbit(page);
-    await dock(page).getByRole('button', { name: 'Control Center' }).click();
+    await page.keyboard.press('Control+Shift+Period');
     const cc = page.getByRole('dialog', { name: 'Control Center' });
     await expect(cc).toBeVisible();
     await expect(cc).toContainText('Demo mode');
+    // Orbit 0.5 is the only look: no tile to switch looks.
+    await expect(cc.getByRole('button', { name: /Orbit 0\.5/ })).toHaveCount(0);
     await cc.getByRole('button', { name: /Dark mode/ }).click();
     await expect(page.locator('html')).toHaveAttribute('data-theme', 'light');
     await cc.getByRole('button', { name: 'Teal' }).click();
@@ -75,13 +82,15 @@ test.describe('shell', () => {
 
   test('Code + Chat split view is offered only on iPad', async ({ page }, testInfo) => {
     await openOrbit(page);
-    const splitIcon = page.getByRole('button', { name: /^Code and Chat\./ });
+    const settings = await openApp(page, 'settings');
+    const open = settings.getByRole('button', { name: 'Open Code + Chat' });
     if (!isTablet(testInfo)) {
-      await expect(splitIcon).toHaveCount(0);
-      await expect(dock(page).getByRole('button', { name: /side by side/ })).toHaveCount(0);
+      await expect(open).toHaveCount(0);
+      await expect(settings).toContainText('Available on iPad in wider layouts.');
       return;
     }
-    await splitIcon.click();
+    await open.scrollIntoViewIfNeeded();
+    await open.click();
     await expect(appWindow(page, 'editor')).toHaveAttribute('data-placement', 'split-left');
     await expect(appWindow(page, 'agent')).toHaveAttribute('data-placement', 'split-right');
     const divider = page.getByRole('separator', { name: /Resize split view/ });
@@ -91,7 +100,7 @@ test.describe('shell', () => {
     await page.keyboard.press('ArrowRight');
     await expect(divider).toHaveAttribute('aria-valuenow', String(before + 5));
     // leaving split keeps both apps open
-    await dock(page).getByRole('button', { name: /Leave Code and Chat split view/ }).click();
+    await page.keyboard.press('Control+Shift+Backslash');
     await expect(appWindow(page, 'editor')).toHaveAttribute('data-placement', 'full');
     await expect(appWindow(page, 'agent')).toHaveAttribute('data-placement', 'hidden');
   });
@@ -104,17 +113,16 @@ test.describe('shell', () => {
     await expect(page.getByRole('dialog', { name: 'App Switcher' })).toBeVisible();
     await page.keyboard.press('Escape');
     await page.keyboard.press('Control+Shift+KeyH');
-    await expect(page.locator('main.home')).toHaveAttribute('data-hidden', 'false');
+    await expect(page.getByRole('main', { name: 'Home' })).toHaveAttribute('data-hidden', 'false');
   });
 
-  test('dock targets are at least 44px', async ({ page }) => {
+  test('the line at the bottom is at least 44px, at home and inside an app', async ({ page }) => {
     await openOrbit(page);
-    const sizes = await dock(page)
-      .getByRole('button')
-      .evaluateAll((els) => els.map((e) => e.getBoundingClientRect()).map((r) => [r.width, r.height]));
-    for (const [w, h] of sizes) {
-      expect(w).toBeGreaterThanOrEqual(44);
-      expect(h).toBeGreaterThanOrEqual(44);
+    for (const where of ['home', 'app'] as const) {
+      if (where === 'app') await openApp(page, 'settings');
+      const box = (await indexButton(page).boundingBox())!;
+      expect(box.width, `${where}: wide enough`).toBeGreaterThanOrEqual(44);
+      expect(box.height, `${where}: tall enough`).toBeGreaterThanOrEqual(44);
     }
   });
 });

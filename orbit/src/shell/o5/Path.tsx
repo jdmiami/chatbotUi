@@ -57,7 +57,7 @@ function Chapter({ n, id, title, dek, children }: { n: string; id: string; title
  * a single idea with a few big links; pages sink back as they scroll away.
  */
 export function Path({ hidden }: { hidden: boolean }) {
-  const { launch, openApps, updateSettings } = useShell();
+  const { launch, openApps } = useShell();
   const { recentFiles, recentSessions, summaries, sendIntent } = useWorkspace();
   const [ai, setAi] = useState<AiMachineStatus | null>(null);
   const scroller = useRef<HTMLElement>(null);
@@ -160,10 +160,9 @@ export function Path({ hidden }: { hidden: boolean }) {
         <Go label="Windows PC" art="windows" hint="Your computer at home" onClick={() => launch('windows')} />
       </Chapter>
 
-      <Chapter n="06" id="o5-tune" title="Tune" dek="Make it yours, or go back to the classic look at any time.">
+      <Chapter n="06" id="o5-tune" title="Tune" dek="Make it yours: theme, motion, text size, and what it all costs.">
         <Go label="Stats & storage" art="stats" hint="CPU, memory, GPU, network, money, what is kept" onClick={() => launch('stats')} />
         <Go label="Settings" art="settings" hint="Theme, motion, text size" onClick={() => launch('settings')} />
-        <Go label="Classic look" hint="Icons, dock and tiles" onClick={() => updateSettings({ skin: 'classic' })} />
       </Chapter>
 
       <footer className="o5-colophon">
