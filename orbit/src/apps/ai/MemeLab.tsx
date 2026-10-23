@@ -5,7 +5,7 @@ import { TextArea } from '../../ui/TextArea';
 import { Censor } from '../../ui/Censor';
 import { isNsfw } from '../../ui/nsfw';
 import { connectMarks, rememberItems } from '../../ui/nsfwFlags';
-import { AiError, type LabIdea, type LabMovieProgress, type LabStyle, type LocalAi, type MemeLabState, type MemeRecord, type YourStyleProfile } from '../../services/ai/LocalAi';
+import { AiError, type LabIdea, type LabMix, type LabMovieProgress, type LabStyle, type LocalAi, type MemeLabState, type MemeRecord, type YourStyleProfile } from '../../services/ai/LocalAi';
 import { GalleryGrid, GalleryViewer, type GalleryMedia } from './Gallery';
 
 /**
@@ -13,6 +13,8 @@ import { GalleryGrid, GalleryViewer, type GalleryMedia } from './Gallery';
  * another: comedy about your topics, spicy (flirty thirst-trap movies of made-up adults with no
  * nudity), or in your own style (written from your saved prompts on the AI machine). Every one is
  * made the soReal way: a story, then six shots, each starting from the last frame of the one before.
+ * Remix makes pictures and short videos instead, many an hour: your prompts from Make, each remade in a
+ * creative new way with the same maker, size and style.
  * It plans what fits before the machine turns itself off. A chat model scores how viral each could
  * go. Your own pictures and videos always come first. Nothing is posted. The finished movies show
  * in the same gallery as the Make tab's. Shown as the AI app's Lab tab and as the Lab app.
@@ -109,7 +111,8 @@ export function MemeLab({ ai, machineOn, isActive, onKept }: { ai: LocalAi; mach
   const style: LabStyle = lab?.style ?? 'comedy';
   const spicy = style === 'spicy';
   const yours = style === 'yours';
-  const kind = spicy ? 'spicy movies' : yours ? 'movies in your style' : 'comedy movies';
+  const remix = style === 'remix';
+  const kind = spicy ? 'spicy movies' : yours ? 'movies in your style' : remix ? 'remixes of what you make' : 'comedy movies';
   const movie = lab?.making?.movie ?? null;
   /** Switch the style. An AI machine on older code refuses a style it doesn't know (or ignores it): say so plainly. */
   // The tap shows at once ("Switching…"); the machine confirms a moment later.
@@ -139,15 +142,21 @@ export function MemeLab({ ai, machineOn, isActive, onKept }: { ai: LocalAi; mach
             { value: 'spicy', label: 'Spicy' },
             { value: 'comedy', label: 'Comedy' },
             { value: 'yours', label: 'Your style' },
+            { value: 'remix', label: 'Remix' },
           ]}
           onChange={(v) => v !== (switching ?? style) && void pickStyle(v)}
         />
       )}
       {switching && (
         <p className="ai-muted" role="status">
-          Switching to {switching === 'yours' ? 'Your style' : switching === 'spicy' ? 'Spicy' : 'Comedy'}…
+          Switching to {STYLE_NAME[switching]}…
         </p>
       )}
+      {remix ? (
+        <p className="ai-muted meme-lab-dek">
+          While your AI machine is on, the Lab reads the prompts you made pictures and videos with in Make and remakes each one in a creative new way: a new moment, place, angle or twist, made with the same maker, size and style, so it looks like yours. A picture takes about a minute, so it makes many. Another AI scores each one. It pauses whenever you make something. Nothing is posted anywhere.
+        </p>
+      ) : (
       <p className="ai-muted meme-lab-dek">
         {spicy
           ? 'While your AI machine is on, the Lab makes 30-second vertical thirst-trap style movies: flirty, confident, stylish made-up adults, never nudity, so they can be posted.'
@@ -156,8 +165,10 @@ export function MemeLab({ ai, machineOn, isActive, onKept }: { ai: LocalAi; mach
             : 'While your AI machine is on, the Lab makes 30-second vertical comedy movies about your topics, one after another.'}{' '}
         Each one is made shot by shot, every shot starting where the last one ended, and another AI scores how viral it could go. It pauses whenever you make something. Nothing is posted anywhere.
       </p>
+      )}
       {error && <p className="ai-error">{error}</p>}
       {yours && <YourStylePanel ai={ai} isActive={isActive} onChanged={load} />}
+      {remix && <RemixPanel lab={lab} onMix={(m) => void act(ai.setLabMix(m))} />}
 
       <div className="meme-lab-block">
         <p className="o5-kicker">Making now</p>
@@ -168,6 +179,13 @@ export function MemeLab({ ai, machineOn, isActive, onKept }: { ai: LocalAi; mach
               <Censor as="div" text nsfw={lab.making.nsfw === true || isNsfw(lab.making.title, lab.making.prompt)}>
                 <p className="meme-card-title">{lab.making.title}</p>
               </Censor>
+              {lab.making.remixOf && (
+                <Censor as="div" text nsfw={lab.making.nsfw === true || isNsfw(lab.making.remixOf)}>
+                  <p className="ai-muted meme-now-line">
+                    {lab.making.kind === 'clip' ? '5-second video' : 'Picture'} remade from: “{lab.making.remixOf}”
+                  </p>
+                </Censor>
+              )}
               {movie && <MovieStages movie={movie} />}
               {job && (
                 <>
@@ -194,7 +212,7 @@ export function MemeLab({ ai, machineOn, isActive, onKept }: { ai: LocalAi; mach
         {lab?.lastError && <p className="ai-muted">Last try: {lab.lastError}</p>}
       </div>
 
-      {!yours && <div className="meme-lab-block">
+      {!yours && !remix && <div className="meme-lab-block">
         <p className="o5-kicker">Your topics</p>
         <p className="ai-muted meme-lab-dek">{spicy ? 'A vibe or a place for each movie, e.g. date night, beach, gym.' : 'Comedy about whatever you list here.'} With no topics, it picks its own.</p>
         {topics.length > 0 && (
@@ -228,7 +246,9 @@ export function MemeLab({ ai, machineOn, isActive, onKept }: { ai: LocalAi; mach
           Up next{queue.length > 0 ? ` · ${queue.length} planned, about ${queueMinutes} min · machine off in about ${lab?.minutesLeft ?? 0} min` : ''}
         </p>
         <p className="ai-muted meme-lab-dek">
-          Each movie takes about {lab?.minutesPerVideo ?? 40} minutes, so the Lab plans just what fits before the machine turns off.
+          {remix
+            ? `Each remix takes about ${lab?.minutesPerVideo ?? 2} min. The next ones are written just before they are made, so every one is different.`
+            : `Each movie takes about ${lab?.minutesPerVideo ?? 40} minutes, so the Lab plans just what fits before the machine turns off.`}
         </p>
         {queue.length > 0 && (
           <ol className="meme-queue" aria-label="Up next">
@@ -237,7 +257,7 @@ export function MemeLab({ ai, machineOn, isActive, onKept }: { ai: LocalAi; mach
                 <span className="meme-queue-n" aria-hidden>
                   {String(i + 1).padStart(2, '0')}
                 </span>
-                <Censor as="div" text className="meme-queue-text" nsfw={editing?.id !== q.id && (q.nsfw === true || isNsfw(q.title, q.prompt, q.look))}>
+                <Censor as="div" text className="meme-queue-text" nsfw={editing?.id !== q.id && (q.nsfw === true || isNsfw(q.title, q.prompt, q.look, q.remixOf))}>
                   {editing?.id === q.id ? (
                     <form
                       onSubmit={(e) => {
@@ -260,7 +280,17 @@ export function MemeLab({ ai, machineOn, isActive, onKept }: { ai: LocalAi; mach
                       <p className="meme-queue-title">{q.title}</p>
                       <p className="ai-muted meme-queue-meta">
                         {q.kind === 'movie' && <span className="meme-queue-badge">{q.seconds ?? 30}-second movie</span>}
-                        {q.yours ? 'Your idea, made as written' : yours ? `In your style${q.look ? `: ${q.look}` : ''}` : q.topic ? `About ${q.topic}` : 'The AI sharpens it just before making'}
+                        {q.kind === 'picture' && <span className="meme-queue-badge">Picture</span>}
+                        {q.kind === 'clip' && <span className="meme-queue-badge">{q.seconds ?? 5}-second video</span>}
+                        {q.yours
+                          ? 'Your idea, made as written'
+                          : q.remixOf
+                            ? `Remade from: “${q.remixOf}”`
+                            : yours
+                              ? `In your style${q.look ? `: ${q.look}` : ''}`
+                              : q.topic
+                                ? `About ${q.topic}`
+                                : 'The AI sharpens it just before making'}
                       </p>
                     </>
                   )}
@@ -284,7 +314,7 @@ export function MemeLab({ ai, machineOn, isActive, onKept }: { ai: LocalAi; mach
             if (p) void act(ai.addLabIdea({ prompt: p }), () => setMine(''));
           }}
         >
-          <input id="lab-mine" value={mine} onChange={(e) => setMine(e.target.value)} placeholder="Your own movie idea, made next" aria-label="Your own idea" autoComplete="off" />
+          <input id="lab-mine" value={mine} onChange={(e) => setMine(e.target.value)} placeholder={remix ? 'A prompt to remix next' : 'Your own movie idea, made next'} aria-label="Your own idea" autoComplete="off" />
           <button type="submit" className="btn" disabled={!mine.trim()}>
             Add
           </button>
@@ -294,11 +324,11 @@ export function MemeLab({ ai, machineOn, isActive, onKept }: { ai: LocalAi; mach
       <div className="meme-lab-block">
         <p className="o5-kicker">The Lab gallery</p>
         {records.length === 0 ? (
-          <p className="ai-muted">Finished movies show up here, best first. They stay apart from your own gallery.</p>
+          <p className="ai-muted">Finished {remix ? 'remixes' : 'movies'} show up here, best first. They stay apart from your own gallery.</p>
         ) : (
           <GalleryGrid
             items={records.map(asMedia)}
-            label="Lab movies, best first"
+            label={remix ? 'Lab remixes, best first' : 'Lab movies, best first'}
             onOpen={(m, from) => {
               viewFrom.current = from;
               setViewing(m.id);
@@ -317,7 +347,7 @@ export function MemeLab({ ai, machineOn, isActive, onKept }: { ai: LocalAi; mach
       {open && (
         <GalleryViewer
           media={asMedia(open)}
-          title="Lab movie"
+          title={open.kind === 'image' ? 'Lab picture' : open.style === 'remix' ? 'Lab video' : 'Lab movie'}
           origin={viewFrom.current}
           onClose={() => setViewing(null)}
           words={
@@ -326,6 +356,7 @@ export function MemeLab({ ai, machineOn, isActive, onKept }: { ai: LocalAi; mach
               <p className="meme-card-caption">
                 {open.caption} <span className="ai-muted">{(open.hashtags ?? []).join(' ')}</span>
               </p>
+              {open.remixOf && <p className="ai-muted">Remade from your prompt: “{open.remixOf}”</p>}
             </div>
           }
         >
@@ -333,7 +364,13 @@ export function MemeLab({ ai, machineOn, isActive, onKept }: { ai: LocalAi; mach
             <p className="meme-card-kicker">
               <span>
                 {open.status === 'ready' ? 'Ready to post' : open.status === 'judged' ? 'Judged' : 'Waiting to be judged'}
-                {open.movieId || (open.seconds ?? 0) > 10 ? <span className="lab-detail-badge"> · {Math.round(open.seconds ?? 30)} s movie</span> : null}
+                {open.kind === 'image' ? (
+                  <span className="lab-detail-badge"> · Picture remix</span>
+                ) : open.style === 'remix' ? (
+                  <span className="lab-detail-badge"> · {Math.round(open.seconds ?? 5)} s video remix</span>
+                ) : open.movieId || (open.seconds ?? 0) > 10 ? (
+                  <span className="lab-detail-badge"> · {Math.round(open.seconds ?? 30)} s movie</span>
+                ) : null}
               </span>
               {open.score != null && (
                 <span className="meme-score" aria-label={`Viral score ${open.score} of 100`}>
@@ -392,10 +429,10 @@ export function MemeLab({ ai, machineOn, isActive, onKept }: { ai: LocalAi; mach
   );
 }
 
-/** A Lab movie as the shared gallery shows it: blurred only for its words, the machine's check, or your say. */
+/** A Lab movie or remix as the shared gallery shows it: blurred only for its words, the machine's check, or your say. */
 const asMedia = (r: MemeRecord): GalleryMedia & { record: MemeRecord } => ({
   id: r.id,
-  kind: 'video',
+  kind: r.kind === 'image' ? 'image' : 'video',
   url: r.url ?? '',
   label: r.title,
   nsfw: labNsfw(r),
@@ -554,7 +591,38 @@ function YourStylePanel({ ai, isActive, onChanged }: { ai: LocalAi; isActive: bo
  * A Lab movie is blurred when the AI machine's check saw NSFW in it, or its words say so (your own
  * say comes on top, by its id). Never for its style alone: a spicy movie that shows nothing is clear.
  */
-const labNsfw = (r: MemeRecord) => r.nsfw === true || isNsfw(r.title, r.prompt, r.caption);
+const labNsfw = (r: MemeRecord) => r.nsfw === true || isNsfw(r.title, r.prompt, r.caption, r.remixOf);
+
+const STYLE_NAME: Record<LabStyle, string> = { spicy: 'Spicy', comedy: 'Comedy', yours: 'Your style', remix: 'Remix' };
+
+/** Remix: what it makes from your prompts, and how many it has to work from. */
+function RemixPanel({ lab, onMix }: { lab: MemeLabState | null; onMix: (m: LabMix) => void }) {
+  const r = lab?.remix;
+  return (
+    <div className="meme-lab-block" role="region" aria-label="Remix">
+      <p className="o5-kicker">What it makes</p>
+      <Segmented<LabMix>
+        label="What Remix makes"
+        value={lab?.mix ?? 'both'}
+        options={[
+          { value: 'both', label: 'Both' },
+          { value: 'pictures', label: 'Pictures' },
+          { value: 'videos', label: 'Videos' },
+        ]}
+        onChange={(v) => v !== (lab?.mix ?? 'both') && onMix(v)}
+      />
+      <p className="ai-muted meme-lab-dek">
+        {!r
+          ? 'Reading your prompts from Make…'
+          : r.sources === 0
+            ? r.pictures + r.videos === 0
+              ? 'Nothing to remix yet. Make a few pictures or videos in Make and the Lab starts remixing them.'
+              : `None of your prompts are ${lab?.mix === 'videos' ? 'videos' : 'pictures'} yet. Pick Both, or make some in Make.`
+            : `Remixing your ${r.sources} newest ${r.sources === 1 ? 'prompt' : 'prompts'} (${r.pictures} for pictures, ${r.videos} for videos), each in turn.`}
+      </p>
+    </div>
+  );
+}
 
 /** What an AI machine on older code says to a Lab style it doesn't know yet. */
 export const OLDER_MACHINE = 'Your AI machine is on an older version. Turn it off and on again to get this.';
@@ -563,7 +631,7 @@ function LabHead({ children }: { children?: React.ReactNode }) {
   return (
     <header className="meme-lab-head">
       <div>
-        <p className="o5-kicker">Videos made while the machine is on</p>
+        <p className="o5-kicker">Made while the machine is on</p>
         <h3 className="o5-chapter-title" id="meme-lab-title">
           Lab
         </h3>

@@ -135,22 +135,8 @@ export function thinPath(poly: XY[], min = 0.006): XY[] {
   return out;
 }
 
-export type LayerId = 'sketch' | 'colour' | 'picture' | 'reference';
-export const LAYER_ORDER: LayerId[] = ['picture', 'reference', 'colour', 'sketch'];
 /** How the Reference layer shows (a tracing picture). */
 export const REFERENCE_ALPHA = 0.45;
-
-/**
- * The layers as they are stacked, bottom first, with the strength each is drawn at: the AI picture
- * under everything, then the tracing reference, then your colour and lines, faded together by Ink
- * (0..100). Hidden or empty layers are left out.
- */
-export function stackOf(visible: Record<LayerId, boolean>, present: Partial<Record<LayerId, boolean>>, ink: number): { id: LayerId; alpha: number }[] {
-  const inkA = Math.min(100, Math.max(0, ink)) / 100;
-  return LAYER_ORDER.filter((id) => visible[id] && present[id] !== false)
-    .map((id) => ({ id, alpha: id === 'picture' ? 1 : id === 'reference' ? REFERENCE_ALPHA : inkA }))
-    .filter((l) => l.alpha > 0);
-}
 
 /** Draw layers onto white paper, bottom first (the flattened PNG, the time-lapse's last frame). */
 export function flattenOnto(

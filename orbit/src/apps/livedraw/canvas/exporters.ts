@@ -3,6 +3,7 @@
  * time-lapse of every picture the machine sent back, recorded in the browser (MediaRecorder, WebM or
  * MP4). Where a browser can't record, the time-lapse comes as a zip of its frames instead.
  */
+import type { BlendMode } from 'ag-psd';
 import { drawCover, loadImage, makeCanvas } from './render';
 
 /** The bytes and type of a data URL. */
@@ -113,9 +114,17 @@ export interface PsdLayer {
   canvas: HTMLCanvasElement;
   opacity?: number;
   hidden?: boolean;
+  /** ag-psd's blend mode name ('multiply', 'soft light'…). */
+  blendMode?: string;
+  /** Clipped to the layer below. */
+  clipping?: boolean;
+  /** Alpha locked. */
+  transparencyProtected?: boolean;
+  /** The layer mask: white shows, black hides. */
+  mask?: HTMLCanvasElement | null;
 }
 
-/** A layered PSD (bottom layer first) with the flattened picture as its preview. */
+/** A layered PSD (bottom layer first) with the flattened picture as its preview: blend modes, clipping, alpha lock and masks kept. */
 export async function layeredPsd(side: number, layers: PsdLayer[], flat: HTMLCanvasElement): Promise<Blob> {
   const { writePsd } = await import('ag-psd');
   const buf = writePsd(
@@ -123,7 +132,18 @@ export async function layeredPsd(side: number, layers: PsdLayer[], flat: HTMLCan
       width: side,
       height: side,
       canvas: flat,
-      children: layers.map((l) => ({ name: l.name, canvas: l.canvas, top: 0, left: 0, opacity: l.opacity ?? 1, hidden: Boolean(l.hidden) })),
+      children: layers.map((l) => ({
+        name: l.name,
+        canvas: l.canvas,
+        top: 0,
+        left: 0,
+        opacity: l.opacity ?? 1,
+        hidden: Boolean(l.hidden),
+        ...(l.blendMode ? { blendMode: l.blendMode as BlendMode } : {}),
+        ...(l.clipping ? { clipping: true } : {}),
+        ...(l.transparencyProtected ? { transparencyProtected: true } : {}),
+        ...(l.mask ? { mask: { top: 0, left: 0, bottom: side, right: side, defaultColor: 255, canvas: l.mask } } : {}),
+      })),
     },
     { generateThumbnail: true },
   );

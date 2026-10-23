@@ -332,7 +332,10 @@ export function createStudio(o) {
     if (m.id === 'ltx') return files.video;
     return m.files.map((k) => (k in QWEN_KEYS ? files.image[QWEN_KEYS[k]] : k.startsWith('style:') ? m.loraFile : FILES[k])).filter(Boolean);
   }
-  const keeps = (m) => (only ? only.has(m.id) : m.builtIn) || wanted.has(m.id);
+  // Live Draw and live video run only on the drawing machine (role 'canvas'): any other machine
+  // never keeps, lists or downloads them, even if an older version of it was asked to.
+  const drawingOnly = (m) => role !== 'canvas' && (m.kind === 'live' || m.kind === 'sketch');
+  const keeps = (m) => !drawingOnly(m) && ((only ? only.has(m.id) : m.builtIn) || wanted.has(m.id));
   // A short list also sets the download order (what is needed first comes down first).
   const rank = (m) => (only?.has(m.id) ? [...only].indexOf(m.id) : Infinity);
   const kept = () => (only ? MAKERS.filter(keeps).sort((a, b) => rank(a) - rank(b)) : MAKERS.filter(keeps));
@@ -629,6 +632,7 @@ export function createStudio(o) {
   async function makers() {
     const out = [];
     for (const m of MAKERS) {
+      if (drawingOnly(m)) continue;
       const list = makerFiles(m);
       let installed = true;
       for (const file of list) if (!(await haveFile(file))) installed = false;
@@ -696,6 +700,7 @@ export function createStudio(o) {
     if (helper) throw Object.assign(new Error('Add makers from your main AI machine.'), { status: 409 });
     const m = makerById(id);
     if (!m) throw Object.assign(new Error('No such maker.'), { status: 404 });
+    if (drawingOnly(m)) throw Object.assign(new Error(`${m.name} runs on the drawing machine. Open Live Draw to use it.`), { status: 409 });
     if (!hfToken && makerFiles(m).some((file) => file.gated) && !(await makerReady(m))) throw Object.assign(new Error(TOKEN_MESSAGE), { status: 400, needsToken: true });
     // Krea Realtime needs 40 GB+ of GPU memory (and 30 GB of files): refused on the Standard machine.
     if (m.turboOnly && (await o.gpuMemory?.().catch(() => 0)) < (o.turboBytes ?? 70e9)) throw Object.assign(new Error(o.turboMessage || 'This maker needs the Turbo machine (80 GB).'), { status: 409, turbo: true });
@@ -1323,6 +1328,8 @@ export function createStudio(o) {
       height,
       seconds,
       fromImage: inputs.length > 0,
+      // The style picked on top of the maker, so the Lab can remix it the same way (remix.js).
+      style: style ? String(req.style) : undefined,
       background: Boolean(req.background),
       // A studio member's job (gate.js sets it from their key, never from the request body).
       owner: typeof req.owner === 'string' && req.owner ? req.owner.slice(0, 120) : undefined,
@@ -1446,6 +1453,7 @@ export function createStudio(o) {
         height: job.height,
         seconds: job.seconds,
         fromImage: job.fromImage,
+        style: job.style || undefined,
         photo: job.photo || undefined,
         nsfw: job.nsfwSource || undefined,
         // Made by the meme lab: kept out of the gallery until you keep it.

@@ -1,25 +1,12 @@
 import { useRef, type ReactNode } from 'react';
 import { motion } from 'motion/react';
-import { Icon, type IconName } from '../../ui/Icon';
+import { Icon } from '../../ui/Icon';
 import { useMotionLevel } from '../../motion/MotionProvider';
 import { SPRING, transitionFor } from '../../motion/springs';
 import { OrbSpot } from '../../studio/Sheets';
 import type { CanvasEngine, CanvasSize, SketchGuess } from '../../services/ai/liveCanvas';
-import type { Region, StageTool } from './canvas/Stage';
-import type { DrawLayer } from './canvas/doc';
-import type { LayerId } from './canvas/raster';
+import type { Region } from './canvas/Stage';
 import type { Shot } from './canvas/history';
-import { COLORS } from './canvas/sketch';
-
-export const TOOLS: { value: StageTool; label: string; icon: IconName }[] = [
-  { value: 'pen', label: 'Pen', icon: 'pencil' },
-  { value: 'pencil', label: 'Pencil', icon: 'pencilSoft' },
-  { value: 'marker', label: 'Marker', icon: 'marker' },
-  { value: 'airbrush', label: 'Airbrush', icon: 'spray' },
-  { value: 'eraser', label: 'Eraser', icon: 'eraser' },
-  { value: 'fill', label: 'Fill', icon: 'bucket' },
-  { value: 'picker', label: 'Pick a colour', icon: 'dropper' },
-];
 
 /** Style chips: each adds its words to the prompt. */
 export const STYLES: { id: string; label: string; words: string }[] = [
@@ -33,8 +20,6 @@ export const STYLES: { id: string; label: string; words: string }[] = [
   { id: 'pencil', label: 'Pencil', words: 'pencil drawing, graphite shading' },
 ];
 export const styleWords = (ids: string[]) => STYLES.filter((s) => ids.includes(s.id)).map((s) => s.words);
-
-const LAYER_NAMES: Record<LayerId, string> = { sketch: 'Sketch', colour: 'Colour', picture: 'Picture', reference: 'Reference' };
 
 /** A labelled slider, 44 px tall, with its value in words. */
 export function Slider({ label, value, min = 0, max = 1, step = 0.05, onChange, text }: { label: string; value: number; min?: number; max?: number; step?: number; onChange: (v: number) => void; text: string }) {
@@ -55,121 +40,6 @@ export function Section({ title, children, id }: { title: string; children: Reac
       </h3>
       {children}
     </section>
-  );
-}
-
-export function ToolsPanel(p: {
-  tool: StageTool;
-  onTool: (t: StageTool) => void;
-  color: string;
-  onColor: (c: string) => void;
-  sizeScale: number;
-  onSize: (v: number) => void;
-  painting: boolean;
-  canUndo: boolean;
-  canRedo: boolean;
-  onUndo: () => void;
-  onRedo: () => void;
-  onClear: () => void;
-  onFit: () => void;
-}) {
-  return (
-    <div className="ldx-tools" role="toolbar" aria-label="Drawing tools">
-      <div className="ldx-grid" role="radiogroup" aria-label="Tool">
-        {TOOLS.map((t) => (
-          <button key={t.value} type="button" role="radio" aria-checked={p.tool === t.value} aria-label={t.label} title={t.label} className="ldx-tool" onClick={() => p.onTool(t.value)}>
-            <Icon name={t.icon} size={20} />
-          </button>
-        ))}
-      </div>
-      <div className="ldx-grid">
-        <button type="button" className="ldx-tool" aria-label="Undo" title="Undo (or tap with two fingers)" disabled={!p.canUndo} onClick={p.onUndo}>
-          <Icon name="undo" size={20} />
-        </button>
-        <button type="button" className="ldx-tool" aria-label="Redo" title="Redo (or tap with three fingers)" disabled={!p.canRedo} onClick={p.onRedo}>
-          <Icon name="redo" size={20} />
-        </button>
-        <button type="button" className="ldx-tool" aria-label="Whole canvas" title="Show the whole canvas" onClick={p.onFit}>
-          <Icon name="fit" size={20} />
-        </button>
-        <button type="button" className="ldx-tool" aria-label="Clear the drawing" title="Clear (Undo brings it back)" onClick={p.onClear}>
-          <Icon name="trash" size={20} />
-        </button>
-      </div>
-      <div className="ldx-grid" role="radiogroup" aria-label="Colour">
-        {COLORS.map((c) => (
-          <button key={c.value} type="button" role="radio" aria-checked={p.color === c.value} aria-label={c.label} title={c.label} className="ldx-swatch" onClick={() => p.onColor(c.value)}>
-            <span style={{ background: c.value }} />
-          </button>
-        ))}
-        <label className="ldx-swatch ldx-custom" title="Any colour">
-          <span style={{ background: p.color }} />
-          <input type="color" value={p.color} onChange={(e) => p.onColor(e.target.value)} aria-label="Any colour" />
-        </label>
-      </div>
-      <Slider label={p.painting ? 'Brush' : 'Size'} value={p.sizeScale} min={0.25} max={4} step={0.05} onChange={p.onSize} text={`${Math.round(p.sizeScale * 100)}%`} />
-    </div>
-  );
-}
-
-export function LayersPanel(p: {
-  visible: Record<LayerId, boolean>;
-  onVisible: (id: LayerId, on: boolean) => void;
-  layer: DrawLayer;
-  onLayer: (l: DrawLayer) => void;
-  ink: number;
-  onInk: (v: number) => void;
-  reference: string | null;
-  onReference: (file: File | null) => void;
-  kept: boolean;
-  onLetGo: () => void;
-}) {
-  const file = useRef<HTMLInputElement>(null);
-  return (
-    <div className="ldx-layers">
-      <Slider label="Ink" value={p.ink} min={0} max={100} step={1} onChange={p.onInk} text={`${Math.round(p.ink)}%`} />
-      <ul className="ldx-rows" aria-label="Layers">
-        {(['sketch', 'colour', 'picture', 'reference'] as LayerId[]).map((id) => (
-          <li key={id} className="ldx-row" data-active={id === p.layer || undefined}>
-            <button type="button" className="ldx-eye" aria-pressed={p.visible[id]} aria-label={`${p.visible[id] ? 'Hide' : 'Show'} ${LAYER_NAMES[id]}`} onClick={() => p.onVisible(id, !p.visible[id])}>
-              <Icon name={p.visible[id] ? 'eye' : 'eyeOff'} size={18} />
-            </button>
-            <span className="ldx-row-name">{LAYER_NAMES[id]}</span>
-            {(id === 'sketch' || id === 'colour') && (
-              <button type="button" className="ldx-link" role="radio" aria-checked={p.layer === id} onClick={() => p.onLayer(id)}>
-                {p.layer === id ? 'Drawing here' : 'Draw here'}
-              </button>
-            )}
-            {id === 'picture' && p.kept && (
-              <button type="button" className="ldx-link" onClick={p.onLetGo}>
-                Let go of the kept one
-              </button>
-            )}
-            {id === 'reference' &&
-              (p.reference ? (
-                <button type="button" className="ldx-link" onClick={() => p.onReference(null)}>
-                  Remove
-                </button>
-              ) : (
-                <button type="button" className="ldx-link" onClick={() => file.current?.click()}>
-                  Add a picture to trace
-                </button>
-              ))}
-          </li>
-        ))}
-      </ul>
-      <input
-        ref={file}
-        type="file"
-        accept="image/*"
-        hidden
-        aria-label="Picture to trace"
-        onChange={(e) => {
-          p.onReference(e.target.files?.[0] ?? null);
-          e.target.value = '';
-        }}
-      />
-    </div>
   );
 }
 

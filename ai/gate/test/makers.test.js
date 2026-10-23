@@ -59,7 +59,8 @@ const node = (wf, type) => Object.values(wf).find((n) => n.class_type === type);
 test('maker list: built-ins are installed; the rest are offered with their size', async () => {
   const { studio } = await setup();
   const list = await studio.makers();
-  assert.equal(list.length, MAKERS.length);
+  // Live Draw and live video belong to the drawing machine, so this machine never lists them.
+  assert.equal(list.length, MAKERS.filter((m) => m.kind !== 'live' && m.kind !== 'sketch').length);
   assert.deepEqual(
     ['qwen', 'ltx', 'edit'].map((id) => [byId(list, id).installed, byId(list, id).builtIn]),
     [
@@ -74,6 +75,21 @@ test('maker list: built-ins are installed; the rest are offered with their size'
   assert.equal(krea.size, REAL.kreaNoct.size + REAL.kreaTe.size + REAL.kreaVae.size);
   assert.equal(byId(list, 'style-darkbrush').for, 'krea-real');
   assert.equal(byId(list, 'outfit').twoImages, true);
+});
+
+test('Live Draw and live video never download here: only the drawing machine keeps them', async () => {
+  const { dir, studio } = await setup();
+  const drawing = MAKERS.filter((m) => m.kind === 'live' || m.kind === 'sketch');
+  assert.ok(drawing.length > 0);
+  const list = await studio.makers();
+  for (const m of drawing) {
+    assert.equal(byId(list, m.id), undefined, m.id);
+    await assert.rejects(studio.installMaker(m.id), (e) => e.status === 409 && /drawing machine/.test(e.message));
+  }
+  // Even one an older version was asked to keep is left out.
+  await fs.writeFile(path.join(dir, 'makers.json'), JSON.stringify({ wanted: [drawing[0].id] }));
+  const again = await createStudio({ dir, files: FILES, fetchImpl: fakeServices({ prompts: [] }), WebSocketImpl: null, log: { warn() {} }, statfs: async () => ({ bavail: 1e7, bsize: 1024 ** 2 }) }).makers();
+  assert.equal(byId(again, drawing[0].id), undefined);
 });
 
 test('install remembers the choice; a maker works once its files are there', async () => {

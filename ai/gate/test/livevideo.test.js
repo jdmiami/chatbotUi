@@ -155,7 +155,7 @@ async function setup({ gpu = 48e9, envReady = true, install = ['live-sdv2', 'liv
   };
   const ffmpegCalls = [];
   const nsfw = { check: async () => ({ nsfw: false, score: 0.01 }) };
-  const studio = createStudio({ dir, files: FILES, fetchImpl, WebSocketImpl: null, log: quiet, liveEnvs: envs, gpuMemory: async () => gpu, turboMessage: TURBO_MESSAGE, nsfw });
+  const studio = createStudio({ dir, role: 'canvas', files: FILES, fetchImpl, WebSocketImpl: null, log: quiet, liveEnvs: envs, gpuMemory: async () => gpu, turboMessage: TURBO_MESSAGE, nsfw });
   const sd = fakeSdv2();
   const made = { draw: 0 };
   const video = createLiveVideo({

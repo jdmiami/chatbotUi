@@ -1,15 +1,13 @@
 import { describe, expect, it, vi } from 'vitest';
-import { alphaAt, fillGap, hexRgb, pressureOf, smoothPoint, tiltOf, widthAt, type Stroke } from '../../src/apps/livedraw/canvas/sketch';
-import { CanvasDoc } from '../../src/apps/livedraw/canvas/doc';
+import { alphaAt, fillGap, hexRgb, pressureOf, smoothPoint, tiltOf, widthAt } from '../../src/apps/livedraw/canvas/sketch';
 import { PictureHistory } from '../../src/apps/livedraw/canvas/history';
-import { binarizeMask, flattenOnto, floodRegion, growRegion, joinPrompt, lassoOk, maskCoverage, paintRegion, pointInPolygon, stackOf, thinPath } from '../../src/apps/livedraw/canvas/raster';
+import { binarizeMask, flattenOnto, floodRegion, growRegion, joinPrompt, lassoOk, maskCoverage, paintRegion, pointInPolygon, thinPath } from '../../src/apps/livedraw/canvas/raster';
 import { POSE_COLORS, POSE_LIMBS, POSE_POINTS, defaultPose, drawPose, movePoint } from '../../src/apps/livedraw/canvas/pose';
 import { crc32, dataUrlBytes, recordType, zipStore } from '../../src/apps/livedraw/canvas/exporters';
 import { CanvasAccess, CanvasLink, LiveCanvasApi, LivingLink, allowedEngine, doorPaths, otherEngineLine, type CanvasFrameInput } from '../../src/services/ai/liveCanvas';
 import { withCatalog } from '../../src/apps/ai/makerCatalog';
 
 const pt = (x: number, y: number, p = 0.5, tilt = 0) => ({ x, y, p, tilt });
-const stroke = (tool: Stroke['tool'] = 'pen'): Stroke => ({ tool, color: '#000', size: 0.01, points: [pt(0.1, 0.1)] });
 
 describe('strokes (Apple Pencil pressure and tilt)', () => {
   it('reads tilt from altitudeAngle (Safari) or tiltX/tiltY, and ignores it for fingers', () => {
@@ -39,35 +37,6 @@ describe('strokes (Apple Pencil pressure and tilt)', () => {
     expect(fillGap(pt(0, 0), pt(0.1, 0), 0.01).length).toBe(9);
     expect(hexRgb('#ff8000')).toEqual([255, 128, 0]);
     expect(hexRgb('#fff')).toEqual([255, 255, 255]);
-  });
-});
-
-describe('the drawing (layers, mask, undo across them)', () => {
-  it('undo and redo walk back across Sketch, Colour and the mask; clear can be undone', () => {
-    const d = new CanvasDoc();
-    expect(d.empty).toBe(true);
-    d.add('sketch', { kind: 'stroke', stroke: stroke() });
-    d.add('colour', { kind: 'fill', x: 0.5, y: 0.5, color: '#f00' });
-    d.add('mask', { kind: 'stroke', stroke: stroke('marker') });
-    expect(d.empty).toBe(false);
-    expect(d.undo()).toBe('mask');
-    expect(d.has('mask')).toBe(false);
-    expect(d.undo()).toBe('colour');
-    expect(d.redo()).toBe('colour');
-    expect(d.get('colour').length).toBe(1);
-    d.clear('sketch');
-    expect(d.get('sketch').length).toBe(0);
-    expect(d.undo()).toBe('sketch');
-    expect(d.get('sketch').length).toBe(1);
-    // A new stroke drops what could be redone.
-    d.undo();
-    d.add('sketch', { kind: 'stroke', stroke: stroke() });
-    expect(d.canRedo).toBe(false);
-    // Eraser strokes alone are nothing.
-    const e = new CanvasDoc();
-    e.add('sketch', { kind: 'stroke', stroke: stroke('eraser') });
-    expect(e.empty).toBe(true);
-    expect(e.count('sketch')).toBe(1);
   });
 });
 
@@ -142,14 +111,7 @@ describe('mask and composite helpers', () => {
     expect(thinPath([pt(0, 0), pt(0.001, 0), pt(0.01, 0)], 0.006).length).toBe(2);
   });
 
-  it('layers stack picture first, then reference, then colour and lines faded by Ink', () => {
-    const all = { sketch: true, colour: true, picture: true, reference: true };
-    expect(stackOf(all, { reference: false }, 40)).toEqual([
-      { id: 'picture', alpha: 1 },
-      { id: 'colour', alpha: 0.4 },
-      { id: 'sketch', alpha: 0.4 },
-    ]);
-    expect(stackOf({ ...all, picture: false }, {}, 0).map((l) => l.id)).toEqual(['reference']);
+  it('the flattened picture: white paper, then each source at its strength, empty ones skipped', () => {
     const calls: string[] = [];
     const ctx = {
       globalAlpha: 1,
@@ -506,12 +468,12 @@ describe('Bring to life (live video session)', () => {
   });
 });
 
-describe('Store catalog (the AI machine’s makers, unchanged)', () => {
-  it('Live draw, Sketch finish and both live video makers still arrive from the catalog', () => {
-    const all = withCatalog([]);
-    expect(all.find((m) => m.id === 'live-draw')?.kind).toBe('live');
-    expect(all.find((m) => m.id === 'sketch-finish')?.kind).toBe('sketch');
-    expect(all.find((m) => m.id === 'live-sdv2')?.kind).toBe('live');
-    expect(all.find((m) => m.id === 'live-krea')?.turboOnly).toBe(true);
+describe('Store catalog (the AI machine’s makers)', () => {
+  it('never offers Live draw, Sketch finish or live video: they belong to the drawing machine', () => {
+    const live = { id: 'live-sdv2', kind: 'live', name: 'Live video', blurb: '', for: null, twoImages: false, builtIn: false, wanted: true, installed: false, size: 1, percent: 40 } as const;
+    for (const list of [withCatalog([]), withCatalog([live])]) {
+      expect(list.some((m) => m.kind === 'live' || m.kind === 'sketch')).toBe(false);
+      expect(list.some((m) => m.id === 'qwen')).toBe(true);
+    }
   });
 });

@@ -357,3 +357,76 @@ test('Lab refreshes keep the same pictures and videos (no reloading) and the sam
   expect(await gallery.locator('video').first().getAttribute('src')).toBe(src);
   await expect(gallery.locator('[data-probe="kept"]')).toHaveCount(1);
 });
+
+// ---- Remix: pictures and short videos remade from your own Make prompts, many an hour.
+
+test('Remix: remakes your Make prompts as pictures and videos, picks what it makes, and shows where each came from', async ({ page }) => {
+  await mockAi(page, 'on');
+  const remixQueue = [
+    { id: 'r1', title: 'Remix: A lone astronaut in a rainy neon…', prompt: 'x', topic: null, yours: false, kind: 'picture', remixOf: 'A lone astronaut in a rainy neon market' },
+    { id: 'r2', title: 'Remix: Slow dolly through a foggy forest', prompt: 'x', topic: null, yours: false, kind: 'clip', seconds: 5, remixOf: 'Slow dolly through a foggy forest at dawn' },
+  ];
+  let lab = {
+    enabled: true, style: 'comedy', topics: ['gym fails'], quietMinutes: 0, readyScore: 75, minutesPerVideo: 6, minutesLeft: 55, madeLastHour: 0, lastError: null,
+    making: null as unknown, queue: [] as unknown[], records: [] as unknown[], mix: 'both', remix: undefined as unknown,
+  };
+  const posts: unknown[] = [];
+  await page.route('**/fake-ai/_orbit/studio/lab**', async (route) => {
+    const body = route.request().method() === 'POST' ? route.request().postDataJSON() : null;
+    if (body) posts.push(body);
+    if (body?.style === 'remix') {
+      lab = {
+        ...lab, style: 'remix', minutesPerVideo: 1, madeLastHour: 14, queue: remixQueue, remix: { sources: 2, pictures: 1, videos: 1 },
+        making: { title: 'Neon rain, from above', topic: null, prompt: 'x', kind: 'picture', remixOf: 'A lone astronaut in a rainy neon market', job: { id: 'j1', kind: 'image', prompt: 'x', status: 'running', progress: 40, error: null, createdAt: '', item: null } },
+        records: [
+          { id: 'p1', kind: 'image', style: 'remix', title: 'Neon rain, at dusk', prompt: 'x', caption: 'Same world, new light', hashtags: ['#scifi'], remixOf: 'A lone astronaut in a rainy neon market', createdAt: '2026-10-23T10:00:00Z', url: '/_orbit/studio/file/p1?t=tok', score: 84, why: 'Fresh and still theirs.', status: 'ready' },
+          { id: 'v1', kind: 'video', style: 'remix', seconds: 5, title: 'Forest, from above', prompt: 'x', caption: 'c', hashtags: [], remixOf: 'Slow dolly through a foggy forest at dawn', createdAt: '2026-10-23T09:00:00Z', url: '/_orbit/studio/file/v1?t=tok', score: 60, why: 'Nice light.', status: 'judged' },
+        ],
+      };
+    }
+    if (body?.mix) lab = { ...lab, mix: body.mix, queue: remixQueue.filter((q) => q.kind === 'picture'), remix: { sources: 1, pictures: 1, videos: 1 } };
+    await route.fulfill({ json: lab });
+  });
+  await page.addInitScript(() => {
+    if (!localStorage.getItem('orbit:shell:v1'))
+      localStorage.setItem('orbit:shell:v1', JSON.stringify({ state: { settings: { orb: false, motion: 'reduce', motionPicked: true, skin: 'o5', introSeen: true } }, version: 0 }));
+  });
+  await page.goto('/');
+  await page.getByRole('button', { name: /^Index/ }).click();
+  await page.getByRole('dialog', { name: 'Index' }).locator('.o5-index-list').getByRole('button', { name: /Lab/ }).click();
+  const section = page.locator('.app-window[data-app="lab"]').getByRole('region', { name: 'Lab' });
+  const style = section.getByRole('group', { name: 'Lab style' });
+  await style.getByRole('button', { name: 'Remix' }).click();
+  await expect(style.getByRole('button', { name: 'Remix' })).toHaveAttribute('aria-pressed', 'true');
+  await expect(section).toContainText('remakes each one in a creative new way');
+  // No topics: it works from your own prompts.
+  await expect(section.getByRole('list', { name: 'Topics' })).toHaveCount(0);
+
+  const panel = section.getByRole('region', { name: 'Remix' });
+  await expect(panel).toContainText('Remixing your 2 newest prompts (1 for pictures, 1 for videos)');
+  const now = section.getByRole('status', { name: 'Making now' });
+  await expect(now).toContainText('Neon rain, from above');
+  await expect(now).toContainText('Picture remade from: “A lone astronaut in a rainy neon market”');
+  const queue = section.getByRole('list', { name: 'Up next' });
+  await expect(queue).toContainText('Picture');
+  await expect(queue).toContainText('5-second video');
+  await expect(queue).toContainText('Remade from: “Slow dolly through a foggy forest at dawn”');
+  await expect(section).toContainText('Each remix takes about 1 min');
+  await expect(section).toContainText('14 made in the last hour').catch(() => {}); // only shown when nothing is being made
+
+  // Only pictures.
+  await panel.getByRole('group', { name: 'What Remix makes' }).getByRole('button', { name: 'Pictures' }).click();
+  await expect(panel.getByRole('group', { name: 'What Remix makes' }).getByRole('button', { name: 'Pictures' })).toHaveAttribute('aria-pressed', 'true');
+  await expect(queue).not.toContainText('5-second video');
+
+  // The gallery: a picture and a video, best first; the picture's page says where it came from.
+  const grid = section.getByRole('list', { name: 'Lab remixes, best first' });
+  await expect(grid.locator('img')).toHaveCount(1);
+  await grid.getByRole('button').first().click();
+  const viewer = page.getByRole('dialog', { name: 'Lab picture' });
+  await expect(viewer).toContainText('Picture remix');
+  await expect(viewer).toContainText('Remade from your prompt: “A lone astronaut in a rainy neon market”');
+
+  expect(posts).toEqual([{ style: 'remix' }, { mix: 'pictures' }]);
+  await expectNoHorizontalOverflow(page);
+});
