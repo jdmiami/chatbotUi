@@ -1,269 +1,145 @@
 import { expect, test, type Locator, type Page } from '@playwright/test';
 import { expectNoHorizontalOverflow } from './helpers';
-import { mockAi } from './aiMocks';
 
 /**
- * Live draw in Make (Orbit 0.5): the Pencil draws (synthetic pen pointer events with pressure and
- * tilt), fingers don't while a Pencil is in use, two fingers tap to undo, the drawing streams to the
- * AI machine over a (mocked) WebSocket or, when that can't open, one POST at a time, and Finish
- * starts a Sketch finish job. Chromium with emulated devices: Safari's own Pencil behaviour is not
- * tested here.
+ * Live Draw (its own app, Orbit 0.5): the drawing machine starts from its card, strokes go up over a
+ * (mocked) WebSocket and a stand-in picture comes back under them, Ink fades the strokes, Keep and
+ * Paint over send a base and a mask, the sketch reader's guesses fill the words, Finish lands in the
+ * gallery, Bring to life streams over the live video socket, and the PNG downloads. Make's "Draw it"
+ * opens it. Chromium with emulated devices: Safari's own Pencil behaviour is not tested here.
  */
 
-const JPEG_B64 = '/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAAgGBgcGBQgHBwcJCQgKDBQNDAsLDBkSEw8UHRofHh0aHBwgJC4nICIsIxwcKDcpLDAxNDQ0Hyc5PTgyPC4zNDL/wAALCAABAAEBAREA/8QAFAABAAAAAAAAAAAAAAAAAAAACf/EABQQAQAAAAAAAAAAAAAAAAAAAAD/2gAIAQEAAD8AKp//2Q==';
-const READY = { installed: true, worker: 'ready', loading: null, error: null, lastMs: 80, paused: null };
+// A 1×1 JPEG stands in for every picture.
+const PIC = 'data:image/jpeg;base64,/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAAgGBgcGBQgHBwcJCQgKDBQNDAsLDBkSEw8UHRofHh0aHBwgJC4nICIsIxwcKDcpLDAxNDQ0Hyc5PTgyPC4zNDL/wAALCAABAAEBAREA/8QAFAABAAAAAAAAAAAAAAAAAAAACf/EABQQAQAAAAAAAAAAAAAAAAAAAAD/2gAIAQEAAD8AKp//2Q==';
 
-async function openMake(page: Page) {
+async function setUp(page: Page) {
   const errors: string[] = [];
   page.on('pageerror', (e) => errors.push(e.message));
   await page.addInitScript(() => {
     if (!localStorage.getItem('orbit:shell:v1'))
       localStorage.setItem('orbit:shell:v1', JSON.stringify({ state: { settings: { orb: false, motion: 'reduce', motionPicked: true, skin: 'o5', introSeen: true } }, version: 0 }));
   });
-  await page.goto('/');
-  await page.getByRole('button', { name: /^Index/ }).click();
-  await page.getByRole('dialog', { name: 'Index' }).locator('.o5-index-list').getByRole('button', { name: /^\d*\s*Make/ }).click();
-  const win = page.locator('.app-window[data-app="make"]');
-  await win.getByRole('radio', { name: /Live draw/ }).click();
-  return { win, errors };
-}
-
-async function mockStudio(page: Page, { live = true, finish = true } = {}) {
-  await mockAi(page, 'on');
-  const ready = { ready: true, downloaded: true, percent: 100 };
-  await page.route('**/fake-ai/_orbit/studio', (r) => r.fulfill({ json: { setup: 'running', running: true, image: ready, video: ready, downloading: null, downloadError: null, jobs: [] } }));
-  await page.route('**/fake-ai/_orbit/studio/items', (r) => r.fulfill({ json: { items: [] } }));
-  await page.route('**/fake-ai/_orbit/studio/makers', (r) =>
-    r.fulfill({
-      json: {
-        makers: [
-          { id: 'qwen', kind: 'image', name: 'Qwen Uncensored', installed: true, builtIn: true, wanted: true, percent: 100 },
-          { id: 'live-draw', kind: 'live', name: 'Live draw (pix2pix-turbo)', installed: live, wanted: live, percent: live ? 100 : 0, size: 3.1e9 },
-          { id: 'sketch-finish', kind: 'sketch', name: 'Sketch finish (Z-Image)', installed: finish, wanted: finish, percent: finish ? 100 : 0, size: 27.4e9 },
-        ],
-      },
-    }),
+  let state = 'off';
+  await page.route('**/api/canvas', (r) => {
+    if (r.request().method() === 'POST') state = r.request().postDataJSON().action === 'start' ? 'on' : 'off';
+    return r.fulfill({ json: { state, pricePerHour: 1.89, costPerHour: 1.79, autoOffMinutes: 20 } });
+  });
+  await page.route('**/api/canvas/token', (r) =>
+    r.fulfill({ json: { status: state, url: state === 'on' ? `${new URL(page.url()).origin}/fake-canvas` : null, token: state === 'on' ? 'tok' : null, expiresIn: 3600, engine: 'fast' } }),
   );
-  const jobs: Record<string, unknown>[] = [];
-  await page.route('**/fake-ai/_orbit/studio/jobs', (r) => {
-    jobs.push(r.request().postDataJSON());
-    return r.fulfill({ json: { id: 'j1', kind: 'image', maker: 'sketch-finish', prompt: 'a cat', status: 'queued', progress: 0, error: null, createdAt: '', item: null, position: 0, etaSeconds: 20, notes: [] } });
+  await page.route('**/fake-canvas/**', (r) => {
+    const path = new URL(r.request().url()).pathname.replace('/fake-canvas', '');
+    if (path === '/_orbit/canvas') return r.fulfill({ json: { engines: { fast: 'ready', licensed: 'off' }, living: 'ready', animate: 'off', finish: 'ready', reader: 'ready' } });
+    if (path === '/_orbit/canvas/read') return r.fulfill({ json: { guesses: [{ label: 'a house', prompt: 'a little house on a hill' }, { label: 'a boat', prompt: 'a boat' }] } });
+    if (path === '/_orbit/canvas/finish') return r.fulfill({ json: { id: 'f1', kind: 'image', prompt: 'p', status: 'done', progress: 100, error: null, createdAt: '', item: { id: 'i', kind: 'image', prompt: 'p', createdAt: '', url: PIC } } });
+    return r.fulfill({ json: { ok: true } });
   });
-  await page.route('**/fake-ai/_orbit/studio/jobs/j1', (r) => r.fulfill({ json: { id: 'j1', kind: 'image', maker: 'sketch-finish', prompt: 'a cat', status: 'running', progress: 40, error: null, createdAt: '', item: null, position: 0, etaSeconds: 10, notes: [] } }));
-  const posts: Record<string, unknown>[] = [];
-  await page.route('**/fake-ai/_orbit/live/draw**', (r) => {
-    const req = r.request();
-    if (req.method() === 'POST' && req.url().endsWith('/live/draw')) {
-      posts.push(req.postDataJSON());
-      return r.fulfill({ status: 200, headers: { 'content-type': 'image/jpeg', 'x-live-ms': '95' }, body: Buffer.from(JPEG_B64, 'base64') });
-    }
-    return r.fulfill({ json: READY });
-  });
-  return { jobs, posts };
-}
-
-/** Frames the mocked AI machine got over the WebSocket (answered with a JPEG each). */
-async function mockSocket(page: Page, { refuse = false } = {}) {
   const frames: Record<string, unknown>[] = [];
-  const urls: string[] = [];
-  await page.routeWebSocket(/\/_orbit\/live\/draw$/, (ws) => {
-    urls.push(ws.url());
-    if (refuse) {
-      ws.close({ code: 1011, reason: 'no' });
-      return;
-    }
+  await page.routeWebSocket(/\/fake-canvas\/_orbit\/canvas\/live$/, (ws) => {
     ws.onMessage((m) => {
-      const msg = JSON.parse(String(m));
-      if (msg.type !== 'frame') return;
-      frames.push(msg);
-      ws.send(JSON.stringify({ type: 'frame', id: msg.id, ms: 85, image: `data:image/jpeg;base64,${JPEG_B64}` }));
+      const f = JSON.parse(String(m));
+      frames.push(f);
+      ws.send(JSON.stringify({ type: 'frame', id: f.id, image: PIC, ms: 80 }));
     });
   });
-  return { frames, urls };
+  const life: Record<string, unknown>[] = [];
+  await page.routeWebSocket(/\/fake-canvas\/_orbit\/live\/video$/, (ws) => {
+    ws.onMessage((m) => {
+      const msg = JSON.parse(String(m));
+      life.push(msg);
+      if (msg.type === 'start') ws.send(JSON.stringify({ type: 'state', state: 'live' }));
+      if (msg.type === 'frame') ws.send(JSON.stringify({ type: 'frame', image: PIC }));
+      if (msg.type === 'save') ws.send(JSON.stringify({ type: 'saved', item: null }));
+    });
+  });
+  return { errors, frames, life };
 }
 
-type P = { x: number; y: number; pressure?: number; tiltX?: number; tiltY?: number };
-/** A stroke made of real PointerEvents, as a Pencil (or finger) sends them. */
-async function stroke(canvas: Locator, pts: P[], { pointerType = 'pen', pointerId = 7 } = {}) {
-  await canvas.evaluate(
-    (el, { pts, pointerType, pointerId }) => {
+async function openLiveDraw(page: Page) {
+  await page.goto('/');
+  await page.getByRole('button', { name: /^Index/ }).click();
+  await page.getByRole('dialog', { name: 'Index' }).locator('.o5-index-list').getByRole('button', { name: /Live Draw/ }).click();
+  return page.locator('.app-window[data-app="livedraw"]');
+}
+
+/** A stroke made of real PointerEvents. */
+async function stroke(paper: Locator, pts: [number, number][], pointerType = 'mouse') {
+  await paper.evaluate(
+    (el, { pts, pointerType }) => {
       const r = el.getBoundingClientRect();
-      const fire = (type: string, p: P) =>
-        el.dispatchEvent(
-          new PointerEvent(type, {
-            bubbles: true,
-            cancelable: true,
-            composed: true,
-            pointerId,
-            pointerType,
-            isPrimary: pointerId === 7 || pointerId === 20,
-            pressure: p.pressure ?? 0.5,
-            tiltX: p.tiltX ?? 0,
-            tiltY: p.tiltY ?? 0,
-            clientX: r.left + p.x * r.width,
-            clientY: r.top + p.y * r.height,
-            buttons: type === 'pointerup' ? 0 : 1,
-          }),
-        );
+      const fire = (type: string, [x, y]: [number, number]) =>
+        el.dispatchEvent(new PointerEvent(type, { bubbles: true, cancelable: true, pointerId: 3, pointerType, isPrimary: true, pressure: 0.6, button: 0, buttons: type === 'pointerup' ? 0 : 1, clientX: r.left + x * r.width, clientY: r.top + y * r.height }));
       fire('pointerdown', pts[0]);
       for (const p of pts.slice(1)) fire('pointermove', p);
       fire('pointerup', pts[pts.length - 1]);
     },
-    { pts, pointerType, pointerId },
-  );
-}
-const line = (y: number, pressure: number, tiltX = 0): P[] => Array.from({ length: 12 }, (_, i) => ({ x: 0.15 + i * 0.06, y, pressure, tiltX }));
-
-async function inkAt(canvas: Locator, x: number, y: number) {
-  return canvas.evaluate(
-    (el: HTMLCanvasElement, { x, y }) => {
-      const d = el.getContext('2d')!.getImageData(Math.round(x * el.width), Math.round(y * el.height), 1, 1).data;
-      return 255 * 3 - (d[0] + d[1] + d[2]);
-    },
-    { x, y },
+    { pts, pointerType },
   );
 }
 
-async function expectTappable(win: Locator) {
-  const boxes = await win.locator('.ld button:visible, .ld input:visible').evaluateAll((els) =>
-    els.map((el) => {
-      const r = el.getBoundingClientRect();
-      return { name: el.getAttribute('aria-label') || el.textContent?.trim() || el.getAttribute('type') || '?', w: r.width, h: r.height };
-    }),
-  );
-  for (const b of boxes) expect(Math.min(b.w, b.h), `${b.name} is big enough to tap`).toBeGreaterThanOrEqual(44);
-}
+test.describe('Live Draw', () => {
+  test('start the drawing machine, draw, and the picture appears under the strokes', async ({ page }) => {
+    const { errors, frames, life } = await setUp(page);
+    const win = await openLiveDraw(page);
+    const card = win.getByRole('dialog', { name: /become a picture/ });
+    await expect(card).toContainText('$1.89 an hour');
+    await expect(card).toContainText('turns itself off after 20 minutes');
+    await expect(card).not.toContainText(/pod|gpu|runpod/i);
+    await card.getByRole('button', { name: 'Start', exact: true }).click();
+    await expect(card).toHaveCount(0);
 
-test.describe('Live draw', () => {
-  test('Pencil strokes with pressure draw, stream to the machine and come back as a live picture; palms and fingers don’t draw', async ({ page }, testInfo) => {
-    await mockStudio(page);
-    const sock = await mockSocket(page);
-    const { win, errors } = await openMake(page);
-    await expect(win.getByRole('heading', { name: 'Draw it' })).toBeAttached();
-    const canvas = win.getByRole('img', { name: 'Your drawing', exact: true });
-    await expect(canvas).toBeVisible();
-    // Only the canvas takes over touches.
-    expect(await canvas.evaluate((el) => getComputedStyle(el).touchAction)).toBe('none');
-    expect(await win.locator('.ld-tools').evaluate((el) => getComputedStyle(el).touchAction)).not.toBe('none');
+    const paper = win.locator('.ldx-paper');
+    await stroke(paper, [[0.2, 0.7], [0.4, 0.4], [0.6, 0.7]]);
+    await expect(win.locator('img.ldx-picture')).toBeVisible();
+    // The picture sits under the strokes.
+    const order = await paper.evaluate((el) => [...el.children].map((c) => c.getAttribute('data-layer') ?? 'picture'));
+    expect(order.indexOf('picture')).toBeLessThan(order.indexOf('sketch'));
+    expect(frames[0]).toMatchObject({ type: 'frame', engine: 'fast', mode: 'live', size: 512 });
 
-    // A light line and a hard one: the hard one is darker.
-    await stroke(canvas, line(0.3, 0.15));
-    await stroke(canvas, line(0.6, 1));
-    await expect(canvas).toHaveAttribute('data-strokes', '2');
-    expect(await inkAt(canvas, 0.45, 0.6)).toBeGreaterThan(await inkAt(canvas, 0.45, 0.3));
-    // A tilted Pencil lays down a wider line.
-    await stroke(canvas, line(0.85, 0.6, 70));
-    await expect(canvas).toHaveAttribute('data-strokes', '3');
+    await win.getByRole('slider', { name: /Ink/ }).first().fill('30');
+    await expect(win.locator('canvas[data-layer="sketch"]')).toHaveCSS('opacity', '0.3');
 
-    // The drawing went to the machine as a 512 × 512 PNG over the WebSocket, and the picture came back.
-    await expect.poll(() => sock.frames.length).toBeGreaterThan(0);
-    const f = sock.frames.at(-1)!;
-    expect(String(f.image)).toMatch(/^[A-Za-z0-9+/=]+$/);
-    expect(Buffer.from(String(f.image), 'base64').subarray(1, 4).toString()).toBe('PNG');
-    expect(f.follow).toBe(0.6);
-    expect(sock.urls[0]).toMatch(/^ws:\/\/localhost:\d+\/fake-ai\/_orbit\/live\/draw$/);
-    await expect(win.getByRole('img', { name: 'Live picture of your drawing' })).toHaveAttribute('src', /^data:image\/jpeg;base64,/);
-    await expect(win.locator('.ld-status')).toContainText('85 ms');
+    await win.getByRole('button', { name: 'Keep' }).click();
+    await stroke(paper, [[0.7, 0.2], [0.8, 0.3]]);
+    await expect.poll(() => frames.some((f) => typeof f.base === 'string')).toBe(true);
 
-    // A Pencil is in use: a finger (or palm) on the canvas draws nothing.
-    await expect(win.getByText('Pencil mode: your hand can rest on the screen.')).toBeVisible();
-    await stroke(canvas, line(0.45, 0.5), { pointerType: 'touch', pointerId: 20 });
-    await expect(canvas).toHaveAttribute('data-strokes', '3');
+    await win.getByRole('radio', { name: /Paint over/ }).click();
+    await stroke(paper, [[0.2, 0.2], [0.5, 0.2]]);
+    await expect.poll(() => frames.some((f) => f.mode === 'paint' && typeof f.mask === 'string')).toBe(true);
+    await win.getByRole('radio', { name: /^Live/ }).click();
 
-    // Words and the slider are sent with the next drawing.
-    await win.getByRole('textbox', { name: 'What is it?' }).fill('a cat on a windowsill');
-    await expect.poll(() => sock.frames.at(-1)?.prompt).toBe('a cat on a windowsill');
+    // The sketch reader offers guesses once you stop (no words yet); a guess fills the words.
+    await expect(win.getByRole('list', { name: 'Guesses' })).toBeVisible({ timeout: 8000 });
+    await win.getByRole('button', { name: /a house/ }).click();
+    await expect(win.getByRole('textbox', { name: 'What is it?' })).toHaveValue('a little house on a hill');
 
-    await expectNoHorizontalOverflow(page);
-    await expectTappable(win);
-    await win.locator('.ld').scrollIntoViewIfNeeded();
-    await page.screenshot({ path: testInfo.outputPath('live-draw.png') });
+    await win.getByRole('button', { name: 'Bring to life' }).click();
+    await expect(win.locator('img.ldx-picture[data-living]')).toBeVisible();
+    expect(life[0]).toMatchObject({ type: 'start', maker: 'live-krea', source: 'canvas' });
+    await win.getByRole('button', { name: /Save last 10 s/ }).click();
+    await expect(page.getByText('Saved the last 10 seconds to your gallery.')).toBeVisible();
+    await win.getByRole('button', { name: 'Stop', exact: true }).click();
 
-    // Side by side on an iPad held sideways, one above the other everywhere else.
-    const a = (await win.locator('.ld-paper').boundingBox())!;
-    const b = (await win.locator('.ld-preview').boundingBox())!;
-    if (testInfo.project.name === 'ipad-landscape') {
-      expect(b.x).toBeGreaterThan(a.x + a.width - 1);
-      expect(Math.abs(b.y - a.y)).toBeLessThan(4);
-    } else {
-      expect(b.y).toBeGreaterThan(a.y + a.height - 1);
+    if (!(await win.locator('.ldx-side').count())) {
+      await win.getByRole('button', { name: 'Tools', exact: true }).click();
+      await win.getByRole('tab', { name: 'History' }).click();
     }
-    expect(errors).toEqual([]);
-  });
-
-  test('undo, redo, clear, and a two-finger tap to undo', async ({ page }) => {
-    await mockStudio(page);
-    await mockSocket(page);
-    const { win, errors } = await openMake(page);
-    const canvas = win.getByRole('img', { name: 'Your drawing', exact: true });
-    // Fingers draw while no Pencil has been used.
-    await stroke(canvas, line(0.3, 0.5), { pointerType: 'touch', pointerId: 20 });
-    await stroke(canvas, line(0.6, 0.5), { pointerType: 'touch', pointerId: 21 });
-    await expect(canvas).toHaveAttribute('data-strokes', '2');
-    await win.getByRole('button', { name: 'Undo' }).click();
-    await expect(canvas).toHaveAttribute('data-strokes', '1');
-    await win.getByRole('button', { name: 'Redo' }).click();
-    await expect(canvas).toHaveAttribute('data-strokes', '2');
-    // Two fingers tapping together: Undo (and no line from either finger).
-    await canvas.evaluate((el) => {
-      const r = el.getBoundingClientRect();
-      const fire = (type: string, id: number, x: number) =>
-        el.dispatchEvent(new PointerEvent(type, { bubbles: true, cancelable: true, pointerId: id, pointerType: 'touch', clientX: r.left + x * r.width, clientY: r.top + r.height / 2, buttons: type === 'pointerup' ? 0 : 1 }));
-      fire('pointerdown', 31, 0.4);
-      fire('pointerdown', 32, 0.6);
-      fire('pointerup', 31, 0.4);
-      fire('pointerup', 32, 0.6);
-    });
-    await expect(canvas).toHaveAttribute('data-strokes', '1');
-    await win.getByRole('button', { name: 'Clear' }).click();
-    await expect(canvas).toHaveAttribute('data-strokes', '0');
-    expect(await inkAt(canvas, 0.45, 0.3)).toBe(0);
-    await win.getByRole('button', { name: 'Undo' }).click();
-    await expect(canvas).toHaveAttribute('data-strokes', '1');
-    // The eraser and colours are tools like the others.
-    await win.getByRole('radio', { name: 'Eraser' }).click();
-    await expect(win.getByRole('radio', { name: 'Eraser' })).toHaveAttribute('aria-checked', 'true');
-    await win.getByRole('radio', { name: 'Blue' }).click();
-    await expect(win.getByRole('radio', { name: 'Blue' })).toHaveAttribute('aria-checked', 'true');
-    expect(errors).toEqual([]);
-  });
-
-  test('when the live socket can’t open, each drawing goes as one POST; Finish starts a Sketch finish job', async ({ page }) => {
-    const { posts, jobs } = await mockStudio(page);
-    await mockSocket(page, { refuse: true });
-    const { win, errors } = await openMake(page);
-    const canvas = win.getByRole('img', { name: 'Your drawing', exact: true });
-    await win.getByRole('textbox', { name: 'What is it?' }).fill('a red fox');
-    await stroke(canvas, line(0.5, 0.8));
-    await stroke(canvas, line(0.7, 0.8));
-    await expect.poll(() => posts.length, { timeout: 15_000 }).toBeGreaterThan(0);
-    expect(posts.at(-1)).toMatchObject({ prompt: 'a red fox', follow: 0.6 });
-    expect(String(posts.at(-1)!.image)).toMatch(/^data:image\/png;base64,/);
-    await expect(win.getByRole('img', { name: 'Live picture of your drawing' })).toHaveAttribute('src', /^blob:/);
-    // Finish: the drawing (1024 × 1024 lines) and the words, as a Sketch finish job.
-    await win.locator('.ld-follow input').fill('1');
-    await win.getByRole('button', { name: 'Finish' }).click();
-    await expect.poll(() => jobs.length).toBe(1);
-    expect(jobs[0]).toMatchObject({ kind: 'image', maker: 'sketch-finish', prompt: 'a red fox', follow: 1, size: 'square' });
-    expect(String(jobs[0].image)).toMatch(/^data:image\/png;base64,/);
-    await expect(win.locator('.ai-job').first()).toContainText('a cat');
-    expect(errors).toEqual([]);
-  });
-
-  test('without the makers: drawing still works, and the page says how to get them', async ({ page }) => {
-    await mockStudio(page, { live: false, finish: false });
-    const { win, errors } = await openMake(page);
-    const canvas = win.getByRole('img', { name: 'Your drawing', exact: true });
-    await stroke(canvas, line(0.5, 0.8));
-    await expect(canvas).toHaveAttribute('data-strokes', '1');
-    await expect(win.locator('.ld-status')).toContainText('Add Live draw in the Store');
-    await expect(win.getByText('Add Sketch finish in the Store')).toBeVisible();
-    await expect(win.getByRole('button', { name: 'Finish' })).toBeDisabled();
+    const [png] = await Promise.all([page.waitForEvent('download'), win.getByRole('button', { name: 'Save PNG' }).click()]);
+    expect(png.suggestedFilename()).toMatch(/^live-draw-.*\.png$/);
     await expectNoHorizontalOverflow(page);
-    await win.getByRole('button', { name: 'Get Live draw' }).click();
-    const store = page.locator('.app-window[data-app="store"]');
-    await expect(store.getByRole('region', { name: 'Live', exact: true })).toContainText('Live draw (pix2pix-turbo)');
-    await expect(store.getByRole('region', { name: 'Live', exact: true })).toContainText('Sketch finish (Z-Image)');
+    expect(errors).toEqual([]);
+  });
+
+  test('Make has no Live draw or Live video any more; “Draw it” opens Live Draw', async ({ page }) => {
+    const { errors } = await setUp(page);
+    await page.goto('/');
+    await page.getByRole('button', { name: /^Index/ }).click();
+    await page.getByRole('dialog', { name: 'Index' }).locator('.o5-index-list').getByRole('button', { name: /^\d*\s*Make/ }).click();
+    const make = page.locator('.app-window[data-app="make"]');
+    await expect(make.getByRole('radio', { name: /A picture/ })).toBeVisible();
+    await expect(make.getByRole('radio', { name: /Live draw|Live video/ })).toHaveCount(0);
+    await make.getByRole('button', { name: /Draw it/ }).click();
+    await expect(page.locator('.app-window[data-app="livedraw"]')).toBeVisible();
     expect(errors).toEqual([]);
   });
 });

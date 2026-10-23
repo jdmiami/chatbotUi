@@ -5,7 +5,6 @@
  * its OpenAI-compatible API (POST /api/ai/token). Chats stream straight from the AI machine.
  * The token lives only in memory.
  */
-import type { LiveDrawState } from './liveDraw';
 
 export type AiMachineState = 'unconfigured' | 'off' | 'starting' | 'downloading' | 'on' | 'error';
 
@@ -689,23 +688,6 @@ export class LocalAi {
     const body = (await res.json().catch(() => ({}))) as { text?: string; error?: string };
     if (!res.ok) throw new AiError(body.error || `The AI machine answered ${res.status}.`, res.status);
     return body.text ?? '';
-  }
-
-  // ---- live makers (Live draw)
-
-  /** The main AI machine's address and a token, for Live draw's own connection (liveDraw.ts). */
-  async liveAccess(): Promise<{ url: string; token: string } | null> {
-    const g = await this.access();
-    return g?.url ? { url: g.url, token: g.token } : null;
-  }
-
-  liveDrawState(): Promise<LiveDrawState> {
-    return this.studioCall<LiveDrawState>('/_orbit/live/draw');
-  }
-
-  /** Live draw opened: the machine starts loading its model, so the first stroke doesn't wait. */
-  warmLiveDraw(): Promise<LiveDrawState> {
-    return this.studioCall<LiveDrawState>('/_orbit/live/draw/warm', { method: 'POST', body: '{}' });
   }
 
   // ---- image and video maker
