@@ -35,9 +35,24 @@
   grid-template-areas: 'top' 'centre' 'bottom';
 }
 .ldx-studio[data-wide='true'] {
-  grid-template-columns: 160px minmax(0, 1fr) minmax(280px, 320px);
+  grid-template-columns: 112px minmax(0, 1fr) 344px;
   grid-template-areas: 'top top side' 'rail centre side' 'rail bottom side';
 }
+.ldx-studio[data-wide='true'][data-side='closed'] {
+  grid-template-columns: 112px minmax(0, 1fr) 0;
+  grid-template-areas: 'top top top' 'rail centre centre' 'rail bottom bottom';
+}
+/* Four fingers (or the button): only the canvas. */
+.ldx-studio[data-bare] {
+  grid-template-columns: minmax(0, 1fr) !important;
+  grid-template-rows: minmax(0, 1fr) !important;
+  grid-template-areas: 'centre' !important;
+}
+.ldx-studio[data-bare] > .ldx-top,
+.ldx-studio[data-bare] > .ldx-rail,
+.ldx-studio[data-bare] > .ldx-side,
+.ldx-studio[data-bare] > .ldx-bottom,
+.ldx-studio[data-bare] .ldx-quick { display: none !important; }
 
 /* ---- top: the machine, the words, options */
 .ldx-top {
@@ -112,10 +127,10 @@
   min-height: 0;
   overflow-y: auto;
   overscroll-behavior: contain;
-  padding: 4px 8px 12px calc(var(--safe-left) + 8px);
+  scrollbar-width: none;
+  padding: 4px 6px 12px calc(var(--safe-left) + 8px);
   border-right: 1px solid var(--ldx-hair);
 }
-.ldx-rail .ldx-slider { grid-template-columns: 1fr; gap: 0; }
 
 /* ---- sliders, chips, links */
 .ldx-slider {
@@ -171,7 +186,8 @@
 .ldx-go-spot { display: inline-block; width: 44px; height: 44px; flex: none; }
 
 /* ---- the canvas */
-.ldx-centre { grid-area: centre; position: relative; min-width: 0; min-height: 0; }
+.ldx-centre { grid-area: centre; position: relative; min-width: 0; min-height: 0; display: flex; flex-direction: column; }
+.ldx-stage-box { position: relative; flex: 1; min-height: 0; min-width: 0; }
 .ldx-view {
   position: absolute;
   inset: 0;
@@ -264,9 +280,10 @@ img.ldx-layer { object-fit: cover; }
 .ldx-side {
   grid-area: side;
   min-height: 0;
-  overflow-y: auto;
-  overscroll-behavior: contain;
-  padding: var(--ldx-top-pad) calc(var(--safe-right) + 14px) var(--ldx-foot-pad) 14px;
+  min-width: 0;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  padding: var(--ldx-top-pad) 0 0;
   border-left: 1px solid var(--ldx-hair);
 }
 .ldx-section { display: grid; grid-template-columns: minmax(0, 1fr); gap: 6px; padding: 12px 0; border-bottom: 1px solid var(--ldx-hair); min-width: 0; }

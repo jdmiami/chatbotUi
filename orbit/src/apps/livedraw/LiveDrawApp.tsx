@@ -24,28 +24,54 @@ import {
   type SketchGuess,
 } from '../../services/ai/liveCanvas';
 import type { StudioItem, StudioJob } from '../../services/ai/LocalAi';
-import { CanvasDoc, type DrawLayer, type Op } from './canvas/doc';
 import { PictureHistory } from './canvas/history';
 import { defaultPose, poseImage } from './canvas/pose';
-import { joinPrompt, stackOf, flattenOnto, type LayerId, type XY } from './canvas/raster';
-import { drawCover, fileToDataUrl, layerPng, loadImage, makeCanvas, maskPng, regionPng, renderOps } from './canvas/render';
-import { canvasBlob, download, layeredPsd, stamp, timelapse } from './canvas/exporters';
-import { Stage, type Region, type StageHandle, type StageTool } from './canvas/Stage';
-import { COLORS } from './canvas/sketch';
+import { REFERENCE_ALPHA, flattenOnto, joinPrompt, type XY } from './canvas/raster';
+import { drawCover, fileToDataUrl, layerPng, loadImage, makeCanvas, maskPng, regionPng } from './canvas/render';
+import { canvasBlob, download, layeredPsd, stamp, timelapse, type PsdLayer } from './canvas/exporters';
+import { Stage, type Guides, type Region, type StageHandle, type StageTool } from './canvas/Stage';
 import { MachineCard, autoOffNote, price } from './MachineCard';
-import { EnginePicker, Guesses, HistoryPanel, LayersPanel, LookPanel, ProPanel, Section, SizePicker, Slider, ToolsPanel, styleWords } from './panels';
+import { EnginePicker, Guesses, HistoryPanel, LookPanel, ProPanel, Section, SizePicker, Slider, styleWords } from './panels';
+import { BrushMaker } from './brushes/BrushMaker';
+import { BrushPanel } from './brushes/BrushPanel';
+import { allBrushes, brushFromJson, brushToJson, duplicateBrush, loadMine, loadRecent, pushRecent, saveMine, saveRecent, upsert } from './brushes/library';
+import { DEFAULT_BRUSH, presetById } from './brushes/presets';
+import type { Brush } from './brushes/types';
+import { PSD_BLEND } from './engine/blend';
+import { GuidesPanel } from './guides/GuidesPanel';
+import { NO_PERSPECTIVE } from './guides/perspective';
+import { NO_SYMMETRY } from './guides/symmetry';
+import { LayersPanel } from './layers/LayersPanel';
+import { hasRoleInk, machineLines, strokeCount } from './layers/machine';
+import { StudioDoc, activeLayer, addLayer, clearLayer, duplicateLayer, layerById, layerCap, mergeDown, moveLayer, patchLayer, removeLayer, type DocState, type Layer } from './layers/model';
+import { ColorPanel } from './ui/ColorPanel';
+import { loadMyPalette, loadRecentColours, pushRecentColour, saveMyPalette, saveRecentColours } from './ui/color';
+import { RadialMenu } from './ui/RadialMenu';
+import { SIcon, type StudioIconName } from './ui/StudioIcon';
+import { QuickBar, QuickSliders, Rail, TOOLS, ToolPicker } from './ui/Toolbars';
 import './livedraw.css';
+import './ui/studio.css';
 
 /** At most this often while you draw (only one frame is ever on its way; the newest waits). */
 export const SEND_EVERY_MS = 120;
 /** The sketch reader looks after this long without drawing, when there are no words yet. */
 const READ_AFTER_MS = 2000;
 const SIZE_KEY = 'orbit:livedraw:size';
+const TOOL_BRUSH_KEY = 'orbit:livedraw:tool-brushes';
 
 type Mode = 'live' | 'paint';
-type Tab = 'tools' | 'look' | 'layers' | 'pro' | 'history';
+type Tab = 'brushes' | 'colour' | 'layers' | 'guides' | 'picture' | 'history';
+type BrushTool = 'brush' | 'eraser' | 'smudge';
 
-const hasInk = (ops: Op[]) => ops.some((o) => o.kind === 'fill' || o.stroke.tool !== 'eraser');
+const TABS: { id: Tab; label: string; icon: StudioIconName }[] = [
+  { id: 'brushes', label: 'Brushes', icon: 'brushTip' },
+  { id: 'colour', label: 'Colour', icon: 'palette' },
+  { id: 'layers', label: 'Layers', icon: 'layers' },
+  { id: 'guides', label: 'Guides', icon: 'guides' },
+  { id: 'picture', label: 'Picture', icon: 'sparkle' },
+  { id: 'history', label: 'History', icon: 'history' },
+];
+
 const newSeed = () => Math.floor(Math.random() * 1e9);
 
 function loadSize(): CanvasSize {
@@ -57,6 +83,15 @@ function loadSize(): CanvasSize {
   }
 }
 
+function loadToolBrushes(): Record<BrushTool, string> {
+  try {
+    const v = JSON.parse(localStorage.getItem(TOOL_BRUSH_KEY) ?? '{}');
+    return { ...DEFAULT_BRUSH, ...(v && typeof v === 'object' ? v : {}) };
+  } catch {
+    return { ...DEFAULT_BRUSH };
+  }
+}
+
 const NOTES: Record<Mode, string> = {
   live: 'Live: draw, and the picture underneath follows your lines. Ink fades your strokes; Keep holds a picture you like.',
   paint: 'Paint over: brush over the part of the picture that should change. Everything else stays as it is.',
@@ -64,9 +99,9 @@ const NOTES: Record<Mode, string> = {
 
 /**
  * Live Draw: one canvas, the AI picture drawn under your strokes by the drawing machine while you
- * draw. Live, Paint over, Keep and Bring to life on the same canvas; tools on the left (iPad held
- * sideways) or in a sheet (iPhone, iPad upright); layers, the look, the pro tools and every picture
- * so far on the right.
+ * draw. Live, Paint over, Keep and Bring to life on the same canvas; the drawing itself is a full
+ * studio (GPU brushes, layers, guides, steady ink): tools on the left and panels on the right on an
+ * iPad held sideways, a tool row and a sheet on a phone.
  */
 export default function LiveDrawApp({ isActive }: AppProps) {
   const api = useMemo(() => getLiveCanvas(), []);
@@ -121,7 +156,7 @@ export default function LiveDrawApp({ isActive }: AppProps) {
     if (!isActive) return;
     const root = document.documentElement;
     root.dataset.orbContext =
-      'Live Draw: one square canvas. Strokes are drawn with the tools on the left (or in the Tools sheet); the drawing machine paints a picture under them. Ink fades the strokes. Modes at the bottom: Live, Paint over (brush where it may change), Keep (hold this picture) and Bring to life (the picture moves while you draw). Layers, look, pro tools and history are on the right (or in the sheet).';
+      'Live Draw: a drawing studio on one square canvas. Brushes, eraser and smudge, layers with blend modes and masks, perspective and symmetry guides and steady ink are on the left and right (or in the Tools sheet on a phone); the drawing machine paints a picture under the strokes. Ink fades the strokes. Modes at the bottom: Live, Paint over (brush where it may change), Keep (hold this picture) and Bring to life (the picture moves while you draw).';
     if (!machineOn) orbNote('Start the drawing machine to see your sketch become a picture. You can draw while it starts.');
     return () => {
       delete root.dataset.orbContext;
@@ -166,12 +201,12 @@ function Studio({
 }) {
   const toast = useShell((s) => s.toast);
   const level = useMotionLevel();
-  const doc = useMemo(() => new CanvasDoc(), []);
+  const doc = useMemo(() => new StudioDoc(), []);
   const history = useMemo(() => new PictureHistory(), []);
   const stage = useRef<StageHandle>(null);
   const rootRef = useRef<HTMLDivElement>(null);
 
-  // ---- layout: iPad held sideways gets rails; everything else a full canvas and a sheet
+  // ---- layout: iPad held sideways (and desktop) gets rails; everything else a full canvas and a sheet
   const [wide, setWide] = useState(false);
   useLayoutEffect(() => {
     const el = rootRef.current;
@@ -183,18 +218,83 @@ function Studio({
     return () => ro?.disconnect();
   }, []);
   const [sheet, setSheet] = useState<Tab | null>(null);
+  const [side, setSide] = useState<Tab>('layers');
+  const [sideOpen, setSideOpen] = useState(true);
   const [optionsOpen, setOptionsOpen] = useState(false);
+  const [bare, setBare] = useState(false);
+  const openPanel = (t: Tab) => {
+    if (wide) {
+      setSide(t);
+      setSideOpen(true);
+    } else setSheet(t);
+  };
 
-  // ---- drawing
-  const [tool, setTool] = useState<StageTool>('pen');
-  const [color, setColor] = useState(COLORS[0].value);
+  // ---- the drawing
+  const [, setDocVersion] = useState(0);
+  const [engineKind, setEngineKind] = useState<'webgl2' | 'canvas2d' | null>(null);
+  const [tool, setToolState] = useState<StageTool>('brush');
+  const [mine, setMine] = useState<Brush[]>(loadMine);
+  const brushes = useMemo(() => allBrushes(mine), [mine]);
+  const [toolBrush, setToolBrush] = useState<Record<BrushTool, string>>(loadToolBrushes);
+  const [trial, setTrial] = useState<Brush | null>(null);
+  const [recentBrushes, setRecentBrushes] = useState<string[]>(loadRecent);
+  const brushTool: BrushTool = tool === 'eraser' || tool === 'smudge' ? tool : 'brush';
+  const brushById = (id: string) => brushes.find((b) => b.id === id) ?? presetById(DEFAULT_BRUSH[brushTool])!;
+  const brush = trial && toolBrush[brushTool] === trial.id ? trial : brushById(toolBrush[brushTool]);
+  const [color, setColorState] = useState('#1b1b1f');
+  const [recentColours, setRecentColours] = useState<string[]>(loadRecentColours);
+  const [myPalette, setMyPalette] = useState<string[]>(loadMyPalette);
   const [sizeScale, setSizeScale] = useState(1);
-  const [layer, setLayer] = useState<DrawLayer>('sketch');
-  const [visible, setVisible] = useState<Record<LayerId, boolean>>({ sketch: true, colour: true, picture: true, reference: true });
+  const [opacityScale, setOpacityScale] = useState(1);
+  const [guides, setGuidesState] = useState<Guides>({ perspective: NO_PERSPECTIVE, symmetry: NO_SYMMETRY, rope: 0, quickShape: true, edit: false });
+  const [selected, setSelected] = useState<number | null>(null);
+  const [maskEdit, setMaskEdit] = useState(false);
+  const [radial, setRadial] = useState<XY | null>(null);
+  const [maker, setMaker] = useState<Brush | null>(null);
+  const [thumbs, setThumbs] = useState<Record<number, string>>({});
+  const [visible, setVisible] = useState({ picture: true, reference: true });
   const [ink, setInk] = useState(100);
   const [penOnly, setPenOnly] = useState(false);
-  const [counts, setCounts] = useState({ undo: false, redo: false, empty: true, version: 0, strokes: 0 });
-  const sync = () => setCounts({ undo: doc.canUndo, redo: doc.canRedo, empty: doc.empty, version: doc.version, strokes: doc.count('sketch') + doc.count('colour') });
+  const counts = { undo: doc.canUndo, redo: doc.canRedo, strokes: strokeCount(doc.state), empty: !hasRoleInk(doc.state, 'sketch') && !hasRoleInk(doc.state, 'colour') };
+  const sync = () => setDocVersion(doc.version);
+
+  const setTool = (t: StageTool) => {
+    setToolState(t);
+    setLasso(false);
+    if (t !== 'select') setSelected(null);
+  };
+  const setColor = (c: string) => {
+    setColorState(c);
+    setRecentColours((l) => {
+      const next = pushRecentColour(l, c);
+      saveRecentColours(next);
+      return next;
+    });
+  };
+  const pickBrush = (b: Brush, forTool: BrushTool = brushTool) => {
+    setToolBrush((m) => {
+      const next = { ...m, [forTool]: b.id };
+      try {
+        localStorage.setItem(TOOL_BRUSH_KEY, JSON.stringify(next));
+      } catch {
+        /* private mode */
+      }
+      return next;
+    });
+    if (trial && trial.id !== b.id) setTrial(null);
+    setRecentBrushes((l) => {
+      const next = pushRecent(l, b.id);
+      saveRecent(next);
+      return next;
+    });
+    if (tool !== forTool && (forTool !== 'brush' || !['brush', 'eraser', 'smudge'].includes(tool))) setTool(forTool);
+  };
+  const setGuides = (g: Guides) => {
+    if (g.perspective.kind !== guides.perspective.kind && g.perspective.kind !== 'off')
+      orbNote(`Perspective: lines run toward the ${g.perspective.kind === 'one' ? 'vanishing point' : 'vanishing points'}${g.perspective.snap ? ' and strokes snap to them' : ''}. Drag the points to move the grid.`);
+    if (g.symmetry.kind !== guides.symmetry.kind && g.symmetry.kind !== 'off') orbNote('Symmetry: every stroke is drawn again across the guide. Drag the centre to move it.');
+    setGuidesState(g);
+  };
 
   // ---- what to make
   const [mode, setMode] = useState<Mode>('live');
@@ -321,13 +421,19 @@ function Studio({
     };
   }, [machineOn, api, engine, history, toast]);
 
+  /**
+   * The frame for the machine (the contract is unchanged): `sketch` is the layers marked "lines" as
+   * black lines, `color` the layers marked "colour" as they look.
+   */
   const buildFrame = useCallback((): CanvasFrameInput | null => {
     const st = stage.current;
     if (!st) return null;
     const s = now.current;
-    const sketchOps = st.live('sketch');
-    const colourOps = st.live('colour');
-    if (!hasInk(sketchOps) && !hasInk(colourOps) && !s.base) return null;
+    const state = doc.state;
+    const live = st.live();
+    const lines = hasRoleInk(state, 'sketch', live);
+    const colour = hasRoleInk(state, 'colour', live);
+    if (!lines && !colour && !s.base) return null;
     const side = s.size;
     const frame: CanvasFrameInput = {
       engine: s.engine,
@@ -337,17 +443,14 @@ function Studio({
       follow: s.follow,
       strength: s.strength,
       size: side,
-      sketch: layerPng(sketchOps, side, { lines: true, skipFills: true }),
+      sketch: layerPng(machineLines(state, 'sketch', live), side, { lines: true, skipFills: true }),
     };
-    if (hasInk(colourOps)) {
-      const lines = makeCanvas(side);
-      renderOps(lines, sketchOps);
-      frame.color = layerPng(colourOps, side, { boundary: lines });
-    }
+    const r = st.renderer();
+    if (colour && r) frame.color = r.snapshot(side, (l) => l.role === 'colour', 'colour').toDataURL('image/png');
     const kept = s.mode === 'paint' ? (s.base ?? s.still) : s.base;
     if (kept?.startsWith('data:')) frame.base = kept;
     if (s.mode === 'paint') {
-      const mask = maskPng(st.live('mask'), side);
+      const mask = maskPng(st.maskOps(), side);
       if (!mask || !frame.base) return null;
       frame.mask = mask;
     }
@@ -363,7 +466,7 @@ function Studio({
     if (s.poseOn) frame.pose = poseImage(s.pose, side);
     if (s.styleRef && api.paths.styleRef) frame.ref = s.styleRef;
     return frame;
-  }, [api]);
+  }, [api, doc]);
 
   const sendNow = useCallback(() => {
     if (sendTimer.current) clearTimeout(sendTimer.current);
@@ -400,54 +503,139 @@ function Studio({
     orbNote(lifeOn ? 'Bring to life: the picture moves while you draw. Motion sets how much; Save last 10 s keeps it in your gallery.' : NOTES[mode]);
   }, [isActive, machineOn, mode, lifeOn, guesses.length]);
 
-  // ---- drawing events
+  // ---- drawing changes
+  /** The drawing changed: the canvas, the panels and (soon) the machine follow. */
+  const changed = () => {
+    stage.current?.redraw();
+    sync();
+  };
+  const change = (next: DocState, merge?: string) => {
+    doc.commit(next, merge);
+    changed();
+    schedule(250);
+  };
   const onStroke = (phase: 'move' | 'end') => {
     if (phase === 'move') return schedule();
     sync();
     sendNow();
   };
   const undo = () => {
-    const t = doc.undo();
-    if (!t) return;
-    stage.current?.redraw(t);
-    sync();
+    if (!doc.undo()) return;
+    changed();
     sendNow();
   };
   const redo = () => {
-    const t = doc.redo();
-    if (!t) return;
-    stage.current?.redraw(t);
-    sync();
+    if (!doc.redo()) return;
+    changed();
     sendNow();
   };
   const clearAll = () => {
-    if (mode === 'paint') doc.clear('mask');
+    if (mode === 'paint') change({ ...doc.state, paintMask: [] });
     else {
-      doc.clear('sketch');
-      doc.clear('colour');
-    }
-    stage.current?.redraw();
-    sync();
-    if (mode !== 'paint') {
+      const l = activeLayer(doc.state);
+      if (l) change(clearLayer(doc.state, l.id));
       setGuesses([]);
-      if (!base) setStill(null);
     }
   };
 
+  // ---- layers
+  const deviceMemory = (navigator as Navigator & { deviceMemory?: number }).deviceMemory;
+  const cap = layerCap(stage.current?.renderer()?.px || 1536, deviceMemory);
+  const roomForLayer = () => {
+    if (doc.state.layers.length < cap) return true;
+    toast(`This device can hold ${cap} layers at this size. Merge or delete one to make room for another.`, 'info');
+    return false;
+  };
+  const layerOps = {
+    onActive: (id: number) => {
+      doc.setActive(id);
+      setSelected(null);
+      const l = layerById(doc.state, id);
+      if (l && !l.hasMask) setMaskEdit(false);
+      sync();
+    },
+    onPatch: (id: number, patch: Partial<Layer>, merge?: string) => change(patchLayer(doc.state, id, patch), merge),
+    onAdd: (kind: Layer['kind']) => {
+      if (!roomForLayer()) return;
+      change(addLayer(doc.state, kind));
+      if (kind === 'vector') orbNote('Ink layer: strokes stay editable. Use Edit ink to move their points or change their width and colour.');
+    },
+    onDuplicate: (id: number) => roomForLayer() && change(duplicateLayer(doc.state, id)),
+    onMerge: (id: number) => {
+      const st = doc.state;
+      const at = st.layers.findIndex((l) => l.id === id);
+      const r = stage.current?.renderer();
+      if (at <= 0 || !r) return;
+      change(mergeDown(st, id, r.mergedImage(st.layers[at - 1].id, id)));
+    },
+    onRemove: (id: number) => change(removeLayer(doc.state, id)),
+    onClear: (id: number) => change(clearLayer(doc.state, id)),
+    onMove: (id: number, to: number) => change(moveLayer(doc.state, id, to)),
+    onMask: (id: number, on: boolean) => {
+      change(patchLayer(doc.state, id, on ? { hasMask: true } : { hasMask: false, maskOps: [] }));
+      setMaskEdit(on);
+      if (on) orbNote('Mask: paint on it to hide parts of the layer, erase to show them again. Nothing is lost.');
+    },
+  };
+
+  // Thumbnails: the layers that changed, a moment after they did (only while the list shows).
+  const thumbSig = useRef(new Map<number, unknown[]>());
+  const layersShown = wide ? sideOpen && side === 'layers' && !bare : sheet === 'layers';
+  useEffect(() => {
+    if (!layersShown) return;
+    const t = setTimeout(() => {
+      const r = stage.current?.renderer();
+      if (!r) return;
+      const next: Record<number, string> = {};
+      let any = false;
+      for (const l of doc.state.layers) {
+        const sig = [l.ops, l.vectors, l.maskOps];
+        const old = thumbSig.current.get(l.id);
+        if (old && old.every((v, i) => v === sig[i]) && thumbs[l.id]) {
+          next[l.id] = thumbs[l.id];
+          continue;
+        }
+        thumbSig.current.set(l.id, sig);
+        next[l.id] = r.layerCanvas(l.id, 88).toDataURL('image/png');
+        any = true;
+      }
+      if (any || Object.keys(next).length !== Object.keys(thumbs).length) setThumbs(next);
+    }, 300);
+    return () => clearTimeout(t);
+  }); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ---- keys (a keyboard on an iPad, or a desktop)
+  useEffect(() => {
+    if (!isActive) return;
+    const onKey = (e: KeyboardEvent) => {
+      const t = e.target as HTMLElement | null;
+      if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT' || t.isContentEditable)) return;
+      const mod = e.metaKey || e.ctrlKey;
+      if (mod && e.key.toLowerCase() === 'z') {
+        e.preventDefault();
+        return e.shiftKey ? redo() : undo();
+      }
+      if (mod || e.altKey) return;
+      const tl = TOOLS.find((x) => x.key.toLowerCase() === e.key.toLowerCase());
+      if (tl) return setTool(tl.value);
+      if (e.key === '[') setSizeScale((v) => Math.max(0.25, v / 1.15));
+      else if (e.key === ']') setSizeScale((v) => Math.min(4, v * 1.15));
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  });
+
   // ---- the sketch reader: on demand, and after a pause when there are no words yet
   const readSketch = useCallback(async () => {
-    const st = stage.current;
-    if (!st || doc.empty) return;
+    const r = stage.current?.renderer();
+    if (!r || (!hasRoleInk(doc.state, 'sketch') && !hasRoleInk(doc.state, 'colour'))) return;
     setReading(true);
     try {
       const c = makeCanvas(512);
       const g = c.getContext('2d')!;
       g.fillStyle = '#ffffff';
       g.fillRect(0, 0, 512, 512);
-      for (const id of ['colour', 'sketch'] as const) {
-        const src = st.canvas(id);
-        if (src) g.drawImage(src, 0, 0, 512, 512);
-      }
+      g.drawImage(r.snapshot(512, (l) => l.role !== 'none', 'read'), 0, 0);
       const found = await api.read(c.toDataURL('image/jpeg', 0.85));
       setGuesses(found);
       if (found.length) orbNote(`It looks like ${found[0].label}. Tap a guess to use its words, or keep drawing.`);
@@ -486,7 +674,10 @@ function Studio({
   };
   const choose = (m: Mode) => {
     setMode(m);
-    if (m === 'paint' && !still && !base) toast('Paint over changes a picture: draw first, so there is one.', 'info');
+    if (m === 'paint') {
+      if (!['brush', 'eraser'].includes(tool)) setTool('brush');
+      if (!still && !base) toast('Paint over changes a picture: draw first, so there is one.', 'info');
+    }
     orbHome();
   };
 
@@ -502,24 +693,21 @@ function Studio({
   }, [base, still]);
   const lifeCanvas = useRef<HTMLCanvasElement | null>(null);
   const lifeSource = useCallback(() => {
-    const st = stage.current;
-    if (!st) return null;
+    const r = stage.current?.renderer();
+    if (!r) return null;
     const c = (lifeCanvas.current ??= makeCanvas(512));
     const g = c.getContext('2d');
     if (!g) return null;
     g.fillStyle = '#ffffff';
     g.fillRect(0, 0, 512, 512);
     if (stillImg.current) drawCover(g, stillImg.current, 512);
-    for (const id of ['colour', 'sketch'] as const) {
-      const src = st.canvas(id);
-      if (src) g.drawImage(src, 0, 0, 512, 512);
-    }
+    g.drawImage(r.snapshot(512, (l) => l.role !== 'none', 'read'), 0, 0);
     return c.toDataURL('image/jpeg', 0.72);
   }, []);
 
   const startLife = async () => {
     if (!machineOn) return toast('Start the drawing machine first.', 'info');
-    if (!still && !base && doc.empty) return toast('Draw something first: it comes to life from your picture.', 'info');
+    if (!still && !base && counts.empty) return toast('Draw something first: it comes to life from your picture.', 'info');
     setLiveFrame(null);
     setSaving(false);
     const l = api.living({
@@ -571,10 +759,10 @@ function Studio({
     const st = stage.current;
     if (!st || !machineOn) return;
     const image = base ?? still;
-    if (!image && doc.empty) return toast('Draw something first.', 'info');
+    if (!image && counts.empty) return toast('Draw something first.', 'info');
     if (!words) return toast('Say what it is first (or let the orb guess).', 'info');
     try {
-      const sketch = layerPng(st.live('sketch'), size, { lines: true, skipFills: true });
+      const sketch = layerPng(machineLines(doc.state, 'sketch'), size, { lines: true, skipFills: true });
       const job = await api.finish({ image: image ?? sketch, sketch, prompt: words, engine, size });
       if (job.status === 'error') return toast(job.error || 'That did not start.', 'error');
       toast('Finishing it at full quality: it goes to your gallery too.', 'info');
@@ -615,14 +803,46 @@ function Studio({
     }
   };
 
+  // ---- brushes: your own library
+  const saveBrush = (b: Brush) => {
+    const own = b.builtin ? duplicateBrush(b, b.name === presetById(b.id)?.name ? `${b.name} (mine)` : b.name) : { ...b, group: 'Mine' };
+    const next = upsert(mine, own);
+    setMine(next);
+    if (!saveMine(next)) toast('This browser would not keep the brush (private browsing?). Take it away as a file instead.', 'error');
+    pickBrush(own);
+    setMaker(null);
+    toast(`Saved “${own.name}” to your brushes.`, 'success');
+  };
+  const exportBrush = (b: Brush) => {
+    download(new Blob([brushToJson(b)], { type: 'application/json' }), `${b.name.replace(/[^\w-]+/g, '-').toLowerCase() || 'brush'}.brush.json`);
+  };
+  const importBrush = async (f: File) => {
+    const res = brushFromJson(await f.text());
+    if ('error' in res) return toast(res.error, 'error');
+    const next = upsert(mine, res.brush);
+    setMine(next);
+    saveMine(next);
+    pickBrush(res.brush);
+    toast(`Brought in “${res.brush.name}”.`, 'success');
+  };
+  const duplicate = (b: Brush) => {
+    const copy = duplicateBrush(b);
+    const next = upsert(mine, copy);
+    setMine(next);
+    saveMine(next);
+    pickBrush(copy);
+    setMaker(copy);
+  };
+  const deleteBrush = (b: Brush) => {
+    const next = mine.filter((x) => x.id !== b.id);
+    setMine(next);
+    saveMine(next);
+    for (const t of ['brush', 'eraser', 'smudge'] as BrushTool[]) if (toolBrush[t] === b.id) pickBrush(presetById(DEFAULT_BRUSH[t])!, t);
+  };
+
   // ---- export
-  /** Every layer at the working size (for the PNG, the PSD and the time-lapse's last frame). */
-  const layersAt = async (side: number) => {
-    const st = stage.current!;
-    const sketch = makeCanvas(side);
-    renderOps(sketch, st.live('sketch'));
-    const colour = makeCanvas(side);
-    renderOps(colour, st.live('colour'), { boundary: sketch });
+  const flatAt = async (side: number) => {
+    const out = makeCanvas(side);
     const fromImage = async (src: string | null) => {
       if (!src) return null;
       const c = makeCanvas(side);
@@ -633,14 +853,15 @@ function Studio({
         return null;
       }
     };
-    return { sketch, colour, picture: await fromImage(picture), reference: await fromImage(reference) };
-  };
-  const flatAt = async (side: number) => {
-    const l = await layersAt(side);
-    const out = makeCanvas(side);
-    const stack = stackOf(visible, { picture: Boolean(l.picture), reference: Boolean(l.reference) }, ink);
-    flattenOnto(out.getContext('2d')!, side, stack.map((s) => ({ source: l[s.id], alpha: s.alpha })));
-    return { out, l };
+    const pic = visible.picture ? await fromImage(picture) : null;
+    const ref = visible.reference ? await fromImage(reference) : null;
+    const art = stage.current?.renderer()?.snapshot(side) ?? null;
+    flattenOnto(out.getContext('2d')!, side, [
+      { source: pic, alpha: 1 },
+      { source: ref, alpha: REFERENCE_ALPHA },
+      { source: art, alpha: ink / 100 },
+    ]);
+    return { out, pic, ref };
   };
   const exportPng = async () => {
     setExporting('png');
@@ -657,17 +878,40 @@ function Studio({
     setExporting('psd');
     try {
       const side = Math.max(size, 1024);
-      const { out, l } = await flatAt(side);
+      const { out } = await flatAt(side);
+      const r = stage.current?.renderer();
       const paper = makeCanvas(side);
       const pg = paper.getContext('2d')!;
       pg.fillStyle = '#ffffff';
       pg.fillRect(0, 0, side, side);
-      const layers = [
+      const img = async (src: string | null) => {
+        if (!src) return null;
+        const c = makeCanvas(side);
+        try {
+          drawCover(c.getContext('2d')!, await loadImage(src), side);
+          return c;
+        } catch {
+          return null;
+        }
+      };
+      const pic = await img(picture);
+      const ref = await img(reference);
+      const layers: PsdLayer[] = [
         { name: 'Paper', canvas: paper },
-        ...(l.picture ? [{ name: 'Picture', canvas: l.picture, hidden: !visible.picture }] : []),
-        ...(l.reference ? [{ name: 'Reference', canvas: l.reference, opacity: 0.45, hidden: !visible.reference }] : []),
-        { name: 'Colour', canvas: l.colour, opacity: ink / 100, hidden: !visible.colour },
-        { name: 'Sketch', canvas: l.sketch, opacity: ink / 100, hidden: !visible.sketch },
+        ...(pic ? [{ name: 'Picture', canvas: pic, hidden: !visible.picture }] : []),
+        ...(ref ? [{ name: 'Reference', canvas: ref, opacity: REFERENCE_ALPHA, hidden: !visible.reference }] : []),
+        ...(r
+          ? doc.state.layers.map((l) => ({
+              name: l.name,
+              canvas: r.layerCanvas(l.id, side),
+              opacity: l.opacity * (ink / 100),
+              hidden: !l.visible,
+              blendMode: PSD_BLEND[l.blend],
+              clipping: l.clip,
+              transparencyProtected: l.alphaLock,
+              mask: l.hasMask ? r.maskCanvas(l.id, side) : null,
+            }))
+          : []),
       ];
       download(await layeredPsd(side, layers, out), `live-draw-${stamp()}.psd`);
     } catch (err) {
@@ -711,43 +955,41 @@ function Studio({
   })();
 
   const kept = Boolean(base);
-  const tools = (
-    <ToolsPanel
-      tool={tool}
-      onTool={(t) => {
-        setTool(t);
-        setLasso(false);
-      }}
-      color={color}
-      onColor={(c) => {
-        setColor(c);
-        if (tool === 'picker' || tool === 'eraser') setTool('pen');
-      }}
-      sizeScale={sizeScale}
-      onSize={setSizeScale}
-      painting={mode === 'paint'}
-      canUndo={counts.undo}
-      canRedo={counts.redo}
-      onUndo={undo}
-      onRedo={redo}
-      onClear={clearAll}
-      onFit={() => stage.current?.fit()}
+  const active = activeLayer(doc.state);
+  const selStroke = selected !== null ? (active?.vectors.find((v) => v.id === selected) ?? null) : null;
+  const toolLabel = brushTool === 'eraser' ? 'Erasing' : brushTool === 'smudge' ? 'Smudging' : 'Drawing';
+  const brushPanel = (
+    <BrushPanel
+      brushes={brushes}
+      current={toolBrush[brushTool]}
+      toolLabel={toolLabel}
+      onPick={(b) => pickBrush(b)}
+      onEdit={setMaker}
+      onDuplicate={duplicate}
+      onImport={(f) => void importBrush(f)}
+      onDelete={deleteBrush}
     />
   );
+  const colourPanel = <ColorPanel color={color} onColor={setColor} recent={recentColours} mine={myPalette} onMine={(l) => (setMyPalette(l), saveMyPalette(l))} />;
   const layersPanel = (
     <LayersPanel
-      visible={visible}
-      onVisible={(id, on) => setVisible((v) => ({ ...v, [id]: on }))}
-      layer={layer}
-      onLayer={setLayer}
+      state={doc.state}
+      thumbs={thumbs}
+      cap={cap}
+      maskEdit={maskEdit}
+      onMaskEdit={setMaskEdit}
+      {...layerOps}
       ink={ink}
       onInk={setInk}
+      visible={visible}
+      onVisible={(id, on) => setVisible((v) => ({ ...v, [id]: on }))}
       reference={reference}
       onReference={(f) => void pickReference(f)}
       kept={kept}
       onLetGo={() => setBase(null)}
     />
   );
+  const guidesPanel = <GuidesPanel guides={guides} onGuides={setGuides} />;
   const lookPanel = (
     <LookPanel
       styles={styles}
@@ -791,21 +1033,55 @@ function Studio({
       finishing={Boolean(finishJob)}
     />
   );
+  const picturePanel = (
+    <>
+      <Section title="Look" id="ldx-look">
+        {lookPanel}
+      </Section>
+      {proPanel}
+    </>
+  );
   const historyPanel = (
     <HistoryPanel items={history.items} index={history.index} onRestore={restore} onPng={() => void exportPng()} onPsd={() => void exportPsd()} onTimelapse={() => void exportTimelapse()} busy={exporting} />
   );
-  const tabs: { id: Tab; label: string; body: React.ReactNode }[] = [
-    { id: 'tools', label: 'Tools', body: tools },
-    { id: 'look', label: 'Look', body: lookPanel },
-    { id: 'layers', label: 'Layers', body: layersPanel },
-    { id: 'pro', label: 'Pro', body: proPanel },
-    { id: 'history', label: 'History', body: historyPanel },
-  ];
+  const bodies: Record<Tab, React.ReactNode> = {
+    brushes: (
+      <>
+        {!wide && <ToolPicker tool={tool} onTool={setTool} painting={mode === 'paint'} />}
+        {brushPanel}
+      </>
+    ),
+    colour: colourPanel,
+    layers: layersPanel,
+    guides: guidesPanel,
+    picture: picturePanel,
+    history: historyPanel,
+  };
 
   const machineLine = !status ? null : machineOn ? `Drawing machine on${price(status.pricePerHour ?? status.costPerHour) ? ` · ${price(status.pricePerHour ?? status.costPerHour)}` : ''}` : status.state === 'starting' || status.state === 'downloading' ? 'Drawing machine starting…' : 'Drawing machine off';
+  const common = {
+    tool,
+    onTool: setTool,
+    color,
+    onColour: () => openPanel('colour'),
+    size: sizeScale,
+    onSize: setSizeScale,
+    opacity: opacityScale,
+    onOpacity: setOpacityScale,
+    canUndo: counts.undo,
+    canRedo: counts.redo,
+    onUndo: undo,
+    onRedo: redo,
+    painting: mode === 'paint',
+  };
+  const openRadial = (x: number, y: number) => {
+    const r = rootRef.current?.getBoundingClientRect();
+    setRadial({ x: x - (r?.left ?? 0), y: y - (r?.top ?? 0) });
+  };
+  const rootBox = rootRef.current?.getBoundingClientRect();
 
   return (
-    <div className="ldx-studio" ref={rootRef} data-wide={wide} data-mode={mode} data-living={lifeOn || undefined}>
+    <div className="ldx-studio" ref={rootRef} data-wide={wide} data-mode={mode} data-living={lifeOn || undefined} data-bare={bare || undefined} data-side={wide && sideOpen ? 'open' : 'closed'} data-engine={engineKind ?? undefined}>
       <header className="ldx-top">
         <button type="button" className="ldx-pill" data-on={machineOn} onClick={() => (machineOn ? setOptionsOpen(true) : onShowCard())} aria-label={machineLine ?? 'Drawing machine'}>
           <span className="ldx-dot" aria-hidden />
@@ -821,74 +1097,146 @@ function Studio({
           enterKeyHint="done"
         />
         {/* While you draw, the orb waits up here: off the canvas and off the tools. */}
-        {!cardShown && !guesses.length && !finished && !optionsOpen && <OrbSpot size={40} className="ldx-top-spot" />}
+        {!cardShown && !guesses.length && !finished && !optionsOpen && !maker && <OrbSpot size={40} className="ldx-top-spot" />}
+        {wide && (
+          <button type="button" className="ldx-tool ldx-tool-flat" aria-label={sideOpen ? 'Hide the panels' : 'Show the panels'} aria-pressed={sideOpen} title={sideOpen ? 'Hide the panels' : 'Show the panels'} onClick={() => setSideOpen(!sideOpen)}>
+            <SIcon name="sidebar" size={20} />
+          </button>
+        )}
         <button type="button" className="ldx-tool ldx-tool-flat" aria-label="Options" aria-expanded={optionsOpen} onClick={() => setOptionsOpen(true)}>
           <Icon name="more" size={20} />
         </button>
       </header>
 
-      {wide && <aside className="ldx-rail">{tools}</aside>}
+      {wide && (
+        <aside className="ldx-rail">
+          <Rail {...common} brushName={tool === 'fill' || tool === 'picker' || tool === 'select' ? (TOOLS.find((t) => t.value === tool)?.label ?? '') : brush.name} onFit={() => stage.current?.fit()} onRadial={() => openRadial((rootBox?.left ?? 0) + (rootBox?.width ?? 0) / 2, (rootBox?.top ?? 0) + (rootBox?.height ?? 0) / 2)} onHide={() => setBare(true)} />
+        </aside>
+      )}
 
       <main className="ldx-centre">
-        <Stage
-          ref={stage}
-          doc={doc}
-          tool={tool}
-          color={color}
-          sizeScale={sizeScale}
-          layer={layer}
-          painting={mode === 'paint'}
-          lasso={lasso}
-          visible={visible}
-          ink={ink}
-          picture={picture}
-          living={lifeOn && Boolean(liveFrame)}
-          reference={reference}
-          regions={regions}
-          pose={poseOn && poseShown ? pose : null}
-          penOnly={penOnly}
-          onPenOnly={setPenOnly}
-          onStroke={onStroke}
-          onPick={(c) => {
-            setColor(c);
-            setTool('pen');
-          }}
-          onLasso={(pts) => {
-            const id = Date.now();
-            setRegions((rs) => [...rs, { id, points: pts, prompt: '' }]);
-            setLasso(false);
-            if (!wide) setSheet('pro');
-            setTimeout(() => (document.querySelector(`[data-region="${id}"]`) as HTMLInputElement | null)?.focus(), 80);
-          }}
-          onPose={setPose}
-          onUndo={undo}
-          onRedo={redo}
-        />
-        <AnimatePresence>{guesses.length > 0 && !lasso && <Guesses key="g" guesses={guesses} onPick={pickGuess} onDismiss={() => setGuesses([])} />}</AnimatePresence>
-        {penOnly && (
-          <p className="ldx-pen-note">
-            Pencil mode: fingers move the canvas.{' '}
-            <button type="button" className="ldx-link" onClick={() => setPenOnly(false)}>
-              Draw with a finger
-            </button>
-          </p>
-        )}
-        {lasso && <p className="ldx-pen-note">Circle the part that gets its own words.</p>}
+        {!wide && <QuickBar {...common} onBrushes={() => setSheet('brushes')} />}
+        <div className="ldx-stage-box">
+          <Stage
+            ref={stage}
+            doc={doc}
+            tool={tool}
+            brush={brush}
+            color={color}
+            sizeScale={sizeScale}
+            opacityScale={opacityScale}
+            painting={mode === 'paint'}
+            lasso={lasso}
+            maskEdit={maskEdit}
+            visible={visible}
+            ink={ink}
+            picture={picture}
+            living={lifeOn && Boolean(liveFrame)}
+            reference={reference}
+            regions={regions}
+            pose={poseOn && poseShown ? pose : null}
+            guides={guides}
+            selected={selected}
+            penOnly={penOnly}
+            onPenOnly={setPenOnly}
+            onStroke={onStroke}
+            onChange={sync}
+            onPick={(c) => {
+              setColor(c);
+              if (tool === 'picker') setTool('brush');
+            }}
+            onLasso={(pts) => {
+              const id = Date.now();
+              setRegions((rs) => [...rs, { id, points: pts, prompt: '' }]);
+              setLasso(false);
+              openPanel('picture');
+              setTimeout(() => (document.querySelector(`[data-region="${id}"]`) as HTMLInputElement | null)?.focus(), 80);
+            }}
+            onPose={setPose}
+            onUndo={undo}
+            onRedo={redo}
+            onRadial={openRadial}
+            onToggleUi={() => setBare((b) => !b)}
+            onGuides={(g) => setGuidesState((cur) => ({ ...cur, ...g }))}
+            onSelect={setSelected}
+            onNote={(t) => toast(t, 'info')}
+            onEngine={setEngineKind}
+          />
+          <AnimatePresence>{guesses.length > 0 && !lasso && <Guesses key="g" guesses={guesses} onPick={pickGuess} onDismiss={() => setGuesses([])} />}</AnimatePresence>
+          {penOnly && !bare && (
+            <p className="ldx-pen-note">
+              <span className="ldx-pen-long">Pencil mode: fingers move the canvas.</span>
+              <span className="ldx-pen-short">Pencil mode</span>
+              <button type="button" className="ldx-link" onClick={() => setPenOnly(false)}>
+                Draw with a finger
+              </button>
+            </p>
+          )}
+          {lasso && <p className="ldx-pen-note">Circle the part that gets its own words.</p>}
+          {maskEdit && active?.hasMask && !lasso && <p className="ldx-pen-note ldx-note-mask">Painting on the mask of “{active.name}”</p>}
+          {selStroke && tool === 'select' && (
+            <div className="ldx-selbar" role="group" aria-label="Selected ink stroke">
+              <Slider label="Width" value={selStroke.width} min={0.001} max={0.06} step={0.0005} onChange={(w) => active && change(patchLayer(doc.state, active.id, { vectors: active.vectors.map((v) => (v.id === selStroke.id ? { ...v, width: w } : v)) }), `vw${selStroke.id}`)} text={`${(selStroke.width * 100).toFixed(1)}%`} />
+              <div className="ldx-actions">
+                <button type="button" className="ldx-link" onClick={() => active && change(patchLayer(doc.state, active.id, { vectors: active.vectors.map((v) => (v.id === selStroke.id ? { ...v, color } : v)) }))}>
+                  <span className="ldx-dot-c" style={{ background: color }} /> Use this colour
+                </button>
+                <button
+                  type="button"
+                  className="ldx-link ldx-danger"
+                  onClick={() => {
+                    if (!active) return;
+                    change(patchLayer(doc.state, active.id, { vectors: active.vectors.filter((v) => v.id !== selStroke.id) }));
+                    setSelected(null);
+                  }}
+                >
+                  <SIcon name="trash" size={16} /> Delete
+                </button>
+                <button type="button" className="ldx-link" onClick={() => setSelected(null)}>
+                  Done
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+        {!wide && <QuickSliders {...common} />}
       </main>
 
       {wide && (
-        <aside className="ldx-side" aria-label="Layers, look and more">
-          <Section title="Layers" id="ldx-layers">
-            {layersPanel}
-          </Section>
-          <Section title="Look" id="ldx-look">
-            {lookPanel}
-          </Section>
-          {proPanel}
-          <Section title="History" id="ldx-history">
-            {historyPanel}
-          </Section>
-        </aside>
+        <AnimatePresence initial={false}>
+          {sideOpen && (
+            <motion.aside
+              key="side"
+              className="ldx-side"
+              aria-label="Panels"
+              initial={level === 'off' ? { opacity: 0 } : { x: 40, opacity: 0 }}
+              animate={{ x: 0, opacity: 1, transition: transitionFor(level, 'smooth') }}
+              exit={{ x: 40, opacity: 0, transition: transitionFor(level, 'smooth') }}
+            >
+              <div className="ldx-side-tabs" role="tablist" aria-label="Panels">
+                {TABS.map((t) => (
+                  <button key={t.id} type="button" role="tab" className="ldx-side-tab" aria-selected={side === t.id} onClick={() => setSide(t.id)}>
+                    <SIcon name={t.icon} size={20} />
+                    <span>{t.label}</span>
+                  </button>
+                ))}
+              </div>
+              <AnimatePresence mode="wait" initial={false}>
+                <motion.div
+                  key={side}
+                  className="ldx-side-body"
+                  role="tabpanel"
+                  aria-label={TABS.find((t) => t.id === side)?.label}
+                  initial={level === 'full' ? { opacity: 0, x: 18 } : { opacity: 0 }}
+                  animate={{ opacity: 1, x: 0, transition: transitionFor(level, 'snappy') }}
+                  exit={{ opacity: 0, transition: { duration: 0.08 } }}
+                >
+                  {bodies[side]}
+                </motion.div>
+              </AnimatePresence>
+            </motion.aside>
+          )}
+        </AnimatePresence>
       )}
 
       <footer className="ldx-bottom">
@@ -920,7 +1268,7 @@ function Studio({
             <Icon name={lifeOn ? 'stop' : 'film'} size={18} /> {lifeOn ? 'Stop' : 'Bring to life'}
           </button>
           {!wide && (
-            <button type="button" className="ldx-mode" aria-expanded={sheet !== null} onClick={() => setSheet(sheet ? null : 'tools')}>
+            <button type="button" className="ldx-mode" aria-expanded={sheet !== null} onClick={() => setSheet(sheet ? null : 'brushes')}>
               <Icon name="sliders" size={18} /> Tools
             </button>
           )}
@@ -940,6 +1288,12 @@ function Studio({
         </p>
       </footer>
 
+      {bare && (
+        <button type="button" className="ldx-unbare" aria-label="Show the tools" title="Show the tools (or tap with four fingers)" onClick={() => setBare(false)}>
+          <SIcon name="sliders" size={20} />
+        </button>
+      )}
+
       <AnimatePresence>
         {!wide && sheet && (
           <motion.div
@@ -951,20 +1305,63 @@ function Studio({
             animate={{ y: 0, opacity: 1, transition: transitionFor(level, 'bouncy') }}
             exit={level === 'off' ? { opacity: 0, transition: transitionFor(level) } : { y: '100%', transition: transitionFor(level, 'smooth') }}
           >
-            <div className="ldx-tabs" role="tablist" aria-label="Sheet">
-              {tabs.map((t) => (
-                <button key={t.id} type="button" role="tab" className="ldx-tab" aria-selected={sheet === t.id} onClick={() => setSheet(t.id)}>
-                  {t.label}
+            <div className="ldx-side-tabs ldx-sheet-tabs" role="tablist" aria-label="Sheet">
+              {TABS.map((t) => (
+                <button key={t.id} type="button" role="tab" className="ldx-side-tab" aria-selected={sheet === t.id} onClick={() => setSheet(t.id)}>
+                  <SIcon name={t.icon} size={20} />
+                  <span>{t.label}</span>
                 </button>
               ))}
-              <button type="button" className="ldx-tool ldx-tool-flat" aria-label="Close" onClick={() => setSheet(null)}>
+              <button type="button" className="ldx-tool ldx-tool-flat ldx-sheet-close" aria-label="Close" onClick={() => setSheet(null)}>
                 <Icon name="close" size={18} />
               </button>
             </div>
             <div className="ldx-sheet-body" role="tabpanel">
-              {tabs.find((t) => t.id === sheet)?.body}
+              {bodies[sheet]}
             </div>
           </motion.div>
+        )}
+      </AnimatePresence>
+
+      <AnimatePresence>
+        {radial && (
+          <RadialMenu
+            key="radial"
+            x={radial.x}
+            y={radial.y}
+            bounds={{ width: rootBox?.width ?? 400, height: rootBox?.height ?? 600 }}
+            brushes={recentBrushes.map((id) => brushes.find((b) => b.id === id)).filter((b): b is Brush => Boolean(b))}
+            currentBrush={brush.id}
+            colors={recentColours.length ? recentColours : ['#1b1b1f', '#d6452b', '#2f6fdb']}
+            color={color}
+            size={sizeScale}
+            opacity={opacityScale}
+            onBrush={(b) => pickBrush(b, b.mode === 'erase' ? 'eraser' : b.mode === 'smudge' ? 'smudge' : 'brush')}
+            onColor={setColor}
+            onSize={setSizeScale}
+            onOpacity={setOpacityScale}
+            onUndo={undo}
+            onRedo={redo}
+            onClose={() => setRadial(null)}
+          />
+        )}
+      </AnimatePresence>
+
+      <AnimatePresence>
+        {maker && (
+          <BrushMaker
+            key={maker.id}
+            brush={maker}
+            color={color}
+            onSave={saveBrush}
+            onUse={(b) => {
+              setTrial(b);
+              pickBrush(b);
+              setMaker(null);
+            }}
+            onExport={exportBrush}
+            onClose={() => setMaker(null)}
+          />
         )}
       </AnimatePresence>
 
@@ -1019,15 +1416,22 @@ function Studio({
                   )
                 )}
               </Section>
+              <Section title="Drawing" id="ldx-drawing">
+                <p className="ldx-note">
+                  Brushes run on {engineKind === 'webgl2' ? 'the graphics chip (WebGL 2)' : engineKind === 'canvas2d' ? 'the plain canvas (this browser has no WebGL 2)' : '…'}.
+                </p>
+                <button type="button" className="ldx-link" onClick={clearAll}>
+                  <SIcon name="eraser" size={16} /> {mode === 'paint' ? 'Clear the Paint over mask' : `Clear “${active?.name ?? 'this layer'}”`}
+                </button>
+              </Section>
               <Section title="Start over" id="ldx-over">
                 <button type="button" className="ldx-link ldx-danger" onClick={() => {
                   setOptionsOpen(false);
                   stopLife();
-                  doc.clear('sketch');
-                  doc.clear('colour');
-                  doc.clear('mask');
-                  stage.current?.redraw();
-                  sync();
+                  doc.reset();
+                  setSelected(null);
+                  setMaskEdit(false);
+                  changed();
                   setStill(null);
                   setBase(null);
                   setRegions([]);

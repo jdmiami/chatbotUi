@@ -15,6 +15,10 @@ export interface Pt {
   p: number;
   /** 0 (upright) .. 1 (lying flat) */
   tilt: number;
+  /** Which way the Pencil leans (radians, 0 = pointing right), when known. */
+  az?: number;
+  /** When it was sampled (ms), for speed. */
+  t?: number;
 }
 
 export interface Stroke {
