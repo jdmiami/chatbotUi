@@ -377,7 +377,8 @@ export function createStudio(o) {
     const have = (await fsp.stat(part).catch(() => null))?.size || 0;
     await roomFor(file, (file.size || 0) - have);
     // Most files come from Hugging Face; a few only from their makers' own site (`url`, pix2pix-turbo's LoRA).
-    const url = file.url || `https://huggingface.co/${file.repo}/resolve/main/${file.path.split('/').map(encodeURIComponent).join('/')}`;
+    // A file pinned to a revision (Live Draw's engines: sizes are checked exactly) comes from that commit.
+    const url = file.url || `https://huggingface.co/${file.repo}/resolve/${file.revision || 'main'}/${file.path.split('/').map(encodeURIComponent).join('/')}`;
     if (file.gated && !hfToken) throw Object.assign(new Error(TOKEN_MESSAGE), { permanent: true });
     const headers = { ...(have ? { range: `bytes=${have}-` } : {}), ...(file.gated ? { authorization: `Bearer ${hfToken}` } : {}) };
     // A connection that stops sending is cut after STALL_DOWNLOAD_MS and the file picks up where it was.
@@ -1258,7 +1259,20 @@ export function createStudio(o) {
     } else if (mode === 'sketch') {
       // Your drawing, finished: Z-Image-Turbo follows its lines (Fun ControlNet Union 2.1).
       [width, height] = SIZES.sketch[req.size] || SIZES.sketch.square;
-      workflow = zimageSketchWorkflow({ prompt, sketch: inputs[0], width, height, strength: sketchStrength(req.follow), prefix });
+      // Strokes on a transparent background (Live Draw) are laid on white; a second picture (Live Draw's
+      // canvas as it looks) is where the finished picture starts from.
+      const sketchSize = await pngSize(path.join(dir, 'input', inputs[0]));
+      workflow = zimageSketchWorkflow({
+        prompt,
+        sketch: inputs[0],
+        width,
+        height,
+        strength: sketchStrength(req.follow),
+        prefix,
+        sketchSize,
+        start: inputs[1] || null,
+        denoise: req.startStrength,
+      });
     } else if (mode === 'upscale') {
       prompt = prompt || 'Sharpened 4×';
       workflow = upscaleWorkflow({ image: inputs[0], prefix, model: FILES[maker.files[0]].name });

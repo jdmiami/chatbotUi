@@ -16,8 +16,10 @@ TORCH="torch==2.11.0 torchvision==0.26.0 torchaudio==2.11.0"
 TORCH_INDEX=https://download.pytorch.org/whl/cu128
 # Live draw's worker (gate/live_draw_worker.py: pix2pix-turbo) runs in the same Python; it needs these
 # on top of ComfyUI's own packages (transformers, safetensors, Pillow). Pinned: pix2pix-turbo uses
-# diffusers.utils.peft_utils.set_weights_and_activate_adapters, still there in 0.37.
-LIVE="diffusers==0.37.1 peft==0.18.1"
+# diffusers.utils.peft_utils.set_weights_and_activate_adapters, still there in 0.37. Live Draw's
+# engines (gate/canvas_worker.py) run here too; its sketch reader needs transformers' own Florence-2
+# (4.57 or newer).
+LIVE="diffusers==0.37.1 peft==0.18.1 transformers>=4.57,<6"
 STAMP="$COMFY_VERSION $TORCH $LIVE"
 
 log() { echo "[studio] $*"; }

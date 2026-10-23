@@ -12,7 +12,8 @@ import readline from 'node:readline';
 import { BLOCKED_MESSAGE, blockedPrompt } from './studio.js';
 
 /**
- * o: { name, python, script, env, spawn (tests), idleMs, timeoutMs, startTimeoutMs, log, now }
+ * o: { name, python, script, env, spawn (tests), idleMs, timeoutMs, startTimeoutMs, log, now,
+ *      onEvent (msg) => void: every line that answers no request (the canvas worker's engine progress) }
  * Never throws on its own: a worker that can't start answers every request with an error.
  */
 export function createLiveWorker(o) {
@@ -55,6 +56,14 @@ export function createLiveWorker(o) {
         msg = JSON.parse(line);
       } catch {
         return;
+      }
+      // Lines that answer no request (ready, loading, a worker's own progress events) also go to onEvent.
+      if (msg?.id == null && o.onEvent) {
+        try {
+          o.onEvent(msg);
+        } catch (err) {
+          log.warn?.(`[live] ${name}: ${err.message}`);
+        }
       }
       if (msg.ready) {
         me.state = 'ready';
