@@ -14,7 +14,8 @@
       "mcp__github",
       "mcp__Vercel",
       "mcp__claude-code-remote",
-      "mcp__Run_pods"
+      "mcp__Run_pods",
+      "mcp__Hugging_Face"
     ],
     "ask": [
       "mcp__Run_pods__delete-network-volume",
