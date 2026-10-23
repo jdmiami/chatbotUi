@@ -119,10 +119,14 @@ export interface MemeRecord {
   why?: string;
   /** judging · made (waiting to be judged) · judged · ready (scored high enough to post) */
   status: 'judging' | 'made' | 'judged' | 'ready';
-  /** comedy · spicy · yours (a 30-second movie in your style). */
+  /** comedy · spicy · yours (a 30-second movie in your style) · remix (a picture or clip remade from your prompt). */
   style?: LabStyle;
   /** A movie in your style: its soReal movie (it moves into soReal when kept). */
   movieId?: string;
+  /** A remix: a picture or a short video. Older machines only made videos. */
+  kind?: 'image' | 'video';
+  /** A remix: the prompt of yours it was remade from. */
+  remixOf?: string;
 }
 export interface LabIdea {
   id: string;
@@ -131,15 +135,19 @@ export interface LabIdea {
   topic: string | null;
   /** Written or edited by you: made exactly as written. */
   yours: boolean;
-  /** "Your style": a 30-second movie (made with soReal's auto flow), with its look. */
-  kind?: 'movie';
+  /** "Your style": a 30-second movie (made with soReal's auto flow), with its look. Remix: a picture or a short clip. */
+  kind?: 'movie' | 'picture' | 'clip';
+  /** A remix: the prompt of yours it remakes. */
+  remixOf?: string;
   seconds?: number;
   look?: string;
   /** Your style leans spicy: blurred like any NSFW item. */
   nsfw?: boolean;
 }
-/** comedy · spicy · yours: 30-second movies in your own style, from your saved prompts. */
-export type LabStyle = 'comedy' | 'spicy' | 'yours';
+/** comedy · spicy · yours: 30-second movies in your own style, from your saved prompts · remix: pictures and clips remade from your Make prompts. */
+export type LabStyle = 'comedy' | 'spicy' | 'yours' | 'remix';
+/** What Remix makes from your prompts: both (as you made them), only pictures, or only videos. */
+export type LabMix = 'both' | 'pictures' | 'videos';
 /** Where a Lab movie is: the story, the lead, the storyboard, the shots, the final cut. */
 export interface LabMovieProgress {
   id: string;
@@ -178,6 +186,9 @@ export interface MemeLabState {
   enabled: boolean;
   /** Comedy, or spicy: flirty thirst-trap clips of made-up adults, no nudity. Older machines don't say. */
   style?: LabStyle;
+  /** Remix: what it makes, and how many of your prompts it has to remix from. */
+  mix?: LabMix;
+  remix?: { sources: number; pictures: number; videos: number };
   /** Your topics; the planned ideas are built around them. */
   topics: string[];
   quietMinutes: number;
@@ -185,7 +196,7 @@ export interface MemeLabState {
   /** Minutes one lab video takes (learned), and minutes until the machine turns itself off. */
   minutesPerVideo: number;
   minutesLeft: number;
-  making: { title: string; topic: string | null; prompt: string; job: StudioJob | null; movie?: LabMovieProgress | null; nsfw?: boolean } | null;
+  making: { title: string; topic: string | null; prompt: string; job: StudioJob | null; movie?: LabMovieProgress | null; nsfw?: boolean; kind?: 'movie' | 'picture' | 'clip'; remixOf?: string } | null;
   /** Planned ideas, in the order they will be made. */
   queue: LabIdea[];
   madeLastHour: number;
@@ -790,6 +801,11 @@ export class LocalAi {
 
   async setLabStyle(style: LabStyle): Promise<MemeLabState> {
     return this.labAbsolute(await this.studioCall<MemeLabState>('/_orbit/studio/lab', { method: 'POST', body: JSON.stringify({ style }) }));
+  }
+
+  /** Remix: make pictures, videos or both from your prompts. */
+  async setLabMix(mix: LabMix): Promise<MemeLabState> {
+    return this.labAbsolute(await this.studioCall<MemeLabState>('/_orbit/studio/lab', { method: 'POST', body: JSON.stringify({ mix }) }));
   }
 
   async setLabTopics(topics: string[]): Promise<MemeLabState> {

@@ -75,7 +75,7 @@ log "fetching the gate"
 APP=/opt/orbit
 GATE="$APP/ai/gate"
 rm -rf /opt/gate "$APP" && mkdir -p "$GATE/src" "$GATE/openwebui" "$APP/shared"
-for f in package.json catalog.json src/index.js src/gate.js src/jwt.js src/machine.js src/store.js src/studio.js src/sysstats.js src/gpustats.js src/workflows.js src/openwebui.js src/search.js src/voice.js src/movies.js src/story.js src/prompting.js src/r2.js src/storage.js src/r2cli.js src/cloud.js src/push.js src/memes.js src/style.js src/nsfwcheck.js nsfw_worker.py src/media.js src/live.js src/wsock.js live_draw_worker.py src/livevideo.js src/msgpack.js live_video_worker.py src/canvas.js canvas_worker.py openwebui/studio_pipe.py; do
+for f in package.json catalog.json src/index.js src/gate.js src/jwt.js src/machine.js src/store.js src/studio.js src/sysstats.js src/gpustats.js src/workflows.js src/openwebui.js src/search.js src/voice.js src/movies.js src/story.js src/prompting.js src/r2.js src/storage.js src/r2cli.js src/cloud.js src/push.js src/memes.js src/style.js src/remix.js src/nsfwcheck.js nsfw_worker.py src/media.js src/live.js src/wsock.js live_draw_worker.py src/livevideo.js src/msgpack.js live_video_worker.py src/canvas.js canvas_worker.py openwebui/studio_pipe.py; do
   curl -fsSL "${REPO_RAW}/ai/gate/${f}" -o "$GATE/${f}"
 done
 for f in shared/package.json shared/autooff.js; do
