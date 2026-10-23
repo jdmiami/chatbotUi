@@ -210,7 +210,7 @@ export default function StoreApp({ isActive }: AppProps) {
   };
 
   /** What the main button says and does. */
-  function action(item: Item): { label: string; state: 'get' | 'progress' | 'have' | 'wait' | 'token' | 'soon'; percent?: number } {
+  function action(item: Item): { label: string; state: 'get' | 'progress' | 'have' | 'wait' | 'token' | 'soon' | 'later'; percent?: number } {
     if (item.type === 'chat') {
       const pull = pullOf(item.entry);
       if (pull && !pull.done) return { label: pull.percent > 0 ? `${pull.percent}%` : 'Starting', state: 'progress', percent: pull.percent };
@@ -220,6 +220,8 @@ export default function StoreApp({ isActive }: AppProps) {
     const m = item.maker;
     if (m.pending) return { label: 'After restart', state: 'soon' };
     if (m.needsToken && !m.installed) return { label: 'Needs a token', state: 'token' };
+    // Machine off: nothing is downloading, so no (possibly old) progress ring.
+    if (m.wanted && !m.installed && !machineOn) return { label: progressText(m, false), state: 'later' };
     if (m.wanted && !m.installed) return { label: progressText(m, machineOn), state: 'progress', percent: m.percent };
     if (m.installed) return { label: 'Open', state: 'have' };
     return { label: machineOn ? `Get${m.size ? ` · ${formatSize(m.size)}` : ''}` : 'Get', state: machineOn ? 'get' : 'wait' };
@@ -265,17 +267,18 @@ export default function StoreApp({ isActive }: AppProps) {
     return (
       <button
         type="button"
-        className={`btn ${big ? '' : 'small '}${a.state === 'have' || a.state === 'soon' ? '' : 'primary'}`}
+        className={`btn ${big ? '' : 'small '}${a.state === 'have' || a.state === 'soon' || a.state === 'later' ? '' : 'primary'}`}
         disabled={busy === key || powering}
         onClick={(e) => {
           e.stopPropagation();
           if (a.state === 'have') use(item);
           else if (a.state === 'token') toast(TOKEN_HELP, 'info');
           else if (a.state === 'soon') toast(RESTART_HELP, 'info');
+          else if (a.state === 'later') toast(`${titleOf(item)} carries on downloading when your AI machine is on.`, 'info');
           else void get(item);
         }}
         aria-label={
-          a.state === 'have' ? `Open ${titleOf(item)}` : a.state === 'token' ? `${titleOf(item)} needs a Hugging Face token` : a.state === 'soon' ? `${titleOf(item)}: ${PENDING_TEXT}` : `Get ${titleOf(item)}`
+          a.state === 'have' ? `Open ${titleOf(item)}` : a.state === 'token' ? `${titleOf(item)} needs a Hugging Face token` : a.state === 'soon' ? `${titleOf(item)}: ${PENDING_TEXT}` : a.state === 'later' ? `${titleOf(item)}: ${a.label}` : `Get ${titleOf(item)}`
         }
       >
         {a.label}
