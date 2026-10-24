@@ -10,6 +10,7 @@ import { Readable, Transform } from 'node:stream';
 import { lastFrameArgs, runFfmpeg } from './movies.js';
 import { UPLOAD_MAX, audioArgs, clipArgs, fitSize, ltxFrames, probeMedia, shapeOf, uploadType, vaceFrames } from './media.js';
 import { createMirror, downloadFile, uploadFile } from './r2.js';
+import { injectCharacter } from './characterPrompt.js';
 import { createHeld } from './held.js';
 import { pipeline } from 'node:stream/promises';
 import {
@@ -269,7 +270,7 @@ export function createStudio(o) {
   // Results that must not go straight to the user wait here for the owner (held.js): `held/` in R2, else a
   // `held/` folder next to the gallery. Never listed in the gallery, never mirrored to its prefix.
   const heldStore = createHeld({ dir, r2: galleryR2, log, now });
-  // Saved characters (characters.js): characters.get(id) -> { id, name, adult, fictional, sheet: [image files], descriptor }.
+  // Saved characters (characters.js): characters.get(id) -> { id, name, adult, fictional, sheet: [{ file }], descriptor, traits } (front first, face close-up second).
   const characters = o.characters || null;
   // A machine with its own short list keeps only those makers (and what is added), not the built-ins.
   const only = Array.isArray(o.makers) ? new Set(o.makers) : null;
@@ -991,6 +992,7 @@ export function createStudio(o) {
       kind: j.kind,
       maker: j.maker || null,
       owner: j.owner || undefined,
+      character: j.character || undefined,
       prompt: j.prompt,
       status: j.status,
       progress: j.progress,
@@ -1171,6 +1173,22 @@ export function createStudio(o) {
     return { name, seconds };
   }
 
+  /** A picture on this machine as a starting picture (a character's sheet picture, or one the sheet is built from). */
+  async function copyInput(src) {
+    const name = `orbit-${newId()}${path.extname(src).toLowerCase() || '.png'}`;
+    await fsp.mkdir(path.join(dir, 'input'), { recursive: true });
+    await fsp.copyFile(src, path.join(dir, 'input', name));
+    return name;
+  }
+  /** The saved character a job names (one made for someone else is theirs alone; only once its sheet is accepted). */
+  async function characterFor(req) {
+    const c = await characters?.get?.(String(req.character).slice(0, 80));
+    if (!c || (c.owner && c.owner !== (typeof req.owner === 'string' ? req.owner : ''))) throw bad('That character is not in your library any more.', 404);
+    if (c.adult !== true || c.fictional !== true) throw Object.assign(new Error(CHARACTER_MESSAGE), { status: 422, blocked: true });
+    if (!Array.isArray(c.sheet) || !c.sheet.length) throw bad('That character has no pictures yet.');
+    return c;
+  }
+
   /**
    * Start a job. req: { kind: 'image'|'video', maker?, prompt, size?, seconds?, style?,
    *   image? (data URL), images? (data URLs, for edits), fromItem? (gallery id),
@@ -1178,9 +1196,12 @@ export function createStudio(o) {
    *   videoItem? (gallery video to work on) or videoUpload? (upload id), audioUpload? (upload id),
    *   task? (Wan VACE: replace | restyle | extend | motion), target? (words: what to replace or erase),
    *   change? (LTX-2.5 video to video: 'little' | 'lot') }.
+   *   character? (a saved character's id: its description goes first and its sheet pictures start the job),
+   *   seed? (a whole number: the same seed gives the same start).
+   * `internal` never comes from a request: { refs: [pictures on this machine to start from] }.
    * Throws errors with .status for bad requests.
    */
-  async function createJob(req) {
+  async function createJob(req, internal = {}) {
     const maker = req.maker ? makerById(String(req.maker)) : makerById(req.kind === 'video' ? 'ltx' : 'qwen');
     // Live makers (live.js) answer on their own connection, not as jobs.
     if (!maker || maker.kind === 'style' || maker.kind === 'live') throw Object.assign(new Error('No such maker.'), { status: 400 });
@@ -1196,7 +1217,11 @@ export function createStudio(o) {
     if (task === 'replace' || task === 'erase' || swap) needs.add('target');
     if (swap) needs.add('photo');
     if (task === 'motion') needs.add('photo');
+    // A saved character (characters.js): its description goes first in what the makers read, and its
+    // sheet pictures stand in for the photo you would have added.
+    const character = req.character != null && req.character !== '' ? await characterFor(req) : null;
     let prompt = String(req.prompt || '').trim().slice(0, 4000);
+    if (character && (mode === 'image' || mode === 'video')) prompt = injectCharacter(prompt, character).slice(0, 4000);
     const target = String(req.target || '').trim().slice(0, 200);
     // Sharpening and erasing need no description; a talking photo has a default one.
     const promptOptional = mode === 'upscale' || flow === 'seedvr2' || task === 'erase' || flow === 's2v' || swap;
@@ -1223,15 +1248,8 @@ export function createStudio(o) {
     const photo = (mode !== 'sketch' && uploads.length > 0) || Boolean(endUpload) || Boolean(source?.photo) || Boolean(toSource?.photo) || (withVideo && (Boolean(videoUpload) || Boolean(videoSource?.photo)));
     // Made from an NSFW picture or video: NSFW too, before anyone has looked.
     const nsfwSource = Boolean(source?.nsfw) || Boolean(toSource?.nsfw) || (withVideo && Boolean(videoSource?.nsfw));
-    // Swap a person with a saved character (made here from words, never from a photo).
-    let character = null;
-    if (swap && req.character != null && req.character !== '') {
-      character = (await characters?.get?.(String(req.character).slice(0, 80))) || null;
-      if (!character) throw bad('That character is not saved any more.', 404);
-      if (character.adult !== true || character.fictional !== true) throw Object.assign(new Error(CHARACTER_MESSAGE), { status: 422, blocked: true });
-      if (uploads.length || req.fromItem) throw bad('Pick a character or add a photo, not both.');
-      if (!Array.isArray(character.sheet) || !character.sheet.length) throw bad('That character has no pictures yet.');
-    }
+    // A character is the other way to name a person for Swap a person: never mixed with a photo (a character is made-up, a photo may not be).
+    if (character && swap && (uploads.length || req.fromItem)) throw bad('Pick a character or add a photo, not both.');
     // An adult swap: a fictional adult character in a video made here from words alone. Nothing about a real
     // person's photo or an upload can be in it (photo is false only when no upload is anywhere in its past).
     const wantsAdult = swap && req.adult === true;
@@ -1285,15 +1303,25 @@ export function createStudio(o) {
     }
     // Pictures to start from: uploads, or a picture from the gallery.
     const inputs = [];
-    if (character) for (const entry of character.sheet.slice(0, 2)) inputs.push(await copyFromSheet(entry));
-    else if (req.fromLastFrameOf) inputs.push(await lastFrameOf(String(req.fromLastFrameOf)));
+    if (req.fromLastFrameOf) inputs.push(await lastFrameOf(String(req.fromLastFrameOf)));
     else if (req.fromItem) inputs.push(await copyFromGallery(String(req.fromItem)));
-    if (!character) for (const u of uploads) inputs.push(await saveUpload(u));
+    for (const u of uploads) inputs.push(await saveUpload(u));
+    for (const src of internal.refs || []) inputs.push(await copyInput(src));
+    // A character's sheet pictures start the job when no photo does (outfit swap: the person, then your outfit picture;
+    // Swap a person: the front, then the face close-up). The sheet comes ordered: the front first, the face close-up second.
+    if (character && (mode === 'edit' || swap || task === 'motion' || flow === 's2v' || (mode === 'video' && !withVideo)) && (!inputs.length || maker.twoImages)) {
+      if (character.sheet[0]?.view && character.sheet[0].view !== 'front') throw bad("That character's pictures are not on this machine yet. Open Characters to make them again.", 409);
+      const pics = [];
+      for (const entry of character.sheet.slice(0, swap ? 2 : 1)) pics.push(await copyFromSheet(entry));
+      inputs.unshift(...pics);
+    }
     const need = mode === 'edit' ? (maker.twoImages ? 2 : 1) : mode === 'upscale' || mode === 'sketch' ? 1 : 0;
     if (inputs.length < need) {
       throw Object.assign(new Error(maker.twoImages ? 'Add two pictures: the person first, then the outfit.' : mode === 'sketch' ? 'Draw something first.' : 'Add the picture to start from.'), { status: 400 });
     }
 
+    // A locked seed (a character's sheet keeps one seed for every view).
+    const seed = Number.isInteger(req.seed) && req.seed >= 0 && req.seed < 2 ** 31 ? req.seed : undefined;
     let workflow;
     let width;
     let height;
@@ -1361,7 +1389,7 @@ export function createStudio(o) {
       const lora = maker.lora ? FILES[maker.lora].name : null;
       // Some edit LoRAs only wake up on their trigger words.
       if (maker.trigger && !prompt.startsWith(maker.trigger)) prompt = `${maker.trigger} ${prompt}`;
-      workflow = editWorkflow({ prompt, images: inputs.slice(0, need), lora, strength: maker.strength ?? 1, prefix });
+      workflow = editWorkflow({ prompt, images: inputs.slice(0, need), lora, strength: maker.strength ?? 1, prefix, seed });
     } else if (mode === 'sketch') {
       // Your drawing, finished: Z-Image-Turbo follows its lines (Fun ControlNet Union 2.1).
       [width, height] = SIZES.sketch[req.size] || SIZES.sketch.square;
@@ -1385,17 +1413,18 @@ export function createStudio(o) {
       stages = 'upscale';
     } else if (flow === 'krea') {
       [width, height] = SIZES.krea[req.size] || SIZES.krea.portrait;
-      workflow = kreaWorkflow({ prompt, width, height, style, trigger: styleTrigger, unet: FILES[maker.files[0]].name, prefix });
+      workflow = kreaWorkflow({ prompt, width, height, style, trigger: styleTrigger, unet: FILES[maker.files[0]].name, prefix, seed });
     } else {
       [width, height] = SIZES.image[req.size] || SIZES.image.square;
       workflow =
         maker.id === 'qwen'
-          ? imageWorkflow({ prompt, width, height, prefix })
+          ? imageWorkflow({ prompt, width, height, prefix, seed })
           : qwenWorkflow({
               unet: FILES[maker.files[0]].name,
               prompt,
               width,
               height,
+              seed,
               // Turbo models: few steps, no guidance (cfg 1, so no negative prompt either).
               ...(maker.steps ? { steps: maker.steps, cfg: maker.cfg ?? 1 } : { cfg: 3, negative: NOCT_NEGATIVE }),
               prefix,

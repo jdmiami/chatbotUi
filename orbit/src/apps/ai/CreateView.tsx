@@ -15,6 +15,9 @@ import { orbApprove, useOrbAssist, type AssistOption, type OrbAssist } from '../
 import { StepDeck, type DeckStep } from '../make/StepDeck';
 import { ChooseButton, FillButton, TalkButton } from '../make/StepTools';
 import type { IdeaBox } from '../make/ideas';
+import { CharacterPick } from '../make/CharacterPick';
+import { useCharacters } from '../make/useCharacters';
+import { thumbOf } from '../../services/ai/Characters';
 
 /** vedit: change, erase or sharpen a video you have. (Drawing lives in its own app: Live Draw.) */
 type Mode = StudioKind | 'edit' | 'vedit';
@@ -136,6 +139,8 @@ export function CreateView({
   notice,
   onCloud,
   covered = false,
+  useCharacter = null,
+  onCharacters,
 }: {
   ai: LocalAi;
   machineOn: boolean;
@@ -152,8 +157,12 @@ export function CreateView({
   notice?: ReactNode;
   /** The machine is off: make this in the cloud instead. */
   onCloud?: (seed: { prompt: string; kind: 'image' | 'video' }) => void;
-  /** Another screen (the cloud) is over the steps. */
+  /** Another screen (the cloud, Characters) is over the steps. */
   covered?: boolean;
+  /** A character picked in Characters ("Use in Make"): attach it and go to the words. */
+  useCharacter?: { id: string; n: number } | null;
+  /** Opens Characters (to make the first one). */
+  onCharacters?: () => void;
 }) {
   const toast = useShell((s) => s.toast);
   const launch = useShell((s) => s.launch);
@@ -181,6 +190,8 @@ export function CreateView({
   const [refPhoto, setRefPhoto] = useState<{ src: string; item?: string } | null>(null);
   /** Swap a person: a close-up of the new person's face (optional; it keeps the face right). */
   const [facePhoto, setFacePhoto] = useState<string | null>(null);
+  /** A saved character added to this one (Add a character / the new person in Swap a person). */
+  const [character, setCharacter] = useState<string | null>(null);
   const [studio, setStudio] = useState<StudioState | null>(null);
   const [studioError, setStudioError] = useState<string | null>(null);
   const [makers, setMakersState] = useState<StudioMakerInfo[] | null>(null);
@@ -225,6 +236,11 @@ export function CreateView({
     });
 
   useNsfwFlags();
+  const chars = useCharacters(ai, { machineOn, active: isActive && machineOn, tick: reloadKey });
+  // Characters may have changed while it was over the steps.
+  useEffect(() => {
+    if (!covered && isActive && machineOn) void chars.reload();
+  }, [covered]); // eslint-disable-line react-hooks/exhaustive-deps
   // The viewer steps through the gallery in the order the grid shows it.
   const stepper = useGalleryStepper(items.map(asMedia), viewing?.id);
   useEffect(() => connectMarks(ai), [ai]);
@@ -309,12 +325,18 @@ export function CreateView({
   const wantsRef = vTask === 'replace' || vTask === 'motion';
   const noWords = sharpenVideo || vTask === 'erase' || vTask === 'swap';
   const promptOk = sharpen || noWords || talking || Boolean(prompt.trim());
+  // A saved character: in the words of a picture, a video or an edit, and as the new person in Swap a person.
+  const charApplies = swapping || ((kind === 'image' || kind === 'video' || kind === 'edit') && !sharpen && !restyling);
+  const chosenChar = chars.ready.find((c) => c.id === character) ?? null;
+  const charForJob = chosenChar && charApplies ? chosenChar : null;
+  // An edit works on your picture; a character stands in when there is none (outfit swap: as the person).
+  const charAsPicture = Boolean(charForJob) && kind === 'edit' && (Boolean(chosen?.twoImages) || editImages.length === 0);
   const inputsOk =
     kind === 'vedit'
-      ? Boolean(video) && (!wantsTarget || Boolean(target.trim())) && (vTask !== 'motion' || Boolean(refPhoto)) && (!swapping || Boolean(refPhoto))
+      ? Boolean(video) && (!wantsTarget || Boolean(target.trim())) && (vTask !== 'motion' || Boolean(refPhoto)) && (!swapping || Boolean(refPhoto) || Boolean(charForJob))
       : kind === 'video' && talking
-        ? Boolean(startImage) && Boolean(audio)
-        : editImages.length >= needImages;
+        ? (Boolean(startImage) || Boolean(charForJob)) && Boolean(audio)
+        : editImages.length + (charAsPicture ? 1 : 0) >= needImages;
   const builtInMaker = studio?.[kind === 'video' || kind === 'vedit' ? 'video' : 'image'];
   const makerReady = machineOn && Boolean(studio?.running) && (chosen ? chosen.installed : Boolean(builtInMaker?.ready));
   const canMake = makerReady && promptOk && inputsOk && !submitting;
@@ -329,6 +351,18 @@ export function CreateView({
   }, [stepIds.join(','), step]); // eslint-disable-line react-hooks/exhaustive-deps
   /** Bumped by every move you make yourself, so a pick's pending move doesn't override it. */
   const moves = useRef(0);
+  // "Use in Make" in Characters: the character is attached and the words are next.
+  useEffect(() => {
+    if (!useCharacter) return;
+    setCharacter(useCharacter.id);
+    if (kind === 'vedit' && !swapping) setKind('image');
+    moves.current++;
+    setStep(swapping ? 'extras' : 'describe');
+  }, [useCharacter?.n]); // eslint-disable-line react-hooks/exhaustive-deps
+  // A character that is gone (deleted) is taken off.
+  useEffect(() => {
+    if (character && chars.library?.source === 'machine' && !chars.ready.some((c) => c.id === character)) setCharacter(null);
+  }, [character, chars.library, chars.ready]);
   const go = useCallback((id: string) => {
     moves.current++;
     setStep(id as StepId);
@@ -371,10 +405,12 @@ export function CreateView({
     try {
       const fromGallery = kind === 'edit' ? editImages.find((p, i) => i === 0 && p.item)?.item : undefined;
       const videoRef = video ? (video.item ? { videoItem: video.item } : { videoUpload: video.upload }) : {};
+      const sendChar = Boolean(charForJob) && (kind !== 'edit' || charAsPicture);
       const job = await ai.createStudioJob({
         kind: kind === 'video' || kind === 'vedit' ? 'video' : 'image',
         maker: chosenId,
         prompt: noWords ? '' : prompt.trim(),
+        ...(sendChar && charForJob ? { character: charForJob.id } : {}),
         ...(kind === 'image' || kind === 'video' ? { size: size[kind] } : {}),
         ...(style && styles.some((s) => s.id === style) ? { style } : {}),
         ...(kind === 'video' && restyling ? { ...videoRef, change } : {}),
@@ -391,9 +427,10 @@ export function CreateView({
               ...videoRef,
               ...(tasks.length && vTask && vTask !== 'erase' && vTask !== 'swap' ? { task: vTask } : {}),
               ...(wantsTarget ? { target: target.trim() } : {}),
-              ...((wantsRef || swapping) && refPhoto ? (refPhoto.item ? { fromItem: refPhoto.item } : { image: refPhoto.src }) : {}),
+              // A character is the new person, or a photo is: never both.
+              ...((wantsRef || swapping) && refPhoto && !charForJob ? (refPhoto.item ? { fromItem: refPhoto.item } : { image: refPhoto.src }) : {}),
               // The face close-up goes after the photo of the new person.
-              ...(swapping && facePhoto ? { images: [facePhoto] } : {}),
+              ...(swapping && facePhoto && !charForJob ? { images: [facePhoto] } : {}),
             }
           : {}),
         ...(kind === 'edit'
@@ -483,6 +520,7 @@ export function CreateView({
     if (!file) return;
     try {
       setRefPhoto({ src: await toDataUrl(file) });
+      if (swapping) setCharacter(null);
     } catch {
       toast('That picture could not be read.', 'error');
     }
@@ -524,11 +562,11 @@ export function CreateView({
       if (!video) return 'Add the video to work on.';
       if (wantsTarget && !target.trim()) return vTask === 'erase' ? 'Say what to erase.' : vTask === 'swap' ? 'Say who to replace.' : 'Say what to replace.';
       if (vTask === 'motion' && !refPhoto) return 'Add a photo of who should move.';
-      if (swapping && !refPhoto) return 'Add a photo of the new person.';
+      if (swapping && !refPhoto && !charForJob) return 'Add a photo of the new person. You can also pick a character.';
       if (swapping) return 'The first 5 seconds, in a few minutes.';
       return sharpenVideo ? 'Makes the video twice as large and crisper: a few minutes.' : 'Works on the first 5 seconds. Video edits take a few minutes.';
     }
-    if (talking) return !startImage ? 'Add a photo of the person.' : !audio ? 'Add a voice recording or a song.' : 'Talking videos take a few minutes.';
+    if (talking) return !startImage && !charForJob ? 'Add a photo of the person. You can also add a character.' : !audio ? 'Add a voice recording or a song.' : 'Talking videos take a few minutes.';
     if (restyling) return 'Keeps the motion and the sound of your video (up to 10 s).';
     if (!promptOk) return 'Describe it first.';
     return kind === 'image' ? 'Images take under a minute.' : 'Videos with sound take a few minutes.';
@@ -793,6 +831,7 @@ export function CreateView({
             {textTools(promptBox, `make:prompt:${promptBox}`, prompt, setPrompt, 'the description')}
           </div>
         )}
+        {charApplies && !swapping && !noWords && machineOn && <CharacterPick characters={chars.ready} value={character} onChange={setCharacter} onCreate={onCharacters} />}
         {kind === 'edit' && chosenId === 'angles' && (
           <div className="mk-chips" aria-label="Angles">
             {ANGLES.map((a) => (
@@ -887,6 +926,19 @@ export function CreateView({
               () => setRefPhoto(null),
               'Remove the photo of the new person',
             )}
+            <CharacterPick
+              swap
+              characters={chars.ready}
+              value={character}
+              onChange={(id) => {
+                setCharacter(id);
+                if (id) {
+                  setRefPhoto(null);
+                  setFacePhoto(null);
+                }
+              }}
+              onCreate={onCharacters}
+            />
             {photoRow(
               facePhoto,
               'Their face, close up',
@@ -1039,16 +1091,17 @@ export function CreateView({
       return [shape, `${seconds} s`, startImage ? 'starts from your photo' : '', endImage ? 'ends on a photo' : ''].filter(Boolean).join(' · ');
     }
     if (kind === 'edit') return editImages.length >= Math.max(1, needImages) ? (needImages === 2 ? 'The person and the outfit' : 'Your picture') : needImages === 2 ? `${editImages.length} of 2 pictures` : 'No picture yet';
-    if (swapping) return [refPhoto ? 'A photo of them' : 'No photo yet', facePhoto ? 'a face close-up' : ''].filter(Boolean).join(' · ');
+    if (swapping) return charForJob ? `${charForJob.name}, a character` : [refPhoto ? 'A photo of them' : 'No photo yet', facePhoto ? 'a face close-up' : ''].filter(Boolean).join(' · ');
     return [video ? 'Your video' : 'No video yet', wantsRef ? (refPhoto ? 'a photo' : vTask === 'motion' ? 'no photo yet' : '') : ''].filter(Boolean).join(' · ');
   })();
-  const thumbs = [startImage && kind === 'video' && !restyling ? startImage : null, endImage && kind === 'video' && !restyling ? endImage : null, ...(kind === 'edit' ? editImages.map((p) => p.src) : []), kind === 'vedit' && refPhoto ? refPhoto.src : null, swapping ? facePhoto : null].filter(Boolean) as string[];
+  const thumbs = [charForJob ? thumbOf(charForJob) : null, startImage && kind === 'video' && !restyling ? startImage : null, endImage && kind === 'video' && !restyling ? endImage : null, ...(kind === 'edit' ? editImages.map((p) => p.src) : []), kind === 'vedit' && refPhoto ? refPhoto.src : null, swapping ? facePhoto : null].filter(Boolean) as string[];
   const rows: { id: StepId; key: string; value: ReactNode; missing?: boolean }[] = [
     { id: 'what', key: 'What', value: kindLabel },
     { id: 'maker', key: 'Maker', value: `${makerName}${styleName ? ` · ${styleName}` : ''}${kind === 'vedit' && tasks.length && vTask ? ` · ${TASKS[vTask as VideoTask].label}` : ''}`, missing: Boolean(makerNote) },
     ...(swapping ? [{ id: 'video' as StepId, key: 'Video', value: video ? 'Your video' : 'No video yet', missing: !video }] : []),
     ...(hasDescribe ? [{ id: 'describe' as StepId, key: swapping ? 'Who' : 'Words', value: words || (talking ? 'None (optional)' : 'Nothing yet'), missing: wordsMissing }] : []),
-    { id: 'extras', key: swapping ? 'New person' : 'Extras', value: extrasWords, missing: swapping ? !refPhoto : !inputsOk },
+    ...(charForJob && !swapping && hasDescribe ? [{ id: 'describe' as StepId, key: 'Character', value: charForJob.name }] : []),
+    { id: 'extras', key: swapping ? 'New person' : 'Extras', value: extrasWords, missing: swapping ? !refPhoto && !charForJob : !inputsOk },
   ];
   const cloudable = !machineOn && (kind === 'image' || kind === 'video') && Boolean(onCloud);
 
@@ -1093,7 +1146,7 @@ export function CreateView({
       <div className="mk-check">
         <ul className="mk-summary" aria-label="Your choices">
           {rows.map((r) => (
-            <li key={r.id}>
+            <li key={`${r.id}:${r.key}`}>
               <button type="button" className="mk-sum-row" data-missing={r.missing || undefined} onClick={() => go(r.id)} aria-label={`${r.key}: ${typeof r.value === 'string' ? r.value : ''}. Change it`}>
                 <span className="o5-kicker">{r.key}</span>
                 <span className="mk-sum-value">{r.value}</span>

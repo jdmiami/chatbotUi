@@ -1,0 +1,169 @@
+/*
+ * Characters: the library, the walk-through that makes one, and the chips that attach one in Make.
+ * Orbit 0.5 look: quiet type, hairlines, no boxes where a line will do.
+ */
+
+/* ---------------------------------------------------------------- the library */
+.chr-intro { margin: 0; max-width: 56ch; font-family: var(--font-display); font-size: calc(17px * var(--text-scale, 1)); line-height: 1.45; color: var(--text-2); }
+.chr-note { margin: 0; }
+.chr-grid { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px 14px; }
+@media (min-width: 560px) { .chr-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+@media (min-width: 900px) { .chr-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); } }
+.chr-card {
+  position: relative;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--text);
+  text-align: left;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  transition: transform 0.45s var(--spring-snappy);
+}
+.chr-card:active { transform: scale(0.97); }
+.chr-card-art {
+  width: 100%;
+  aspect-ratio: 3 / 4;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--text) 6%, transparent);
+  color: var(--text-3);
+  margin-bottom: 6px;
+}
+.chr-card-art img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.chr-card-name { font-family: var(--font-display); font-size: calc(21px * var(--text-scale, 1)); font-style: italic; letter-spacing: -0.02em; line-height: 1.15; }
+.chr-card-meta { font: 500 calc(12px * var(--text-scale, 1)) / 1.3 var(--font-ui); color: var(--text-3); }
+.chr-badge {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  padding: 5px 10px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--bg) 82%, transparent);
+  -webkit-backdrop-filter: blur(8px);
+  backdrop-filter: blur(8px);
+  color: var(--text);
+  font: 600 calc(11px * var(--text-scale, 1)) / 1 var(--font-ui);
+  letter-spacing: 0.04em;
+}
+:root[data-motion='full'] .chr-grid > li { animation: mk-rise 0.7s var(--spring-default) both; animation-delay: calc(var(--i, 0) * 40ms); }
+
+/* ---------------------------------------------------------------- one character */
+.chr-detail { display: flex; flex-direction: column; gap: 14px; }
+.chr-desc { margin: 0; font-family: var(--font-display); font-size: calc(16px * var(--text-scale, 1)); line-height: 1.45; color: var(--text-2); }
+.chr-detail-acts, .chr-acts { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.chr-detail-acts .btn, .chr-acts .btn { min-height: var(--tap, 44px); }
+
+/* The sheet's pictures */
+.chr-tiles { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px 10px; }
+@media (min-width: 700px) { .chr-tiles { grid-template-columns: repeat(4, minmax(0, 1fr)); } }
+.chr-tiles-small { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px 8px; }
+@media (min-width: 700px) { .chr-tiles-small { grid-template-columns: repeat(4, minmax(0, 1fr)); } }
+.chr-tile { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.chr-tile-art {
+  position: relative;
+  aspect-ratio: 3 / 4;
+  overflow: hidden;
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--text) 6%, transparent);
+}
+.chr-tile-art img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.chr-tile[data-status='making'] .chr-tile-art, .chr-tile[data-status='todo'] .chr-tile-art { outline: 1px dashed var(--o5-hair, var(--border)); outline-offset: -1px; }
+.chr-tile-wait { position: absolute; inset: 0; background: linear-gradient(100deg, transparent 30%, color-mix(in srgb, var(--accent) 14%, transparent) 50%, transparent 70%) 200% 0 / 200% 100%; }
+:root[data-motion='full'] .chr-tile[data-status='making'] .chr-tile-wait { animation: mk-shimmer 1.4s linear infinite; }
+.chr-tile-state {
+  position: absolute;
+  left: 6px;
+  right: 6px;
+  bottom: 6px;
+  padding: 5px 8px;
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--bg) 84%, transparent);
+  -webkit-backdrop-filter: blur(8px);
+  backdrop-filter: blur(8px);
+  font: 600 calc(11px * var(--text-scale, 1)) / 1.2 var(--font-ui);
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+.chr-tile-state[data-bad] { color: var(--danger, #c0392b); }
+.chr-tile-foot { display: flex; align-items: flex-start; gap: 4px; min-height: 30px; padding-top: 2px; }
+.chr-tile-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.chr-tile-label { font: 600 calc(12px * var(--text-scale, 1)) / 1.2 var(--font-ui); overflow-wrap: anywhere; }
+.chr-tile-id { flex: none; font: 600 calc(10px * var(--text-scale, 1)) / 1 var(--font-ui); letter-spacing: 0.08em; text-transform: uppercase; color: var(--text-3); }
+.chr-tile-id[data-low] { color: var(--warning, #d97706); }
+.chr-redo {
+  flex: none;
+  width: var(--tap, 44px);
+  height: var(--tap, 44px);
+  margin: -10px -8px -8px 0;
+  display: grid;
+  place-items: center;
+  border: 0;
+  background: none;
+  color: var(--text-2);
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+.chr-redo:active { color: var(--accent); transform: rotate(-40deg); }
+
+/* ---------------------------------------------------------------- the walk-through */
+.chr-wizard { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.chr-wizard .mk-deck { flex: 1; min-height: 0; }
+.chr-problem { margin: 0; color: var(--danger, #c0392b); font: 500 calc(14px * var(--text-scale, 1)) / 1.4 var(--font-ui); }
+.chr-trait .chr-own { margin-top: 2px; }
+.chr-outfit-more { display: flex; align-items: flex-end; gap: 8px; }
+.chr-outfit-more .input { flex: 1; min-width: 0; }
+.chr-check { display: flex; align-items: flex-start; gap: 12px; min-height: var(--tap, 44px); font: 500 calc(14px * var(--text-scale, 1)) / 1.4 var(--font-ui); cursor: pointer; }
+.chr-check input { flex: none; width: 22px; height: 22px; margin: 0; accent-color: var(--accent); }
+.chr-sheet, .chr-prep, .chr-save { display: flex; flex-direction: column; gap: 14px; min-width: 0; }
+.chr-line[data-bad] { color: var(--danger, #c0392b); }
+.chr-save-card { display: flex; align-items: center; gap: 16px; padding: 4px 0 12px; border-bottom: 1px solid var(--o5-hair, var(--border)); }
+.chr-save-card img, .chr-save-blank { width: 84px; height: 112px; flex: none; object-fit: cover; border-radius: 12px; background: color-mix(in srgb, var(--text) 6%, transparent); }
+.chr-save-name { margin: 0 0 2px; font-family: var(--font-display); font-style: italic; font-size: calc(26px * var(--text-scale, 1)); letter-spacing: -0.02em; }
+.chr-save-card p { margin: 0; }
+
+/* ---------------------------------------------------------------- attaching one in Make */
+.chr-pick { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.chr-pick-chips { display: flex; flex-wrap: wrap; gap: 8px; }
+.chr-pick-chip {
+  position: relative;
+  flex: none;
+  min-height: var(--tap, 44px);
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 14px 0 6px;
+  border: 1px solid var(--o5-hair, var(--border));
+  border-radius: 999px;
+  background: none;
+  color: var(--text-2);
+  font: 500 calc(14px * var(--text-scale, 1)) / 1 var(--font-ui);
+  white-space: nowrap;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  transition: background 0.25s, color 0.25s, transform 0.45s var(--spring-playful);
+}
+.chr-pick-chip:active { transform: scale(0.95); }
+.chr-pick-chip[aria-pressed='true'] { background: var(--text); color: var(--bg); border-color: transparent; }
+.chr-pick-face { width: 32px; height: 32px; flex: none; border-radius: 50%; object-fit: cover; background: color-mix(in srgb, var(--text) 10%, transparent); display: grid; place-items: center; }
+.chr-pick-note { margin: 0; }
+.chr-pick-plain { padding-left: 14px; }
+
+@media (max-height: 520px) {
+  .chr-tiles { grid-template-columns: repeat(5, minmax(0, 1fr)); }
+  .chr-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+}
+
+/* Three buttons in the header on a phone: the small line over "Make" gives way. */
+@media (max-width: 480px) {
+  .mk-top .mk-actions { gap: 6px; }
+  .mk-top .mk-top-btn { padding: 0 11px; }
+  .mk-brand .o5-kicker { display: none; }
+}
