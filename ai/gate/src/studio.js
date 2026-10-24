@@ -10,6 +10,7 @@ import { Readable, Transform } from 'node:stream';
 import { lastFrameArgs, runFfmpeg } from './movies.js';
 import { UPLOAD_MAX, audioArgs, clipArgs, fitSize, ltxFrames, probeMedia, shapeOf, uploadType, vaceFrames } from './media.js';
 import { createMirror, downloadFile, uploadFile } from './r2.js';
+import { createHeld } from './held.js';
 import { pipeline } from 'node:stream/promises';
 import {
   MAKERS,
@@ -155,7 +156,10 @@ export const PHOTO_MESSAGE = "Photos you upload can't be made sexual or have clo
  */
 export const SWAP_MINOR_MESSAGE = "Swap a person only works with adults: it can't swap a child or a teenager, in the video or from a photo.";
 export const SWAP_NSFW_MESSAGE = "A photo of a real person can't be put into a video marked NSFW.";
-export const CHECK_MESSAGE = "The safety check couldn't look at the result, so it was not kept. Try again in a minute.";
+export const CHECK_MESSAGE = "The safety check couldn't look at the result, so it was set aside for a person to review. It is not in your gallery.";
+/** Adult swaps: only a character made here, in a video made here (never a photo or an upload). */
+export const ADULT_SWAP_MESSAGE = 'Adult swaps only work with a character you made here, on a video made here.';
+export const CHARACTER_MESSAGE = 'Swap a person only works with an adult character made here from words.';
 /** Who to replace must name a person, not what they wear (and the words can't be sexual). */
 export function blockedSwap(target, prompt = '') {
   return blockedTarget(target) || blockedForPhoto(prompt);
@@ -236,6 +240,7 @@ export function outputFiles(outputs) {
  *   gallery    an R2 client for the gallery only (GALLERY=r2 on a volume: the drawing machine); r2 when unset
  *   role       main | helper | canvas (its own state file, timings and ComfyUI folder per role)
  *   makers     maker ids this machine keeps instead of the built-ins (the drawing machine's short list)
+ *   characters saved characters (characters.js): get(id) -> { id, name, adult, fictional, sheet: [image files], descriptor }
  *   hfToken    a Hugging Face token (HF_TOKEN), for gated model files (LTX-2.5); never logged or shown
  *   fetchImpl, WebSocketImpl, log, now, ffmpeg, probe     (tests)
  */
@@ -261,6 +266,11 @@ export function createStudio(o) {
   // The gallery can be in R2 while everything else is on a volume (the drawing machine).
   const galleryR2 = o.gallery || r2;
   const mirror = galleryR2 ? createMirror({ r2: galleryR2, root: path.join(dir, 'output'), prefix: 'gallery/', log }) : null;
+  // Results that must not go straight to the user wait here for the owner (held.js): `held/` in R2, else a
+  // `held/` folder next to the gallery. Never listed in the gallery, never mirrored to its prefix.
+  const heldStore = createHeld({ dir, r2: galleryR2, log, now });
+  // Saved characters (characters.js): characters.get(id) -> { id, name, adult, fictional, sheet: [image files], descriptor }.
+  const characters = o.characters || null;
   // A machine with its own short list keeps only those makers (and what is added), not the built-ins.
   const only = Array.isArray(o.makers) ? new Set(o.makers) : null;
   const modelKey = (file) => `models/${file.dir}/${file.name}`;
@@ -1022,6 +1032,19 @@ export function createStudio(o) {
     return name;
   }
 
+  /** One picture of a saved character (a file on this machine) as ComfyUI input. */
+  async function copyFromSheet(entry) {
+    const given = typeof entry === 'string' ? entry : entry?.file || entry?.path;
+    if (typeof given !== 'string' || !given) throw bad('That character has a picture that cannot be read.');
+    const src = path.isAbsolute(given) ? given : path.resolve(dir, given);
+    const buf = await fsp.readFile(src).catch(() => null);
+    const ext = buf && sniffImage(buf);
+    if (!ext) throw bad("One of that character's pictures cannot be read.", 404);
+    const name = `orbit-${newId()}${ext}`;
+    await fsp.mkdir(path.join(dir, 'input'), { recursive: true });
+    await fsp.writeFile(path.join(dir, 'input', name), buf);
+    return name;
+  }
   async function saveUpload(dataUrl) {
     const m = /^data:image\/(png|jpe?g|webp);base64,([A-Za-z0-9+/=\s]+)$/.exec(String(dataUrl || ''));
     if (!m) throw Object.assign(new Error('The starting picture must be a PNG, JPEG or WebP image.'), { status: 400 });
@@ -1200,11 +1223,26 @@ export function createStudio(o) {
     const photo = (mode !== 'sketch' && uploads.length > 0) || Boolean(endUpload) || Boolean(source?.photo) || Boolean(toSource?.photo) || (withVideo && (Boolean(videoUpload) || Boolean(videoSource?.photo)));
     // Made from an NSFW picture or video: NSFW too, before anyone has looked.
     const nsfwSource = Boolean(source?.nsfw) || Boolean(toSource?.nsfw) || (withVideo && Boolean(videoSource?.nsfw));
+    // Swap a person with a saved character (made here from words, never from a photo).
+    let character = null;
+    if (swap && req.character != null && req.character !== '') {
+      character = (await characters?.get?.(String(req.character).slice(0, 80))) || null;
+      if (!character) throw bad('That character is not saved any more.', 404);
+      if (character.adult !== true || character.fictional !== true) throw Object.assign(new Error(CHARACTER_MESSAGE), { status: 422, blocked: true });
+      if (uploads.length || req.fromItem) throw bad('Pick a character or add a photo, not both.');
+      if (!Array.isArray(character.sheet) || !character.sheet.length) throw bad('That character has no pictures yet.');
+    }
+    // An adult swap: a fictional adult character in a video made here from words alone. Nothing about a real
+    // person's photo or an upload can be in it (photo is false only when no upload is anywhere in its past).
+    const wantsAdult = swap && req.adult === true;
+    const adultSwap = Boolean(swap && character && withVideo && videoSource && !videoUpload && !photo && (await provenance(videoSource)).ok);
     if (swap) {
       // A real person's photo goes into the video: adults only, never sexual, never into an NSFW video.
       if (mentionsMinor(`${target} ${prompt}`)) throw Object.assign(new Error(SWAP_MINOR_MESSAGE), { status: 422, blocked: true });
-      if (blockedSwap(target, prompt)) throw Object.assign(new Error(PHOTO_MESSAGE), { status: 422, blocked: true });
-      if (nsfwSource || videoSource?.nsfwUser === true || source?.nsfwUser === true) throw Object.assign(new Error(SWAP_NSFW_MESSAGE), { status: 422, blocked: true });
+      if (adultSwap ? blockedTarget(target) : blockedSwap(target, prompt)) throw Object.assign(new Error(PHOTO_MESSAGE), { status: 422, blocked: true });
+      if (!adultSwap && (nsfwSource || videoSource?.nsfwUser === true || source?.nsfwUser === true || wantsAdult)) {
+        throw Object.assign(new Error(character || wantsAdult ? ADULT_SWAP_MESSAGE : SWAP_NSFW_MESSAGE), { status: 422, blocked: true });
+      }
     }
     if (photo) {
       const refused =
@@ -1213,7 +1251,7 @@ export function createStudio(o) {
     }
     if (needs.has('video') && !withVideo) throw bad('Add the video to work on.');
     if (needs.has('audio') && !audioUpload) throw bad('Add a voice recording or a song.');
-    if (needs.has('photo') && !uploads.length && !req.fromItem) throw bad(task === 'motion' ? 'Add a photo of who should move.' : swap ? 'Add a photo of the new person.' : 'Add a photo of the person.');
+    if (needs.has('photo') && !uploads.length && !req.fromItem && !character) throw bad(task === 'motion' ? 'Add a photo of who should move.' : swap ? 'Add a photo of the new person.' : 'Add a photo of the person.');
     if (!(await makerReady(maker))) {
       const pct = (await makers()).find((m) => m.id === maker.id)?.percent ?? 0;
       const what = maker.builtIn ? `The ${maker.name} maker is still downloading (${pct}%)` : `${maker.name} is ${wanted.has(maker.id) ? `still downloading (${pct}%)` : 'not installed'}`;
@@ -1247,9 +1285,10 @@ export function createStudio(o) {
     }
     // Pictures to start from: uploads, or a picture from the gallery.
     const inputs = [];
-    if (req.fromLastFrameOf) inputs.push(await lastFrameOf(String(req.fromLastFrameOf)));
+    if (character) for (const entry of character.sheet.slice(0, 2)) inputs.push(await copyFromSheet(entry));
+    else if (req.fromLastFrameOf) inputs.push(await lastFrameOf(String(req.fromLastFrameOf)));
     else if (req.fromItem) inputs.push(await copyFromGallery(String(req.fromItem)));
-    for (const u of uploads) inputs.push(await saveUpload(u));
+    if (!character) for (const u of uploads) inputs.push(await saveUpload(u));
     const need = mode === 'edit' ? (maker.twoImages ? 2 : 1) : mode === 'upscale' || mode === 'sketch' ? 1 : 0;
     if (inputs.length < need) {
       throw Object.assign(new Error(maker.twoImages ? 'Add two pictures: the person first, then the outfit.' : mode === 'sketch' ? 'Draw something first.' : 'Add the picture to start from.'), { status: 400 });
@@ -1380,7 +1419,25 @@ export function createStudio(o) {
       // A studio member's job (gate.js sets it from their key, never from the request body).
       owner: typeof req.owner === 'string' && req.owner ? req.owner.slice(0, 120) : undefined,
       photo,
-      nsfwSource,
+      // Made from an NSFW picture or video, or asked to be adult (an allowed adult swap): NSFW before anyone has looked.
+      nsfwSource: nsfwSource || (adultSwap && wantsAdult),
+      // What it started from (gallery ids): the trail an adult swap's origin is checked along.
+      sources: [fromId, req.toItem, req.videoItem].filter((x) => typeof x === 'string' && x).map(String),
+      character: character ? { id: String(character.id), name: String(character.name || '').slice(0, 80) } : undefined,
+      adultSwap: adultSwap || undefined,
+      // What was asked, kept with a held result so the owner sees it (never the uploads themselves).
+      request: swap
+        ? {
+            target,
+            prompt: String(req.prompt || '').slice(0, 500),
+            videoItem: req.videoItem ? String(req.videoItem) : undefined,
+            videoUpload: Boolean(videoUpload) || undefined,
+            photoUpload: uploads.length > 0 || undefined,
+            fromItem: req.fromItem ? String(req.fromItem) : undefined,
+            character: character ? String(character.id) : undefined,
+            adult: wantsAdult || undefined,
+          }
+        : undefined,
       workflow,
       status: 'queued',
       progress: 0,
@@ -1503,6 +1560,10 @@ export function createStudio(o) {
         fromImage: job.fromImage,
         style: job.style || undefined,
         photo: job.photo || undefined,
+        sources: job.sources,
+        character: job.character,
+        adultSwap: job.adultSwap,
+        request: job.request,
         nsfw: job.nsfwSource || undefined,
         // Made by the meme lab: kept out of the gallery until you keep it.
         lab: job.background || undefined,
@@ -1517,10 +1578,14 @@ export function createStudio(o) {
       // it fine (rate() writes its note then); NSFW, or not looked at, and its file is deleted.
       if (item.photoGuard) {
         const r = await rate(item);
-        if (!r || r.nsfw) {
-          await remove(item.id);
-          await fsp.rm(path.join(dir, 'output', file), { force: true });
-          throw new Error(r ? PHOTO_MESSAGE : CHECK_MESSAGE);
+        const outcome = outcomes.get(item.id);
+        outcomes.delete(item.id);
+        // A result that could show someone under 18 is removed; any other doubt sets it aside for the owner.
+        if (outcome === 'removed') throw new Error(BLOCKED_MESSAGE);
+        if (outcome === 'held') throw new Error(PHOTO_MESSAGE);
+        if (!r) {
+          await holdItem(item, { reason: HOLD_REASON.unchecked, category: 'checker-unavailable' });
+          throw new Error(CHECK_MESSAGE);
         }
       } else {
         await fsp.writeFile(path.join(metaDir, `${job.id}.json`), JSON.stringify(item));
@@ -1882,6 +1947,67 @@ export function createStudio(o) {
     return item;
   }
 
+  // ---- origin: was it made in the app from words, with no uploaded photo or video anywhere behind it?
+  /**
+   * { ok } is true only when an item is surely free of uploads. An item made since this check existed lists
+   * what it started from (sources) and is followed back; an older one counts only if it was made by a plain
+   * picture or video maker from words alone. Anything unknown (imported, a cut movie, a note that is gone) is not ok.
+   */
+  async function provenance(it, depth = 0, seen = new Set()) {
+    if (!it || typeof it !== 'object') return { ok: false, why: 'unknown' };
+    if (depth > 8 || seen.has(it.id)) return { ok: false, why: 'unknown' };
+    seen.add(it.id);
+    if (it.photo || it.photoGuard) return { ok: false, why: 'photo' };
+    if (Array.isArray(it.sources)) {
+      for (const sid of it.sources) {
+        const r = await provenance(await readItem(String(sid)), depth + 1, seen);
+        if (!r.ok) return r;
+      }
+      return { ok: true };
+    }
+    const kind = makerById(String(it.maker || ''))?.kind;
+    if (it.fromImage === false && (kind === 'image' || kind === 'video')) return { ok: true };
+    return { ok: false, why: 'unknown' };
+  }
+
+  const HOLD_REASON = {
+    unchecked: "The safety check couldn't look at this result, so nobody has seen it yet.",
+    flagged: "The safety check says this is adult content, on a swap that is not allowed to be adult (it has a real person's photo, or a video not made here).",
+  };
+  /** What happened to a guarded result inside rate(): 'held' or 'removed' (finish() reads it). */
+  const outcomes = new Map();
+
+  /**
+   * Set a result aside for the owner: copy it (and its note) to the held area first, and only when that worked
+   * take it out of the gallery. If it can't be kept, it is left where it is (out of sight), never deleted.
+   */
+  async function holdItem(item, { reason, category, score }) {
+    const p = await localFile(item);
+    if (!p) throw new Error('The result file is missing, so it could not be held.');
+    const note = (await readItem(item.id)) || item;
+    const rec = { ...note, ...(typeof score === 'number' ? { nsfwScore: score } : {}) };
+    // Approving is only for results that could stand in a gallery: a flagged real person's photo or upload never.
+    await heldStore.hold({ item: rec, file: p, reason, category, canApprove: category === 'checker-unavailable' || Boolean(item.adultSwap) });
+    await remove(item.id);
+    await fsp.rm(p, { force: true });
+  }
+
+  /** Put an approved result back in its owner's gallery with its note (its NSFW mark kept), and an audit line. */
+  async function placeApproved(rec, mediaPath, audit) {
+    const item = { ...rec.item };
+    const dest = path.resolve(path.join(dir, 'output'), item.file);
+    if (!dest.startsWith(path.join(dir, 'output') + path.sep)) throw bad('Not a gallery file.');
+    await fsp.mkdir(path.dirname(dest), { recursive: true });
+    await fsp.copyFile(mediaPath, dest);
+    item.review = [...(item.review || []), audit];
+    await fsp.mkdir(metaDir, { recursive: true });
+    await withNote(item.id, async () => {
+      await fsp.writeFile(path.join(metaDir, `${item.id}.json`), JSON.stringify(item));
+      await keep(item);
+    });
+    if (typeof item.nsfw !== 'boolean') void rate(item);
+  }
+
   // ---- the NSFW check: look at each picture or video once, and remember the answer in its note.
   const rating = new Set();
   // One read-change-write at a time per note, so the check and your own say never undo each other.
@@ -1905,10 +2031,21 @@ export function createStudio(o) {
       if (!p) return null;
       const r = await o.nsfw.check(p, { kind: item.kind, seconds: item.seconds });
       if (!r) return null;
-      // A drawing about children that came out NSFW is never kept; nor is a swapped-in real person.
-      if (r.nsfw && (item.minorGuard || item.photoGuard)) {
-        log.warn?.(`[nsfw] ${item.id}: NSFW result ${item.minorGuard ? 'from a prompt about children' : 'with a real person swapped in'}, removed`);
+      // A result that could show someone under 18, or a drawing about children that came out NSFW, is never
+      // kept (the one thing that is not held for review: keeping it would be unlawful).
+      if ((r.minor === true && (item.photoGuard || item.minorGuard)) || (r.nsfw && item.minorGuard)) {
+        log.warn?.(`[nsfw] ${item.id}: ${item.minorGuard ? 'NSFW result from a prompt about children' : 'a result that could show someone under 18'}, removed`);
         await remove(item.id);
+        await fsp.rm(path.join(dir, 'output', item.file), { force: true });
+        outcomes.set(item.id, 'removed');
+        return r;
+      }
+      // Adult content where it is not allowed (a real person's photo, or a video not made here): not shown, not
+      // deleted: set aside for the owner to look at. An allowed adult swap (a character made here, a video
+      // made here) just gets its NSFW mark and shows blurred.
+      if (r.nsfw && item.photoGuard && !item.adultSwap) {
+        await holdItem(item, { reason: HOLD_REASON.flagged, category: 'flagged', score: r.score });
+        outcomes.set(item.id, 'held');
         return r;
       }
       // Read the note again: it may have changed meanwhile (kept from the Lab, or your own say).
@@ -2092,6 +2229,14 @@ export function createStudio(o) {
     /** Check every unchecked picture and video now (tests; also runs by itself after start). */
     rateAll,
     markNsfw,
+    /** Results set aside for the owner (held.js): never in items(), the Lab or any listing for users. */
+    held: {
+      list: () => heldStore.list(),
+      get: (id) => heldStore.get(id),
+      file: (id) => heldStore.file(id),
+      note: (id, text) => heldStore.note(id, text),
+      approve: (id) => heldStore.approve(id, placeApproved),
+    },
     sizes: SIZES,
     mirror,
     /** The first copy of this drive's gallery to R2, while it runs (null otherwise). */

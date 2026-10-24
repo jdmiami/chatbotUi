@@ -175,6 +175,15 @@ export function createGate(cfg, log = console) {
       return false;
     }
   };
+  // Held results (studio.held): their own links, good for an hour, that no gallery link can stand in for.
+  const heldToken = (id) => signJwt({ sub: id, aud: 'orbit-ai-held' }, secret, { expiresIn: 3600 });
+  const heldTokenOk = (token, id) => {
+    try {
+      return verifyJwt(token, secret, { audience: 'orbit-ai-held' }).sub === id;
+    } catch {
+      return false;
+    }
+  };
 
   function cors(req, res) {
     const origin = req.headers.origin;
@@ -742,6 +751,56 @@ export function createGate(cfg, log = console) {
     if (fileMatch && req.method === 'GET') {
       if (!signedIn && !fileTokenOk(url.searchParams.get('t'), fileMatch[1])) return send(res, 401, { error: 'Unauthorized' });
       return sendFile(req, res, await studio.file(fileMatch[1]), url.searchParams.has('download'));
+    }
+    // Held for review (the owner only: not Open WebUI's key, not a studio member's).
+    if (path === '/_orbit/studio/held' || path.startsWith('/_orbit/studio/held/')) {
+      if (!studio.held) return send(res, 404, { error: 'Not found' });
+      const heldFile = /^\/_orbit\/studio\/held\/file\/([A-Za-z0-9_-]+)$/.exec(path);
+      const owner = viaApi || Boolean(session(req));
+      if (heldFile && req.method === 'GET') {
+        if (!owner && !heldTokenOk(url.searchParams.get('t'), heldFile[1])) return send(res, 401, { error: 'Unauthorized' });
+        return sendFile(req, res, await studio.held.file(heldFile[1]), false);
+      }
+      if (!owner) return send(res, 401, { error: 'Unauthorized' });
+      try {
+        // What the owner sees of a held result: the blurred-by-default preview's link, why, who made it.
+        const heldView = (r) => ({
+          id: r.id,
+          kind: r.kind,
+          prompt: r.prompt,
+          width: r.width,
+          height: r.height,
+          seconds: r.seconds,
+          nsfw: r.nsfw === true,
+          reason: r.reason,
+          category: r.category,
+          heldAt: r.heldAt,
+          madeBy: r.owner ? 'A studio member' : 'You',
+          owner: r.owner,
+          character: r.character,
+          request: r.request,
+          notes: r.notes || [],
+          canApprove: r.canApprove !== false,
+          url: `/_orbit/studio/held/file/${r.id}?t=${heldToken(r.id)}`,
+        });
+        if (path === '/_orbit/studio/held' && req.method === 'GET') return send(res, 200, { items: (await studio.held.list()).map(heldView) });
+        const act = /^\/_orbit\/studio\/held\/([A-Za-z0-9_-]+)\/(approve|note)$/.exec(path);
+        if (act && req.method === 'POST') {
+          if (act[2] === 'approve') {
+            const rec = await studio.held.approve(act[1]);
+            if (!rec) return send(res, 404, { error: 'That one is not held any more.' });
+            cfg.storage?.forget();
+            return send(res, 200, { ok: true, id: rec.id, approvedAt: rec.approvedAt });
+          }
+          const { text } = JSON.parse((await readBody(req, 8192)) || '{}');
+          const rec = await studio.held.note(act[1], text);
+          return rec ? send(res, 200, { ok: true, item: heldView(rec) }) : send(res, 404, { error: 'That one is not held any more.' });
+        }
+        // Deleting a held result is not offered here: that is the owner's separate decision.
+        return send(res, act ? 405 : 404, { error: act ? 'Not allowed' : 'Not found' });
+      } catch (err) {
+        return send(res, err.status || (err instanceof SyntaxError ? 400 : 500), { error: err.message });
+      }
     }
     if (!signedIn) return send(res, 401, { error: { message: 'Unauthorized' } });
     if (req.method !== 'GET' && req.method !== 'HEAD') activity();

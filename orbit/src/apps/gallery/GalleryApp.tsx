@@ -14,6 +14,8 @@ import { getLocalAi, type AiMachineStatus } from '../../services/ai/LocalAi';
 import { cloudMadeList, cloudMadeRemove, moveCloudMadeToStorage } from '../../services/ai/CloudMake';
 import { deleteStored, keepStored, markStoredNsfw, saveCloudToStorage, sourceOf, storedGallery, type CreationSource, type StoredGallery } from '../../services/ai/StoredGallery';
 import { GalleryGrid, GalleryViewer, useGalleryStepper, type GalleryMedia } from '../ai/Gallery';
+import { loadHeld, type HeldItem } from '../../services/ai/HeldReview';
+import { HeldReview } from './HeldReview';
 import '../agent/agent.css';
 import '../ai/ai.css';
 import './gallery.css';
@@ -89,6 +91,9 @@ export default function GalleryApp({ isActive }: AppProps) {
   const viewFrom = useRef<DOMRect | null>(null);
   const [confirmDelete, setConfirmDelete] = useState<Creation | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
+  // Results set aside for the owner to look at: only there when something is held (and only the owner is ever told).
+  const [held, setHeld] = useState<HeldItem[]>([]);
+  const [showHeld, setShowHeld] = useState(false);
 
   const setPick = (next: Partial<typeof pick>) =>
     setPickState((p) => {
@@ -131,7 +136,7 @@ export default function GalleryApp({ isActive }: AppProps) {
 
   const load = useCallback(async () => {
     let failed = false;
-    const [s, m, d] = await Promise.all([
+    const [s, m, d, h] = await Promise.all([
       storedGallery().catch((err: Error) => {
         failed = true;
         setProblem(err.message);
@@ -187,7 +192,9 @@ export default function GalleryApp({ isActive }: AppProps) {
           )
         : Promise.resolve(null),
       cloudMadeList(),
+      loadHeld(ai, machineOn),
     ]);
+    setHeld(h);
     if (s) {
       setProblem(null);
       rememberItems(s.items);
@@ -277,6 +284,7 @@ export default function GalleryApp({ isActive }: AppProps) {
   const shown = all.filter((it) => (pick.kind === 'all' || it.kind === pick.kind) && (pick.source === 'all' || it.source === pick.source));
   const open = viewing ? (all.find((x) => x.id === viewing) ?? null) : null;
   const step = useGalleryStepper(shown, open?.id);
+  const reviewing = showHeld && held.length > 0;
 
   // Gone (deleted elsewhere): the viewer closes.
   useEffect(() => {
@@ -359,6 +367,7 @@ export default function GalleryApp({ isActive }: AppProps) {
           {problem && <p className="ai-error">{problem}</p>}
 
           <div className="gallery-filters">
+            {!reviewing && (
             <Segmented<Kind>
               label="Pictures or videos"
               value={pick.kind}
@@ -369,17 +378,38 @@ export default function GalleryApp({ isActive }: AppProps) {
               ]}
               onChange={(kind) => setPick({ kind })}
             />
+            )}
             <div className="gallery-sources" role="radiogroup" aria-label="Made in">
               {SOURCES.map((s) => (
-                <button key={s.value} type="button" role="radio" aria-checked={pick.source === s.value} className="gallery-source" onClick={() => setPick({ source: s.value })}>
+                <button
+                  key={s.value}
+                  type="button"
+                  role="radio"
+                  aria-checked={!reviewing && pick.source === s.value}
+                  className="gallery-source"
+                  onClick={() => {
+                    setShowHeld(false);
+                    setPick({ source: s.value });
+                  }}
+                >
                   {s.label}
                   <span className="gallery-source-n">{counts[s.value] ?? 0}</span>
                 </button>
               ))}
+              {held.length > 0 && (
+                <button type="button" role="radio" aria-checked={reviewing} className="gallery-source gallery-source-held" onClick={() => setShowHeld(true)}>
+                  Held for review
+                  <span className="gallery-source-n" aria-label={`${held.length} held`}>
+                    {held.length}
+                  </span>
+                </button>
+              )}
             </div>
           </div>
 
-          {!loaded ? (
+          {reviewing ? (
+            <HeldReview items={held} ai={ai} machineOn={machineOn} onChanged={() => void load()} />
+          ) : !loaded ? (
             <p className="ai-muted">Opening your gallery…</p>
           ) : shown.length === 0 ? (
             <p className="ai-muted gallery-empty">
