@@ -1,9 +1,10 @@
-import type { R2 } from './r2';
+import type { IndexCache, R2 } from './r2';
 
 /**
  * Results held for the owner to look at, read from Cloudflare R2 so this works with the AI machine off.
  * The machine writes them (ai/gate/src/held.js): `held/<id>.json` is the record, `held/<id>.<ext>` the
- * picture or video. They are NOT under `gallery/`, so no gallery listing ever shows them.
+ * picture or video, `held/thumbs/<id>.webp` its small preview. They are NOT under `gallery/`, so no gallery
+ * listing ever shows them. The site keeps `held/_index.v1.json` (lib/r2.ts, IndexCache) so a cold look is a few requests.
  *
  * What the owner can do here: list them, add a note, and approve one (it goes back into that person's
  * gallery with its NSFW mark intact, and an audit line says who and when). There is no delete: a held
@@ -33,6 +34,7 @@ interface HeldRecord {
   seconds?: number;
   nsfw?: boolean;
   canApprove?: boolean;
+  thumb?: boolean;
   notes?: HeldNote[];
   audit?: { at: string; by: string; action: string }[];
   approvedAt?: string;
@@ -58,6 +60,8 @@ export interface HeldEntry {
   notes: HeldNote[];
   canApprove: boolean;
   url: string;
+  /** Its small preview for the review grid, when the machine made one. */
+  thumbUrl?: string;
 }
 
 export class HeldError extends Error {
@@ -69,6 +73,8 @@ export class HeldError extends Error {
 }
 
 const KEY = /^held\/([A-Za-z0-9_-]{6,40})\.json$/;
+const records: IndexCache<HeldRecord> = { key: 'held/_index.v1.json', memory: new Map(), sig: null };
+const heldThumb = (id: string) => `held/thumbs/${id}.webp`;
 const ID = /^[A-Za-z0-9_-]{6,40}$/;
 const TYPES: Record<string, string> = { '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.webp': 'image/webp', '.mp4': 'video/mp4', '.webm': 'video/webm' };
 const WINDOW_MS = 30 * 60_000;
@@ -91,14 +97,15 @@ async function readRecord(r2: R2, id: string): Promise<HeldRecord> {
 
 /** Everything waiting for a look, newest first, each with a preview link that lasts two hours. */
 export async function listHeld(r2: R2, { now = Date.now }: { now?: () => number } = {}): Promise<HeldEntry[]> {
-  const all = await r2.list('held/');
+  const [all, index] = await Promise.all([r2.list('held/'), records.memory.size === 0 ? r2.readIndex(records) : null]);
   const sizes = new Map(all.map((o) => [o.key, o.size]));
+  const read = await r2.syncIndex(records, all.filter((o) => KEY.test(o.key)), { index });
   const at = new Date(Math.floor(now() / WINDOW_MS) * WINDOW_MS);
   const out: HeldEntry[] = [];
   for (const o of all) {
     const m = KEY.exec(o.key);
     if (!m) continue;
-    const rec = await r2.getJson<HeldRecord>(o.key).catch(() => null);
+    const rec = read.get(o.key);
     const ext = safeExt(rec?.ext);
     if (!rec || rec.id !== m[1] || rec.status !== 'held' || (rec.kind !== 'image' && rec.kind !== 'video') || !ext) continue;
     const media = `held/${rec.id}${ext}`;
@@ -121,6 +128,7 @@ export async function listHeld(r2: R2, { now = Date.now }: { now?: () => number 
       notes: Array.isArray(rec.notes) ? rec.notes : [],
       canApprove: rec.canApprove !== false,
       url: r2.presign(media, LINK_SECONDS, { type: typeOf(ext), at }),
+      ...(sizes.has(heldThumb(rec.id)) ? { thumbUrl: r2.presign(heldThumb(rec.id), LINK_SECONDS, { type: 'image/webp', at }) } : {}),
     });
   }
   out.sort((a, b) => b.heldAt.localeCompare(a.heldAt));
@@ -135,6 +143,7 @@ export async function noteHeld(r2: R2, id: string, text: unknown, { now = Date.n
   if (rec.status !== 'held') throw new HeldError('That one is not held any more.', 404);
   rec.notes = [...(rec.notes ?? []), { at: new Date(now()).toISOString(), by: 'owner', text: words }].slice(-50);
   await r2.putJson(`held/${id}.json`, rec);
+  records.memory.delete(`held/${id}.json`);
   return { ok: true, notes: rec.notes };
 }
 
@@ -165,7 +174,19 @@ export async function approveHeld(r2: R2, id: string, { now = Date.now }: { now?
   rec.approvedAt = stamp;
   rec.audit = [...(rec.audit ?? []), audit];
   await r2.putJson(`held/${id}.json`, rec);
-  // In the gallery now: the held copy of the file has moved.
+  records.memory.delete(`held/${id}.json`);
+  // In the gallery now: the held copy of the file has moved, and its preview with it (now the gallery's).
   await r2.remove(media);
+  if (rec.thumb) {
+    const thumb = await r2.get(heldThumb(id)).catch(() => null);
+    if (thumb) await r2.put(`gallery/thumbs/${id}.webp`, thumb, 'image/webp').catch(() => {});
+    await r2.remove(heldThumb(id)).catch(() => {});
+  }
   return { ok: true, id, approvedAt: stamp };
+}
+
+/** Forget what was read, as a new server instance would (tests). */
+export function forgetHeld() {
+  records.memory.clear();
+  records.sig = null;
 }

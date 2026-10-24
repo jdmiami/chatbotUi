@@ -364,6 +364,7 @@ export function MemeLab({ ai, machineOn, isActive, onKept }: { ai: LocalAi; mach
           onPrev={step.prev ? () => setViewing(step.prev!.id) : null}
           onNext={step.next ? () => setViewing(step.next!.id) : null}
           position={step.index >= 0 ? { index: step.index, count: step.count } : undefined}
+          neighbours={[step.prev, step.next]}
           words={
             <div className="lab-detail-words">
               <p className="meme-card-title">{open.title}</p>
@@ -448,6 +449,7 @@ const asMedia = (r: MemeRecord): GalleryMedia & { record: MemeRecord } => ({
   id: r.id,
   kind: r.kind === 'image' ? 'image' : 'video',
   url: r.url ?? '',
+  thumbUrl: r.thumbUrl,
   label: r.title,
   nsfw: labNsfw(r),
   seconds: r.seconds,

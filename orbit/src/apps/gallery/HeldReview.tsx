@@ -19,7 +19,7 @@ const when = (iso: string) => {
   return Number.isNaN(d.getTime()) ? '' : d.toLocaleString(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
 };
 const firstFrame = (url: string) => (url.includes('#') ? url : `${url}#t=0.1`);
-const media = (h: HeldItem): GalleryMedia => ({ id: h.id, kind: h.kind, url: h.url, label: h.prompt || 'Held result', nsfw: true, seconds: h.seconds });
+const media = (h: HeldItem): GalleryMedia => ({ id: h.id, kind: h.kind, url: h.url, thumbUrl: h.thumbUrl, width: h.width, height: h.height, label: h.prompt || 'Held result', nsfw: true, seconds: h.seconds });
 
 export function HeldReview({ items, ai, machineOn, onChanged }: { items: HeldItem[]; ai: LocalAi; machineOn: boolean; onChanged: () => void }) {
   const toast = useShell((s) => s.toast);
@@ -81,15 +81,16 @@ export function HeldReview({ items, ai, machineOn, onChanged }: { items: HeldIte
                   setViewing(h.id);
                 }}
               >
-                {h.kind === 'image' ? (
-                  <DevelopImg src={h.url} alt="" loading="lazy" />
+                {/* Its small preview (kept with it under held/), else the file itself. Blurred either way. */}
+                {h.thumbUrl || h.kind === 'image' ? (
+                  <DevelopImg src={h.thumbUrl ?? h.url} alt="" loading="lazy" decoding="async" />
                 ) : (
-                  <>
-                    <video src={firstFrame(h.url)} muted playsInline preload="metadata" />
-                    <span className="ai-tile-badge">
-                      <Icon name="play" size={14} /> {h.seconds ? `${Math.round(h.seconds)}s` : ''}
-                    </span>
-                  </>
+                  <video src={firstFrame(h.url)} muted playsInline preload="metadata" />
+                )}
+                {h.kind === 'video' && (
+                  <span className="ai-tile-badge">
+                    <Icon name="play" size={14} /> {h.seconds ? `${Math.round(h.seconds)}s` : ''}
+                  </span>
                 )}
               </button>
             </Censor>
@@ -153,6 +154,7 @@ export function HeldReview({ items, ai, machineOn, onChanged }: { items: HeldIte
           onPrev={index > 0 ? () => setViewing(items[index - 1].id) : null}
           onNext={index >= 0 && index < items.length - 1 ? () => setViewing(items[index + 1].id) : null}
           position={index >= 0 ? { index, count: items.length } : undefined}
+          neighbours={[index > 0 ? media(items[index - 1]) : null, index >= 0 && index < items.length - 1 ? media(items[index + 1]) : null]}
           words={open.prompt ? <p className="ai-viewer-prompt">{open.prompt}</p> : undefined}
         >
           <p className="ai-muted gallery-meta">

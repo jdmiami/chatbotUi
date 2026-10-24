@@ -1,13 +1,13 @@
 import { currentUser } from '@/lib/auth';
 import { sameOrigin } from '@/lib/request';
 import { createR2, r2Config } from '@/lib/r2';
-import { GalleryError, deleteItem, importCloudItem, keepLabItem, listGallery, markNsfw } from '@/lib/gallery';
+import { GalleryError, deleteItem, importCloudItem, keepLabItem, listGallery, makeThumbs, markNsfw } from '@/lib/gallery';
 
 export const dynamic = 'force-dynamic';
 // Saving a cloud video means fetching it first.
 export const maxDuration = 60;
 
-const noStore = { 'cache-control': 'no-store' };
+const noStore = { 'cache-control': 'private, no-store' };
 /** Said plainly when the site has no storage keys yet (nothing else about them is ever said). */
 const NOT_SET_UP = 'Your gallery shows here with the machine off once storage keys are added.';
 
@@ -40,6 +40,7 @@ export async function GET() {
  *   { action: 'keep', id }                               a Lab picture or clip into the main gallery
  *   { action: 'delete', id }                             gone, file and all
  *   { action: 'import', url, kind, prompt, maker }       a cloud creation saved into the gallery
+ *   { action: 'thumbs', ids? }                           make a few missing picture thumbnails (the ones on screen first)
  */
 export async function POST(request: Request) {
   if (!(await currentUser())) return Response.json({ error: 'Unauthorized' }, { status: 401 });
@@ -56,12 +57,16 @@ export async function POST(request: Request) {
         return Response.json(await keepLabItem(r2, id), { headers: noStore });
       case 'delete':
         return Response.json(await deleteItem(r2, id), { headers: noStore });
+      case 'thumbs': {
+        const ids = Array.isArray(body.ids) ? body.ids.filter((x): x is string => typeof x === 'string').slice(0, 100) : [];
+        return Response.json(await makeThumbs(r2, { ids }), { headers: noStore });
+      }
       case 'import': {
         const note = await importCloudItem(r2, body);
         return Response.json({ ok: true, id: note.id }, { headers: noStore });
       }
       default:
-        return Response.json({ error: 'action must be nsfw, keep, delete or import' }, { status: 400, headers: noStore });
+        return Response.json({ error: 'action must be nsfw, keep, delete, import or thumbs' }, { status: 400, headers: noStore });
     }
   } catch (err) {
     return failed(err);

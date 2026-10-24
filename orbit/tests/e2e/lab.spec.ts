@@ -244,11 +244,9 @@ test(`Lab gallery: the Make gallery's tiles, a viewer with the score and why, NS
   expect(gb.x + gb.width).toBeLessThanOrEqual(page.viewportSize()!.width + 1);
   expect(await page.evaluate(() => [...document.querySelectorAll('.meme-lab, .ai-create, .lab-scroll')].some((e) => e.scrollWidth > e.clientWidth + 1))).toBe(false);
   await expect(gallery.locator('.censor')).toHaveCount(0);
-  // Every video shows its first frame (not black): a tenth of a second in, metadata loaded.
-  for (const v of await gallery.locator('video').all()) {
-    expect(await v.getAttribute('src')).toMatch(/#t=0\.1$/);
-    expect(await v.getAttribute('preload')).toBe('metadata');
-  }
+  // No video plays in the grid: a video with no thumbnail yet shows its words until the machine takes its frame.
+  await expect(gallery.locator('video')).toHaveCount(0);
+  await expect(gallery.getByRole('button', { name: 'Video: Rooftop glance' }).locator('.ai-tile-poster')).toContainText('Rooftop glance');
 
   // Tap the best one: the viewer, with the judge's scouting report.
   await gallery.getByRole('button', { name: 'Video: Rooftop glance' }).click();
@@ -343,18 +341,21 @@ test('Lab refreshes keep the same pictures and videos (no reloading) and the sam
     n++;
     if (new URL(route.request().url()).pathname.endsWith('/studio/lab')) polls.push(n);
     const s = labState();
-    await route.fulfill({ json: { ...s, records: s.records.map((r) => ({ ...r, url: `/_orbit/studio/file/${r.id}?t=tok${n}` })) } });
+    await route.fulfill({ json: { ...s, records: s.records.map((r) => ({ ...r, url: `/_orbit/studio/file/${r.id}?t=tok${n}`, thumbUrl: `/_orbit/studio/thumb/${r.id}?t=tok${n}` })) } });
   });
   await page.route('**/fake-ai/_orbit/studio/file/**', (route) => route.fulfill({ status: 200, headers: { 'content-type': 'video/mp4' }, body: '' }));
+  await page.route('**/fake-ai/_orbit/studio/thumb/**', (route) => route.fulfill({ status: 200, headers: { 'content-type': 'image/png' }, body: Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==', 'base64') }));
   const section = await openLab(page);
   const gallery = section.getByRole('list', { name: 'Lab movies, best first' });
   await expect(gallery.getByRole('listitem').first()).toBeVisible();
-  const src = await gallery.locator('video').first().getAttribute('src');
+  // Tiles show the machine's thumbnails (no video in the grid).
+  const src = await gallery.locator('img').first().getAttribute('src');
+  expect(src).toMatch(/\/_orbit\/studio\/thumb\//);
   await gallery.getByRole('listitem').first().evaluate((el) => el.setAttribute('data-probe', 'kept'));
   // Two Lab refreshes later (every 10 s): the same file links, the same tiles.
   const start = polls.length;
   await expect.poll(() => polls.length, { timeout: 30_000 }).toBeGreaterThanOrEqual(start + 2);
-  expect(await gallery.locator('video').first().getAttribute('src')).toBe(src);
+  expect(await gallery.locator('img').first().getAttribute('src')).toBe(src);
   await expect(gallery.locator('[data-probe="kept"]')).toHaveCount(1);
 });
 

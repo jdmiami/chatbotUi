@@ -518,7 +518,13 @@ export default function StatsApp({ isActive }: AppProps) {
                       <span className="sx-item-thumb" aria-hidden>
                         {hidden ? null : (
                           <Censor as="span" nsfw={nsfw}>
-                            {it.kind === 'video' ? <video src={`${it.url}#t=0.1`} muted playsInline preload="metadata" /> : <img src={it.url} alt="" loading="lazy" />}
+                            {it.thumbUrl ? (
+                              <img src={it.thumbUrl} alt="" loading="lazy" decoding="async" />
+                            ) : it.kind === 'video' ? (
+                              <video src={`${it.url}#t=0.1`} muted playsInline preload="metadata" />
+                            ) : (
+                              <img src={it.url} alt="" loading="lazy" decoding="async" />
+                            )}
                           </Censor>
                         )}
                       </span>

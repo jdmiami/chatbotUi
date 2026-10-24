@@ -56,7 +56,8 @@ export function createStorageReport({ r2, items, disks = () => [], maxAgeMs = 5 
       const file = it.file ? size.get(`gallery/${it.file}`) : undefined;
       const note = size.get(`gallery/orbit/${it.id}.json`) || 0;
       if (file === undefined && !note) continue;
-      report.items.push({ id: it.id, bytes: (file || 0) + note });
+      const thumb = size.get(`gallery/thumbs/${it.id}.webp`) || 0;
+      report.items.push({ id: it.id, bytes: (file || 0) + note + thumb });
     }
     report.items.sort((a, b) => b.bytes - a.bytes);
     return report;

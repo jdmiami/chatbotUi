@@ -5,8 +5,9 @@
 // It is NOT in the gallery: with R2 it lives under the `held/` prefix (the gallery is `gallery/`, which
 // the site and every listing read), without R2 in a `held/` folder next to the gallery's `output/`.
 //
-//   held/<id>.json   the record (see below)
-//   held/<id>.<ext>  the picture or video
+//   held/<id>.json         the record (see below)
+//   held/<id>.<ext>        the picture or video
+//   held/thumbs/<id>.webp  its small preview for the review grid (never under gallery/thumbs/)
 //
 // The one thing that is never kept: results about children or that could show someone under 18
 // (studio.js removes those as it always did, and never calls this).
@@ -38,6 +39,8 @@ export function createHeld({ dir, r2 = null, log = console, now = Date.now }) {
   const at = () => new Date(now()).toISOString();
   const localRecord = (id) => path.join(local, `${id}.json`);
   const mediaName = (rec) => `${rec.id}${rec.ext}`;
+  const thumbName = (id) => `thumbs/${id}.webp`;
+  const localThumb = (id) => path.join(local, thumbName(id));
 
   async function readLocal(id) {
     try {
@@ -92,9 +95,11 @@ export function createHeld({ dir, r2 = null, log = console, now = Date.now }) {
       try {
         const mine = path.join(local, mediaName(rec));
         if (rec.status === 'held' && (await fsp.stat(mine).catch(() => null))) await putMedia(mine, `${HELD_PREFIX}${mediaName(rec)}`);
+        if (rec.status === 'held' && rec.thumb && (await fsp.stat(localThumb(rec.id)).catch(() => null))) await putMedia(localThumb(rec.id), `${HELD_PREFIX}${thumbName(rec.id)}`);
         await r2.putJson(`${HELD_PREFIX}${rec.id}.json`, rec);
         await fsp.rm(localRecord(rec.id), { force: true });
         await fsp.rm(mine, { force: true });
+        await fsp.rm(localThumb(rec.id), { force: true });
       } catch (err) {
         log.warn?.(`[held] ${rec.id} is still only on this machine: ${err.message}`);
       }
@@ -105,9 +110,10 @@ export function createHeld({ dir, r2 = null, log = console, now = Date.now }) {
     local,
     /**
      * Keep a result for review. The file is copied (and uploaded) first: only when this returns may the
-     * caller take it out of the gallery. Throws if it could not be kept anywhere.
+     * caller take it out of the gallery. Throws if it could not be kept anywhere. `thumb`: its small
+     * preview (a WebP made apart from the gallery's), kept with it.
      */
-    async hold({ item, file, reason, category, canApprove = true }) {
+    async hold({ item, file, thumb = null, reason, category, canApprove = true }) {
       if (!ID.test(String(item?.id))) throw new Error('Nothing to hold.');
       const ext = path.extname(file).toLowerCase() || (item.kind === 'video' ? '.mp4' : '.png');
       const rec = {
@@ -129,6 +135,7 @@ export function createHeld({ dir, r2 = null, log = console, now = Date.now }) {
         nsfw: item.nsfw === true ? true : undefined,
         nsfwScore: item.nsfwScore,
         canApprove,
+        thumb: thumb ? true : undefined,
         notes: [],
         audit: [{ at: at(), by: 'machine', action: 'held' }],
         item,
@@ -136,12 +143,18 @@ export function createHeld({ dir, r2 = null, log = console, now = Date.now }) {
       await fsp.mkdir(local, { recursive: true });
       const mine = path.join(local, mediaName(rec));
       await fsp.copyFile(file, mine);
+      if (thumb) {
+        await fsp.mkdir(path.dirname(localThumb(rec.id)), { recursive: true });
+        await fsp.copyFile(thumb, localThumb(rec.id));
+      }
       await saveLocal(rec);
       if (r2) {
         try {
           await putMedia(mine, `${HELD_PREFIX}${mediaName(rec)}`);
+          if (thumb) await putMedia(localThumb(rec.id), `${HELD_PREFIX}${thumbName(rec.id)}`);
           await r2.putJson(`${HELD_PREFIX}${rec.id}.json`, rec);
           await fsp.rm(mine, { force: true });
+          await fsp.rm(localThumb(rec.id), { force: true });
           await fsp.rm(localRecord(rec.id), { force: true });
         } catch (err) {
           // Still safe on this machine's drive; it goes up the next time held items are looked at.
@@ -193,6 +206,24 @@ export function createHeld({ dir, r2 = null, log = console, now = Date.now }) {
       const st = await fsp.stat(p);
       return { path: p, size: st.size, type: mediaType(p), name: `${rec.kind}-${rec.id}${rec.ext}` };
     },
+    /** A held result's small preview for sending (null when it has none). */
+    async thumbFile(id) {
+      const rec = await get(id);
+      if (!rec || rec.status !== 'held' || !rec.thumb) return null;
+      let p = localThumb(rec.id);
+      if (!(await fsp.stat(p).catch(() => null))) {
+        if (!r2) return null;
+        p = path.join(cache, `${rec.id}.thumb.webp`);
+        if (!(await fsp.stat(p).catch(() => null))) {
+          const buf = await r2.get(`${HELD_PREFIX}${thumbName(rec.id)}`);
+          if (!buf) return null;
+          await fsp.mkdir(cache, { recursive: true });
+          await fsp.writeFile(p, buf);
+        }
+      }
+      const st = await fsp.stat(p);
+      return { path: p, size: st.size, type: 'image/webp', name: `thumb-${rec.id}.webp` };
+    },
     /** Add a note (the owner's words on why it stays held). */
     async note(id, text, by = 'owner') {
       const words = String(text || '').trim().slice(0, NOTE_MAX);
@@ -223,7 +254,11 @@ export function createHeld({ dir, r2 = null, log = console, now = Date.now }) {
       // It is in the gallery now: the held copy of the file has served its purpose.
       await fsp.rm(path.join(local, mediaName(rec)), { force: true });
       await fsp.rm(path.join(cache, mediaName(rec)), { force: true });
+      await fsp.rm(localThumb(rec.id), { force: true });
+      await fsp.rm(path.join(cache, `${rec.id}.thumb.webp`), { force: true });
       if (r2) await r2.remove(`${HELD_PREFIX}${mediaName(rec)}`).catch((err) => log.warn?.(`[held] ${rec.id}: ${err.message}`));
+      // Its preview goes too: the gallery makes its own once it is back there.
+      if (r2 && rec.thumb) await r2.remove(`${HELD_PREFIX}${thumbName(rec.id)}`).catch((err) => log.warn?.(`[held] ${rec.id}: ${err.message}`));
       return rec;
     },
   };

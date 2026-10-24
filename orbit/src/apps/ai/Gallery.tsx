@@ -10,6 +10,10 @@ import { nsfwFor, setMark, useNsfwFlags } from '../../ui/nsfwFlags';
  * stay hidden until "Show NSFW" is on and then blur until held, a long hold marks one NSFW, the
  * viewer's "NSFW" switch marks or unmarks one, a swipe goes to the next one, and videos play in the
  * same player (ViewerVideo).
+ *
+ * Tiles load the small thumbnail (`thumbUrl`, a WebP the AI machine makes: about 50 KB) for pictures and
+ * videos alike, never the file itself; only an item without one yet falls back to its file. The viewer
+ * loads the whole file, and once it has, the one before and after too, so a swipe is instant.
  */
 export interface GalleryMedia {
   id: string;
@@ -21,7 +25,15 @@ export interface GalleryMedia {
   /** NSFW unless you said otherwise: its words, the machine's check. */
   nsfw: boolean;
   seconds?: number;
+  /** Its small picture for the grid (unset: the grid falls back to the file). */
+  thumbUrl?: string;
+  /** Its size, for the tile's shape before anything has loaded. */
+  width?: number;
+  height?: number;
 }
+
+/** About how many tiles the first screen holds (iPad landscape): those load first, the rest as you scroll. */
+const FIRST_SCREEN = 12;
 
 /** A video's first frame instead of black: start a tenth of a second in (iPhone shows no frame otherwise). */
 const firstFrame = (url: string) => (url.includes('#') ? url : `${url}#t=0.1`);
@@ -42,6 +54,9 @@ export function GalleryGrid<T extends GalleryMedia>({
   const view = useNsfwView();
   const shown = items.filter((it) => shows(nsfwFor(it.id, it.nsfw), view));
   const hidden = items.length - shown.length;
+  // Thumbnails that would not load: those tiles use the file instead.
+  const [broken, setBroken] = useState<ReadonlySet<string>>(() => new Set());
+  const thumbBroke = (id: string) => setBroken((b) => (b.has(id) ? b : new Set(b).add(id)));
   if (items.length > 0 && shown.length === 0) return <p className="ai-muted">{hidden === 1 ? 'One NSFW result is hidden.' : `${hidden} NSFW results are hidden.`} Turn on "Show NSFW" in Settings to see them.</p>;
   return (
     <ul className="ai-gallery" aria-label={label}>
@@ -54,15 +69,11 @@ export function GalleryGrid<T extends GalleryMedia>({
               onClick={(e) => onOpen(it, (e.currentTarget.querySelector('img, video') ?? e.currentTarget).getBoundingClientRect())}
               aria-label={`${it.kind === 'video' ? 'Video' : 'Image'}: ${it.label}`}
             >
-              {it.kind === 'image' ? (
-                <DevelopImg src={it.url} alt="" loading="lazy" />
-              ) : (
-                <>
-                  <video src={firstFrame(it.url)} muted playsInline preload="metadata" />
-                  <span className="ai-tile-badge">
-                    <Icon name="play" size={14} /> {it.seconds ? `${Math.round(it.seconds)}s` : ''}
-                  </span>
-                </>
+              <TileMedia item={it} first={n < FIRST_SCREEN} thumb={it.thumbUrl && !broken.has(it.id) ? it.thumbUrl : undefined} onThumbError={() => thumbBroke(it.id)} />
+              {it.kind === 'video' && (
+                <span className="ai-tile-badge">
+                  <Icon name="play" size={14} /> {it.seconds ? `${Math.round(it.seconds)}s` : ''}
+                </span>
               )}
               {corner?.(it)}
             </button>
@@ -71,6 +82,37 @@ export function GalleryGrid<T extends GalleryMedia>({
       ))}
     </ul>
   );
+}
+
+/**
+ * What a tile shows: the thumbnail (pictures and videos alike, an <img>), else a picture's own file, else
+ * (a video whose frame the AI machine has not taken yet) a light placeholder with its words: never a
+ * <video> in the grid. `first`: on the first screen, so it loads at once and ahead of the rest; the
+ * others wait until they are scrolled near.
+ */
+function TileMedia({ item, first, thumb, onThumbError }: { item: GalleryMedia; first: boolean; thumb?: string; onThumbError: () => void }) {
+  const size = item.width && item.height ? { width: item.width, height: item.height } : { width: 480, height: 480 };
+  const common = { alt: '', decoding: 'async' as const, loading: first ? ('eager' as const) : ('lazy' as const), fetchPriority: first ? ('high' as const) : ('auto' as const), ...size };
+  if (thumb) return <DevelopImg key={thumb} src={thumb} {...common} onError={onThumbError} />;
+  if (!item.url && item.kind === 'image') return <span className="ai-tile-blank" aria-hidden />;
+  if (item.kind === 'image') return <DevelopImg key={item.url} src={item.url} {...common} />;
+  return (
+    <span className="ai-tile-poster" aria-hidden>
+      <Icon name="play" size={28} />
+      <span className="ai-tile-poster-words">{item.label}</span>
+    </span>
+  );
+}
+
+/** Load a picture ahead (the viewer's next and previous): the browser keeps it, so it shows at once. */
+const warmed = new Set<string>();
+function warm(url: string | undefined) {
+  if (!url || warmed.has(url) || typeof Image === 'undefined') return;
+  warmed.add(url);
+  if (warmed.size > 200) warmed.delete(warmed.values().next().value as string);
+  const img = new Image();
+  img.decoding = 'async';
+  img.src = url;
 }
 
 /**
@@ -106,6 +148,7 @@ export function GalleryViewer({
   onNext,
   position,
   lockNsfw = false,
+  neighbours,
 }: {
   media: GalleryMedia;
   title: string;
@@ -120,6 +163,8 @@ export function GalleryViewer({
   position?: { index: number; count: number };
   /** Always blurred, and no "NSFW" switch (the owner's Held for review screen: nothing there is for marking). */
   lockNsfw?: boolean;
+  /** The ones before and after: loaded ahead once this one has (a picture whole, a video its thumbnail). */
+  neighbours?: (GalleryMedia | null | undefined)[];
 }) {
   useNsfwFlags();
   const nsfw = lockNsfw ? true : nsfwFor(media.id, media.nsfw);
@@ -138,6 +183,25 @@ export function GalleryViewer({
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, []);
+
+  // Once this one is showing, the next and previous come down too, so a swipe shows them at once.
+  const [ready, setReady] = useState<string | null>(null);
+  const near = (neighbours ?? []).map((m) => (m ? `${m.kind}:${m.url}:${m.thumbUrl ?? ''}` : '')).join('|');
+  useEffect(() => {
+    if (ready !== media.id) return;
+    for (const m of neighbours ?? []) {
+      if (!m) continue;
+      if (m.kind === 'image') warm(m.url);
+      else warm(m.thumbUrl);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ready, media.id, near]);
+  const shown = () => setReady(media.id);
+  // A picture the browser already had may finish before it is watched: go ahead after a moment anyway.
+  useEffect(() => {
+    const t = window.setTimeout(() => setReady(media.id), 2500);
+    return () => window.clearTimeout(t);
+  }, [media.id]);
 
   const stepping = Boolean(onPrev || onNext);
   return (
@@ -162,7 +226,11 @@ export function GalleryViewer({
           onPointerCancel={() => (swipe.current = null)}
         >
           <Censor key={media.id} as="div" className="ai-viewer-media" markId={lockNsfw ? undefined : media.id} nsfw={lockNsfw ? true : media.nsfw}>
-            {media.kind === 'image' ? <DevelopImg src={media.url} alt={media.label} draggable={false} /> : <ViewerVideo key={media.url} media={media} hidden={nsfw} />}
+            {media.kind === 'image' ? (
+              <DevelopImg key={media.url} src={media.url} alt={media.label} draggable={false} decoding="async" onLoad={shown} onError={shown} {...(media.width && media.height ? { width: media.width, height: media.height } : {})} />
+            ) : (
+              <ViewerVideo key={media.url} media={media} hidden={nsfw} onReady={shown} />
+            )}
           </Censor>
         </div>
         {stepping && (
@@ -209,7 +277,7 @@ const clock = (s: number) => {
  * paused and briefly after a tap. It starts by itself where the browser allows it, never while it
  * is blurred (`hidden`): then holding it plays it (Censor), and letting go pauses it.
  */
-export function ViewerVideo({ media, hidden }: { media: GalleryMedia; hidden: boolean }) {
+export function ViewerVideo({ media, hidden, onReady }: { media: GalleryMedia; hidden: boolean; onReady?: () => void }) {
   const ref = useRef<HTMLVideoElement>(null);
   const [playing, setPlaying] = useState(false);
   const [waiting, setWaiting] = useState(false);
@@ -262,6 +330,8 @@ export function ViewerVideo({ media, hidden }: { media: GalleryMedia; hidden: bo
       <video
         ref={ref}
         src={firstFrame(media.url)}
+        // Its thumbnail while the video itself comes down (blurred with it when it is NSFW).
+        poster={media.thumbUrl}
         playsInline
         preload="auto"
         aria-label={media.label}
@@ -277,7 +347,10 @@ export function ViewerVideo({ media, hidden }: { media: GalleryMedia; hidden: bo
         onPlaying={() => setWaiting(false)}
         onPause={() => setPlaying(false)}
         onWaiting={() => setWaiting(true)}
-        onCanPlay={() => setWaiting(false)}
+        onCanPlay={() => {
+          setWaiting(false);
+          onReady?.();
+        }}
         onEnded={() => {
           setPlaying(false);
           setEnded(true);
@@ -336,5 +409,21 @@ export function DevelopImg(props: React.ImgHTMLAttributes<HTMLImageElement>) {
   useEffect(() => {
     if (ref.current?.complete && ref.current.naturalWidth > 0) setLoaded(true);
   }, []);
-  return <img {...props} ref={ref} className="ai-dev" data-loaded={loaded} onLoad={() => setLoaded(true)} onError={() => setLoaded(true)} />;
+  const { onLoad, onError, ...rest } = props;
+  return (
+    <img
+      {...rest}
+      ref={ref}
+      className="ai-dev"
+      data-loaded={loaded}
+      onLoad={(e) => {
+        setLoaded(true);
+        onLoad?.(e);
+      }}
+      onError={(e) => {
+        setLoaded(true);
+        onError?.(e);
+      }}
+    />
+  );
 }
