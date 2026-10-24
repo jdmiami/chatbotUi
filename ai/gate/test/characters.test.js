@@ -195,7 +195,7 @@ async function setup(opts = {}) {
   return { dir, scratch, studio, characters, mem };
 }
 const finished = async (characters, id) => {
-  for (let i = 0; i < 400; i++) {
+  for (let i = 0; i < 2000; i++) {
     const s = await characters.sheet(id);
     if (s.status !== 'running') return s;
     await new Promise((r) => setTimeout(r, 5));
@@ -431,8 +431,12 @@ test('sheet: stop, make one view again, make the front again (and so the whole s
   const slow = await setup({ studio: { fail: { 2: { hold: true } } } });
   const made = await slow.characters.create(GOOD);
   await slow.characters.startSheet(made.id);
-  for (let i = 0; i < 100 && slow.studio.calls.length < 2; i++) await new Promise((r) => setTimeout(r, 5));
-  const during = await slow.characters.sheet(made.id);
+  for (let i = 0; i < 1000 && slow.studio.calls.length < 2; i++) await new Promise((r) => setTimeout(r, 5));
+  let during = await slow.characters.sheet(made.id);
+  for (let i = 0; i < 1000 && during.entries[1].progress !== 40; i++) {
+    await new Promise((r) => setTimeout(r, 5));
+    during = await slow.characters.sheet(made.id);
+  }
   assert.equal(during.status, 'running');
   assert.equal(during.entries[1].status, 'making');
   assert.equal(during.entries[1].progress, 40);

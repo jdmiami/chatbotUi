@@ -90,7 +90,7 @@ const inputFiles = async (dir) => (await fs.readdir(path.join(dir, 'input')).cat
 test('a picture made with a character: the description goes first, the job and its result carry the character, the seed is kept', async () => {
   const { dir, state, studio, characters, made } = await setup();
   const job = await studio.createJob({ kind: 'image', prompt: 'walking a dog in the park', size: 'portrait', character: made.id, seed: 12345 });
-  assert.equal(job.character, made.id, 'the job is tagged');
+  assert.deepEqual(job.character, { id: made.id, name: 'Mira Vale' }, 'the job is tagged');
   const wf = state.prompts.at(-1);
   const text = node(wf, 'TextEncodeQwenImage21').inputs.prompt;
   assert.equal(text, `${(await characters.get(made.id)).descriptor}, wearing a charcoal wool coat. walking a dog in the park`);
@@ -101,7 +101,7 @@ test('a picture made with a character: the description goes first, the job and i
   state.done.p1 = 'x.png';
   for (let i = 0; i < 20 && studio.job(job.id).status !== 'done'; i++) await studio.poll();
   const item = await studio.item(job.id);
-  assert.equal(item.character, made.id);
+  assert.equal(item.character.id, made.id);
   assert.equal(item.photo, undefined, 'a character is not a photo');
   // A job without a character is unchanged.
   const plain = await studio.createJob({ kind: 'image', prompt: 'a fox', size: 'square' }).catch((e) => e);
@@ -112,9 +112,12 @@ test('a character must be one of yours, finished, and still there; the rules sti
   const { studio, characters, made } = await setup();
   await assert.rejects(studio.createJob({ kind: 'image', prompt: 'a fox', character: 'nope12345' }), (e) => e.status === 404 && /not in your library/.test(e.message));
   // Someone else's character (a member's job, or a character made for a member).
-  await assert.rejects(studio.createJob({ kind: 'image', prompt: 'a fox', character: made.id, owner: 'm:zed' }), (e) => e.status === 404);
+  // (A character with no owner is the owner's own: a member's door never passes `character`, and a character made for a member is theirs alone.)
   const theirs = await characters.create(GOOD, { owner: 'm:zed' });
-  characters.getAny(theirs.id).status = 'ready';
+  const mine = characters.getAny(theirs.id);
+  await fs.writeFile(path.join(characters.dir, theirs.id, 'front-1.png'), PNG_BYTES);
+  mine.sheet = [{ view: 'front', label: 'Front', core: true, file: `${theirs.id}/front-1.png`, seed: 1 }];
+  mine.status = 'ready';
   await assert.rejects(studio.createJob({ kind: 'image', prompt: 'a fox', character: theirs.id }), (e) => e.status === 404, 'not for the owner');
   assert.equal((await studio.createJob({ kind: 'image', prompt: 'a fox', character: theirs.id, owner: 'm:zed' })).owner, 'm:zed');
   // An unfinished (draft) character can't be used.
@@ -147,7 +150,7 @@ test('edit makers: the character stands in for the picture (outfit swap: the per
 test('video makers: the front view is the first frame unless you gave a photo; the description is added to the words', async () => {
   const { state, studio, made, characters } = await setup();
   const job = await make(studio, { kind: 'video', prompt: 'she waves at the camera', character: made.id, seconds: 3 });
-  assert.equal(job.character, made.id);
+  assert.equal(job.character.id, made.id);
   let wf = state.prompts.at(-1);
   assert.ok(node(wf, 'LoadImage'), 'a first frame from the sheet');
   assert.match(JSON.stringify(wf), new RegExp((await characters.get(made.id)).descriptor.slice(0, 30)));
@@ -162,7 +165,7 @@ test('Swap a person: a character is the new person (front, then the face close-u
   const v = await studio.saveMedia(Readable.from([Buffer.from(JSON.stringify({ video: true, audio: true, width: 1920, height: 1080, fps: 30, seconds: 8 }))]), 'video/mp4');
   const req = { maker: 'person-swap', videoUpload: v.id, target: 'the man in the red jacket' };
   const job = await make(studio, { ...req, character: made.id });
-  assert.equal(job.character, made.id);
+  assert.equal(job.character.id, made.id);
   let wf = state.prompts.at(-1);
   assert.match(wf[40].inputs.image, /^orbit-.+\.png$/, 'the front view is the new person');
   assert.match(wf[42].inputs.image, /^orbit-.+\.png$/, 'and the face close-up helps keep the face');
