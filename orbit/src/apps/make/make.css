@@ -115,7 +115,7 @@
 :root[data-motion='full'] .mk-count { animation: mk-pop-in 0.7s var(--spring-playful) both; }
 .mk-live { position: absolute; top: 6px; right: 6px; width: 8px; height: 8px; border-radius: 50%; background: var(--accent); }
 :root[data-motion='full'] .mk-live { animation: mk-breathe 1.4s ease-in-out infinite; }
-.mk > :is(.notice-wrap, .notice-pill) { flex: none; margin-inline: var(--mk-g) var(--mk-gr); }
+.make-root .ai-create.mk > :is(.notice-wrap, .notice-pill) { flex: none; margin-inline: var(--mk-g) var(--mk-gr); }
 .mk > .notice-wrap .make-banner { margin: 6px 0 0; padding-block: 10px; }
 .mk-main { flex: 1; min-height: 0; display: flex; flex-direction: column; }
 .mk-deck { flex: 1; min-height: 0; display: flex; flex-direction: column; }
@@ -264,7 +264,14 @@
 
 /* ---------------------------------------------------------------- 1 · what */
 .mk-kinds { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 4px clamp(14px, 3vw, 32px); }
-@media (max-width: 560px) { .mk-kinds { grid-template-columns: minmax(0, 1fr); } }
+/* A phone stacks the four kinds; "A character" and "Draw it" share the last row so step 1 still fits. */
+@media (max-width: 560px) {
+  .mk-kinds { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .mk-kinds > [role='radio'], .mk-kinds > .mk-kind-draw:not(.mk-kind-character + .mk-kind-draw) { grid-column: 1 / -1; }
+  .mk-kind:is(.mk-kind-character, .mk-kind-draw) { column-gap: 10px; padding-inline: 2px; }
+  .mk-kind:is(.mk-kind-character, .mk-kind-draw) .mk-kind-art { width: 36px; height: 36px; }
+  .mk-kind:is(.mk-kind-character, .mk-kind-draw) .mk-kind-hint { font-size: 12px; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+}
 .mk-kind {
   position: relative;
   isolation: isolate;
@@ -624,13 +631,16 @@
   .mk-pane { padding-top: 4px; gap: 8px; }
   .mk-pane-head .o5-kicker { display: none; }
   .mk-title { font-size: calc(26px * var(--text-scale, 1)); }
-  .mk-dek { display: none; }
+  /* The step's note shares the title's line, so it costs no height. */
+  .mk-pane-head { flex-direction: row; align-items: baseline; column-gap: 16px; }
+  .mk-pane-head .mk-title { flex: none; }
+  .mk-dek { flex: 1 1 0; min-width: 0; font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .mk-pane-body { gap: 10px; }
   .mk-nav { padding-top: 2px; padding-bottom: calc(var(--safe-bottom) + 2px); }
   .mk-nav-btn { min-height: 44px; }
   .mk > .notice-wrap .make-banner { flex-wrap: nowrap; padding-block: 4px; margin-top: 2px; }
   .mk > .notice-wrap .make-banner p { flex: 1 1 auto; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .mk-kinds { grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 8px; }
+  .mk-kinds { grid-template-columns: none; grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr); gap: 8px; }
   .mk-kind { grid-template-columns: minmax(0, 1fr); grid-template-areas: 'art' 'label' 'hint'; justify-items: start; row-gap: 4px; padding: 6px 4px; border-bottom: 0; }
   .mk-kind-art { width: 36px; height: 36px; }
   .mk-kind-label { font-size: calc(19px * var(--text-scale, 1)); }

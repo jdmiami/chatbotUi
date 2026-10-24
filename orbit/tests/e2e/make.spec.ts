@@ -170,3 +170,20 @@ test('Make: pick Standard or Turbo before turning the AI machine on; the pick is
   await expect.poll(() => calls.find((c) => c.action === 'start')).toMatchObject({ action: 'start', tier: 'turbo' });
   expect(await page.evaluate(() => localStorage.getItem('orbit.speed'))).toBe('turbo');
 });
+
+test('Make: the × of the "turn the AI machine on" message never sits on its words, and the message keeps its margins', async ({ page }) => {
+  await mockAi(page, 'off');
+  await page.route(/\/api\/make(\?.*)?$/, (r) => r.fulfill({ json: { configured: false } }));
+  await openOrbit(page);
+  const win = await openMakeApp(page);
+  const banner = win.locator('.make-banner');
+  await expect(banner).toBeVisible();
+  const words = await banner.locator('p').first().boundingBox();
+  const hide = await win.getByRole('button', { name: 'Hide this message' }).boundingBox();
+  const wrap = await win.locator('.notice-wrap').boundingBox();
+  expect(words && hide && wrap).toBeTruthy();
+  expect(words!.x + words!.width).toBeLessThanOrEqual(hide!.x + 1);
+  expect(wrap!.x).toBeGreaterThanOrEqual(12);
+  await win.getByRole('button', { name: 'Hide this message' }).click();
+  await expect(banner).toBeHidden();
+});

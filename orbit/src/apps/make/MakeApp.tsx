@@ -115,10 +115,6 @@ export default function MakeApp({ isActive }: AppProps) {
                 <span>Cloud</span>
               </button>
             )}
-            <button type="button" className="mk-top-btn" aria-label="Characters" aria-expanded={charsOpen} onClick={() => setCharsOpen(true)}>
-              <Icon name="user" size={18} />
-              <span>Characters</span>
-            </button>
           </>
         }
       />

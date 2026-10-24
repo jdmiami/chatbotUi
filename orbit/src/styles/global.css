@@ -960,6 +960,8 @@ a.btn {
 /* MachineNotice (ui/MachineNotice.tsx): a "turn the machine on" message you can put away and bring back. */
 .notice-wrap { position: relative; }
 .notice-wrap > :first-child { padding-right: calc(var(--tap, 44px) + 4px); }
+/* The 0.5 look zeroes a banner's side padding: keep room for the × so it never sits on the words. */
+:root[data-skin] .notice-wrap > :first-child { padding-right: calc(var(--tap, 44px) + 8px); }
 .notice-hide {
   position: absolute; top: 4px; right: 4px;
   width: var(--tap, 44px); height: var(--tap, 44px);
