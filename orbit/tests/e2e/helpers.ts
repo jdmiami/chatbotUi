@@ -28,6 +28,7 @@ export const isTablet = (testInfo: TestInfo) => testInfo.project.name.startsWith
 const INDEX_TITLES = {
   ai: 'Talk',
   make: 'Make',
+  gallery: 'Gallery',
   livedraw: 'Live Draw',
   store: 'Store',
   soreal: 'soReal',

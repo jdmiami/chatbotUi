@@ -6,7 +6,8 @@ import { Censor } from '../../ui/Censor';
 import { isNsfw } from '../../ui/nsfw';
 import { connectMarks, rememberItems } from '../../ui/nsfwFlags';
 import { AiError, type LabIdea, type LabMix, type LabMovieProgress, type LabStyle, type LocalAi, type MemeLabState, type MemeRecord, type YourStyleProfile } from '../../services/ai/LocalAi';
-import { GalleryGrid, GalleryViewer, type GalleryMedia } from './Gallery';
+import { useShell } from '../../state/shell';
+import { GalleryGrid, GalleryViewer, useGalleryStepper, type GalleryMedia } from './Gallery';
 
 /**
  * The Lab: whenever the AI machine is on and ready, it makes 30-second vertical movies, one after
@@ -33,6 +34,7 @@ export function MemeLab({ ai, machineOn, isActive, onKept }: { ai: LocalAi; mach
   const [mine, setMine] = useState('');
   const [editing, setEditing] = useState<{ id: string; prompt: string } | null>(null);
   const [switching, setSwitching] = useState<LabStyle | null>(null);
+  const launch = useShell((s) => s.launch);
 
   const load = useCallback(() => {
     ai.memeLab().then(
@@ -57,6 +59,12 @@ export function MemeLab({ ai, machineOn, isActive, onKept }: { ai: LocalAi; mach
     const t = window.setInterval(load, 10_000);
     return () => window.clearInterval(t);
   }, [machineOn, isActive, load]);
+
+  // Best first; the viewer steps through them in that order (hooks before the early answers below).
+  const records = [...(lab?.records ?? [])].filter((r) => r && r.id).sort((a, b) => (b.score ?? -1) - (a.score ?? -1));
+  const open = viewing ? (records.find((r) => r.id === viewing) ?? null) : null;
+  const media = records.map(asMedia);
+  const step = useGalleryStepper(media, open?.id);
 
   if (!machineOn) {
     return (
@@ -104,8 +112,6 @@ export function MemeLab({ ai, machineOn, isActive, onKept }: { ai: LocalAi; mach
     if (!t || topics.includes(t)) return;
     void act(ai.setLabTopics([...topics, t]), () => setTopic(''));
   };
-  const records = [...(lab?.records ?? [])].filter((r) => r && r.id).sort((a, b) => (b.score ?? -1) - (a.score ?? -1));
-  const open = viewing ? (records.find((r) => r.id === viewing) ?? null) : null;
   const job = lab?.making?.job;
   const queueMinutes = queue.length * (lab?.minutesPerVideo ?? 40);
   const style: LabStyle = lab?.style ?? 'comedy';
@@ -322,12 +328,17 @@ export function MemeLab({ ai, machineOn, isActive, onKept }: { ai: LocalAi; mach
       </div>
 
       <div className="meme-lab-block">
-        <p className="o5-kicker">The Lab gallery</p>
+        <div className="lab-gallery-head">
+          <p className="o5-kicker">The Lab gallery</p>
+          <button type="button" className="btn small ghost" onClick={() => launch('gallery')}>
+            <Icon name="image" size={16} /> All your creations
+          </button>
+        </div>
         {records.length === 0 ? (
           <p className="ai-muted">Finished {remix ? 'remixes' : 'movies'} show up here, best first. They stay apart from your own gallery.</p>
         ) : (
           <GalleryGrid
-            items={records.map(asMedia)}
+            items={media}
             label={remix ? 'Lab remixes, best first' : 'Lab movies, best first'}
             onOpen={(m, from) => {
               viewFrom.current = from;
@@ -350,6 +361,9 @@ export function MemeLab({ ai, machineOn, isActive, onKept }: { ai: LocalAi; mach
           title={open.kind === 'image' ? 'Lab picture' : open.style === 'remix' ? 'Lab video' : 'Lab movie'}
           origin={viewFrom.current}
           onClose={() => setViewing(null)}
+          onPrev={step.prev ? () => setViewing(step.prev!.id) : null}
+          onNext={step.next ? () => setViewing(step.next!.id) : null}
+          position={step.index >= 0 ? { index: step.index, count: step.count } : undefined}
           words={
             <div className="lab-detail-words">
               <p className="meme-card-title">{open.title}</p>

@@ -947,6 +947,10 @@ a.btn {
 .censor.censor-text[data-revealed] > * { filter: none; }
 .censor.censor-text .censor-hint { font-size: 10px; padding: 2px 8px; margin-bottom: 4px; }
 .censor > video { pointer-events: none; }
+/* The gallery's player blurs whole (its buttons too) and plays only while held (Censor). */
+.censor > .ai-player { filter: blur(22px) saturate(0.6); transform: scale(1.08); transition: filter 160ms ease, transform 160ms ease; pointer-events: none; }
+.censor[data-revealed] > .ai-player { filter: none; transform: none; }
+.censor > .ai-player .ai-player-bar, .censor > .ai-player .ai-player-big { visibility: hidden; }
 .censor-markable { -webkit-touch-callout: none; user-select: none; -webkit-user-select: none; }
 .uncensored-switch { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 44px; }
 .st-row .uncensored-switch { flex: 1; min-width: 0; }

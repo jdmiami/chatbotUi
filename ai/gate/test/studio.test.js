@@ -144,6 +144,51 @@ test('studio with R2: the gallery is kept there, shows up on a fresh machine, an
   assert.deepEqual([...objects.keys()], ['state/timings.json']);
 });
 
+test('studio with R2: a gallery that lived only on the drive is copied up first, never dropped as "deleted"', async () => {
+  const { r2, objects } = memoryR2();
+  const { dir, state } = await newStudio();
+  // Made before the gallery went to R2 (a network volume, now with GALLERY=r2): on the drive only, and old.
+  const meta = path.join(dir, 'output', 'orbit');
+  await fs.mkdir(meta, { recursive: true });
+  const old = { id: 'oldpic01', kind: 'image', maker: 'qwen', prompt: 'an old fox', file: 'orbit/image-oldpic01_00001_.png', createdAt: '2026-01-01T00:00:00Z' };
+  await fs.writeFile(path.join(meta, 'oldpic01.json'), JSON.stringify(old));
+  await fs.writeFile(path.join(dir, 'output', old.file), 'OLDPNG');
+  const long = new Date(Date.now() - 3600_000);
+  await fs.utimes(path.join(meta, 'oldpic01.json'), long, long);
+  let clock = Date.now();
+  const studio = createStudio({ dir, files: FILES, fetchImpl: fakeServices(state), WebSocketImpl: null, log: { warn() {}, info() {} }, r2, now: () => clock });
+
+  assert.deepEqual((await studio.items()).map((i) => i.id), ['oldpic01'], 'still in the gallery while it is copied');
+  await studio.copyingGallery();
+  assert.equal(String(objects.get('gallery/orbit/oldpic01.json')), JSON.stringify(old));
+  assert.equal(String(objects.get(`gallery/${old.file}`)), 'OLDPNG');
+  clock += 30_000;
+  assert.deepEqual((await studio.items()).map((i) => i.id), ['oldpic01']);
+
+  // Once copied, a note gone from R2 was deleted elsewhere (e.g. from the Gallery with the machine off).
+  objects.delete('gallery/orbit/oldpic01.json');
+  clock += 30_000;
+  assert.deepEqual(await studio.items(), []);
+});
+
+test('the mirror tells R2 what each file is, so links to it play and show', async () => {
+  const { r2, objects, log } = memoryR2();
+  const types = [];
+  const put = r2.put.bind(r2);
+  r2.put = (key, body, type) => (types.push([key, type]), put(key, body, type));
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'mirror-'));
+  const { createMirror } = await import('../src/r2.js');
+  const m = createMirror({ r2, root, prefix: 'gallery/', log: { warn() {} } });
+  for (const f of ['a.mp4', 'b.png', 'orbit/c.json']) {
+    await fs.mkdir(path.dirname(path.join(root, f)), { recursive: true });
+    await fs.writeFile(path.join(root, f), 'x');
+    await m.save(path.join(root, f));
+  }
+  assert.deepEqual(types, [['gallery/a.mp4', 'video/mp4'], ['gallery/b.png', 'image/png'], ['gallery/orbit/c.json', 'application/json']]);
+  assert.equal(objects.size, 3);
+  assert.ok(log.length >= 3);
+});
+
 test('studio with R2: model files come from R2 when kept there, else from their home site and then into R2', async () => {
   const { r2, objects } = memoryR2();
   await r2.put('models/diffusion_models/img.safetensors', 'abcd');

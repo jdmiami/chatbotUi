@@ -116,3 +116,26 @@ export function moveCloudMadeToGallery(ai: LocalAi): Promise<number> {
   })().finally(() => (moving = null));
   return moving;
 }
+
+let storing: Promise<number> | null = null;
+/**
+ * With the AI machine off but cloud storage set up on the site: save what waits here straight into
+ * the stored gallery (the machine picks it up from there). Resolves with how many were saved.
+ */
+export function moveCloudMadeToStorage(save: (body: { url: string; kind: CloudKind; prompt: string; maker: string }) => Promise<unknown>): Promise<number> {
+  storing ||= (async () => {
+    let moved = 0;
+    for (const it of await cloudMadeList()) {
+      try {
+        await save({ url: it.url, kind: it.kind, prompt: it.prompt, maker: `cloud:${it.provider}` });
+        await cloudMadeRemove(it.id);
+        moved++;
+      } catch (err) {
+        // Storage not set up, or a link that expired: it keeps waiting here.
+        if ((err as AiError).status === 503) break;
+      }
+    }
+    return moved;
+  })().finally(() => (storing = null));
+  return storing;
+}

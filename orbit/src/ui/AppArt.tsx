@@ -15,6 +15,7 @@ export type ArtId =
   | 'store'
   | 'soreal'
   | 'lab'
+  | 'gallery'
   | 'stats'
   | 'settings'
   | 'playground'
@@ -32,6 +33,7 @@ const TILES: Record<ArtId, [string, string, string?]> = {
   store: ['#f5c16c', '#d9663a', '#6d2a5c'],
   soreal: ['#ff6a6a', '#c2185b', '#4a148c'],
   lab: ['#ffd36b', '#ff7a59', '#8a2be2'],
+  gallery: ['#7fd3ff', '#3a6df0', '#2b1b6e'],
   stats: ['#7ee0b5', '#1f8a70', '#12355b'],
   settings: ['#9aa3b6', '#454c5f'],
   playground: ['#ffb547', '#f0517a'],
@@ -91,6 +93,18 @@ function Glyph({ id, uid }: { id: ArtId; uid: string }) {
           <path d="M36 62h28l4 8a3 3 0 0 1-2.7 4H34.7a3 3 0 0 1-2.7-4z" fill="#fff6c9" />
           <circle cx="46" cy="55" r="3" fill={INK} />
           <circle cx="56" cy="50" r="2" fill={INK} />
+        </g>
+      );
+    case 'gallery':
+      // Three prints fanned out, the front one a picture with a play mark: every creation, kept.
+      return (
+        <g>
+          <rect x="24" y="22" width="44" height="40" rx="5" fill="none" stroke="rgb(255 255 255 / 0.4)" strokeWidth="3.5" transform="rotate(-10 46 42)" />
+          <rect x="30" y="26" width="44" height="40" rx="5" fill="none" stroke="rgb(255 255 255 / 0.65)" strokeWidth="3.5" transform="rotate(-3 52 46)" />
+          <rect x="34" y="36" width="44" height="40" rx="5" fill={INK} />
+          <path d="M38 70l11-12 7 7 6-6 12 11z" fill="#3a6df0" opacity="0.85" />
+          <circle cx="48" cy="47" r="4" fill="#7fd3ff" />
+          <path d="M60 44v12l9-6z" fill="#2b1b6e" />
         </g>
       );
     case 'make':
