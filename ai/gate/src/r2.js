@@ -116,8 +116,8 @@ export function createR2({ accountId, accessKeyId, secretAccessKey, bucket, fetc
       const k = hmac(hmac(hmac(hmac(`AWS4${secretAccessKey}`, day), 'auto'), 's3'), 'aws4_request');
       return `https://${host}${p}?${qs}&X-Amz-Signature=${crypto.createHmac('sha256', k).update(toSign).digest('hex')}`;
     },
-    async createUpload(key) {
-      const text = await (await call('POST', key, { query: { uploads: '' } })).text();
+    async createUpload(key, contentType) {
+      const text = await (await call('POST', key, { query: { uploads: '' }, ...(contentType ? { headers: { 'content-type': contentType } } : {}) })).text();
       const id = /<UploadId>([^<]+)<\/UploadId>/.exec(text)?.[1];
       if (!id) throw new Error('R2 did not start the upload.');
       return id;
@@ -146,11 +146,11 @@ async function pool(count, limit, fn) {
 }
 
 /** Upload a file in parallel parts. onBytes(n) reports progress. */
-export async function uploadFile(r2, file, key, { partMiB = 64, concurrency = 6, onBytes = () => {}, signal = null } = {}) {
+export async function uploadFile(r2, file, key, { partMiB = 64, concurrency = 6, onBytes = () => {}, signal = null, contentType } = {}) {
   const size = (await fsp.stat(file)).size;
   const partSize = partMiB * 1024 * 1024;
   const count = Math.max(1, Math.ceil(size / partSize));
-  const uploadId = await r2.createUpload(key);
+  const uploadId = await r2.createUpload(key, contentType);
   const h = await fsp.open(file, 'r');
   const parts = new Array(count);
   try {
@@ -308,6 +308,10 @@ export function downloadStream(r2, key, { chunkMiB = 64, concurrency = 8 } = {})
   return Readable.from(gen());
 }
 
+/** What a gallery file is, so a link to it shows (iPhone plays a video only when told it is one). */
+const MEDIA_TYPES = { '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.webp': 'image/webp', '.gif': 'image/gif', '.mp4': 'video/mp4', '.webm': 'video/webm', '.json': 'application/json' };
+export const mediaType = (file) => MEDIA_TYPES[path.extname(file).toLowerCase()] || 'application/octet-stream';
+
 /**
  * Keeps files under `root` mirrored in R2 under `prefix` (same relative paths): save after
  * writing, drop after deleting, and fetch or link to ones this machine doesn't have locally.
@@ -323,8 +327,9 @@ export function createMirror({ r2, root, prefix, log = console }) {
     async save(abs) {
       try {
         const size = (await fsp.stat(abs)).size;
-        if (size > 256 * 1024 * 1024) await uploadFile(r2, abs, keyOf(abs));
-        else await r2.put(keyOf(abs), await fsp.readFile(abs));
+        const contentType = mediaType(abs);
+        if (size > 256 * 1024 * 1024) await uploadFile(r2, abs, keyOf(abs), { contentType });
+        else await r2.put(keyOf(abs), await fsp.readFile(abs), contentType);
       } catch (err) {
         log.warn?.(`[r2] could not save ${abs}: ${err.message}`);
       }

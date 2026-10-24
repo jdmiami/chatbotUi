@@ -5,7 +5,7 @@ import { Icon } from '../../ui/Icon';
 import { ConfirmSheet, EmptyState, IconButton, Segmented } from '../../ui/components';
 import { isNsfw } from '../../ui/nsfw';
 import { connectMarks, nsfwFor, rememberItems, useNsfwFlags } from '../../ui/nsfwFlags';
-import { GalleryGrid, GalleryViewer, type GalleryMedia } from './Gallery';
+import { GalleryGrid, GalleryViewer, useGalleryStepper, type GalleryMedia } from './Gallery';
 import { AiError, type LocalAi, type StudioItem, type StudioJob, type StudioKind, type StudioMakerInfo, type StudioState, type VideoTask } from '../../services/ai/LocalAi';
 import { PENDING_TEXT, offlineMakers, progressText, progressWhy, rememberMakers, withCatalog } from './makerCatalog';
 import { AudioSource, VideoSource, type AudioPick, type VideoPick } from './VideoInputs';
@@ -162,6 +162,8 @@ export function CreateView({
     });
 
   useNsfwFlags();
+  // The viewer steps through the gallery in the order the grid shows it.
+  const step = useGalleryStepper(items.map(asMedia), viewing?.id);
   useEffect(() => connectMarks(ai), [ai]);
   const loadItems = useCallback(() => {
     ai.studioItems()
@@ -718,6 +720,9 @@ export function CreateView({
         <header className="o5-gallery-head">
           <p className="o5-kicker">The gallery</p>
           <h3 className="o5-chapter-title">Your creations</h3>
+          <button type="button" className="btn small ghost o5-gallery-all" onClick={() => launch('gallery')}>
+            <Icon name="image" size={16} /> Everything, in Gallery
+          </button>
         </header>
       )}
       {items.length === 0 ? (
@@ -741,6 +746,9 @@ export function CreateView({
           title={viewing.kind === 'image' ? 'Image' : 'Video'}
           origin={viewFrom.current}
           onClose={() => setViewing(null)}
+          onPrev={step.prev ? () => setViewing(items.find((x) => x.id === step.prev!.id) ?? null) : null}
+          onNext={step.next ? () => setViewing(items.find((x) => x.id === step.next!.id) ?? null) : null}
+          position={step.index >= 0 ? { index: step.index, count: step.count } : undefined}
           words={<p className="ai-viewer-prompt">{viewing.prompt}</p>}
         >
             <div className="ai-viewer-actions">

@@ -177,7 +177,7 @@ const labState = () => ({
   enabled: true, style: 'spicy', topics: [], quietMinutes: 0, readyScore: 75, minutesPerVideo: 34, minutesLeft: 50, madeLastHour: 1, lastError: null,
   making: null, queue: [],
   records: [
-    // A spicy movie that shows nothing: clear, plays with its controls.
+    // A spicy movie that shows nothing: clear, plays in the gallery's player.
     labRecord('clear1', 'Rooftop glance', { style: 'spicy', score: 91, status: 'ready', why: 'Eye contact in the first second and a clean loop.' }),
     // The machine's check saw NSFW in this one: hidden until "Show NSFW" is on.
     labRecord('hot1', 'Pool night', { style: 'spicy', score: 70, why: 'Strong light, slow start.', nsfw: true }),
@@ -260,11 +260,11 @@ test(`Lab gallery: the Make gallery's tiles, a viewer with the score and why, NS
   await expect(report).toContainText('Why: Eye contact in the first second and a clean loop.');
   await expect(viewer).toContainText('Rooftop glance caption');
   await expect(viewer).toContainText('#fyp');
-  // No blur, and it plays with its own controls.
+  // No blur, and it plays in the gallery's own player (no browser controls over the picture).
   const video = viewer.locator('.ai-viewer-media video');
-  await expect(video).toHaveAttribute('controls', '');
+  await expect(video).not.toHaveAttribute('controls', /.*/);
   expect(await video.evaluate((el) => getComputedStyle(el).pointerEvents)).not.toBe('none');
-  expect(await video.evaluate((el) => getComputedStyle(el).filter)).toBe('none');
+  expect(await viewer.locator('.ai-player').evaluate((el) => getComputedStyle(el).filter)).toBe('none');
   // The Make viewer's switch: mark it NSFW (saved on the AI machine), then unmark it.
   const sw = viewer.getByRole('switch', { name: 'NSFW', exact: true });
   await expect(sw).not.toBeChecked();
@@ -273,7 +273,7 @@ test(`Lab gallery: the Make gallery's tiles, a viewer with the score and why, NS
   await expect.poll(() => marks).toEqual([{ nsfw: true }]);
   await sw.click();
   await expect(sw).not.toBeChecked();
-  expect(await video.evaluate((el) => getComputedStyle(el).filter)).toBe('none');
+  expect(await viewer.locator('.ai-player').evaluate((el) => getComputedStyle(el).filter)).toBe('none');
   await expect(viewer.getByRole('button', { name: 'Copy caption' })).toBeVisible();
   for (const b of await viewer.getByRole('button').all()) {
     const bb = await b.boundingBox();
@@ -305,7 +305,7 @@ test(`Lab gallery: the Make gallery's tiles, a viewer with the score and why, NS
   await expect(viewer.getByRole('switch', { name: 'NSFW', exact: true })).toBeChecked();
   const media = viewer.locator('.ai-viewer-media.censor');
   await expect(media).toBeVisible();
-  expect(await media.locator('video').evaluate((el) => getComputedStyle(el).filter)).toContain('blur');
+  expect(await media.locator('.ai-player').evaluate((el) => getComputedStyle(el).filter)).toContain('blur');
   const plays = await page.evaluate(() => (window as unknown as { plays: number }).plays);
   const mb = (await media.boundingBox())!;
   await page.mouse.move(mb.x + mb.width / 2, mb.y + Math.min(mb.height / 2, 120));

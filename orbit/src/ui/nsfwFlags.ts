@@ -20,6 +20,8 @@ const justSaved = new Map<string, { nsfw: boolean | null; at: number }>();
 const listeners = new Set<() => void>();
 let version = 0;
 let sink: ((id: string, nsfw: boolean | null) => Promise<void>) | null = null;
+/** Where a mark goes when the AI machine can't take it (off): the gallery kept in cloud storage. */
+let fallback: ((id: string, nsfw: boolean | null) => Promise<void>) | null = null;
 let flushing = false;
 
 function load(): [string, boolean | null][] {
@@ -98,13 +100,31 @@ export function connectMarks(ai: LocalAi | null) {
   void flush();
 }
 
+/** With the machine off, marks are saved here instead (the Gallery connects cloud storage when it has it). */
+export function connectMarkFallback(save: ((id: string, nsfw: boolean | null) => Promise<void>) | null) {
+  fallback = save;
+  void flush();
+}
+
+async function saveMark(id: string, nsfw: boolean | null) {
+  if (!sink && !fallback) throw new Error('nowhere to save');
+  if (sink) {
+    try {
+      return await sink(id, nsfw);
+    } catch (err) {
+      if (!fallback || (err as { status?: number })?.status === 404) throw err;
+    }
+  }
+  await fallback!(id, nsfw);
+}
+
 async function flush() {
-  if (!sink || flushing || pending.size === 0) return;
+  if ((!sink && !fallback) || flushing || pending.size === 0) return;
   flushing = true;
   try {
     for (const [id, nsfw] of [...pending]) {
       try {
-        await sink(id, nsfw);
+        await saveMark(id, nsfw);
       } catch (err) {
         // Gone from the gallery: nothing to keep. Otherwise (machine off) try again later.
         if ((err as { status?: number })?.status !== 404) break;

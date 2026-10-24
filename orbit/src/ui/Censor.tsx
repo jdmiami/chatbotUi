@@ -109,6 +109,7 @@ export function Censor({
   const onPointerDown = (e: PointerEvent) => {
     if (!on || e.button > 0) return;
     held.current = false;
+    start.current = { x: e.clientX, y: e.clientY };
     clear();
     timer.current = window.setTimeout(() => {
       held.current = true;
@@ -116,6 +117,11 @@ export function Censor({
       // Holding plays the video (muted autoplay rules don't apply: this is a touch).
       for (const v of videos()) void v.play().catch(() => {});
     }, HOLD_MS);
+  };
+  // A swipe (to the next picture, or a scroll) is not a hold: nothing shows.
+  const onRevealMove = (e: PointerEvent) => {
+    const s0 = start.current;
+    if (timer.current != null && s0 && Math.hypot(e.clientX - s0.x, e.clientY - s0.y) > 10) clear();
   };
   // A hold never counts as a tap (a tile opens the viewer on tap).
   const onClickCapture = (e: React.MouseEvent) => {
@@ -149,6 +155,7 @@ export function Censor({
       data-censored=""
       data-revealed={revealed ? '' : undefined}
       onPointerDown={onPointerDown}
+      onPointerMove={onRevealMove}
       onPointerUp={hide}
       onPointerCancel={hide}
       onPointerLeave={hide}

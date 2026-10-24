@@ -1673,18 +1673,44 @@ export function createStudio(o) {
 
   // With R2 the gallery's notes come down from there (the other machine's creations too, and what
   // was made before this start); a note gone from R2 was deleted elsewhere.
+  // The first time a gallery that lived only on this machine's drive meets R2 (a network volume
+  // with GALLERY=r2), everything on the drive is copied up first, and nothing is dropped until it is:
+  // a note missing from R2 then means "not there yet", not "deleted". The marker says it is done.
   let synced = 0;
   let syncing = null;
+  const backfilledMarker = path.join(dir, 'output', '.r2-gallery-copied');
+  let backfilling = null;
+  async function backfill(names) {
+    for (const n of names) {
+      const it = await fsp
+        .readFile(path.join(metaDir, n), 'utf8')
+        .then(JSON.parse)
+        .catch(() => null);
+      if (it?.id && it.file) await keep(it);
+    }
+    await fsp.mkdir(path.dirname(backfilledMarker), { recursive: true });
+    await fsp.writeFile(backfilledMarker, new Date(now()).toISOString());
+    if (names.length) log.info?.(`[studio] copied ${names.length} gallery items from this drive to R2`);
+  }
   async function syncGallery() {
     if (!mirror || now() - synced < 20_000) return;
     syncing ||= (async () => {
       try {
         const there = new Set(await mirror.pull('orbit/', (rel) => /^orbit\/[A-Za-z0-9_-]+\.json$/.test(rel)));
+        const copied = Boolean(await fsp.stat(backfilledMarker).catch(() => null));
+        const onlyHere = [];
         for (const n of await fsp.readdir(metaDir).catch(() => [])) {
           if (!n.endsWith('.json') || there.has(`orbit/${n}`)) continue;
           // Just made here and still on its way up: keep it.
           const st = await fsp.stat(path.join(metaDir, n)).catch(() => null);
-          if (st && now() - st.mtimeMs > 5 * 60_000) await fsp.rm(path.join(metaDir, n), { force: true });
+          if (!st) continue;
+          if (!copied) onlyHere.push(n);
+          else if (now() - st.mtimeMs > 5 * 60_000) await fsp.rm(path.join(metaDir, n), { force: true });
+        }
+        if (!copied && !backfilling) {
+          backfilling = backfill(onlyHere)
+            .catch((err) => log.warn?.(`[studio] could not copy the gallery to R2 yet: ${err.message}`))
+            .finally(() => (backfilling = null));
         }
         synced = now();
       } catch (err) {
@@ -2001,5 +2027,7 @@ export function createStudio(o) {
     markNsfw,
     sizes: SIZES,
     mirror,
+    /** The first copy of this drive's gallery to R2, while it runs (null otherwise). */
+    copyingGallery: () => backfilling,
   };
 }

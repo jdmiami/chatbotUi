@@ -9,6 +9,7 @@ import { AppArt } from '../../ui/AppArt';
 export const ENTRIES: { id: AppId; title: string; line: string }[] = [
   { id: 'ai', title: 'Talk', line: 'Your own models' },
   { id: 'make', title: 'Make', line: 'Pictures and videos' },
+  { id: 'gallery', title: 'Gallery', line: 'Everything you have made' },
   { id: 'livedraw', title: 'Live Draw', line: 'Draw, and watch it become a picture' },
   { id: 'store', title: 'Store', line: 'Models, makers and styles' },
   { id: 'soreal', title: 'soReal', line: 'A movie from one idea' },
