@@ -60,6 +60,8 @@ export interface StudioItem {
   createdAt: string;
   /** Absolute link to the file (works in <img>/<video> tags for 12 hours). */
   url: string;
+  /** Its small picture for a gallery grid (a WebP, a video's from half a second in), once the machine made one. */
+  thumbUrl?: string;
 }
 
 export interface StudioJob {
@@ -109,6 +111,8 @@ export interface MemeRecord {
   /** Your own say on it: true blurs it, false never blurs it. */
   nsfwUser?: boolean;
   url?: string;
+  /** Its small picture for the grid, once the machine made one. */
+  thumbUrl?: string;
   title: string;
   prompt: string;
   caption: string;
@@ -725,14 +729,19 @@ export class LocalAi {
    * the Lab and the gallery refresh every few seconds, so without this everything would keep reloading.
    */
   private fileLinks = new Map<string, { url: string; at: number }>();
-  private absolute<T extends { url?: string } | null>(item: T): T {
-    if (!item || !this.grant || !item.url || /^https?:/.test(item.url)) return item;
-    const url = (this.grant.url ?? this.grant.helper ?? '') + item.url;
+  private link(rel: string): string {
+    if (!this.grant || /^https?:/.test(rel)) return rel;
+    const url = (this.grant.url ?? this.grant.helper ?? '') + rel;
     const key = url.replace(/[?#].*$/, '');
     const kept = this.fileLinks.get(key);
-    if (kept && Date.now() - kept.at < 6 * 3600_000) return { ...item, url: kept.url };
+    if (kept && Date.now() - kept.at < 6 * 3600_000) return kept.url;
     this.fileLinks.set(key, { url, at: Date.now() });
-    return { ...item, url };
+    return url;
+  }
+  /** The file's link and its thumbnail's, absolute and kept the same (see fileLinks). */
+  private absolute<T extends { url?: string; thumbUrl?: string } | null>(item: T): T {
+    if (!item || !this.grant || !item.url) return item;
+    return { ...item, url: this.link(item.url), ...(item.thumbUrl ? { thumbUrl: this.link(item.thumbUrl) } : {}) };
   }
   private absoluteJob(job: StudioJob): StudioJob {
     return { ...job, item: this.absolute(job.item) };

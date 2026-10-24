@@ -23,9 +23,11 @@ const ID = /^[A-Za-z0-9_-]{6,40}$/;
 const err = (message, status) => Object.assign(new Error(message), { status });
 
 /** Run ffmpeg; resolves on exit 0, rejects with the end of its log otherwise. */
-export function runFfmpeg(args, { timeoutMs = 10 * 60_000 } = {}) {
+export function runFfmpeg(args, { timeoutMs = 10 * 60_000, nice = false } = {}) {
   return new Promise((resolve, reject) => {
-    const p = spawn('ffmpeg', ['-hide_banner', '-loglevel', 'error', '-y', ...args], { stdio: ['ignore', 'ignore', 'pipe'] });
+    // nice: background work (gallery thumbnails) that must never slow anything you are waiting for.
+    const all = ['-hide_banner', '-loglevel', 'error', '-y', ...args];
+    const p = nice ? spawn('nice', ['-n', '19', 'ffmpeg', ...all], { stdio: ['ignore', 'ignore', 'pipe'] }) : spawn('ffmpeg', all, { stdio: ['ignore', 'ignore', 'pipe'] });
     let log = '';
     p.stderr.on('data', (d) => (log = (log + d).slice(-2000)));
     const t = setTimeout(() => p.kill('SIGKILL'), timeoutMs);

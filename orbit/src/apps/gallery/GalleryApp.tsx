@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { AppProps } from '../types';
 import { MagCover } from '../../ui/Magazine';
 import { useShell } from '../../state/shell';
@@ -10,9 +10,10 @@ import { connectMarkFallback, connectMarks, nsfwFor, rememberItems, useNsfwFlags
 import { shows, useNsfwView } from '../../ui/Censor';
 import { MachineNotice } from '../../ui/MachineNotice';
 import { SpeedChoice, useSpeed } from '../../ui/SpeedChoice';
-import { getLocalAi, type AiMachineStatus } from '../../services/ai/LocalAi';
+import { getLocalAi, type AiMachineStatus, type MemeRecord, type StudioItem } from '../../services/ai/LocalAi';
+import { readLast, saveLast, type LastGallery } from '../../services/ai/galleryCache';
 import { cloudMadeList, cloudMadeRemove, moveCloudMadeToStorage } from '../../services/ai/CloudMake';
-import { deleteStored, keepStored, markStoredNsfw, saveCloudToStorage, sourceOf, storedGallery, type CreationSource, type StoredGallery } from '../../services/ai/StoredGallery';
+import { deleteStored, keepStored, makeStoredThumbs, markStoredNsfw, saveCloudToStorage, sourceOf, storedGallery, type CreationSource, type StoredGallery, type StoredItem } from '../../services/ai/StoredGallery';
 import { GalleryGrid, GalleryViewer, useGalleryStepper, type GalleryMedia } from '../ai/Gallery';
 import { loadHeld, type HeldItem } from '../../services/ai/HeldReview';
 import { HeldReview } from './HeldReview';
@@ -26,6 +27,10 @@ import './gallery.css';
  * cloud storage through the site, so it works with the AI machine off; with the machine on it shows
  * the machine's own gallery too. Tabs narrow it by where things came from and by pictures or videos.
  * The viewer is the same as everywhere: swipe between them, hold to see an NSFW one, save, delete.
+ *
+ * It opens on the last list this device saw (galleryCache.ts) and fetches the fresh one behind it; each
+ * part (cloud storage, the machine, this device, held results) shows as soon as it arrives. Tiles show
+ * small thumbnails; the viewer loads the whole file.
  */
 type Origin = 'machine' | 'storage' | 'device';
 export interface Creation extends GalleryMedia {
@@ -62,6 +67,58 @@ const when = (iso: string) => {
   const d = new Date(iso);
   return Number.isNaN(d.getTime()) ? '' : d.toLocaleString(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
 };
+type MachineRaw = { items: StudioItem[]; lab: MemeRecord[] };
+
+/**
+ * The machine's gallery and Lab as tiles. `cached`: from the last list on this device, so one the
+ * machine had not checked for NSFW yet stays hidden (or blurred) until the fresh list says.
+ */
+function machineCreations(raw: MachineRaw | null, cached: boolean): Creation[] {
+  if (!raw) return [];
+  const unknown = (nsfw: boolean | undefined) => cached && typeof nsfw !== 'boolean';
+  const made: Creation[] = raw.items.map((it) => ({
+    id: it.id,
+    kind: it.kind,
+    url: it.url,
+    thumbUrl: it.thumbUrl,
+    width: it.width,
+    height: it.height,
+    label: it.prompt,
+    nsfw: it.nsfw === true || isNsfw(it.prompt) || unknown(it.nsfw),
+    seconds: it.seconds,
+    source: sourceOf(it),
+    origin: 'machine' as const,
+    prompt: it.prompt,
+    lab: false,
+    movie: it.movie,
+    createdAt: it.createdAt,
+    downloadUrl: it.url ? withParam(it.url, 'download=1') : '',
+  }));
+  const fromLab: Creation[] = raw.lab
+    .filter((r) => r && r.id && (r.url || cached))
+    .map((r) => ({
+      id: r.id,
+      kind: r.kind === 'image' ? 'image' : 'video',
+      url: r.url ?? '',
+      thumbUrl: r.thumbUrl,
+      label: r.title,
+      nsfw: r.nsfw === true || isNsfw(r.title, r.prompt, r.caption, r.remixOf) || unknown(r.nsfw),
+      seconds: r.seconds,
+      source: 'lab' as const,
+      origin: 'machine' as const,
+      prompt: r.prompt,
+      title: r.title,
+      caption: r.caption,
+      hashtags: r.hashtags,
+      score: r.score,
+      lab: true,
+      movie: r.movieId,
+      createdAt: r.createdAt,
+      downloadUrl: r.url ? withParam(r.url, 'download=1') : '',
+    }));
+  return [...made, ...fromLab];
+}
+
 function loadPick(): { kind: Kind; source: Source } {
   try {
     const v = JSON.parse(localStorage.getItem(PICK_KEY) || '{}') as { kind?: Kind; source?: Source };
@@ -81,10 +138,14 @@ export default function GalleryApp({ isActive }: AppProps) {
   const scroller = useRef<HTMLDivElement>(null);
   useScrollDepth(scroller, isActive, 'edges');
 
-  const [stored, setStored] = useState<StoredGallery | null | undefined>(undefined);
-  const [machineList, setMachineList] = useState<Creation[] | null>(null);
+  // The last list this device saw, shown at once while the fresh one comes (galleryCache.ts).
+  const [last] = useState<LastGallery | null>(() => readLast());
+  const [stored, setStored] = useState<StoredGallery | null | undefined>(last?.stored ?? undefined);
+  const [machineRaw, setMachineRaw] = useState<MachineRaw | null>(last?.machine ?? null);
+  // Which parts still show the last list (not yet the fresh one).
+  const [cached, setCached] = useState({ stored: Boolean(last?.stored), machine: Boolean(last?.machine) });
   const [device, setDevice] = useState<Creation[]>([]);
-  const [loaded, setLoaded] = useState(false);
+  const [loaded, setLoaded] = useState(Boolean(last));
   const [problem, setProblem] = useState<string | null>(null);
   const [pick, setPickState] = useState(loadPick);
   const [viewing, setViewing] = useState<string | null>(null);
@@ -134,95 +195,101 @@ export default function GalleryApp({ isActive }: AppProps) {
     return () => connectMarkFallback(null);
   }, [configured]);
 
-  const load = useCallback(async () => {
-    let failed = false;
-    const [s, m, d, h] = await Promise.all([
-      storedGallery().catch((err: Error) => {
-        failed = true;
-        setProblem(err.message);
-        return null;
-      }),
-      machineOn
-        ? Promise.all([ai.studioItems(), ai.memeLab().catch(() => null)]).then(
-            ([items, lab]) => {
-              rememberItems(items);
-              if (lab) rememberItems(lab.records ?? []);
-              const made: Creation[] = items.map((it) => {
-                const source = sourceOf(it);
-                return {
-                  id: it.id,
-                  kind: it.kind,
-                  url: it.url,
-                  label: it.prompt,
-                  nsfw: it.nsfw === true || isNsfw(it.prompt),
-                  seconds: it.seconds,
-                  source,
-                  origin: 'machine' as const,
-                  prompt: it.prompt,
-                  lab: false,
-                  movie: it.movie,
-                  createdAt: it.createdAt,
-                  downloadUrl: withParam(it.url, 'download=1'),
-                };
-              });
-              const fromLab: Creation[] = (lab?.records ?? [])
-                .filter((r) => r && r.id && r.url)
-                .map((r) => ({
-                  id: r.id,
-                  kind: r.kind === 'image' ? 'image' : 'video',
-                  url: r.url!,
-                  label: r.title,
-                  nsfw: r.nsfw === true || isNsfw(r.title, r.prompt, r.caption, r.remixOf),
-                  seconds: r.seconds,
-                  source: 'lab' as const,
-                  origin: 'machine' as const,
-                  prompt: r.prompt,
-                  title: r.title,
-                  caption: r.caption,
-                  hashtags: r.hashtags,
-                  score: r.score,
-                  lab: true,
-                  movie: r.movieId,
-                  createdAt: r.createdAt,
-                  downloadUrl: withParam(r.url!, 'download=1'),
-                }));
-              return [...made, ...fromLab];
-            },
-            () => null,
-          )
-        : Promise.resolve(null),
-      cloudMadeList(),
-      loadHeld(ai, machineOn),
-    ]);
-    setHeld(h);
-    if (s) {
-      setProblem(null);
-      rememberItems(s.items);
+  // Your marks and the machine's check from the last list, before the first picture is drawn.
+  useLayoutEffect(() => {
+    if (!last) return;
+    rememberItems(last.stored?.items ?? []);
+    rememberItems(last.machine?.items ?? []);
+    rememberItems(last.machine?.lab ?? []);
+  }, [last]);
+  const storedNow = useRef(stored);
+  storedNow.current = stored;
+
+  // Pictures with no thumbnail yet (made while the machine was off): the site makes a few at a time,
+  // the ones at the top first, and each tile switches to its thumbnail as it comes. Videos wait for the machine.
+  const thumbing = useRef(false);
+  const fillThumbs = useCallback(async (items: StoredItem[]) => {
+    const missing = items.filter((it) => it.kind === 'image' && !it.thumbUrl);
+    if (thumbing.current || !missing.length) return;
+    thumbing.current = true;
+    try {
+      let ids = missing.slice(0, 24).map((it) => it.id);
+      for (let round = 0; round < 25; round++) {
+        const r = await makeStoredThumbs(ids).catch(() => null);
+        if (!r || !Array.isArray(r.made) || !r.made.length) break;
+        const links = new Map(r.made.map((m) => [m.id, m.thumbUrl]));
+        setStored((prev) => (prev ? { ...prev, items: prev.items.map((it) => (links.has(it.id) ? { ...it, thumbUrl: links.get(it.id) } : it)) } : prev));
+        if (r.left <= 0) break;
+        ids = ids.filter((id) => !links.has(id));
+      }
+    } finally {
+      thumbing.current = false;
     }
-    // A failed look keeps what was shown before.
-    if (!failed) setStored(s);
-    setMachineList(m);
-    setDevice(
-      d.map((c) => ({
-        id: `cloud-${c.id}`,
-        kind: c.kind,
-        url: c.url,
-        label: c.prompt,
-        nsfw: isNsfw(c.prompt),
-        source: 'cloud',
-        origin: 'device',
-        prompt: c.prompt,
-        lab: false,
-        createdAt: c.createdAt,
-        downloadUrl: c.url,
-      })),
+  }, []);
+
+  // Each part shows as soon as it is here: cloud storage, the machine, this device, held results.
+  const load = useCallback(async () => {
+    const storedP = storedGallery().then(
+      (s) => {
+        if (s) {
+          setProblem(null);
+          rememberItems(s.items);
+        }
+        setStored(s);
+        if (s?.configured) void fillThumbs(s.items);
+        setCached((c) => ({ ...c, stored: false }));
+        return s;
+      },
+      (err: Error) => {
+        // A failed look keeps what was shown before.
+        setProblem(err.message);
+        return undefined;
+      },
     );
+    const machineP: Promise<MachineRaw | null> = machineOn
+      ? Promise.all([ai.studioItems(), ai.memeLab().catch(() => null)]).then(
+          ([items, lab]) => {
+            rememberItems(items);
+            if (lab) rememberItems(lab.records ?? []);
+            return { items, lab: (lab?.records ?? []).filter((r) => r && r.id && r.url) };
+          },
+          () => null,
+        )
+      : Promise.resolve(null);
+    void machineP.then((m) => {
+      setMachineRaw(m);
+      setCached((c) => ({ ...c, machine: false }));
+    });
+    const deviceP = cloudMadeList().then((d) => {
+      setDevice(
+        d.map((c) => ({
+          id: `cloud-${c.id}`,
+          kind: c.kind,
+          url: c.url,
+          label: c.prompt,
+          nsfw: isNsfw(c.prompt),
+          source: 'cloud',
+          origin: 'device',
+          prompt: c.prompt,
+          lab: false,
+          createdAt: c.createdAt,
+          downloadUrl: c.url,
+        })),
+      );
+      return d;
+    });
+    void loadHeld(ai, machineOn).then(setHeld);
+    const [s, m, d] = await Promise.all([storedP, machineP, deviceP]);
     setLoaded(true);
+    // Kept for the next time the Gallery opens (what failed this time keeps its last copy).
+    const keptStored = s === undefined ? (storedNow.current ?? null) : s;
+    saveLast({ at: Date.now(), stored: keptStored, machine: m });
     // Made in the cloud and waiting on this device: into cloud storage now, if the site has it.
-    if (s?.configured && !machineOn && d.length) void moveCloudMadeToStorage(saveCloudToStorage).then((n) => {
+    if (s?.configured && !machineOn && d.length)
+      void moveCloudMadeToStorage(saveCloudToStorage).then((n) => {
         if (n) void load();
       });
-  }, [ai, machineOn]);
+  }, [ai, machineOn, fillThumbs]);
 
   useEffect(() => {
     if (!isActive) return;
@@ -233,10 +300,11 @@ export default function GalleryApp({ isActive }: AppProps) {
 
   // One list: the machine's first (its links work best while it is on), then what only cloud storage
   // has, then what waits on this device.
+  const machineList = useMemo(() => machineCreations(machineRaw, cached.machine), [machineRaw, cached.machine]);
   const all = useMemo(() => {
     const out: Creation[] = [];
     const seen = new Set<string>();
-    for (const c of machineList ?? []) {
+    for (const c of machineList) {
       if (seen.has(c.id)) continue;
       seen.add(c.id);
       out.push(c);
@@ -248,8 +316,12 @@ export default function GalleryApp({ isActive }: AppProps) {
         id: it.id,
         kind: it.kind,
         url: it.url,
+        thumbUrl: it.thumbUrl,
+        width: it.width,
+        height: it.height,
         label: it.title || it.prompt,
-        nsfw: it.nsfw === true || isNsfw(it.title, it.prompt, it.caption),
+        // From the last list and not checked then: kept hidden until the fresh list says.
+        nsfw: it.nsfw === true || isNsfw(it.title, it.prompt, it.caption) || (cached.stored && typeof it.nsfw !== 'boolean'),
         seconds: it.seconds,
         source: it.source,
         origin: 'storage',
@@ -261,12 +333,12 @@ export default function GalleryApp({ isActive }: AppProps) {
         lab: it.lab,
         movie: it.movie,
         createdAt: it.createdAt,
-        downloadUrl: it.downloadUrl,
+        downloadUrl: it.downloadUrl || it.url,
       });
     }
     out.push(...device);
     return out.sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)));
-  }, [machineList, stored, device]);
+  }, [machineList, stored, device, cached.stored]);
 
   // Counted as shown: NSFW ones only while "Show NSFW" is on.
   useNsfwFlags();
@@ -424,6 +496,8 @@ export default function GalleryApp({ isActive }: AppProps) {
               items={shown}
               label={pick.source === 'all' ? 'All your creations' : `From ${SOURCES.find((s) => s.value === pick.source)!.label}`}
               onOpen={(m, from) => {
+                // A tile from the last list whose link is being renewed: it opens once it has one.
+                if (!m.url) return;
                 viewFrom.current = from;
                 setViewing(m.id);
               }}
@@ -460,6 +534,7 @@ export default function GalleryApp({ isActive }: AppProps) {
           onPrev={step.prev ? () => setViewing(step.prev!.id) : null}
           onNext={step.next ? () => setViewing(step.next!.id) : null}
           position={step.index >= 0 ? { index: step.index, count: step.count } : undefined}
+          neighbours={[step.prev, step.next]}
           words={
             <div className="lab-detail-words">
               {open.title && <p className="meme-card-title">{open.title}</p>}

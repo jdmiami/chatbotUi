@@ -1265,6 +1265,7 @@ export function CreateView({
           onPrev={stepper.prev ? () => setViewing(items.find((x) => x.id === stepper.prev!.id) ?? null) : null}
           onNext={stepper.next ? () => setViewing(items.find((x) => x.id === stepper.next!.id) ?? null) : null}
           position={stepper.index >= 0 ? { index: stepper.index, count: stepper.count } : undefined}
+          neighbours={[stepper.prev, stepper.next]}
           words={<p className="ai-viewer-prompt">{viewing.prompt}</p>}
         >
           <div className="ai-viewer-actions">
@@ -1351,4 +1352,4 @@ export function CreateView({
 }
 
 /** A gallery item as the shared gallery shows it (Gallery.tsx). */
-const asMedia = (it: StudioItem): GalleryMedia => ({ id: it.id, kind: it.kind, url: it.url, label: it.prompt, nsfw: it.nsfw === true || isNsfw(it.prompt), seconds: it.seconds });
+const asMedia = (it: StudioItem): GalleryMedia => ({ id: it.id, kind: it.kind, url: it.url, thumbUrl: it.thumbUrl, width: it.width, height: it.height, label: it.prompt, nsfw: it.nsfw === true || isNsfw(it.prompt), seconds: it.seconds });

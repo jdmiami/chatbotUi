@@ -12,6 +12,7 @@ import { UPLOAD_MAX, audioArgs, clipArgs, fitSize, ltxFrames, probeMedia, shapeO
 import { createMirror, downloadFile, uploadFile } from './r2.js';
 import { injectCharacter } from './characterPrompt.js';
 import { createHeld } from './held.js';
+import { createThumbs, wantsThumb } from './thumbs.js';
 import { pipeline } from 'node:stream/promises';
 import {
   MAKERS,
@@ -277,6 +278,9 @@ export function createStudio(o) {
   const modelKey = (file) => `models/${file.dir}/${file.name}`;
   const ffmpeg = o.ffmpeg || runFfmpeg;
   const probe = o.probe || probeMedia;
+  // Gallery thumbnails (thumbs.js): the real ffmpeg, unless a test hands in its own (none: no thumbnails).
+  const thumbFfmpeg = o.thumbFfmpeg !== undefined ? o.thumbFfmpeg : o.ffmpeg ? null : runFfmpeg;
+  const thumbs = createThumbs({ root: path.join(dir, 'output'), ffmpeg: thumbFfmpeg, mirror, log, sleep: o.thumbSleep });
   const hfToken = String(o.hfToken || '').trim() || null;
 
   const jobs = new Map(); // id -> job
@@ -1817,12 +1821,58 @@ export function createStudio(o) {
     return null;
   }
 
-  /** Copy an item (its file, then its note) to R2. */
+  /**
+   * An item was saved: make its thumbnail (once), then copy it to R2: the thumbnail (thumbs.make), its
+   * file (only when R2 doesn't have it yet: a file never changes, its note does), then its note last,
+   * so a listing that sees the note sees the rest too.
+   */
   async function keep(item) {
+    await thumbFor(item);
     if (!mirror) return;
     const p = path.resolve(path.join(dir, 'output'), item.file);
-    if (p.startsWith(path.join(dir, 'output') + path.sep)) await mirror.save(p);
+    if (p.startsWith(path.join(dir, 'output') + path.sep)) await mirror.save(p, { unlessThere: true });
     await mirror.save(path.join(metaDir, `${item.id}.json`));
+  }
+
+  /** The small picture a gallery grid shows (thumbs.js), made from the item's file on this machine. Never fails a save. */
+  async function thumbFor(item) {
+    if (!wantsThumb(item)) return;
+    await thumbs.scan();
+    if (thumbs.has(item.id)) return;
+    const outRoot = path.join(dir, 'output');
+    const p = path.resolve(outRoot, String(item.file || ''));
+    if (!p.startsWith(outRoot + path.sep) || !(await fsp.stat(p).catch(() => null))) return;
+    await thumbs.make(item, p).catch((err) => log.warn?.(`[thumbs] ${item.id}: ${err.message}`));
+  }
+
+  /**
+   * Thumbnails for everything made before they existed (or on a machine without them), in the background:
+   * niced, two at a time, waiting while anything is being made. A helper shares the main machine's folder: it leaves this to it.
+   */
+  function backfillThumbs() {
+    if (helper) return Promise.resolve(0);
+    const outRoot = path.join(dir, 'output');
+    return thumbs.backfill({
+      list: async () => [...(await items(100_000)), ...(await items(100_000, true))],
+      // The file here, else a short-lived link to it in R2 (ffmpeg reads only the part it needs).
+      source: async (it) => {
+        const p = path.resolve(outRoot, String(it.file || ''));
+        if (!p.startsWith(outRoot + path.sep)) return null;
+        if (await fsp.stat(p).catch(() => null)) return p;
+        return mirror ? mirror.url(p, 900) : null;
+      },
+      still: async (id) =>
+        mirror ? Boolean(await galleryR2.head(`gallery/orbit/${id}.json`).catch(() => ({}))) : Boolean(await fsp.stat(path.join(metaDir, `${id}.json`)).catch(() => null)),
+      busy: () => active().length > 0 || Boolean(o.liveEnvs?.busy?.()),
+      ...(o.thumbPace || {}),
+    });
+  }
+
+  /** An item's thumbnail for sending (null when it has none, or is not in the gallery). */
+  async function thumbFile(id) {
+    const it = await readItem(id);
+    if (!it || !wantsThumb(it)) return null;
+    return thumbs.file(id);
   }
 
   // With R2 the gallery's notes come down from there (the other machine's creations too, and what
@@ -1851,6 +1901,8 @@ export function createStudio(o) {
     syncing ||= (async () => {
       try {
         const there = new Set(await mirror.pull('orbit/', (rel) => /^orbit\/[A-Za-z0-9_-]+\.json$/.test(rel)));
+        // Thumbnails the other machines made count as there (one listing, nothing downloaded).
+        await thumbs.learnRemote().catch(() => {});
         const copied = Boolean(await fsp.stat(backfilledMarker).catch(() => null));
         const onlyHere = [];
         for (const n of await fsp.readdir(metaDir).catch(() => [])) {
@@ -1859,7 +1911,11 @@ export function createStudio(o) {
           const st = await fsp.stat(path.join(metaDir, n)).catch(() => null);
           if (!st) continue;
           if (!copied) onlyHere.push(n);
-          else if (now() - st.mtimeMs > 5 * 60_000) await fsp.rm(path.join(metaDir, n), { force: true });
+          else if (now() - st.mtimeMs > 5 * 60_000) {
+            // Deleted elsewhere (the site): its thumbnail goes with it.
+            await fsp.rm(path.join(metaDir, n), { force: true });
+            await thumbs.drop(n.slice(0, -5));
+          }
         }
         if (!copied && !backfilling) {
           backfilling = backfill(onlyHere)
@@ -1888,6 +1944,7 @@ export function createStudio(o) {
 
   async function items(limit = 200, lab = false) {
     await syncGallery();
+    await thumbs.scan();
     const names = await fsp.readdir(metaDir).catch(() => []);
     const list = [];
     for (const n of names) {
@@ -1919,6 +1976,8 @@ export function createStudio(o) {
       const p = path.resolve(path.join(dir, 'output'), it.file);
       if (p.startsWith(path.join(dir, 'output') + path.sep)) await mirror.drop(p);
     }
+    // Its thumbnail too (here and in R2).
+    await thumbs.drop(id);
     return true;
   }
 
@@ -2015,8 +2074,14 @@ export function createStudio(o) {
     if (!p) throw new Error('The result file is missing, so it could not be held.');
     const note = (await readItem(item.id)) || item;
     const rec = { ...note, ...(typeof score === 'number' ? { nsfwScore: score } : {}) };
-    // Approving is only for results that could stand in a gallery: a flagged real person's photo or upload never.
-    await heldStore.hold({ item: rec, file: p, reason, category, canApprove: category === 'checker-unavailable' || Boolean(item.adultSwap) });
+    // Its thumbnail is made apart (never in the gallery's thumbs folder) and kept with it under held/.
+    const thumb = await thumbs.makeTemp(item, p).catch(() => null);
+    try {
+      // Approving is only for results that could stand in a gallery: a flagged real person's photo or upload never.
+      await heldStore.hold({ item: rec, file: p, thumb, reason, category, canApprove: category === 'checker-unavailable' || Boolean(item.adultSwap) });
+    } finally {
+      if (thumb) await fsp.rm(thumb, { force: true }).catch(() => {});
+    }
     await remove(item.id);
     await fsp.rm(p, { force: true });
   }
@@ -2172,6 +2237,11 @@ export function createStudio(o) {
       const look = () => void rateAll().catch((err) => log.warn?.(`[nsfw] ${err.message}`));
       setTimeout(look, o.nsfwDelayMs ?? 60_000).unref?.();
       setInterval(look, 30 * 60_000).unref?.();
+      // Gallery thumbnails for what was made before them: a while after start (downloads and your first jobs
+      // go first), then every half hour for anything the site added while the machine was off.
+      const thumbsNow = () => void backfillThumbs().catch((err) => log.warn?.(`[thumbs] ${err.message}`));
+      setTimeout(thumbsNow, o.thumbDelayMs ?? 2 * 60_000).unref?.();
+      setInterval(thumbsNow, 30 * 60_000).unref?.();
       const t = setInterval(() => void poll().catch(() => {}), o.pollMs ?? 3000);
       t.unref?.();
     },
@@ -2254,6 +2324,11 @@ export function createStudio(o) {
     addItem,
     remove,
     file,
+    /** Gallery thumbnails (thumbs.js): whether an item has one (after items()), its file, and the background backfill. */
+    hasThumb: (id) => thumbs.has(id),
+    thumbsReady: () => thumbs.scan(),
+    thumbFile,
+    backfillThumbs,
     poll,
     /** Check every unchecked picture and video now (tests; also runs by itself after start). */
     rateAll,
@@ -2263,6 +2338,7 @@ export function createStudio(o) {
       list: () => heldStore.list(),
       get: (id) => heldStore.get(id),
       file: (id) => heldStore.file(id),
+      thumbFile: (id) => heldStore.thumbFile(id),
       note: (id, text) => heldStore.note(id, text),
       approve: (id) => heldStore.approve(id, placeApproved),
     },

@@ -595,8 +595,12 @@ export function createGate(cfg, log = console) {
   };
   // What a member sees of a job and of a gallery item (only their own, and nothing else of the machine's).
   const fileUrl = (id) => `/_orbit/studio/file/${id}?t=${fileToken(id)}`;
+  // A gallery grid shows the small thumbnail (thumbs.js) when there is one; the viewer loads the file.
+  const thumbUrl = (id) => (studio?.hasThumb?.(id) ? `/_orbit/studio/thumb/${id}?t=${fileToken(id)}` : undefined);
   const itemView = (it) =>
-    it ? { id: it.id, kind: it.kind, prompt: it.prompt, width: it.width, height: it.height, seconds: it.seconds, movie: it.movie, nsfw: it.nsfw, createdAt: it.createdAt, url: fileUrl(it.id) } : null;
+    it
+      ? { id: it.id, kind: it.kind, prompt: it.prompt, width: it.width, height: it.height, seconds: it.seconds, movie: it.movie, nsfw: it.nsfw, createdAt: it.createdAt, url: fileUrl(it.id), thumbUrl: thumbUrl(it.id) }
+      : null;
   const jobView = (j) => ({
     id: j.id,
     kind: j.kind,
@@ -756,15 +760,22 @@ export function createGate(cfg, log = console) {
       if (!signedIn && !fileTokenOk(url.searchParams.get('t'), fileMatch[1])) return send(res, 401, { error: 'Unauthorized' });
       return sendFile(req, res, await studio.file(fileMatch[1]), url.searchParams.has('download'));
     }
+    // A gallery item's thumbnail (the same link rules as its file).
+    const thumbMatch = /^\/_orbit\/studio\/thumb\/([A-Za-z0-9_-]+)$/.exec(path);
+    if (thumbMatch && (req.method === 'GET' || req.method === 'HEAD')) {
+      if (!signedIn && !fileTokenOk(url.searchParams.get('t'), thumbMatch[1])) return send(res, 401, { error: 'Unauthorized' });
+      return sendFile(req, res, studio.thumbFile ? await studio.thumbFile(thumbMatch[1]) : null, false);
+    }
     if (handleCharacters && (await handleCharacters(req, res, url, path, { signedIn }))) return;
     // Held for review (the owner only: not Open WebUI's key, not a studio member's).
     if (path === '/_orbit/studio/held' || path.startsWith('/_orbit/studio/held/')) {
       if (!studio.held) return send(res, 404, { error: 'Not found' });
-      const heldFile = /^\/_orbit\/studio\/held\/file\/([A-Za-z0-9_-]+)$/.exec(path);
+      const heldFile = /^\/_orbit\/studio\/held\/(file|thumb)\/([A-Za-z0-9_-]+)$/.exec(path);
       const owner = viaApi || Boolean(session(req));
       if (heldFile && req.method === 'GET') {
-        if (!owner && !heldTokenOk(url.searchParams.get('t'), heldFile[1])) return send(res, 401, { error: 'Unauthorized' });
-        return sendFile(req, res, await studio.held.file(heldFile[1]), false);
+        if (!owner && !heldTokenOk(url.searchParams.get('t'), heldFile[2])) return send(res, 401, { error: 'Unauthorized' });
+        const f = heldFile[1] === 'thumb' ? await studio.held.thumbFile?.(heldFile[2]) : await studio.held.file(heldFile[2]);
+        return sendFile(req, res, f, false);
       }
       if (!owner) return send(res, 401, { error: 'Unauthorized' });
       try {
@@ -787,6 +798,8 @@ export function createGate(cfg, log = console) {
           notes: r.notes || [],
           canApprove: r.canApprove !== false,
           url: `/_orbit/studio/held/file/${r.id}?t=${heldToken(r.id)}`,
+          // Its small preview, kept with it under held/ (never a gallery thumbnail).
+          thumbUrl: r.thumb ? `/_orbit/studio/held/thumb/${r.id}?t=${heldToken(r.id)}` : undefined,
         });
         if (path === '/_orbit/studio/held' && req.method === 'GET') return send(res, 200, { items: (await studio.held.list()).map(heldView) });
         const act = /^\/_orbit\/studio\/held\/([A-Za-z0-9_-]+)\/(approve|note)$/.exec(path);
@@ -810,7 +823,11 @@ export function createGate(cfg, log = console) {
     if (!signedIn) return send(res, 401, { error: { message: 'Unauthorized' } });
     if (req.method !== 'GET' && req.method !== 'HEAD') activity();
     // Results carry a link; API callers (Orbit) get one that works in <img>/<video> tags.
-    const withUrl = (it) => (it ? { ...it, url: `/_orbit/studio/file/${it.id}${viaApi ? `?t=${fileToken(it.id)}` : ''}` } : it);
+    const withUrl = (it) => {
+      if (!it) return it;
+      const q = viaApi ? `?t=${fileToken(it.id)}` : '';
+      return { ...it, url: `/_orbit/studio/file/${it.id}${q}`, ...(studio.hasThumb?.(it.id) ? { thumbUrl: `/_orbit/studio/thumb/${it.id}${q}` } : {}) };
+    };
     const withJobUrl = (j) => (j ? { ...j, item: withUrl(j.item) } : j);
     try {
       if (path === '/v1/images/generations' && req.method === 'POST') return await openaiImage(req, res);
@@ -872,7 +889,15 @@ export function createGate(cfg, log = console) {
         if (!cfg.lab) return send(res, 404, { error: 'The meme lab runs on the main AI machine only.' });
         const labState = async () => {
           const s = await cfg.lab.state();
-          return { ...s, making: s.making ? { ...s.making, job: withJobUrl(s.making.job) } : null, records: s.records.map((r) => ({ ...r, url: withUrl({ id: r.id }).url })) };
+          await studio.thumbsReady?.();
+          return {
+            ...s,
+            making: s.making ? { ...s.making, job: withJobUrl(s.making.job) } : null,
+            records: s.records.map((r) => {
+              const linked = withUrl({ id: r.id });
+              return { ...r, url: linked.url, ...(linked.thumbUrl ? { thumbUrl: linked.thumbUrl } : {}) };
+            }),
+          };
         };
         if (path === '/_orbit/studio/lab' && req.method === 'GET') return send(res, 200, await labState());
         if (path === '/_orbit/studio/lab' && req.method === 'POST') {

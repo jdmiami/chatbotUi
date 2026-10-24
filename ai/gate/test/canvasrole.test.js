@@ -63,7 +63,8 @@ test('drawing machine: models stay on its volume, only its makers come down, the
 
   const item = await studio.importItem({ url: `data:image/png;base64,${PNG}`, kind: 'image', prompt: 'a lighthouse' });
   const keys = [...objects.keys()].sort();
-  assert.deepEqual(keys, [`gallery/${item.file.split(path.sep).join('/')}`, `gallery/orbit/${item.id}.json`].sort());
+  // The picture, its note and its thumbnail for the gallery grid (all in the gallery's R2 folder).
+  assert.deepEqual(keys, [`gallery/${item.file.split(path.sep).join('/')}`, `gallery/orbit/${item.id}.json`, `gallery/thumbs/${item.id}.webp`].sort());
   // Model files and settings never touch R2 on this machine.
   assert.ok(!log.some((l) => / (models|state)\//.test(l)), log.join('\n'));
 

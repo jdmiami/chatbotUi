@@ -27,6 +27,8 @@ export interface StoredItem {
   createdAt: string;
   url: string;
   downloadUrl: string;
+  /** Its small picture for the grid (unset until the AI machine has made one). */
+  thumbUrl?: string;
   bytes: number;
 }
 
@@ -72,6 +74,14 @@ export function keepStored(id: string): Promise<void> {
 
 export function deleteStored(id: string): Promise<void> {
   return call<void>({ method: 'POST', body: JSON.stringify({ action: 'delete', id }) });
+}
+
+/**
+ * With the AI machine off, the site makes a few missing picture thumbnails each call (`ids` first: the
+ * ones on screen). Returns their links and how many pictures still have none.
+ */
+export function makeStoredThumbs(ids: string[]): Promise<{ made: { id: string; thumbUrl: string }[]; left: number }> {
+  return call<{ made: { id: string; thumbUrl: string }[]; left: number }>({ method: 'POST', body: JSON.stringify({ action: 'thumbs', ids: ids.slice(0, 100) }) });
 }
 
 /** A cloud creation saved straight into the stored gallery (the machine can stay off). */

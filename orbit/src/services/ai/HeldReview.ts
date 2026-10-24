@@ -35,6 +35,8 @@ export interface HeldItem {
   /** False when it shows a real person's photo or a video not made here: it can only stay held. */
   canApprove: boolean;
   url: string;
+  /** Its small preview for the review grid (kept with it under held/), when the machine made one. */
+  thumbUrl?: string;
 }
 
 const ENDPOINT = '/api/held';

@@ -5,7 +5,7 @@ import { HeldError, approveHeld, listHeld, noteHeld } from '@/lib/held';
 
 export const dynamic = 'force-dynamic';
 
-const noStore = { 'cache-control': 'no-store' };
+const noStore = { 'cache-control': 'private, no-store' };
 const NOT_SET_UP = 'Held results show here with the machine off once storage keys are added.';
 
 function storage() {

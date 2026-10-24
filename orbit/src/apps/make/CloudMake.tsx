@@ -281,6 +281,7 @@ export function CloudMake({
           onPrev={step.prev ? () => setViewing(byMediaId(step.prev!.id)) : null}
           onNext={step.next ? () => setViewing(byMediaId(step.next!.id)) : null}
           position={step.index >= 0 ? { index: step.index, count: step.count } : undefined}
+          neighbours={[step.prev, step.next]}
           words={viewing.prompt}
         >
           {isSaved(viewing) ? (

@@ -564,11 +564,14 @@ test.describe('AI app: Create', () => {
         json: {
           items: [
             { id: 'img1', kind: 'image', prompt: 'a red fox in snow', width: 1328, height: 1328, createdAt: '2026-10-16T10:00:00Z', url: `/_orbit/studio/file/img1?t=tok${n}` },
-            { id: 'vid1', kind: 'video', prompt: 'waves at sunset', width: 1280, height: 720, seconds: 5, createdAt: '2026-10-16T09:00:00Z', url: `/_orbit/studio/file/vid1?t=tok${n}` },
+            { id: 'vid1', kind: 'video', prompt: 'waves at sunset', width: 1280, height: 720, seconds: 5, createdAt: '2026-10-16T09:00:00Z', url: `/_orbit/studio/file/vid1?t=tok${n}`, thumbUrl: `/_orbit/studio/thumb/vid1?t=tok${n}` },
           ],
         },
       });
     });
+    await page.route('**/fake-ai/_orbit/studio/thumb/**', (route) =>
+      route.fulfill({ status: 200, headers: { 'content-type': 'image/png' }, body: Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==', 'base64') }),
+    );
     await openOrbit(page);
     await openCreate(page);
     await openMakeGallery(page);
@@ -576,7 +579,8 @@ test.describe('AI app: Create', () => {
     const fox = win.getByRole('button', { name: 'Image: a red fox in snow' });
     await expect(fox).toBeVisible();
     const img = () => fox.locator('img').getAttribute('src');
-    const vid = () => win.getByRole('button', { name: 'Video: waves at sunset' }).locator('video').getAttribute('src');
+    // A video tile is its thumbnail (no video plays in the grid).
+    const vid = () => win.getByRole('button', { name: 'Video: waves at sunset' }).locator('img').getAttribute('src');
     const [img0, vid0] = [await img(), await vid()];
     await win.locator('.ai-gallery li').first().evaluate((el) => el.setAttribute('data-probe', 'kept'));
     const before = n;

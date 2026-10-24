@@ -87,9 +87,10 @@ export function createR2({ accountId, accessKeyId, secretAccessKey, bucket, fetc
       } while (token);
       return out;
     },
-    async put(key, body, contentType = 'application/octet-stream') {
+    /** `cacheControl`: kept with the object and sent with it (a thumbnail the browser may keep). */
+    async put(key, body, contentType = 'application/octet-stream', { cacheControl } = {}) {
       const buf = Buffer.isBuffer(body) ? body : Buffer.from(body);
-      await call('PUT', key, { headers: { 'content-length': buf.length, 'content-type': contentType }, body: buf });
+      await call('PUT', key, { headers: { 'content-length': buf.length, 'content-type': contentType, ...(cacheControl ? { 'cache-control': cacheControl } : {}) }, body: buf });
     },
     /** A whole object as a Buffer (null when it isn't there). */
     async get(key) {
@@ -310,6 +311,8 @@ export function downloadStream(r2, key, { chunkMiB = 64, concurrency = 8 } = {})
 
 /** What a gallery file is, so a link to it shows (iPhone plays a video only when told it is one). */
 const MEDIA_TYPES = { '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.webp': 'image/webp', '.gif': 'image/gif', '.mp4': 'video/mp4', '.webm': 'video/webm', '.json': 'application/json' };
+/** How long a browser may keep a gallery thumbnail (its link changes every half hour anyway). */
+export const THUMB_CACHE = 'private, max-age=86400';
 export const mediaType = (file) => MEDIA_TYPES[path.extname(file).toLowerCase()] || 'application/octet-stream';
 
 /**
@@ -324,12 +327,18 @@ export function createMirror({ r2, root, prefix, log = console }) {
   };
   return {
     keyOf,
-    async save(abs) {
+    /**
+     * Copy one file up. `unlessThere`: skip it when R2 already has it at the same size (a gallery file
+     * never changes once made, so its note's every update need not send a whole video again).
+     */
+    async save(abs, { unlessThere = false } = {}) {
       try {
         const size = (await fsp.stat(abs)).size;
+        if (unlessThere && (await r2.head(keyOf(abs)).catch(() => null))?.size === size) return;
         const contentType = mediaType(abs);
         if (size > 256 * 1024 * 1024) await uploadFile(r2, abs, keyOf(abs), { contentType });
-        else await r2.put(keyOf(abs), await fsp.readFile(abs), contentType);
+        // A thumbnail never changes under its link: the browser may keep it (R2 sends this with it).
+        else await r2.put(keyOf(abs), await fsp.readFile(abs), contentType, /^thumbs\//.test(keyOf(abs).slice(prefix.length)) ? { cacheControl: THUMB_CACHE } : {});
       } catch (err) {
         log.warn?.(`[r2] could not save ${abs}: ${err.message}`);
       }
@@ -338,6 +347,10 @@ export function createMirror({ r2, root, prefix, log = console }) {
       await r2.remove(keyOf(abs)).catch((err) => log.warn?.(`[r2] could not delete ${abs}: ${err.message}`));
     },
     url: (abs, seconds) => r2.presign(keyOf(abs), seconds),
+    /** The paths (relative to `root`) of everything in R2 under a sub-folder: one listing, nothing downloaded. */
+    async list(sub = '') {
+      return (await r2.list(`${prefix}${sub}`)).map((o) => o.key.slice(prefix.length));
+    },
     /** Bring one file down from R2 (true when it was there). */
     async fetch(abs) {
       const key = keyOf(abs);
