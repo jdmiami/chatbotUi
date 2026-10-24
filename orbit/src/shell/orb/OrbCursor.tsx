@@ -29,6 +29,8 @@ import {
 } from './agent';
 import { canListen, listen, type Listening } from './listen';
 import { pageChat } from './pageChat';
+import { currentAssist } from './assist';
+import { useAssistOrb, type Driver, type OrbMode } from './assistOrb';
 
 /** A page can tell the orb where it is and what it is for (a studio sets this), on <html data-orb-context>. */
 function withPageContext(prompt: string): string {
@@ -73,7 +75,7 @@ function zoomFor(r: number, now: number) {
 }
 const CARET_W = 2.5;
 
-type Mode = 'follow' | 'parked' | 'tucked' | 'drag' | 'acting' | 'caret';
+type Mode = OrbMode;
 type Line = { who: 'you' | 'orb'; text: string };
 
 const APP_NAME: Record<AppId, string> = {
@@ -158,6 +160,14 @@ function Orb() {
   const last = useRef(0);
   const levelRef = useRef(level);
   levelRef.current = level;
+  /** Something that steers it each frame (the step it helps with: round a text box, along its edge…). */
+  const drive = useRef<Driver | null>(null);
+  /** Offering words for a text box: it stays round (not the caret) while it does. */
+  const offering = useRef(false);
+  /** Its trail of light: where it was over the last frames (Full only). */
+  const trail = useRef<HTMLSpanElement[]>([]);
+  const trailAt = useRef<{ x: number; y: number }[]>([]);
+  const trailOn = useRef(false);
 
   // ---- UI state
   const [panel, setPanel] = useState(false);
@@ -256,8 +266,17 @@ function Orb() {
       const dt = last.current ? Math.min(0.05, (t - last.current) / 1000) : 1 / 60;
       last.current = t;
       const full = levelRef.current === 'full';
+      let driving = false;
+      if (drive.current) {
+        const d = drive.current(t);
+        if (d === false) drive.current = null;
+        else driving = d === true;
+      }
       x.step(dt);
       y.step(dt);
+      // Steered round a box, its size can follow where it is (squeezing through a narrow gap).
+      const fit = drive.current?.sizeAt?.(x.value, y.value);
+      if (fit != null) grow.set(fit);
       depth.step(dt);
       if (flight.current) {
         const d = Math.hypot(x.target - x.value, y.target - y.value);
@@ -304,7 +323,22 @@ function Orb() {
         flyingShown.current = !!flight.current;
         layer.current?.toggleAttribute('data-flying', flyingShown.current);
       }
-      const still = !flight.current && x.resting() && y.resting() && depth.resting(0.002) && jelly.resting(0.002) && morph.resting(0.002) && grow.resting(0.002) && pinch.resting(0.002);
+      // A trail of light behind it when it moves fast (transform and opacity only).
+      const speed = Math.hypot(x.velocity, y.velocity);
+      const hist = trailAt.current;
+      hist.unshift({ x: x.value, y: y.value });
+      if (hist.length > 10) hist.length = 10;
+      const glow = full && !slim && mode.current !== 'drag' ? Math.min(1, Math.max(0, (speed - 260) / 1100)) : 0;
+      if (glow > 0 || trailOn.current) {
+        trailOn.current = glow > 0;
+        const g = Math.max(0.2, grow.value * pinch.value);
+        trail.current.forEach((dot, i) => {
+          const p = hist[Math.min(hist.length - 1, 1 + i * 2)];
+          dot.style.opacity = (glow * (0.55 - i * 0.16)).toFixed(3);
+          dot.style.transform = `translate3d(${p.x - R}px, ${p.y - R}px, 0) scale(${(g * (0.86 - i * 0.16)).toFixed(3)})`;
+        });
+      }
+      const still = !driving && !trailOn.current && !flight.current && x.resting() && y.resting() && depth.resting(0.002) && jelly.resting(0.002) && morph.resting(0.002) && grow.resting(0.002) && pinch.resting(0.002);
       raf.current = mode.current === 'drag' || !still ? requestAnimationFrame(frame) : 0;
     },
     [x, y, depth, jelly, morph, grow, pinch, tracker],
@@ -342,8 +376,10 @@ function Orb() {
     const modal = [...document.querySelectorAll('[aria-modal="true"]')].some((d) => !layer.current?.contains(d) && !d.querySelector('[data-orb-spot="stage"]'));
     setHidden(modal || overlay === 'index');
     if (leaving.current) return;
+    // Steered by the step it helps with: that decides (it only needs a frame to look again).
+    if (drive.current) return kick();
     const free = mode.current !== 'drag' && mode.current !== 'caret' && mode.current !== 'acting';
-    const f = findFocus(viewport(), SIZE, layer.current);
+    const f = findFocus(viewport(), SIZE, layer.current, document, currentAssist()?.target ?? null);
     // A stage takes it whatever the mode: there it is the voice orb, centred and grown.
     if (f.kind === 'stage' && free) {
       if (!onStage.current) jelly.velocity += 1.2;
@@ -373,9 +409,9 @@ function Orb() {
     }
     // On a spot kept for it (the AI's face on an empty chat) it sits centred, grown to the spot.
     seat.current = f.kind === 'spot' ? (f.el as HTMLElement) : null;
-    sizeTo(f.kind === 'spot' && f.size ? f.size / SIZE : 1);
+    sizeTo((f.kind === 'spot' || f.kind === 'assist') && f.size ? f.size / SIZE : 1);
     moveTo(f.x, f.y);
-  }, [overlay, moveTo, jelly, sizeTo]);
+  }, [overlay, moveTo, jelly, sizeTo, kick]);
 
   // Only a change of the setting itself switches between following and staying put.
   const followSetting = useRef(follow);
@@ -417,7 +453,7 @@ function Orb() {
   const leaveTimer = useRef(0);
   const syncCaret = useCallback(() => {
     const field = caretField(document.activeElement, layer.current);
-    const busy = mode.current === 'drag' || mode.current === 'acting';
+    const busy = mode.current === 'drag' || mode.current === 'acting' || offering.current;
     const c = field && !busy ? caretOf(field as HTMLElement) : null;
     if (c) {
       clearTimeout(leaveTimer.current);
@@ -539,6 +575,31 @@ function Orb() {
       delete document.documentElement.dataset.orbCaret;
     };
   }, [syncCaret]);
+
+  // ---- the step it helps with (assist.ts): ideas for a text box, choosing, approving
+  const assistCtl = useAssistOrb({
+    layer,
+    x,
+    y,
+    jelly,
+    depth,
+    morph,
+    size: SIZE,
+    sizeTo,
+    kick,
+    mode,
+    level: levelRef,
+    follows: followSetting,
+    drive,
+    offering,
+    view: viewport,
+    refocus,
+    syncCaret,
+    rest,
+    flash,
+  });
+  const assistRef = useRef(assistCtl);
+  assistRef.current = assistCtl;
 
   // While it is the caret, the box can move without any event (a spring settling, answers above
   // leaving, a page sinking back): check where the box is each frame, and follow it when it moves.
@@ -1025,6 +1086,8 @@ function Orb() {
     }
     jelly.velocity += 2.5;
     kick();
+    // On a step it helps with, a tap is for the step: it chooses for you, or writes (or takes) an idea.
+    if (assistRef.current.tap()) return;
     // A page left it something to tell you (a studio: why it sits where it does): a tap shows that,
     // with the ask box and the mic right there. Otherwise a tap talks.
     if (noteRef.current && !listenRef.current) {
@@ -1347,6 +1410,12 @@ function Orb() {
     async (text: string, spoken: boolean) => {
       const goal = text.trim();
       if (!goal) return;
+      // "Choose for me", "another idea"… on a step it helps with.
+      if (assistRef.current.voice(goal)) {
+        setLines((l) => [...l.slice(-30), { who: 'you', text: goal }]);
+        setPanel(false);
+        return;
+      }
       abortRef.current?.abort();
       const ctrl = new AbortController();
       abortRef.current = ctrl;
@@ -1504,6 +1573,17 @@ function Orb() {
 
   return (
     <div ref={layer} className="orb-layer" data-caret={caretOn || undefined} data-hidden={hidden || undefined} data-listening={listening || undefined} data-running={running || undefined} data-face={expression}>
+      {assistCtl.overlay}
+      {[0, 1, 2].map((i) => (
+        <span
+          key={i}
+          className="orb-trail"
+          aria-hidden
+          ref={(el) => {
+            if (el) trail.current[i] = el;
+          }}
+        />
+      ))}
       <button
         ref={body}
         type="button"
@@ -1520,7 +1600,7 @@ function Orb() {
             e.preventDefault();
             if (e.shiftKey) openPanel();
             else if (onStage.current && seat.current instanceof HTMLButtonElement) seat.current.click();
-            else toggleVoice();
+            else if (!assistRef.current.tap()) toggleVoice();
           }
         }}
         onClick={(e) => {
@@ -1606,7 +1686,14 @@ function Orb() {
             </div>
           ) : (
             <>
-              {lines.length === 0 && !note && (
+              {assistCtl.chip && (
+                <div className="orb-suggest" aria-label="For this step">
+                  <button type="button" className="chip" onClick={() => (setPanel(false), assistCtl.chip?.run())}>
+                    {assistCtl.chip.label}
+                  </button>
+                </div>
+              )}
+              {lines.length === 0 && !note && !assistCtl.chip && (
                 <div className="orb-suggest" aria-label="Ideas">
                   {SUGGESTIONS.map((s) => (
                     <button

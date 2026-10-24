@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { useShell } from '../../state/shell';
 import { cloudReady, cloudText } from '../../services/ai/CloudAi';
 import { caretOf } from './caret';
+import { currentAssist } from './assist';
 import {
   GHOST_PROMPT,
   REWRITES,
@@ -37,6 +38,12 @@ function language() {
   } catch {
     return 'English';
   }
+}
+
+/** What the step this box belongs to is about (a walkthrough told the orb), so the words fit it. */
+function stepOf(field: Field): string {
+  const a = currentAssist();
+  return a?.target && (a.target === field || a.target.contains(field)) ? `. ${a.context}` : '';
 }
 
 /** Ghost text and rewrites in whichever text box you are typing in (see write.ts). */
@@ -83,6 +90,12 @@ export function WriteHelp() {
     };
   }, [enabled]);
 
+  // The orb is offering words for this box (a walkthrough step): the ghost steps aside for it.
+  useEffect(() => {
+    window.addEventListener('orb:offer', clearGhost);
+    return () => window.removeEventListener('orb:offer', clearGhost);
+  }, [clearGhost]);
+
   useEffect(() => {
     if (!field) {
       clearGhost();
@@ -117,7 +130,7 @@ export function WriteHelp() {
             signal: ctrl.signal,
             messages: [
               { role: 'system', content: GHOST_PROMPT },
-              { role: 'user', content: `${where(field, useShell.getState().activeApp)}. Text so far:\n${before.slice(-1500)}` },
+              { role: 'user', content: `${where(field, useShell.getState().activeApp)}${stepOf(field)}. Text so far:\n${before.slice(-1500)}` },
             ],
           });
           if (ctrl.signal.aborted || textOf(field) !== before || document.activeElement !== field) return;

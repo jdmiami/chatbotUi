@@ -42,5 +42,7 @@ export default defineConfig({
     url: `http://localhost:${port}`,
     reuseExistingServer: true,
     timeout: 120_000,
+    // Also builds the test pages in tests/harness (the orb on a walkthrough).
+    env: { ORBIT_HARNESS: '1' },
   },
 });
