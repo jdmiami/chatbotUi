@@ -145,3 +145,17 @@ test('Make: the "turn the AI machine on" message hides into a pill, comes back, 
   await page.screenshot({ path: info.outputPath('make-notice-shown.png') });
   await expectNoHorizontalOverflow(page);
 });
+
+test('Make: pick Standard or Turbo before turning the AI machine on; the pick is remembered', async ({ page }) => {
+  const calls: Record<string, unknown>[] = [];
+  await mockAi(page, 'off', calls);
+  await page.route(/\/api\/make(\?.*)?$/, (r) => r.fulfill({ json: { configured: false } }));
+  await openOrbit(page);
+  const win = await openMakeApp(page);
+  const speed = win.locator('.make-banner').getByRole('group', { name: 'Speed' });
+  await expect(speed.getByRole('button', { name: 'Standard · $0.59/h' })).toHaveAttribute('aria-pressed', 'true');
+  await speed.getByRole('button', { name: 'Turbo · $2.89/h' }).click();
+  await win.locator('.make-banner').getByRole('button', { name: 'Turn it on' }).click();
+  await expect.poll(() => calls.find((c) => c.action === 'start')).toMatchObject({ action: 'start', tier: 'turbo' });
+  expect(await page.evaluate(() => localStorage.getItem('orbit.speed'))).toBe('turbo');
+});

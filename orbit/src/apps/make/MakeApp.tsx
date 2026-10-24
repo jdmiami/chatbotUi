@@ -9,6 +9,7 @@ import { CreateView } from '../ai/CreateView';
 import { CloudMake } from './CloudMake';
 import { MakeDownloads } from './MakeDownloads';
 import { MachineNotice } from '../../ui/MachineNotice';
+import { SpeedChoice, useSpeed } from '../../ui/SpeedChoice';
 import '../agent/agent.css';
 import '../ai/ai.css';
 import './make.css';
@@ -26,6 +27,7 @@ export default function MakeApp({ isActive }: AppProps) {
   const [powering, setPowering] = useState(false);
   const [cloudOpen, setCloudOpen] = useState(false);
   const [moved, setMoved] = useState(0);
+  const speed = useSpeed(status);
   const scroller = useRef<HTMLDivElement>(null);
   useScrollDepth(scroller, isActive, 'edges');
 
@@ -55,7 +57,7 @@ export default function MakeApp({ isActive }: AppProps) {
   const turnOn = async () => {
     setPowering(true);
     try {
-      setStatus(await ai.power('start'));
+      setStatus(await ai.power('start', speed.chosen?.id));
       toast('Turning the AI machine on (2–4 minutes). Make is ready the moment it is.', 'info');
     } catch (err) {
       toast((err as Error).message, 'error');
@@ -83,9 +85,12 @@ export default function MakeApp({ isActive }: AppProps) {
             <div className="ai-banner make-banner" role="status">
               <p>{waking ? 'Your AI machine is waking up. Make is ready the moment it is.' : 'Turn the AI machine on to make pictures and videos (2–4 minutes).'}</p>
               {!waking && (
-                <button type="button" className="btn primary" onClick={() => void turnOn()} disabled={powering}>
-                  {powering ? 'Turning on…' : 'Turn it on'}
-                </button>
+                <>
+                  <SpeedChoice {...speed} />
+                  <button type="button" className="btn primary" onClick={() => void turnOn()} disabled={powering}>
+                    {powering ? 'Turning on…' : 'Turn it on'}
+                  </button>
+                </>
               )}
             </div>
           </MachineNotice>

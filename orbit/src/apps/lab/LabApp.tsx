@@ -5,6 +5,7 @@ import { useShell } from '../../state/shell';
 import { getLocalAi, type AiMachineStatus } from '../../services/ai/LocalAi';
 import { MemeLab } from '../ai/MemeLab';
 import { MachineNotice } from '../../ui/MachineNotice';
+import { SpeedChoice, useSpeed } from '../../ui/SpeedChoice';
 import '../agent/agent.css';
 import '../ai/ai.css';
 
@@ -14,6 +15,7 @@ export default function LabApp({ isActive }: AppProps) {
   const toast = useShell((s) => s.toast);
   const [status, setStatus] = useState<AiMachineStatus | null>(null);
   const [powering, setPowering] = useState(false);
+  const speed = useSpeed(status);
 
   const refresh = useCallback(async () => {
     try {
@@ -39,7 +41,7 @@ export default function LabApp({ isActive }: AppProps) {
   const turnOn = async () => {
     setPowering(true);
     try {
-      setStatus(await ai.power('start'));
+      setStatus(await ai.power('start', speed.chosen?.id));
       toast('Turning the AI machine on. The Lab starts as soon as it is ready (2–4 minutes).', 'info');
     } catch (err) {
       toast((err as Error).message, 'error');
@@ -56,6 +58,7 @@ export default function LabApp({ isActive }: AppProps) {
           <MachineNotice id="lab" label="AI machine off">
             <div className="ai-banner" role="status">
               <p>Turn the AI machine on and the Lab starts making pictures and videos as soon as it is ready.</p>
+              <SpeedChoice {...speed} />
               <button type="button" className="btn primary" onClick={() => void turnOn()} disabled={powering}>
                 {powering ? 'Turning on…' : 'Turn it on'}
               </button>
