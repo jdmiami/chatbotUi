@@ -171,7 +171,7 @@ test.describe('Characters', () => {
     await noSiteStorage(page);
     const m = await mockCharacters(page, []);
     const errors = await openOrbit(page);
-    const { win, screen } = await openCharacters(page);
+    const { screen } = await openCharacters(page);
     await expect(screen.getByText('No characters yet')).toBeVisible();
     await shot(page, 'library-empty', testInfo.project.name);
     await screen.getByRole('button', { name: 'Create character' }).first().click();
