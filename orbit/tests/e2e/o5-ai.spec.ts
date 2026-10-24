@@ -154,6 +154,7 @@ test.describe('Orbit 0.5: AI', () => {
     await expect(qwen).toHaveAttribute('aria-checked', 'true');
     await qwen.click();
     await expect(win.getByRole('textbox', { name: 'Describe it' })).toBeInViewport();
+    await expect(win.locator('.mk-pane')).toHaveCount(1);
     // Makers opens the Store at its picture and video shelves, with a way to turn the machine on.
     await makeStep(page, 'Maker & style');
     await win.getByRole('button', { name: 'Makers', exact: true }).click();

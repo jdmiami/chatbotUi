@@ -676,3 +676,5 @@
   .mk-top .mk-count { position: absolute; top: -4px; right: -6px; }
 }
 .mk-screen-acts { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; }
+/* Adding a photo, a video or a sound reads as a button: a hairline round it, flush with the column. */
+:root[data-skin='o5'] .mk-extras .btn.ghost { border-color: var(--o5-hair); }

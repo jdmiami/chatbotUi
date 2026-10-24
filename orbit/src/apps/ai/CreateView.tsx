@@ -315,7 +315,10 @@ export function CreateView({
   useEffect(() => {
     if (!stepIds.includes(step)) setStep('extras');
   }, [stepIds.join(','), step]); // eslint-disable-line react-hooks/exhaustive-deps
+  /** Bumped by every move you make yourself, so a pick's pending move doesn't override it. */
+  const moves = useRef(0);
   const go = useCallback((id: string) => {
+    moves.current++;
     setStep(id as StepId);
     cue('tap');
   }, []);
@@ -327,12 +330,13 @@ export function CreateView({
     cue('pop');
     if (!nextId || picking.current) return;
     picking.current = true;
+    const at = moves.current;
     void orbApprove(el)
       .catch(() => {})
       .then(() => wait(level === 'full' ? 260 : level === 'lite' ? 120 : 0))
       .then(() => {
         picking.current = false;
-        setStep(nextId);
+        if (moves.current === at) setStep(nextId);
       });
   };
 
@@ -424,6 +428,7 @@ export function CreateView({
   };
 
   const leaveGallery = (to: StepId) => {
+    moves.current++;
     setViewing(null);
     setGalleryOpen(false);
     setStep(to);

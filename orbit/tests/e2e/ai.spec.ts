@@ -172,6 +172,8 @@ async function makerPicks(page: Page) {
 /** Pick a maker on the maker step (the next step slides in). */
 async function pickMaker(page: Page, name: string | RegExp) {
   await (await makerPicks(page)).getByRole('radio', { name }).click();
+  // The pick is approved and the next step slides in.
+  await expect(page.locator('.app-window[data-app="make"]').getByRole('navigation', { name: 'Make, step by step' }).getByRole('button', { name: /: Maker & style$/ })).not.toHaveAttribute('aria-current', 'step');
 }
 /** Write the words on the "Describe it" step. */
 async function describe(page: Page, text: string) {
@@ -872,7 +874,7 @@ test.describe('AI app: maker store', () => {
     await pickKind(page, 'video');
     const picks = page.getByRole('radiogroup', { name: 'Maker' });
     await expect(picks.getByRole('radio', { name: /H3 Max/ })).toContainText('40% · in line');
-    await picks.getByRole('radio', { name: /H3 Max/ }).click();
+    await pickMaker(page, /H3 Max/);
     // The step says why (and so does the check before making).
     await makeStep(page, 'Maker & style');
     await expect(page.getByText('H3 Max is 40% done, waiting for wan2.2_i2v_high_noise.safetensors to finish first')).toBeVisible();
@@ -881,7 +883,7 @@ test.describe('AI app: maker store', () => {
     // Image: Krea Real can't fit on the disk, and says so.
     await pickKind(page, 'image');
     await expect(picks.getByRole('radio', { name: /Krea Real/ })).toContainText('Disk full');
-    await picks.getByRole('radio', { name: /Krea Real/ }).click();
+    await pickMaker(page, /Krea Real/);
     await makeStep(page, 'Maker & style');
     await expect(page.getByText(/Not enough disk space for krea\.safetensors \(3 GB free/)).toBeVisible();
     // The Store says the same.
@@ -908,7 +910,7 @@ test.describe('AI app: maker store', () => {
     await expectNoHorizontalOverflow(page);
     await openMakeApp(page);
     const picks = await makerPicks(page);
-    await picks.getByRole('radio', { name: /H3 Max/ }).click();
+    await pickMaker(page, /H3 Max/);
     await makeStep(page, 'Maker & style');
     await expect(picks.getByRole('radio', { name: /H3 Max/ })).toHaveAttribute('aria-checked', 'true');
     // Ready once the download finishes (the next refresh).

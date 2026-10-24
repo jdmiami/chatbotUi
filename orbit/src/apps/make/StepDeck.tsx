@@ -26,7 +26,7 @@ export interface DeckStep {
 const GO = ios(0.52, 0.82);
 const BACK = ios(0.4, 0.9);
 
-type Anim = { other: string; dir: 1 | -1; mode: 'drag' | 'go' };
+type Anim = { other: string; dir: 1 | -1; mode: 'drag' | 'go' | 'undo' };
 
 /** Where both pages sit at progress p (0 = only the old one, 1 = only the new one). */
 function poses(p: number, dir: 1 | -1, w: number, level: MotionLevel) {
@@ -187,7 +187,8 @@ export function StepDeck({
   useLayoutEffect(() => {
     if (current === base && !anim) return;
     if (current === base && anim) {
-      // Back where we were (a swipe let go short, then the same step was asked for): undo.
+      // Asked to go back to the page it is leaving (mid-change): it turns round and comes back.
+      if (anim.mode === 'go') setAnim({ ...anim, mode: 'undo' });
       return;
     }
     const oldAt = ids.indexOf(base);
@@ -217,6 +218,20 @@ export function StepDeck({
     });
   }, [anim?.mode, anim?.other]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Turned round mid-change: back to where it came from.
+  useLayoutEffect(() => {
+    if (anim?.mode !== 'undo') return;
+    const other = anim.other;
+    velocity.current = 0;
+    run(0, () => {
+      running.current = null;
+      progress.current = 0;
+      setPose(panes.current.get(base), null);
+      setPose(panes.current.get(other), null);
+      setAnim(null);
+    });
+  }, [anim?.mode]); // eslint-disable-line react-hooks/exhaustive-deps
+
   // A swipe has brought the neighbour in: place it before it is seen.
   useLayoutEffect(() => {
     if (anim?.mode === 'drag') paint(levelRef.current === 'off' ? 0 : progress.current);
@@ -224,18 +239,19 @@ export function StepDeck({
 
   useEffect(() => () => running.current?.stop(), []);
 
-  // The page in charge, for the orb (and for focus).
-  useEffect(() => {
-    if (anim) return;
-    onActivePane?.(panes.current.get(base) ?? null);
-  }, [base, anim, onActivePane]);
+  // The page in charge, for the orb: the incoming one as soon as the change starts, so the orb
+  // travels with it (the page moves by transform, so its place on screen is always current).
+  const owner = anim?.mode === 'go' ? anim.other : anim?.mode === 'drag' ? null : base;
+  useLayoutEffect(() => {
+    if (owner) onActivePane?.(panes.current.get(owner) ?? null);
+  }, [owner, onActivePane]);
 
   /* ---------------------------------------------------------------- swipes */
   const drag = useRef<{ x: number; y: number; t: number; target: EventTarget | null; locked: 'x' | 'y' | null; dir: 1 | -1 | 0; lastX: number; lastT: number; v: number } | null>(null);
   const suppressClick = useRef(0);
 
   const begin = (x: number, y: number, target: EventTarget | null) => {
-    if (animRef.current?.mode === 'go') return;
+    if (animRef.current && animRef.current.mode !== 'drag') return;
     if (x < EDGE || x > window.innerWidth - EDGE) return;
     if (ownsGesture(target)) return;
     drag.current = { x, y, t: performance.now(), target, locked: null, dir: 0, lastX: x, lastT: performance.now(), v: 0 };
