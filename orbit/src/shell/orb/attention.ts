@@ -3,6 +3,7 @@
  *
  * What matters, in order:
  *  0. A stage (data-orb-spot="stage", e.g. the voice conversation): the orb is the voice orb there.
+ *  ½. The step a walkthrough registered with useOrbAssist (assist.ts): its text box or its choices.
  *  1. Anything an app marks with data-orb-focus (the newest answer, the step you're on…).
  *  2. The field you're typing in.
  *  3. A spot an app keeps for it (data-orb-spot, e.g. the AI's face on an empty chat).
@@ -22,8 +23,8 @@ export interface Focus {
   y: number;
   /** What it is looking at (for the glance and for tests); null at the resting spot. */
   el: Element | null;
-  kind: 'stage' | 'marked' | 'typing' | 'spot' | 'action' | 'latest' | 'rest';
-  /** On a spot or a stage: how big it should be there (px). */
+  kind: 'stage' | 'assist' | 'marked' | 'typing' | 'spot' | 'action' | 'latest' | 'rest';
+  /** On a spot or a stage: how big it should be there (px). Beside a step with no room for it: smaller. */
   size?: number;
 }
 
@@ -65,22 +66,98 @@ export function besideRect(r: DOMRect, view: Rect, size: number, avoid?: (x: num
   return null;
 }
 
-/** True when an orb at (x, y) would cover a control or text (sampled at its centre and four edges). */
-export function coversControl(x: number, y: number, size: number, self: Element | null): boolean {
-  if (typeof document.elementsFromPoint !== 'function') return false;
-  const q = size * 0.38;
-  for (const [dx, dy] of [[0, 0], [q, 0], [-q, 0], [0, q], [0, -q]]) {
-    const hit = document.elementsFromPoint(x + dx, y + dy).find((e) => !self?.contains(e));
-    if (hit?.closest('button, a, input, textarea, select, [role="button"], [contenteditable="true"]')) return true;
-    // Nor over words you are reading (a sentence, a heading, a list item).
-    const text = hit?.closest('p, h1, h2, h3, h4, li, blockquote');
-    if (text && text.textContent?.trim()) return true;
+/** True when (x, y) is on the words of `el` themselves (not the empty end of its line). */
+function onWords(el: Element, x: number, y: number, slack: number): boolean {
+  const range = document.createRange();
+  range.selectNodeContents(el);
+  for (const r of range.getClientRects()) {
+    if (x >= r.left - slack && x <= r.right + slack && y >= r.top - slack && y <= r.bottom + slack) return true;
   }
   return false;
 }
 
-/** Decide where the orb goes now. `self` is the orb (ignored when checking what it would cover). */
-export function findFocus(view: Rect, size: number, self: Element | null, root: ParentNode = document): Focus {
+/**
+ * True when an orb at (x, y) would cover a control or text (sampled at its centre and four edges).
+ * `opts.words`: only the words of a heading or paragraph count, not the rest of its line. `opts.shift`:
+ * look where things are now for a spot they will move to (a step sliding in by that much).
+ */
+export function coversControl(x: number, y: number, size: number, self: Element | null, opts: { words?: boolean; shift?: { x: number; y: number } } = {}): boolean {
+  if (typeof document.elementsFromPoint !== 'function') return false;
+  const q = size * 0.38;
+  const sx = opts.shift?.x ?? 0, sy = opts.shift?.y ?? 0;
+  for (const [dx, dy] of [[0, 0], [q, 0], [-q, 0], [0, q], [0, -q]]) {
+    const px = x + dx + sx, py = y + dy + sy;
+    const hit = document.elementsFromPoint(px, py).find((e) => !self?.contains(e));
+    if (hit?.closest('button, a, input, textarea, select, [role="button"], [contenteditable="true"]')) return true;
+    // Nor over words you are reading (a sentence, a heading, a list item).
+    const text = hit?.closest('p, h1, h2, h3, h4, li, blockquote');
+    if (text && text.textContent?.trim() && (!opts.words || onWords(text, px, py, size * 0.12))) return true;
+  }
+  return false;
+}
+
+/**
+ * Where `el` will be once what is moving it (a step sliding in, a sheet rising) has finished: its
+ * rectangle now, less what the running animations of it and its parents add. Without animations it is
+ * simply where it is.
+ */
+export function restingRect(el: Element): { rect: DOMRect; moving: boolean; shift: { x: number; y: number } } {
+  const r = el.getBoundingClientRect();
+  let dx = 0, dy = 0, moving = false;
+  for (let n: Element | null = el; n && n !== document.documentElement; n = n.parentElement) {
+    const running = typeof n.getAnimations === 'function' && n.getAnimations().some((a) => a.playState === 'running');
+    if (!running) continue;
+    moving = true;
+    const s = getComputedStyle(n);
+    if (s.transform && s.transform !== 'none' && typeof DOMMatrixReadOnly === 'function') {
+      const m = new DOMMatrixReadOnly(s.transform);
+      dx += m.m41;
+      dy += m.m42;
+    }
+    if (s.translate && s.translate !== 'none') {
+      const [a, b = '0px'] = s.translate.split(/\s+/);
+      if (a.endsWith('px')) dx += parseFloat(a) || 0;
+      if (b.endsWith('px')) dy += parseFloat(b) || 0;
+    }
+  }
+  return { rect: new DOMRect(r.left - dx, r.top - dy, r.width, r.height), moving, shift: { x: dx, y: dy } };
+}
+
+/** How small the orb gets beside a step that leaves no room for it (and while it offers words). */
+export const ASSIST_SMALL = 0.64;
+
+/**
+ * Beside the step's text box or choices: full size where there is room, else smaller, else just
+ * above its top right corner (outside it, so it never covers what is in it).
+ */
+export function assistSpot(
+  el: Element,
+  view: Rect,
+  size: number,
+  self: Element | null,
+  /** Where the step will rest while it slides in, and how far it still has to go (see restingRect). */
+  opts: { rect?: DOMRect; shift?: { x: number; y: number } } = {},
+): Focus | null {
+  const r = opts.rect ?? visible(el, view);
+  if (!r) return null;
+  // Beside a step only real words count (the empty end of a heading's line is room for it).
+  const avoid = (s: number) => (x: number, y: number) => coversControl(x, y, s, self, { words: true, shift: opts.shift });
+  const big = besideRect(r, view, size, avoid(size));
+  if (big) return { ...big, el, kind: 'assist', size };
+  const s = size * ASSIST_SMALL;
+  const small = besideRect(r, view, s, avoid(s));
+  if (small) return { ...small, el, kind: 'assist', size: s };
+  const x = Math.min(view.x + view.w - s / 2 - 4, r.right - s / 2 - 4);
+  const above = r.top - 3 - s / 2;
+  const y = above - s / 2 >= view.y + 2 ? above : Math.min(view.y + view.h - s / 2 - 4, r.bottom + 3 + s / 2);
+  return { x, y, el, kind: 'assist', size: s };
+}
+
+/**
+ * Decide where the orb goes now. `self` is the orb (ignored when checking what it would cover);
+ * `prefer` is the step it is helping with (assist.ts), which comes before anything but a stage.
+ */
+export function findFocus(view: Rect, size: number, self: Element | null, root: ParentNode = document, prefer?: Element | null): Focus {
   const avoid = (x: number, y: number) => coversControl(x, y, size, self);
   const place = (el: Element, kind: Focus['kind']): Focus | null => {
     const r = visible(el, view);
@@ -107,6 +184,11 @@ export function findFocus(view: Rect, size: number, self: Element | null, root: 
   // 0. A stage.
   const stage = centred('stage');
   if (stage) return stage;
+  // ½. The step it is helping with.
+  if (prefer) {
+    const f = assistSpot(prefer, view, size, self);
+    if (f) return f;
+  }
   // 1. Marked by an app, newest first.
   const marked = [...root.querySelectorAll('[data-orb-focus]')].reverse();
   for (const el of marked) {
