@@ -211,3 +211,29 @@ export async function openMakeApp(page: Page) {
   await expect(win.locator('.ai-create')).toBeVisible();
   return win;
 }
+
+/** Make is a walk-through: go to one of its steps with the step dots ("What", "Maker & style", "Describe it", "Extras", "Check & make"). */
+export async function makeStep(page: Page, name: 'What' | 'Maker & style' | 'Describe it' | 'Extras' | 'Check & make') {
+  const win = page.locator('.app-window[data-app="make"]');
+  const dot = win.getByRole('navigation', { name: 'Make, step by step' }).getByRole('button', { name: new RegExp(`: ${name}$`) });
+  if ((await dot.getAttribute('aria-current')) !== 'step') await dot.click();
+  await expect(dot).toHaveAttribute('aria-current', 'step');
+  // Settled: one page on the stage.
+  await expect(win.locator('.mk-pane')).toHaveCount(1);
+  return win;
+}
+
+/** Open Make's gallery (a screen over the steps), or close it again. */
+export async function openMakeGallery(page: Page) {
+  const win = page.locator('.app-window[data-app="make"]');
+  const screen = win.getByRole('region', { name: 'Gallery' });
+  if (!(await screen.isVisible())) await win.getByRole('button', { name: /^Gallery/ }).click();
+  await expect(screen).toBeVisible();
+  return screen;
+}
+export async function closeMakeGallery(page: Page) {
+  const win = page.locator('.app-window[data-app="make"]');
+  const screen = win.getByRole('region', { name: 'Gallery' });
+  if (await screen.isVisible()) await screen.getByRole('button', { name: 'Back to making' }).click();
+  await expect(screen).toBeHidden();
+}

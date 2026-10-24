@@ -1,6 +1,6 @@
 import { expect, test, type Page } from '@playwright/test';
 import { expectNoHorizontalOverflow, indexButton, openApp, openOrbit } from './helpers';
-import { INSTALLED, aiMenu, expectTappable, mockAi, openAi, openMakeApp, recordChats, sendText, setShowNsfw, showTools, typeAndSend } from './aiMocks';
+import { INSTALLED, aiMenu, closeMakeGallery, expectTappable, makeStep, mockAi, openAi, openMakeApp, openMakeGallery, recordChats, sendText, setShowNsfw, showTools, typeAndSend } from './aiMocks';
 
 /**
  * AI app on iPhone / iPad viewports. The site's /api/ai endpoints and the AI machine's
@@ -158,7 +158,33 @@ test.describe('AI app', () => {
 const KINDS = { image: /^A picture/, video: /^A video/, edit: /^An edit/, vedit: /^Edit a video/ } as const;
 const kindRadio = (page: Page, kind: keyof typeof KINDS) =>
   page.locator('.app-window[data-app="make"]').getByRole('radiogroup', { name: 'What to make' }).getByRole('radio', { name: KINDS[kind] });
-const pickKind = (page: Page, kind: keyof typeof KINDS) => kindRadio(page, kind).click();
+/** Make is a walk-through: "What" is its first step; picking one moves on to the maker. */
+async function pickKind(page: Page, kind: keyof typeof KINDS) {
+  await makeStep(page, 'What');
+  await kindRadio(page, kind).click();
+  await makeStep(page, 'Maker & style');
+}
+/** The maker step with its list of makers. */
+async function makerPicks(page: Page) {
+  await makeStep(page, 'Maker & style');
+  return page.locator('.app-window[data-app="make"]').getByRole('radiogroup', { name: 'Maker' });
+}
+/** Pick a maker on the maker step (the next step slides in). */
+async function pickMaker(page: Page, name: string | RegExp) {
+  await (await makerPicks(page)).getByRole('radio', { name }).click();
+  // The pick is approved and the next step slides in.
+  await expect(page.locator('.app-window[data-app="make"]').getByRole('navigation', { name: 'Make, step by step' }).getByRole('button', { name: /: Maker & style$/ })).not.toHaveAttribute('aria-current', 'step');
+}
+/** Write the words on the "Describe it" step. */
+async function describe(page: Page, text: string) {
+  await makeStep(page, 'Describe it');
+  await page.getByRole('textbox', { name: 'Describe it' }).fill(text);
+}
+/** The Make button on the last step. */
+async function makeButton(page: Page, name: string | RegExp) {
+  await makeStep(page, 'Check & make');
+  return page.locator('.app-window[data-app="make"]').getByRole('button', { name, exact: typeof name === 'string' });
+}
 
 const PNG = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==', 'base64');
 const READY = { ready: true, downloaded: true, percent: 100 };
@@ -341,12 +367,16 @@ test.describe('AI app: Create', () => {
     const errors = await openOrbit(page);
     await openCreate(page);
     const gallery = page.getByRole('list', { name: 'Your creations' });
+    await openMakeGallery(page);
     await expect(gallery.getByRole('listitem')).toHaveCount(2);
+    await closeMakeGallery(page);
 
-    await page.getByRole('textbox', { name: 'Describe it' }).fill('a lighthouse in a storm');
+    await describe(page, 'a lighthouse in a storm');
+    await makeStep(page, 'Extras');
     await page.getByRole('group', { name: 'Shape' }).getByRole('button', { name: 'Portrait' }).click();
-    await page.getByRole('button', { name: 'Make image' }).click();
+    await (await makeButton(page, 'Make image')).click();
     await expect(page.getByRole('list', { name: 'In progress' })).toBeVisible();
+    await openMakeGallery(page);
     await expect(gallery.getByRole('listitem')).toHaveCount(3, { timeout: 10_000 });
     await expect(page.getByRole('list', { name: 'In progress' })).toHaveCount(0);
     expect(studio.requests[0]).toMatchObject({ kind: 'image', prompt: 'a lighthouse in a storm', size: 'portrait' });
@@ -363,12 +393,13 @@ test.describe('AI app: Create', () => {
     await openOrbit(page);
     await openCreate(page);
     await pickKind(page, 'video');
+    await makeStep(page, 'Extras');
     await page.locator('.ai-create input[type="file"]').setInputFiles({ name: 'me.png', mimeType: 'image/png', buffer: PNG });
     await expect(page.getByRole('img', { name: 'Starting photo' })).toBeVisible();
     await page.getByRole('group', { name: 'Length' }).getByRole('button', { name: '8 s' }).click();
     await page.getByRole('group', { name: 'Shape' }).getByRole('button', { name: 'Portrait' }).click();
-    await page.getByRole('textbox', { name: 'Describe it' }).fill('she turns and waves');
-    await page.getByRole('button', { name: 'Make video' }).click();
+    await describe(page, 'she turns and waves');
+    await (await makeButton(page, 'Make video')).click();
     await expect.poll(() => studio.requests.length).toBe(1);
     const req = studio.requests[0];
     expect(req).toMatchObject({ kind: 'video', prompt: 'she turns and waves', size: 'portrait', seconds: 8 });
@@ -381,6 +412,7 @@ test.describe('AI app: Create', () => {
     await mockStudio(page);
     await openOrbit(page);
     await openCreate(page);
+    await openMakeGallery(page);
     await page.getByRole('button', { name: 'Image: a red fox in snow' }).click();
     const sheet = page.getByRole('dialog', { name: 'Image' });
     await expect(sheet.getByRole('img', { name: 'a red fox in snow' })).toBeVisible();
@@ -388,9 +420,14 @@ test.describe('AI app: Create', () => {
     await expect(save).toHaveAttribute('href', /\/fake-ai\/_orbit\/studio\/file\/img1\?t=tok&download=1$/);
     await expectNoHorizontalOverflow(page);
     await sheet.getByRole('button', { name: 'Make it move' }).click();
+    // Back in the steps, on the words: say how it should move.
+    await expect(page.getByRole('textbox', { name: 'Describe it' })).toBeVisible();
+    await makeStep(page, 'Extras');
     await expect(page.getByRole('img', { name: 'Starting photo' })).toBeVisible();
+    await makeStep(page, 'What');
     await expect(kindRadio(page, 'video')).toHaveAttribute('aria-checked', 'true');
 
+    await openMakeGallery(page);
     await page.getByRole('button', { name: 'Video: waves at sunset' }).click();
     await page.getByRole('dialog', { name: 'Video' }).getByRole('button', { name: 'Delete' }).click();
     await page.getByRole('dialog', { name: 'Delete this?' }).getByRole('button', { name: 'Delete' }).click();
@@ -402,8 +439,8 @@ test.describe('AI app: Create', () => {
     await mockStudio(page);
     await openOrbit(page);
     await openCreate(page);
-    await page.getByRole('textbox', { name: 'Describe it' }).fill('naked child');
-    await page.getByRole('button', { name: 'Make image' }).click();
+    await describe(page, 'naked child');
+    await (await makeButton(page, 'Make image')).click();
     await expect(page.getByText('sexual content involving minors is never allowed')).toBeVisible();
   });
 
@@ -420,6 +457,7 @@ test.describe('AI app: Create', () => {
     await page.route('**/fake-ai/_orbit/studio/items', (route) => route.fulfill({ json: twoItems }));
     await openOrbit(page);
     await openCreate(page);
+    await openMakeGallery(page);
     const win = page.locator('.app-window[data-app="make"]');
     const fox = win.getByRole('button', { name: 'Image: a red fox in snow' });
     const portrait = win.getByRole('button', { name: 'Image: a quiet portrait by the window' });
@@ -461,6 +499,7 @@ test.describe('AI app: Create', () => {
     // A fresh visit: the switch is off again.
     await expect(win.or(indexButton(page)).first()).toBeVisible();
     await openMakeApp(page);
+    await openMakeGallery(page);
     await expect(portrait).toHaveCount(0);
   });
 
@@ -476,6 +515,7 @@ test.describe('AI app: Create', () => {
     });
     await openOrbit(page);
     await openCreate(page);
+    await openMakeGallery(page);
     const win = page.locator('.app-window[data-app="make"]');
     const fox = win.getByRole('button', { name: 'Image: a red fox in snow' });
     const portrait = win.getByRole('button', { name: 'Image: a quiet portrait by the window' });
@@ -526,6 +566,7 @@ test.describe('AI app: Create', () => {
     });
     await openOrbit(page);
     await openCreate(page);
+    await openMakeGallery(page);
     const win = page.locator('.app-window[data-app="make"]');
     const fox = win.getByRole('button', { name: 'Image: a red fox in snow' });
     await expect(fox).toBeVisible();
@@ -551,8 +592,9 @@ test.describe('AI app: Create', () => {
     await openOrbit(page);
     await openCreate(page);
     const win = page.locator('.app-window[data-app="make"]');
-    await win.getByRole('textbox', { name: 'Describe it' }).fill('a topless woman on a beach');
-    await win.getByRole('button', { name: 'Make image' }).click();
+    await describe(page, 'a topless woman on a beach');
+    await (await makeButton(page, 'Make image')).click();
+    await openMakeGallery(page);
     const made = win.getByRole('button', { name: 'Image: a topless woman on a beach' });
     // The fox and the sunset still show; the new one doesn't.
     await expect(win.getByRole('button', { name: 'Image: a red fox in snow' })).toBeVisible({ timeout: 10_000 });
@@ -605,6 +647,7 @@ test.describe('AI app with full motion', () => {
 
     // Make: pictures start undeveloped and sharpen once loaded; tiles bounce in.
     await openMakeApp(page);
+    await openMakeGallery(page);
     const tile = page.locator('.ai-gallery li').first();
     await expect(tile).toBeVisible();
     expect(await tile.evaluate((el) => getComputedStyle(el).animationName)).toBe('mo-icon-pop');
@@ -802,8 +845,8 @@ test.describe('AI app: maker store', () => {
       return route.fulfill({ json: { makers: list } });
     });
     await openOrbit(page);
-    const win = await openMakeApp(page);
-    const picks = win.getByRole('radiogroup', { name: 'Maker' });
+    await openMakeApp(page);
+    const picks = await makerPicks(page);
     await expect(picks.getByRole('radio').first()).toBeVisible();
     await page.waitForTimeout(600);
     const names = async () => picks.getByRole('radio').allTextContents();
@@ -831,15 +874,20 @@ test.describe('AI app: maker store', () => {
     await pickKind(page, 'video');
     const picks = page.getByRole('radiogroup', { name: 'Maker' });
     await expect(picks.getByRole('radio', { name: /H3 Max/ })).toContainText('40% · in line');
-    await picks.getByRole('radio', { name: /H3 Max/ }).click();
+    await pickMaker(page, /H3 Max/);
+    // The step says why (and so does the check before making).
+    await makeStep(page, 'Maker & style');
+    await expect(page.getByText('H3 Max is 40% done, waiting for wan2.2_i2v_high_noise.safetensors to finish first')).toBeVisible();
+    await makeStep(page, 'Check & make');
     await expect(page.getByText('H3 Max is 40% done, waiting for wan2.2_i2v_high_noise.safetensors to finish first')).toBeVisible();
     // Image: Krea Real can't fit on the disk, and says so.
     await pickKind(page, 'image');
     await expect(picks.getByRole('radio', { name: /Krea Real/ })).toContainText('Disk full');
-    await picks.getByRole('radio', { name: /Krea Real/ }).click();
+    await pickMaker(page, /Krea Real/);
+    await makeStep(page, 'Maker & style');
     await expect(page.getByText(/Not enough disk space for krea\.safetensors \(3 GB free/)).toBeVisible();
     // The Store says the same.
-    await page.getByRole('button', { name: 'Makers' }).click();
+    await page.getByRole('button', { name: 'Makers', exact: true }).click();
     const store = page.locator('.app-window[data-app="store"]');
     await expect(store.getByRole('status', { name: 'Adding Krea Real: Disk full' }).first()).toBeVisible();
     await expect(store.getByText('100% · saving').first()).toBeVisible();
@@ -852,7 +900,7 @@ test.describe('AI app: maker store', () => {
     await openCreate(page);
     await pickKind(page, 'video');
     // Makers live in the Store app now.
-    await page.getByRole('button', { name: 'Makers' }).click();
+    await page.getByRole('button', { name: 'Makers', exact: true }).click();
     const store = page.locator('.app-window[data-app="store"]');
     const video = store.getByRole('region', { name: 'Video', exact: true });
     await expect(video).toContainText('H3 Max');
@@ -861,12 +909,13 @@ test.describe('AI app: maker store', () => {
     await expect(video.getByText('40%')).toBeVisible();
     await expectNoHorizontalOverflow(page);
     await openMakeApp(page);
-    const picks = page.getByRole('radiogroup', { name: 'Maker' });
-    await picks.getByRole('radio', { name: /H3 Max/ }).click();
+    const picks = await makerPicks(page);
+    await pickMaker(page, /H3 Max/);
+    await makeStep(page, 'Maker & style');
     await expect(picks.getByRole('radio', { name: /H3 Max/ })).toHaveAttribute('aria-checked', 'true');
     // Ready once the download finishes (the next refresh).
-    await page.getByRole('textbox', { name: 'Describe it' }).fill('neon rain on a city street, synth music');
-    const make = page.getByRole('button', { name: 'Make video' });
+    await describe(page, 'neon rain on a city street, synth music');
+    const make = await makeButton(page, 'Make video');
     await expect(make).toBeEnabled({ timeout: 12_000 });
     await make.click();
     await expect.poll(() => studio.requests.length).toBe(1);
@@ -878,22 +927,28 @@ test.describe('AI app: maker store', () => {
     const studio = await mockStudio(page);
     await openOrbit(page);
     await openCreate(page);
+    await openMakeGallery(page);
     await page.getByRole('button', { name: /^Image: a red fox in snow/ }).click();
     await page.getByRole('dialog').getByRole('button', { name: 'Edit' }).click();
-    await expect(kindRadio(page, 'edit')).toHaveAttribute('aria-checked', 'true');
-    await expect(page.getByRole('img', { name: 'Picture to edit' })).toBeVisible();
+    // Straight to the words.
     await page.getByRole('textbox', { name: 'Describe it' }).fill('make it night with a full moon');
-    await page.getByRole('button', { name: /^Edit$/ }).last().click();
+    await makeStep(page, 'What');
+    await expect(kindRadio(page, 'edit')).toHaveAttribute('aria-checked', 'true');
+    await makeStep(page, 'Extras');
+    await expect(page.getByRole('img', { name: 'Picture to edit' })).toBeVisible();
+    await (await makeButton(page, 'Edit')).click();
     await expect.poll(() => studio.requests.length).toBe(1);
     expect(studio.requests[0]).toMatchObject({ kind: 'image', maker: 'edit', fromItem: 'img1', prompt: 'make it night with a full moon', images: [] });
 
-    await page.getByRole('radiogroup', { name: 'Maker' }).getByRole('radio', { name: 'Outfit swap' }).click();
+    await pickMaker(page, 'Outfit swap');
+    await describe(page, 'Dress the person in image 1 in the jacket from image 2.');
+    const go = await makeButton(page, 'Edit');
     await expect(page.getByText('Add the person first, then the outfit.')).toBeVisible();
-    await page.getByRole('textbox', { name: 'Describe it' }).fill('Dress the person in image 1 in the jacket from image 2.');
-    const go = page.getByRole('button', { name: /^Edit$/ }).last();
     await expect(go).toBeDisabled();
+    await makeStep(page, 'Extras');
     await page.locator('.ai-edit-photos input[type=file]').setInputFiles({ name: 'jacket.png', mimeType: 'image/png', buffer: PNG });
     await expect(page.getByRole('img', { name: 'The outfit' })).toBeVisible();
+    await makeStep(page, 'Check & make');
     await expect(go).toBeEnabled();
     await expect(page.getByText('Edits take under a minute.')).toBeVisible();
     await go.click();
@@ -913,16 +968,23 @@ test.describe('AI app: video makers', () => {
     const studio = await mockStudio(page);
     const errors = await openOrbit(page);
     await openCreate(page);
+    await openMakeGallery(page);
     await page.getByRole('button', { name: 'Video: waves at sunset' }).click();
     const sheet = page.getByRole('dialog', { name: 'Video' });
     for (const name of ['Edit this video', 'Erase from video', 'Sharpen video']) await expect(sheet.getByRole('button', { name })).toBeVisible();
     await sheet.getByRole('button', { name: 'Edit this video' }).click();
+    // Back to the maker step, to pick what to do.
+    await expect(page.getByRole('radiogroup', { name: 'What to do' })).toBeVisible();
+    await makeStep(page, 'What');
     await expect(kindRadio(page, 'vedit')).toHaveAttribute('aria-checked', 'true');
+    await makeStep(page, 'Extras');
     await expect(page.locator('video[aria-label="Video to work on"]')).toBeVisible();
-    const make = page.getByRole('button', { name: 'Edit video' });
+    const make = await makeButton(page, 'Edit video');
     await expect(make).toBeDisabled();
+    await makeStep(page, 'Describe it');
     await page.getByRole('textbox', { name: 'What to replace' }).fill('the boat');
     await page.getByRole('textbox', { name: 'Describe it' }).fill('a giant whale');
+    await makeStep(page, 'Check & make');
     await expect(make).toBeEnabled();
     await expectNoHorizontalOverflow(page);
     await expectTappable(page);
@@ -933,17 +995,24 @@ test.describe('AI app: video makers', () => {
 
     // Restyle needs no words naming a thing; Move a photo needs a photo.
     const tasks = page.getByRole('radiogroup', { name: 'What to do' });
+    await makeStep(page, 'Maker & style');
     await tasks.getByRole('radio', { name: 'Restyle' }).click();
+    await makeStep(page, 'Describe it');
     await expect(page.getByRole('textbox', { name: 'What to replace' })).toHaveCount(0);
     await page.getByRole('textbox', { name: 'Describe it' }).fill('a watercolour painting');
+    await makeStep(page, 'Check & make');
     await make.click();
     await expect.poll(() => studio.requests.length).toBe(2);
     expect(studio.requests[1]).toMatchObject({ maker: 'vace', task: 'restyle', videoItem: 'vid1' });
     expect(studio.requests[1].target).toBeUndefined();
+    await makeStep(page, 'Maker & style');
     await tasks.getByRole('radio', { name: 'Move a photo' }).click();
+    await makeStep(page, 'Check & make');
     await expect(make).toBeDisabled();
+    await makeStep(page, 'Extras');
     await page.locator('input[aria-label="Picture for the video edit"]').setInputFiles({ name: 'me.png', mimeType: 'image/png', buffer: PNG });
     await expect(page.getByRole('img', { name: 'Who should move' })).toBeVisible();
+    await makeStep(page, 'Check & make');
     await make.click();
     await expect.poll(() => studio.requests.length).toBe(3);
     expect(studio.requests[2]).toMatchObject({ maker: 'vace', task: 'motion' });
@@ -957,20 +1026,25 @@ test.describe('AI app: video makers', () => {
     await openOrbit(page);
     await openCreate(page);
     await pickKind(page, 'vedit');
-    await page.getByRole('radiogroup', { name: 'Maker' }).getByRole('radio', { name: 'Erase from video' }).click();
+    await pickMaker(page, 'Erase from video');
+    await makeStep(page, 'Extras');
     await page.locator('input[aria-label="Video file"]').setInputFiles({ name: 'clip.mp4', mimeType: 'video/mp4', buffer: MP4 });
     await expect(page.locator('video[aria-label="Video to work on"]')).toBeVisible();
     expect(studio.uploads).toEqual([{ type: 'video/mp4', size: MP4.length }]);
+    await makeStep(page, 'Describe it');
     await expect(page.getByRole('textbox', { name: 'Describe it' })).toHaveCount(0);
     await page.getByRole('textbox', { name: 'What to erase' }).fill('the watermark in the corner');
-    await page.getByRole('button', { name: 'Erase it' }).click();
+    await (await makeButton(page, 'Erase it')).click();
     await expect.poll(() => studio.requests.length).toBe(1);
     expect(studio.requests[0]).toMatchObject({ kind: 'video', maker: 'video-erase', videoUpload: 'uvid1', target: 'the watermark in the corner', prompt: '' });
     await expectNoHorizontalOverflow(page);
 
+    await openMakeGallery(page);
     await page.getByRole('button', { name: 'Video: waves at sunset' }).click();
     await page.getByRole('dialog', { name: 'Video' }).getByRole('button', { name: 'Sharpen video' }).click();
-    await page.getByRole('button', { name: 'Sharpen video' }).click();
+    // No words needed: straight to the check, and the describe step is left out.
+    await expect(page.locator('.app-window[data-app="make"]').getByRole('navigation', { name: 'Make, step by step' }).getByRole('button')).toHaveCount(4);
+    await (await makeButton(page, 'Sharpen video')).click();
     await expect.poll(() => studio.requests.length).toBe(2);
     expect(studio.requests[1]).toMatchObject({ kind: 'video', maker: 'video-sharpen', videoItem: 'vid1' });
   });
@@ -981,37 +1055,43 @@ test.describe('AI app: video makers', () => {
     await openOrbit(page);
     await openCreate(page);
     await pickKind(page, 'video');
-    const picks = page.getByRole('radiogroup', { name: 'Maker' });
-    await picks.getByRole('radio', { name: 'Talking photo' }).click();
+    await pickMaker(page, 'Talking photo');
+    await makeStep(page, 'Extras');
     await expect(page.getByRole('group', { name: 'Length' })).toHaveCount(0);
-    const make = page.getByRole('button', { name: 'Make video' });
+    const make = await makeButton(page, 'Make video');
     await expect(make).toBeDisabled();
+    await makeStep(page, 'Extras');
     await page.locator('.ai-create input[type="file"][accept="image/*"]:not([aria-label])').setInputFiles({ name: 'me.png', mimeType: 'image/png', buffer: PNG });
     await page.locator('input[aria-label="Sound file"]').setInputFiles({ name: 'song.m4a', mimeType: 'audio/mp4', buffer: M4A });
     await expect(page.locator('audio[aria-label="Voice or song"]')).toBeVisible();
-    await expect(make).toBeEnabled();
     await expectNoHorizontalOverflow(page);
     await expectTappable(page);
+    await makeStep(page, 'Check & make');
+    await expect(make).toBeEnabled();
     await make.click();
     await expect.poll(() => studio.requests.length).toBe(1);
     expect(studio.requests[0]).toMatchObject({ kind: 'video', maker: 's2v', audioUpload: 'uaud1' });
     expect(String(studio.requests[0].image)).toMatch(/^data:image\/jpeg;base64,/);
 
-    await picks.getByRole('radio', { name: 'LTX-2.5' }).click();
+    await pickMaker(page, 'LTX-2.5');
+    await makeStep(page, 'Extras');
     await page.locator('input[aria-label="Ending photo file"]').setInputFiles({ name: 'end.png', mimeType: 'image/png', buffer: PNG });
     await expect(page.getByRole('img', { name: 'Ending photo' })).toBeVisible();
-    await page.getByRole('textbox', { name: 'Describe it' }).fill('she walks to the window');
+    await describe(page, 'she walks to the window');
+    await makeStep(page, 'Check & make');
     await make.click();
     await expect.poll(() => studio.requests.length).toBe(2);
     expect(studio.requests[1]).toMatchObject({ maker: 'ltx-25', prompt: 'she walks to the window' });
     expect(String(studio.requests[1].endImage)).toMatch(/^data:image\/jpeg;base64,/);
 
     // Restyle a video: no start or end photo, the video's own shape and length.
+    await makeStep(page, 'Extras');
     await page.getByRole('button', { name: 'Remove the ending photo' }).click();
     await page.getByRole('button', { name: 'Remove the starting photo' }).click();
     await page.locator('input[aria-label="Video file"]').setInputFiles({ name: 'clip.mov', mimeType: 'video/quicktime', buffer: MP4 });
     await page.getByRole('group', { name: 'How much to change' }).getByRole('button', { name: 'A little' }).click();
-    await page.getByRole('textbox', { name: 'Describe it' }).fill('as a claymation');
+    await describe(page, 'as a claymation');
+    await makeStep(page, 'Check & make');
     await make.click();
     await expect.poll(() => studio.requests.length).toBe(3);
     expect(studio.requests[2]).toMatchObject({ maker: 'ltx-25', videoUpload: expect.stringMatching(/^uvid/), change: 'little', prompt: 'as a claymation' });

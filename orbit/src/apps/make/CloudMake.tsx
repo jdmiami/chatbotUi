@@ -36,6 +36,7 @@ export function CloudMake({
   open,
   onOpen,
   onMoved,
+  seed,
 }: {
   ai: LocalAi;
   machineOn: boolean;
@@ -44,6 +45,8 @@ export function CloudMake({
   open: boolean;
   onOpen: () => void;
   onMoved?: () => void;
+  /** Start from what was set up in the steps (n changes each time it is sent). */
+  seed?: { prompt: string; kind: CloudKind; n: number } | null;
 }) {
   const toast = useShell((s) => s.toast);
   const [info, setInfo] = useState<CloudMakeInfo | null | undefined>(undefined);
@@ -60,6 +63,13 @@ export function CloudMake({
   const [confirmDelete, setConfirmDelete] = useState<CloudMade | null>(null);
   const [storage, setStorage] = useState(true);
   const launch = useShell((s) => s.launch);
+
+  useEffect(() => {
+    if (!seed) return;
+    setKind(seed.kind);
+    setSize(seed.kind === 'video' ? 'landscape' : 'square');
+    if (seed.prompt) setPrompt(seed.prompt);
+  }, [seed?.n]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const reload = useCallback(() => void cloudMadeList().then(setMade), []);
   useEffect(() => {
