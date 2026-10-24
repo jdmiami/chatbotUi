@@ -28,8 +28,12 @@ const TASKS: Record<VideoTask, { label: string; placeholder: string }> = {
 const ANGLES = ['front-right quarter view, eye-level shot', 'right side view, eye-level shot', 'back view, eye-level shot', 'left side view, eye-level shot', 'front view, high-angle shot', 'front view, eye-level shot close-up'];
 
 /** The walk-through: one step per screen. Steps that don't apply are left out. */
-type StepId = 'what' | 'maker' | 'describe' | 'extras' | 'check';
-const STEP_NAME: Record<StepId, string> = { what: 'What', maker: 'Maker & style', describe: 'Describe it', extras: 'Extras', check: 'Check & make' };
+type StepId = 'what' | 'maker' | 'video' | 'describe' | 'extras' | 'check';
+const STEP_NAME: Record<StepId, string> = { what: 'What', maker: 'Maker & style', video: 'The video', describe: 'Describe it', extras: 'Extras', check: 'Check & make' };
+/** Swap a person: the video gets its own step, and the others are named after what they hold. */
+const SWAP_STEP_NAME: Partial<Record<StepId, string>> = { describe: 'Who to replace', extras: 'The new person' };
+/** A video maker that puts someone from a photo in place of a person named in words. */
+const isSwap = (m: StudioMakerInfo | null | undefined) => m?.kind === 'videoedit' && Boolean(m.needs?.includes('target')) && Boolean(m.needs?.includes('photo'));
 
 const KINDS: { id: Mode; label: string; hint: string; icon: 'image' | 'film' | 'pencil' | 'brush' }[] = [
   { id: 'image', label: 'A picture', hint: 'From a description', icon: 'image' },
@@ -175,6 +179,8 @@ export function CreateView({
   const [change, setChange] = useState<'little' | 'lot'>('lot');
   /** Video editing: a picture of the new thing (replace) or of who should move (motion). */
   const [refPhoto, setRefPhoto] = useState<{ src: string; item?: string } | null>(null);
+  /** Swap a person: a close-up of the new person's face (optional; it keeps the face right). */
+  const [facePhoto, setFacePhoto] = useState<string | null>(null);
   const [studio, setStudio] = useState<StudioState | null>(null);
   const [studioError, setStudioError] = useState<string | null>(null);
   const [makers, setMakersState] = useState<StudioMakerInfo[] | null>(null);
@@ -202,6 +208,8 @@ export function CreateView({
   const editInput = useRef<HTMLInputElement>(null);
   const endInput = useRef<HTMLInputElement>(null);
   const refInput = useRef<HTMLInputElement>(null);
+  const personInput = useRef<HTMLInputElement>(null);
+  const faceInput = useRef<HTMLInputElement>(null);
   const secondRow = useRef<HTMLDivElement>(null);
   const picking = useRef(false);
 
@@ -289,18 +297,21 @@ export function CreateView({
   const needs = chosen?.needs ?? [];
   const accepts = chosen?.accepts ?? [];
   const tasks = kind === 'vedit' ? (chosen?.tasks ?? []) : [];
-  const vTask: VideoTask | 'erase' | null = kind !== 'vedit' ? null : tasks.length ? (tasks.includes(task) ? task : tasks[0]) : needs.includes('target') ? 'erase' : null;
+  // Swap a person: a video, words saying who to replace, the new person's photo (and a face close-up).
+  const swapping = kind === 'vedit' && isSwap(chosen);
+  const vTask: VideoTask | 'erase' | 'swap' | null =
+    kind !== 'vedit' ? null : tasks.length ? (tasks.includes(task) ? task : tasks[0]) : swapping ? 'swap' : needs.includes('target') ? 'erase' : null;
   const sharpenVideo = kind === 'vedit' && !tasks.length && !needs.includes('target');
   const talking = kind === 'video' && needs.includes('audio');
   const takesVideo = kind === 'vedit' || (kind === 'video' && accepts.includes('video'));
   const restyling = kind === 'video' && takesVideo && Boolean(video);
-  const wantsTarget = vTask === 'replace' || vTask === 'erase';
+  const wantsTarget = vTask === 'replace' || vTask === 'erase' || vTask === 'swap';
   const wantsRef = vTask === 'replace' || vTask === 'motion';
-  const noWords = sharpenVideo || vTask === 'erase';
+  const noWords = sharpenVideo || vTask === 'erase' || vTask === 'swap';
   const promptOk = sharpen || noWords || talking || Boolean(prompt.trim());
   const inputsOk =
     kind === 'vedit'
-      ? Boolean(video) && (!wantsTarget || Boolean(target.trim())) && (vTask !== 'motion' || Boolean(refPhoto))
+      ? Boolean(video) && (!wantsTarget || Boolean(target.trim())) && (vTask !== 'motion' || Boolean(refPhoto)) && (!swapping || Boolean(refPhoto))
       : kind === 'video' && talking
         ? Boolean(startImage) && Boolean(audio)
         : editImages.length >= needImages;
@@ -310,7 +321,8 @@ export function CreateView({
 
   /* ---------------------------------------------------------------- the steps that apply */
   const hasDescribe = !wordless(kind, chosen);
-  const stepIds: StepId[] = ['what', 'maker', ...(hasDescribe ? (['describe'] as const) : []), 'extras', 'check'];
+  const stepIds: StepId[] = ['what', 'maker', ...(swapping ? (['video'] as const) : []), ...(hasDescribe ? (['describe'] as const) : []), 'extras', 'check'];
+  const stepName = (id: StepId) => (swapping && SWAP_STEP_NAME[id]) || STEP_NAME[id];
   // A step that no longer applies (the maker changed to one without words): the next one.
   useEffect(() => {
     if (!stepIds.includes(step)) setStep('extras');
@@ -349,7 +361,8 @@ export function CreateView({
       requestAnimationFrame(() => pop(secondRow.current));
       return;
     }
-    choose(el, () => setPick(kind, m.id), wordless(kind, m) ? 'extras' : 'describe');
+    // Swap a person starts with the video (whoever is replaced must be in its first frame).
+    choose(el, () => setPick(kind, m.id), kind === 'vedit' && isSwap(m) ? 'video' : wordless(kind, m) ? 'extras' : 'describe');
   };
 
   const make = async () => {
@@ -376,9 +389,11 @@ export function CreateView({
         ...(kind === 'vedit'
           ? {
               ...videoRef,
-              ...(tasks.length && vTask && vTask !== 'erase' ? { task: vTask } : {}),
+              ...(tasks.length && vTask && vTask !== 'erase' && vTask !== 'swap' ? { task: vTask } : {}),
               ...(wantsTarget ? { target: target.trim() } : {}),
-              ...(wantsRef && refPhoto ? (refPhoto.item ? { fromItem: refPhoto.item } : { image: refPhoto.src }) : {}),
+              ...((wantsRef || swapping) && refPhoto ? (refPhoto.item ? { fromItem: refPhoto.item } : { image: refPhoto.src }) : {}),
+              // The face close-up goes after the photo of the new person.
+              ...(swapping && facePhoto ? { images: [facePhoto] } : {}),
             }
           : {}),
         ...(kind === 'edit'
@@ -472,6 +487,14 @@ export function CreateView({
       toast('That picture could not be read.', 'error');
     }
   };
+  const pickFace = async (file: File | undefined) => {
+    if (!file) return;
+    try {
+      setFacePhoto(await toDataUrl(file));
+    } catch {
+      toast('That picture could not be read.', 'error');
+    }
+  };
   const pickEnd = async (file: File | undefined) => {
     if (!file) return;
     try {
@@ -499,8 +522,10 @@ export function CreateView({
     if (kind === 'edit') return needImages === 2 && editImages.length < 2 ? 'Add the person first, then the outfit.' : sharpen ? 'Makes the picture four times larger and crisper.' : 'Edits take under a minute.';
     if (kind === 'vedit') {
       if (!video) return 'Add the video to work on.';
-      if (wantsTarget && !target.trim()) return vTask === 'erase' ? 'Say what to erase.' : 'Say what to replace.';
+      if (wantsTarget && !target.trim()) return vTask === 'erase' ? 'Say what to erase.' : vTask === 'swap' ? 'Say who to replace.' : 'Say what to replace.';
       if (vTask === 'motion' && !refPhoto) return 'Add a photo of who should move.';
+      if (swapping && !refPhoto) return 'Add a photo of the new person.';
+      if (swapping) return 'The first 5 seconds, in a few minutes.';
       return sharpenVideo ? 'Makes the video twice as large and crisper: a few minutes.' : 'Works on the first 5 seconds. Video edits take a few minutes.';
     }
     if (talking) return !startImage ? 'Add a photo of the person.' : !audio ? 'Add a voice recording or a song.' : 'Talking videos take a few minutes.';
@@ -510,7 +535,21 @@ export function CreateView({
   })();
 
   const verb =
-    kind === 'image' ? 'Make image' : kind === 'video' ? 'Make video' : kind === 'vedit' ? (sharpenVideo ? 'Sharpen video' : vTask === 'erase' ? 'Erase it' : 'Edit video') : sharpen ? 'Sharpen' : 'Edit';
+    kind === 'image'
+      ? 'Make image'
+      : kind === 'video'
+        ? 'Make video'
+        : kind === 'vedit'
+          ? sharpenVideo
+            ? 'Sharpen video'
+            : vTask === 'erase'
+              ? 'Erase it'
+              : vTask === 'swap'
+                ? 'Swap the person'
+                : 'Edit video'
+          : sharpen
+            ? 'Sharpen'
+            : 'Edit';
 
   /* ---------------------------------------------------------------- words for the orb and the summary */
   const styleName = styles.find((s) => s.id === style)?.name;
@@ -518,7 +557,7 @@ export function CreateView({
   const makerName = chosen?.name ?? 'the built-in maker';
   const about1 = `a ${shapeWord ? `${shapeWord} ` : ''}${KIND_NOUN[kind]} with ${makerName}${styleName ? `, style ${styleName}` : ''}${vTask && tasks.length ? `, ${TASKS[vTask as VideoTask]?.label.toLowerCase() ?? vTask}` : ''}`;
   const stepNo = stepIds.indexOf(step) + 1;
-  const context = `Step ${stepNo} of ${stepIds.length}, ${STEP_NAME[step]}: ${about1}`;
+  const context = `Step ${stepNo} of ${stepIds.length}, ${stepName(step)}: ${about1}`;
   const promptBox: IdeaBox =
     kind === 'vedit' && vTask && vTask !== 'erase' ? (vTask === 'replace' ? 'replace' : vTask) : talking ? 'talking' : restyling ? 'restyle' : kind === 'edit' ? 'edit' : kind === 'video' ? 'video' : 'picture';
   const placeholder =
@@ -565,9 +604,11 @@ export function CreateView({
             if (m) chooseMaker(m, byOption(id));
           },
         };
+      case 'video':
+        return { id: 'make:video', context: `${context}. Add the video; the person to replace should be in its first frame.`, target: targetEl, kind: 'choice', options: [], selected: null };
       case 'describe':
         return noWords
-          ? { id: 'make:describe', context: `${context}. Say what to erase.`, target: targetEl, kind: 'text', value: target, setValue: setTarget }
+          ? { id: 'make:describe', context: `${context}. ${vTask === 'swap' ? 'Say who in the video to replace.' : 'Say what to erase.'}`, target: targetEl, kind: 'text', value: target, setValue: setTarget }
           : { id: 'make:describe', context, target: targetEl, kind: 'text', value: prompt, setValue: setPrompt };
       case 'extras':
         return kind === 'image' || (kind === 'video' && !restyling)
@@ -713,10 +754,23 @@ export function CreateView({
     ),
   };
 
+  // What the words-naming-a-thing box is for: erasing it, replacing it, or who to swap.
+  const targetBox = vTask === 'erase' ? 'erase' : vTask === 'swap' ? 'swap' : 'replace';
+  const TARGET_TEXT = {
+    erase: { label: 'What to erase', placeholder: 'What to erase, e.g. the man in the red shirt', what: 'what to erase', ask: 'Name the thing to erase from the video, in a few words.' },
+    replace: { label: 'What to replace', placeholder: 'What to replace, e.g. the red car', what: 'what to replace', ask: 'Name the thing in the video to replace, in a few words.' },
+    swap: {
+      label: 'Who to replace',
+      placeholder: 'Who to replace, e.g. the man in the red jacket',
+      what: 'who to replace',
+      ask: 'Name the adult in the video to replace, in a few words: what they wear or where they are.',
+    },
+  }[targetBox];
   const describeStep: DeckStep = {
     id: 'describe',
-    name: STEP_NAME.describe,
-    title: vTask === 'erase' ? 'What should go?' : kind === 'edit' || kind === 'vedit' ? 'Say the change' : 'Describe it',
+    name: stepName('describe'),
+    title: vTask === 'erase' ? 'What should go?' : vTask === 'swap' ? 'Who to replace?' : kind === 'edit' || kind === 'vedit' ? 'Say the change' : 'Describe it',
+    dek: vTask === 'swap' ? 'Say it by what they wear or where they are. They only need to be in the first frame.' : undefined,
     body: (
       <>
         {wantsTarget && (
@@ -725,12 +779,12 @@ export function CreateView({
               className="input ai-target"
               value={target}
               onChange={(e) => setTarget(e.target.value)}
-              aria-label={vTask === 'erase' ? 'What to erase' : 'What to replace'}
-              placeholder={vTask === 'erase' ? 'What to erase, e.g. the man in the red shirt' : 'What to replace, e.g. the red car'}
+              aria-label={TARGET_TEXT.label}
+              placeholder={TARGET_TEXT.placeholder}
               maxLength={200}
               enterKeyHint="done"
             />
-            {textTools(vTask === 'erase' ? 'erase' : 'replace', `make:target:${vTask}`, target, setTarget, vTask === 'erase' ? 'what to erase' : 'what to replace', `${context}. ${vTask === 'erase' ? 'Name the thing to erase from the video, in a few words.' : 'Name the thing in the video to replace, in a few words.'}`)}
+            {textTools(targetBox, `make:target:${vTask}`, target, setTarget, TARGET_TEXT.what, `${context}. ${TARGET_TEXT.ask}`)}
           </div>
         )}
         {!noWords && (
@@ -768,23 +822,38 @@ export function CreateView({
     </div>
   );
 
+  /** Swap a person: the video first, on a step of its own. */
+  const videoStep: DeckStep = {
+    id: 'video',
+    name: stepName('video'),
+    title: 'The video',
+    dek: 'The person to replace should be in its first frame. It works on the first 5 seconds.',
+    body: (
+      <div className="mk-extras" data-assist-target>
+        <VideoSource ai={ai} value={video} onChange={setVideo} onError={(m) => toast(m, 'error')} />
+      </div>
+    ),
+  };
+
   const extrasStep: DeckStep = {
     id: 'extras',
-    name: STEP_NAME.extras,
+    name: stepName('extras'),
     title:
       kind === 'edit'
         ? needImages === 2
           ? 'The person, then the outfit'
           : 'The picture'
-        : kind === 'vedit'
-          ? 'The video'
-          : kind === 'video'
-            ? talking
-              ? 'The photo and the sound'
-              : restyling
-                ? 'How much to change'
-                : 'Shape, length and photos'
-            : 'Shape',
+        : swapping
+          ? 'Who takes their place'
+          : kind === 'vedit'
+            ? 'The video'
+            : kind === 'video'
+              ? talking
+                ? 'The photo and the sound'
+                : restyling
+                  ? 'How much to change'
+                  : 'Shape, length and photos'
+              : 'Shape',
     body: (
       <div className="mk-extras" data-assist-target>
         {(kind === 'image' || kind === 'video') && !restyling && (
@@ -806,7 +875,52 @@ export function CreateView({
             />
           </div>
         )}
-        {kind === 'vedit' && <VideoSource ai={ai} value={video} onChange={setVideo} onError={(m) => toast(m, 'error')} />}
+        {kind === 'vedit' && !swapping && <VideoSource ai={ai} value={video} onChange={setVideo} onError={(m) => toast(m, 'error')} />}
+        {swapping && (
+          <>
+            {photoRow(
+              refPhoto?.src ?? null,
+              'The new person',
+              'They take over in the video, with the same moves.',
+              'Add a photo of the new person',
+              () => personInput.current?.click(),
+              () => setRefPhoto(null),
+              'Remove the photo of the new person',
+            )}
+            {photoRow(
+              facePhoto,
+              'Their face, close up',
+              'Helps keep their face right.',
+              'Add a close-up of their face (optional)',
+              () => faceInput.current?.click(),
+              () => setFacePhoto(null),
+              'Remove the face close-up',
+            )}
+            <p className="ai-muted mk-note">A plain background works best. Photos of real people are never made sexual, and children can’t be swapped.</p>
+            <input
+              ref={personInput}
+              type="file"
+              accept="image/*"
+              hidden
+              aria-label="Photo of the new person"
+              onChange={(e) => {
+                void pickRef(e.target.files?.[0]);
+                e.target.value = '';
+              }}
+            />
+            <input
+              ref={faceInput}
+              type="file"
+              accept="image/*"
+              hidden
+              aria-label="Face close-up"
+              onChange={(e) => {
+                void pickFace(e.target.files?.[0]);
+                e.target.value = '';
+              }}
+            />
+          </>
+        )}
         {kind === 'vedit' && wantsRef && (
           <>
             {photoRow(
@@ -908,7 +1022,13 @@ export function CreateView({
 
   /* ---------------------------------------------------------------- check & make */
   const kindLabel = KINDS.find((k) => k.id === kind)!.label;
-  const words = noWords ? (vTask === 'erase' ? (target.trim() ? `Erase ${target.trim()}` : '') : 'No words needed') : [wantsTarget && target.trim() ? `${target.trim()} →` : '', prompt.trim()].filter(Boolean).join(' ');
+  const words = noWords
+    ? vTask === 'erase' || vTask === 'swap'
+      ? target.trim()
+        ? `${vTask === 'erase' ? 'Erase' : 'Replace'} ${target.trim()}`
+        : ''
+      : 'No words needed'
+    : [wantsTarget && target.trim() ? `${target.trim()} →` : '', prompt.trim()].filter(Boolean).join(' ');
   const wordsMissing = (!promptOk && !noWords) || (wantsTarget && !target.trim());
   const extrasWords = (() => {
     const shape = kind === 'image' || kind === 'video' ? SIZES[kind].find((s) => s.value === size[kind])?.label : '';
@@ -919,14 +1039,16 @@ export function CreateView({
       return [shape, `${seconds} s`, startImage ? 'starts from your photo' : '', endImage ? 'ends on a photo' : ''].filter(Boolean).join(' · ');
     }
     if (kind === 'edit') return editImages.length >= Math.max(1, needImages) ? (needImages === 2 ? 'The person and the outfit' : 'Your picture') : needImages === 2 ? `${editImages.length} of 2 pictures` : 'No picture yet';
+    if (swapping) return [refPhoto ? 'A photo of them' : 'No photo yet', facePhoto ? 'a face close-up' : ''].filter(Boolean).join(' · ');
     return [video ? 'Your video' : 'No video yet', wantsRef ? (refPhoto ? 'a photo' : vTask === 'motion' ? 'no photo yet' : '') : ''].filter(Boolean).join(' · ');
   })();
-  const thumbs = [startImage && kind === 'video' && !restyling ? startImage : null, endImage && kind === 'video' && !restyling ? endImage : null, ...(kind === 'edit' ? editImages.map((p) => p.src) : []), kind === 'vedit' && refPhoto ? refPhoto.src : null].filter(Boolean) as string[];
+  const thumbs = [startImage && kind === 'video' && !restyling ? startImage : null, endImage && kind === 'video' && !restyling ? endImage : null, ...(kind === 'edit' ? editImages.map((p) => p.src) : []), kind === 'vedit' && refPhoto ? refPhoto.src : null, swapping ? facePhoto : null].filter(Boolean) as string[];
   const rows: { id: StepId; key: string; value: ReactNode; missing?: boolean }[] = [
     { id: 'what', key: 'What', value: kindLabel },
     { id: 'maker', key: 'Maker', value: `${makerName}${styleName ? ` · ${styleName}` : ''}${kind === 'vedit' && tasks.length && vTask ? ` · ${TASKS[vTask as VideoTask].label}` : ''}`, missing: Boolean(makerNote) },
-    ...(hasDescribe ? [{ id: 'describe' as StepId, key: 'Words', value: words || (talking ? 'None (optional)' : 'Nothing yet'), missing: wordsMissing }] : []),
-    { id: 'extras', key: 'Extras', value: extrasWords, missing: !inputsOk },
+    ...(swapping ? [{ id: 'video' as StepId, key: 'Video', value: video ? 'Your video' : 'No video yet', missing: !video }] : []),
+    ...(hasDescribe ? [{ id: 'describe' as StepId, key: swapping ? 'Who' : 'Words', value: words || (talking ? 'None (optional)' : 'Nothing yet'), missing: wordsMissing }] : []),
+    { id: 'extras', key: swapping ? 'New person' : 'Extras', value: extrasWords, missing: swapping ? !refPhoto : !inputsOk },
   ];
   const cloudable = !machineOn && (kind === 'image' || kind === 'video') && Boolean(onCloud);
 
@@ -1016,7 +1138,7 @@ export function CreateView({
     ),
   };
 
-  const steps = [whatStep, makerStep, ...(hasDescribe ? [describeStep] : []), extrasStep, checkStep];
+  const steps = [whatStep, makerStep, ...(swapping ? [videoStep] : []), ...(hasDescribe ? [describeStep] : []), extrasStep, checkStep];
   const shown = stepIds.includes(step) ? step : 'extras';
 
   return (
@@ -1133,6 +1255,11 @@ export function CreateView({
                 {installed('video-erase') && (
                   <button type="button" className="btn" onClick={() => workOnVideo(viewing, 'video-erase', 'Say what to erase, then tap Erase it.', 'describe')}>
                     <Icon name="close" size={16} /> Erase from video
+                  </button>
+                )}
+                {installed('person-swap') && (
+                  <button type="button" className="btn" onClick={() => workOnVideo(viewing, 'person-swap', 'Say who to replace, then add a photo of the new person.', 'describe')}>
+                    <Icon name="refresh" size={16} /> Swap a person
                   </button>
                 )}
                 {installed('video-sharpen') && (

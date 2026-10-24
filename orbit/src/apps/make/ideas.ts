@@ -7,7 +7,7 @@ import { cloudReady, cloudText } from '../../services/ai/CloudAi';
  * different one.
  */
 
-export type IdeaBox = 'picture' | 'video' | 'edit' | 'vedit' | 'replace' | 'erase' | 'restyle' | 'extend' | 'motion' | 'talking';
+export type IdeaBox = 'picture' | 'video' | 'edit' | 'vedit' | 'replace' | 'erase' | 'swap' | 'restyle' | 'extend' | 'motion' | 'talking';
 
 const LOCAL: Record<IdeaBox, string[]> = {
   picture: [
@@ -41,6 +41,8 @@ const LOCAL: Record<IdeaBox, string[]> = {
   ],
   replace: ['A white horse', 'A vintage red bicycle', 'A giant friendly whale', 'A bunch of yellow balloons'],
   erase: ['The person in the background', 'The watermark in the corner', 'The car on the left', 'The power lines in the sky'],
+  // Who to swap: a person, named by where they are or what they wear.
+  swap: ['The man in the red jacket', 'The woman on the left', 'The person dancing in the middle', 'The runner in the blue top'],
   restyle: ['A watercolour painting', 'A claymation film', 'A comic book with bold ink lines', 'An oil painting in the style of the old masters'],
   extend: ['The camera pulls back to reveal the whole city', 'She turns, smiles and walks out of frame', 'The sun sets and the lights come on', 'A flock of birds flies across the sky'],
   motion: ['She dances in a sunlit room', 'He waves and walks towards the camera', 'They turn their head and laugh', 'A slow spin with the arms out wide'],

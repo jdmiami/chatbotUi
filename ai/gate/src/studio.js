@@ -29,6 +29,9 @@ import {
   s2vChunks,
   s2vWorkflow,
   seedvr2Workflow,
+  SWAP_FPS,
+  SWAP_MAX_FRAMES,
+  swapWorkflow,
   upscaleWorkflow,
   VACE_EXTEND_KEEP,
   VACE_FPS,
@@ -63,6 +66,9 @@ const BASE_MS = {
   vace: 75_000,
   'video-erase': 75_000,
   'video-sharpen': 20_000,
+  // Swap a person: about as many tokens as a 5 s 720p video edit, at 832 × 480 (its input is doubled),
+  // plus some time for the parts of the model that wait in RAM.
+  'person-swap': 170_000,
   // Sketch finish (Z-Image-Turbo + Fun ControlNet, 8 steps at about 1 megapixel): not measured either.
   'sketch-finish': 20_000,
 };
@@ -143,6 +149,17 @@ export function blockedReplace(target, prompt) {
   return blockedTarget(target) && !GARMENT.test(String(prompt || '').toLowerCase());
 }
 export const PHOTO_MESSAGE = "Photos you upload can't be made sexual or have clothes removed: they may show real people. Pictures made here from a description can.";
+/**
+ * Swap a person puts a real person's photo into a video: only adults, never into a video marked NSFW,
+ * and a result the NSFW check flags (or that it could not look at) is thrown away, not just blurred.
+ */
+export const SWAP_MINOR_MESSAGE = "Swap a person only works with adults: it can't swap a child or a teenager, in the video or from a photo.";
+export const SWAP_NSFW_MESSAGE = "A photo of a real person can't be put into a video marked NSFW.";
+export const CHECK_MESSAGE = "The safety check couldn't look at the result, so it was not kept. Try again in a minute.";
+/** Who to replace must name a person, not what they wear (and the words can't be sexual). */
+export function blockedSwap(target, prompt = '') {
+  return blockedTarget(target) || blockedForPhoto(prompt);
+}
 
 /** LTX-2.5's files are gated on Hugging Face: the machine needs a token that accepted the licence. */
 export const TOKEN_MESSAGE =
@@ -161,11 +178,13 @@ const SIZES = {
   // LTX-2.5 (multiples of 64: half size, then 2x) and Wan 2.2 S2V (its template: 640 x 640).
   ltx25: { landscape: [1280, 704], portrait: [704, 1280], square: [960, 960] },
   s2v: { square: [640, 640], portrait: [480, 832], landscape: [832, 480] },
+  // Swap a person: the size its example workflow runs at (the clip's own shape, inside 832 × 480).
+  swap: { landscape: [832, 480], portrait: [480, 832], square: [480, 480] },
   // Sketch finish (Z-Image-Turbo): about a megapixel, multiples of 16.
   sketch: { square: [1024, 1024], portrait: [832, 1216], landscape: [1216, 832] },
 };
 /** The longest videos and sounds the video makers take (seconds). */
-const MAX_SECONDS = { vace: VACE_MAX_FRAMES / VACE_FPS, extend: 10, ltx25: 10, seedvr2: 10, s2v: (4 * S2V_CHUNK) / S2V_FPS };
+const MAX_SECONDS = { vace: VACE_MAX_FRAMES / VACE_FPS, extend: 10, ltx25: 10, seedvr2: 10, s2v: (4 * S2V_CHUNK) / S2V_FPS, swap: SWAP_MAX_FRAMES / SWAP_FPS };
 const MIME = { '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.webp': 'image/webp', '.mp4': 'video/mp4', '.webm': 'video/webm' };
 /** A model download that sends nothing for this long is cut and resumed. */
 const STALL_DOWNLOAD_MS = 60_000;
@@ -849,6 +868,8 @@ export function createStudio(o) {
     onePass: { 38: [5, 90], 50: [90, 99] },
     vace: { 32: [2, 8], 21: [8, 92], 23: [92, 99] },
     seedvr2: { 10: [5, 85], 12: [85, 99] },
+    // Swap a person: finding who, preparing the input, sampling, decoding.
+    swap: { 33: [1, 4], 50: [4, 10], 60: [10, 93], 61: [93, 99] },
   };
   /** Wan S2V: each chunk's sampler covers its share of the bar. */
   function s2vStages(chunks) {
@@ -1074,6 +1095,7 @@ export function createStudio(o) {
    *   extend   16 fps, up to 10 s (the recipe adds 64 frames)
    *   ltx25    24 fps, 8k + 1 frames up to 10 s, cropped to LTX-2.5's size for its shape
    *   seedvr2  its own frame rate, up to 10 s, at most 1280 × 720 (the recipe doubles it)
+   *   swap     16 fps, up to 81 frames (4k + 1), fitted in 832 × 480 (multiples of 16)
    */
   async function prepClip(src, plan) {
     const info = await probe(src);
@@ -1085,7 +1107,13 @@ export function createStudio(o) {
     let frames = null;
     let seconds;
     let fit = 'stretch';
-    if (plan === 'vace' || plan === 'extend') {
+    if (plan === 'swap') {
+      fps = SWAP_FPS;
+      [width, height] = fitSize(info.width, info.height, { long: 832, short: 480, multiple: 16 });
+      frames = vaceFrames(dur, SWAP_MAX_FRAMES);
+      if (frames < 5) throw bad('That video is too short (it needs at least half a second).');
+      seconds = frames / SWAP_FPS;
+    } else if (plan === 'vace' || plan === 'extend') {
       fps = VACE_FPS;
       [width, height] = fitSize(info.width, info.height, { long: 1280, short: 720, multiple: 16 });
       frames = plan === 'vace' ? vaceFrames(dur, VACE_MAX_FRAMES) : Math.min(Math.floor(dur * VACE_FPS), MAX_SECONDS.extend * VACE_FPS);
@@ -1140,15 +1168,19 @@ export function createStudio(o) {
     const kind = mode === 'video' || mode === 'videoedit' ? 'video' : 'image';
     // Wan VACE: what to do with the video (Erase from video always erases).
     const task = flow === 'vace' ? maker.task || (maker.tasks?.includes(String(req.task)) ? String(req.task) : maker.tasks?.[0] || 'replace') : null;
+    const swap = flow === 'swap';
     const needs = new Set(maker.needs || []);
-    if (task === 'replace' || task === 'erase') needs.add('target');
+    if (task === 'replace' || task === 'erase' || swap) needs.add('target');
+    if (swap) needs.add('photo');
     if (task === 'motion') needs.add('photo');
     let prompt = String(req.prompt || '').trim().slice(0, 4000);
     const target = String(req.target || '').trim().slice(0, 200);
     // Sharpening and erasing need no description; a talking photo has a default one.
-    const promptOptional = mode === 'upscale' || flow === 'seedvr2' || task === 'erase' || flow === 's2v';
+    const promptOptional = mode === 'upscale' || flow === 'seedvr2' || task === 'erase' || flow === 's2v' || swap;
     if (!prompt && !promptOptional) throw bad(mode === 'edit' || mode === 'videoedit' ? 'Describe the change.' : mode === 'sketch' ? 'Say what your drawing is.' : 'Describe what to make.');
-    if (needs.has('target') && !target) throw bad(task === 'erase' ? 'Say what to erase, e.g. “the man in the red shirt”.' : 'Say what to replace, e.g. “the red car”.');
+    if (needs.has('target') && !target) {
+      throw bad(swap ? 'Say who to replace, e.g. “the man in the red jacket”.' : task === 'erase' ? 'Say what to erase, e.g. “the man in the red shirt”.' : 'Say what to replace, e.g. “the red car”.');
+    }
     if (blockedPrompt(prompt) || blockedPrompt(target) || blockedPrompt(`${prompt} ${target}`)) throw Object.assign(new Error(BLOCKED_MESSAGE), { status: 422, blocked: true });
     const uploads = [...(req.image ? [req.image] : []), ...(Array.isArray(req.images) ? req.images : [])].slice(0, 2);
     const endUpload = req.endImage && kind === 'video' ? String(req.endImage) : null;
@@ -1168,6 +1200,12 @@ export function createStudio(o) {
     const photo = (mode !== 'sketch' && uploads.length > 0) || Boolean(endUpload) || Boolean(source?.photo) || Boolean(toSource?.photo) || (withVideo && (Boolean(videoUpload) || Boolean(videoSource?.photo)));
     // Made from an NSFW picture or video: NSFW too, before anyone has looked.
     const nsfwSource = Boolean(source?.nsfw) || Boolean(toSource?.nsfw) || (withVideo && Boolean(videoSource?.nsfw));
+    if (swap) {
+      // A real person's photo goes into the video: adults only, never sexual, never into an NSFW video.
+      if (mentionsMinor(`${target} ${prompt}`)) throw Object.assign(new Error(SWAP_MINOR_MESSAGE), { status: 422, blocked: true });
+      if (blockedSwap(target, prompt)) throw Object.assign(new Error(PHOTO_MESSAGE), { status: 422, blocked: true });
+      if (nsfwSource || videoSource?.nsfwUser === true || source?.nsfwUser === true) throw Object.assign(new Error(SWAP_NSFW_MESSAGE), { status: 422, blocked: true });
+    }
     if (photo) {
       const refused =
         blockedForPhoto(prompt) || (task === 'erase' ? blockedTarget(target) : task === 'replace' ? blockedReplace(target, prompt) : target ? blockedForPhoto(target) : false);
@@ -1175,7 +1213,7 @@ export function createStudio(o) {
     }
     if (needs.has('video') && !withVideo) throw bad('Add the video to work on.');
     if (needs.has('audio') && !audioUpload) throw bad('Add a voice recording or a song.');
-    if (needs.has('photo') && !uploads.length && !req.fromItem) throw bad(task === 'motion' ? 'Add a photo of who should move.' : 'Add a photo of the person.');
+    if (needs.has('photo') && !uploads.length && !req.fromItem) throw bad(task === 'motion' ? 'Add a photo of who should move.' : swap ? 'Add a photo of the new person.' : 'Add a photo of the person.');
     if (!(await makerReady(maker))) {
       const pct = (await makers()).find((m) => m.id === maker.id)?.percent ?? 0;
       const what = maker.builtIn ? `The ${maker.name} maker is still downloading (${pct}%)` : `${maker.name} is ${wanted.has(maker.id) ? `still downloading (${pct}%)` : 'not installed'}`;
@@ -1199,7 +1237,7 @@ export function createStudio(o) {
     if (withVideo) {
       const src = videoSource ? await localFile(videoSource) : await uploadPath(videoUpload);
       if (!src) throw bad(videoSource ? 'That video is no longer in your gallery.' : 'That upload has expired. Add the video again.', 404);
-      clip = await prepClip(src, flow === 'ltx25' ? 'ltx25' : flow === 'seedvr2' ? 'seedvr2' : task === 'extend' ? 'extend' : 'vace');
+      clip = await prepClip(src, flow === 'ltx25' ? 'ltx25' : flow === 'seedvr2' ? 'seedvr2' : swap ? 'swap' : task === 'extend' ? 'extend' : 'vace');
     }
     let sound = null;
     if (needs.has('audio')) {
@@ -1257,8 +1295,16 @@ export function createStudio(o) {
       }
     } else if (mode === 'videoedit') {
       // What the gallery shows: your words, else the video's own (so its NSFW blur carries over).
-      const shown = prompt || (task === 'erase' ? `Erased: ${target}${videoSource?.prompt ? ` · ${videoSource.prompt}` : ''}` : videoSource?.prompt || 'Sharpened video');
-      if (flow === 'seedvr2') {
+      const shown =
+        prompt ||
+        (task === 'erase' ? `Erased: ${target}${videoSource?.prompt ? ` · ${videoSource.prompt}` : ''}` : swap ? `Swapped a person: ${target}` : videoSource?.prompt || 'Sharpened video');
+      if (swap) {
+        // The new person: the photo, then the face close-up when there is one.
+        ({ width, height } = clip);
+        seconds = Math.round((clip.frames / SWAP_FPS) * 10) / 10;
+        workflow = swapWorkflow({ video: clip.name, width, height, frames: clip.frames, target, photo: inputs[0], face: inputs[1] || null, prefix });
+        stages = 'swap';
+      } else if (flow === 'seedvr2') {
         width = clip.width * 2;
         height = clip.height * 2;
         seconds = Math.round(clip.seconds * 10) / 10;
@@ -1342,6 +1388,8 @@ export function createStudio(o) {
       notes: [],
       // Drawings about children: a result the NSFW check flags is thrown away, not just blurred.
       minorGuard: mode === 'sketch' && mentionsMinor(`${prompt} ${target}`),
+      // Swap a person: looked at before anyone sees it; an NSFW one (or one the check missed) is never kept.
+      photoGuard: swap || undefined,
       seq: ++seq,
       queuedAt: now(),
       createdAt: new Date(now()).toISOString(),
@@ -1459,13 +1507,25 @@ export function createStudio(o) {
         // Made by the meme lab: kept out of the gallery until you keep it.
         lab: job.background || undefined,
         minorGuard: job.minorGuard || undefined,
+        photoGuard: job.photoGuard || undefined,
         owner: job.owner || undefined,
         file,
         createdAt: job.createdAt,
       };
       await fsp.mkdir(metaDir, { recursive: true });
-      await fsp.writeFile(path.join(metaDir, `${job.id}.json`), JSON.stringify(item));
-      await keep(item);
+      // A real person's photo in a video: not in the gallery at all until the check has looked and found
+      // it fine (rate() writes its note then); NSFW, or not looked at, and its file is deleted.
+      if (item.photoGuard) {
+        const r = await rate(item);
+        if (!r || r.nsfw) {
+          await remove(item.id);
+          await fsp.rm(path.join(dir, 'output', file), { force: true });
+          throw new Error(r ? PHOTO_MESSAGE : CHECK_MESSAGE);
+        }
+      } else {
+        await fsp.writeFile(path.join(metaDir, `${job.id}.json`), JSON.stringify(item));
+        await keep(item);
+      }
       // About children: looked at before anyone sees it (rate() removes an NSFW one).
       if (item.minorGuard) {
         await rate(item);
@@ -1475,7 +1535,7 @@ export function createStudio(o) {
       job.progress = 100;
       job.status = 'done';
       await learn(job);
-      if (!item.nsfw && !item.minorGuard) void rate(item);
+      if (!item.nsfw && !item.minorGuard && !item.photoGuard) void rate(item);
     } catch (err) {
       job.status = 'error';
       job.error = err.message;
@@ -1833,20 +1893,23 @@ export function createStudio(o) {
     void tail.then(() => noteLocks.get(id) === tail && noteLocks.delete(id));
     return run;
   }
-  /** Look at an item and save whether it is NSFW (nsfw: true | false). Quiet when the checker can't run. */
+  /**
+   * Look at an item and save whether it is NSFW (nsfw: true | false). Quiet when the checker can't run.
+   * Returns the check's answer, or null when it did not look.
+   */
   async function rate(item) {
-    if (!o.nsfw || rating.has(item.id)) return;
+    if (!o.nsfw || rating.has(item.id)) return null;
     rating.add(item.id);
     try {
       const p = await localFile(item);
-      if (!p) return;
+      if (!p) return null;
       const r = await o.nsfw.check(p, { kind: item.kind, seconds: item.seconds });
-      if (!r) return;
-      // A drawing about children that came out NSFW is never kept.
-      if (r.nsfw && item.minorGuard) {
-        log.warn?.(`[nsfw] ${item.id}: NSFW result from a prompt about children, removed`);
+      if (!r) return null;
+      // A drawing about children that came out NSFW is never kept; nor is a swapped-in real person.
+      if (r.nsfw && (item.minorGuard || item.photoGuard)) {
+        log.warn?.(`[nsfw] ${item.id}: NSFW result ${item.minorGuard ? 'from a prompt about children' : 'with a real person swapped in'}, removed`);
         await remove(item.id);
-        return;
+        return r;
       }
       // Read the note again: it may have changed meanwhile (kept from the Lab, or your own say).
       await withNote(item.id, async () => {
@@ -1857,8 +1920,10 @@ export function createStudio(o) {
         await fsp.writeFile(path.join(metaDir, `${item.id}.json`), JSON.stringify(latest));
         await keep(latest);
       });
+      return r;
     } catch (err) {
       log.warn?.(`[nsfw] ${item.id}: ${err.message}`);
+      return null;
     } finally {
       rating.delete(item.id);
     }
@@ -2005,7 +2070,9 @@ export function createStudio(o) {
               ? SIZES.ltx25
               : m?.workflow === 's2v'
                 ? SIZES.s2v
-                : SIZES.video
+                : m?.workflow === 'swap'
+                  ? SIZES.swap
+                  : SIZES.video
           : m?.id === 'krea-real'
             ? SIZES.krea
             : SIZES.image;

@@ -204,8 +204,11 @@ export interface MemeLabState {
   records: MemeRecord[];
 }
 
-/** What a maker works from, besides words: a video, a voice or song, a photo, an end photo, words naming a thing. */
-export type StudioInput = 'video' | 'audio' | 'photo' | 'endPhoto' | 'target';
+/**
+ * What a maker works from, besides words: a video, a voice or song, a photo, an end photo, words naming
+ * a thing (or a person), and a face close-up (Swap a person).
+ */
+export type StudioInput = 'video' | 'audio' | 'photo' | 'endPhoto' | 'target' | 'facePhoto';
 /** Wan VACE: what to do with the video. */
 export type VideoTask = 'replace' | 'restyle' | 'extend' | 'motion';
 
