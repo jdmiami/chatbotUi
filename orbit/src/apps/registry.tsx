@@ -38,6 +38,7 @@ const raw: Record<AppId, () => Promise<{ default: ComponentType<AppProps> }>> = 
   store: () => import('./store/StoreApp'),
   soreal: () => import('./soreal/SoRealApp'),
   lab: () => import('./lab/LabApp'),
+  gallery: () => import('./gallery/GalleryApp'),
   stats: () => import('./stats/StatsApp'),
   settings: () => import('./settings/SettingsApp'),
   playground: () => import('./portal/PortalApp').then((m) => ({ default: m.PlaygroundApp })),
@@ -155,6 +156,15 @@ export const APPS: Record<AppId, AppMeta> = {
     tile: 'linear-gradient(145deg, #ffd36b, #ff7a59 55%, #8a2be2)',
     glyph: '#ffffff',
     component: lazy(loaders.lab),
+  },
+  gallery: {
+    id: 'gallery',
+    name: 'Gallery',
+    description: 'Everything you have made, from every app, even with the AI machine off',
+    icon: 'image',
+    tile: 'linear-gradient(145deg, #7fd3ff, #3a6df0 55%, #2b1b6e)',
+    glyph: '#ffffff',
+    component: lazy(loaders.gallery),
   },
   playground: {
     id: 'playground',

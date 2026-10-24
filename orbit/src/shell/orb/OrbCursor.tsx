@@ -88,6 +88,7 @@ const APP_NAME: Record<AppId, string> = {
   store: 'Store',
   soreal: 'soReal',
   lab: 'Lab',
+  gallery: 'Gallery',
   stats: 'Stats',
   settings: 'Settings',
   playground: 'Playground',

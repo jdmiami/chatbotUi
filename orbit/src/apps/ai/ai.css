@@ -278,7 +278,41 @@
 .ai-viewer img, .ai-viewer video {
   display: block; width: 100%; max-height: 62dvh; object-fit: contain; border-radius: var(--radius-md); background: #000;
 }
+/* Tall screens (iPad upright, iPhone): room under it for the arrows, the words and the actions. */
+@media (min-height: 700px) { .ai-viewer img, .ai-viewer video { max-height: 54dvh; } }
 .ai-viewer-prompt { margin: 0; color: var(--text-2); white-space: pre-wrap; overflow-wrap: anywhere; }
+/* Sideways swipes in the viewer go to the next or previous one; up and down still scroll. */
+.ai-viewer-stage { touch-action: pan-y; }
+.ai-viewer-step { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: calc(var(--space-2) * -1); }
+.ai-viewer-step .icon-btn { min-width: 44px; min-height: 44px; }
+.ai-viewer-step .icon-btn:disabled { opacity: 0.3; }
+.ai-viewer-step .ai-muted { font-variant-numeric: tabular-nums; font-size: var(--fs-sm, 14px); }
+/* The one video player (Gallery.tsx ViewerVideo): nothing over the picture while it plays. */
+.ai-player { position: relative; display: block; border-radius: var(--radius-md); overflow: hidden; background: #000; -webkit-tap-highlight-color: transparent; }
+.ai-viewer .ai-player video { border-radius: 0; cursor: pointer; }
+.ai-player-big {
+  position: absolute; inset: 0; margin: auto; width: 72px; height: 72px; padding: 0; border: 0; border-radius: 50%; cursor: pointer;
+  display: grid; place-items: center; color: #fff; background: rgba(0, 0, 0, 0.42);
+  -webkit-backdrop-filter: blur(8px); backdrop-filter: blur(8px);
+}
+.ai-player-big svg { transform: translateX(2px); }
+.ai-player-bar {
+  position: absolute; left: 8px; right: 8px; bottom: 8px; display: flex; align-items: center; gap: 2px; padding: 0 6px;
+  border-radius: 999px; background: rgba(0, 0, 0, 0.5); color: #fff;
+  -webkit-backdrop-filter: blur(8px); backdrop-filter: blur(8px);
+  opacity: 0; pointer-events: none; transition: opacity 140ms ease;
+}
+.ai-player[data-chrome] .ai-player-bar { opacity: 1; pointer-events: auto; }
+.ai-player-btn { flex: none; min-width: 44px; min-height: 44px; padding: 0; border: 0; background: none; color: inherit; display: grid; place-items: center; cursor: pointer; }
+.ai-player-seek { flex: 1 1 auto; min-width: 40px; height: 44px; margin: 0; accent-color: #fff; background: transparent; cursor: pointer; }
+.ai-player-time { flex: none; font: 500 12px/1 var(--font-ui, system-ui); font-variant-numeric: tabular-nums; white-space: nowrap; padding-inline: 4px; }
+@media (max-width: 400px) { .ai-player-time { display: none; } }
+.ai-player-wait {
+  position: absolute; inset: 0; margin: auto; width: 36px; height: 36px; border-radius: 50%; pointer-events: none;
+  border: 3px solid rgba(255, 255, 255, 0.3); border-top-color: #fff; animation: ai-player-spin 0.9s linear infinite;
+}
+@keyframes ai-player-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .ai-player-wait { animation-duration: 2.4s; } .ai-player-bar { transition: none; } }
 .ai-viewer-actions { display: flex; flex-wrap: wrap; gap: var(--space-2); }
 .ai-viewer-actions .btn { flex: 1 1 auto; text-decoration: none; }
 
@@ -447,6 +481,9 @@
 .lab-tab .meme-lab, .lab-scroll .meme-lab { margin-top: 8px; border-top: 0; padding-top: 0; }
 .meme-lab-block { display: grid; gap: 8px; padding-top: 14px; border-top: 1px solid var(--border); }
 .meme-lab-block .o5-kicker { margin: 0; }
+.lab-gallery-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 4px 12px; }
+.lab-gallery-head .btn { min-height: 44px; }
+.o5-gallery-head .o5-gallery-all { align-self: flex-start; min-height: 44px; }
 /* The shared gallery inside the Lab's grid: as wide as the column, never its 1100 px maximum. */
 .meme-lab, .meme-lab-block { grid-template-columns: minmax(0, 1fr); }
 .meme-lab-block > .ai-gallery { width: 100%; min-width: 0; margin: 0; }
