@@ -18,6 +18,8 @@ import type { IdeaBox } from '../make/ideas';
 import { CharacterPick } from '../make/CharacterPick';
 import { useCharacters } from '../make/useCharacters';
 import { thumbOf } from '../../services/ai/Characters';
+import { JobQueue } from '../make/JobQueue';
+import { GalleryPick } from '../make/GalleryPick';
 
 /** vedit: change, erase or sharpen a video you have. (Drawing lives in its own app: Live Draw.) */
 type Mode = StudioKind | 'edit' | 'vedit';
@@ -194,6 +196,8 @@ export function CreateView({
   const [character, setCharacter] = useState<string | null>(null);
   /** Which photo slot has its "Use a character" chooser open. */
   const [charSlot, setCharSlot] = useState<string | null>(null);
+  // Which photo or video slot shows "From your gallery" (one at a time).
+  const [galSlot, setGalSlot] = useState<string | null>(null);
   const [studio, setStudio] = useState<StudioState | null>(null);
   const [studioError, setStudioError] = useState<string | null>(null);
   const [makers, setMakersState] = useState<StudioMakerInfo[] | null>(null);
@@ -263,7 +267,7 @@ export function CreateView({
       setJobs((prev) => {
         const known = new Map(prev.map((j) => [j.id, j]));
         for (const j of s.jobs) known.set(j.id, j);
-        return [...known.values()].filter((j) => active(j) || j.status === 'error').slice(-6);
+        return [...known.values()].filter((j) => active(j) || j.status === 'error').slice(-30);
       });
       ai.studioMakers().then(setMakers, (err: Error) => setMakersError(err.message));
     } catch (err) {
@@ -872,6 +876,34 @@ export function CreateView({
         onCreate={onCharacters}
       />
     ) : null;
+  /** A gallery picture as a data link, for slots the machine takes as a file (an ending photo, a face, a second picture). */
+  const dataOf = async (m: GalleryMedia) => {
+    const res = await fetch(m.url);
+    if (!res.ok) throw new Error('That picture could not be loaded.');
+    return toDataUrl(await res.blob());
+  };
+  const galleryButton = (slot: string) => (
+    <button type="button" className="btn ghost" aria-expanded={galSlot === slot} onClick={() => setGalSlot((v) => (v === slot ? null : slot))}>
+      <Icon name="layers" size={18} /> From your gallery
+    </button>
+  );
+  const galleryFill = (slot: string, use: (m: GalleryMedia) => Promise<void> | void, kindOf: 'image' | 'video' = 'image') =>
+    galSlot === slot ? (
+      <GalleryPick
+        items={items.map(asMedia)}
+        kind={kindOf}
+        label={kindOf === 'image' ? 'Pick a picture from your gallery' : 'Pick a video from your gallery'}
+        onPick={async (m) => {
+          try {
+            await use(m);
+            setGalSlot(null);
+            cue('pop');
+          } catch (err) {
+            toast((err as Error).message, 'error');
+          }
+        }}
+      />
+    ) : null;
   const photoRow = (
     src: string | null,
     alt: string,
@@ -881,6 +913,7 @@ export function CreateView({
     onRemove: () => void,
     removeLabel: string,
     char?: { slot: string; clear: () => void },
+    gal?: { slot: string; use: (m: GalleryMedia) => Promise<void> | void },
   ) => (
     <>
       <div className="ai-create-photo">
@@ -901,6 +934,7 @@ export function CreateView({
             <button type="button" className="btn ghost" onClick={onAdd}>
               <Icon name="image" size={18} /> {add}
             </button>
+            {gal && galleryButton(gal.slot)}
             {char && (
               <button type="button" className="btn ghost" aria-expanded={charSlot === char.slot} onClick={() => setCharSlot((v) => (v === char.slot ? null : char.slot))}>
                 <Icon name="user" size={18} /> Use a character
@@ -909,6 +943,7 @@ export function CreateView({
           </>
         )}
       </div>
+      {gal && !src && !(char && charForJob) && galleryFill(gal.slot, gal.use)}
       {char && !src && !charForJob && charFill(char.slot, char.clear)}
     </>
   );
@@ -921,7 +956,7 @@ export function CreateView({
     dek: 'The person to replace should be in its first frame. It works on the first 5 seconds.',
     body: (
       <div className="mk-extras" data-assist-target>
-        <VideoSource ai={ai} value={video} onChange={setVideo} onError={(m) => toast(m, 'error')} />
+        <VideoSource ai={ai} value={video} onChange={setVideo} onError={(m) => toast(m, 'error')} gallery={items.map(asMedia)} />
       </div>
     ),
   };
@@ -966,7 +1001,7 @@ export function CreateView({
             />
           </div>
         )}
-        {kind === 'vedit' && !swapping && <VideoSource ai={ai} value={video} onChange={setVideo} onError={(m) => toast(m, 'error')} />}
+        {kind === 'vedit' && !swapping && <VideoSource ai={ai} value={video} onChange={setVideo} onError={(m) => toast(m, 'error')} gallery={items.map(asMedia)} />}
         {swapping && (
           <>
             {photoRow(
@@ -977,6 +1012,14 @@ export function CreateView({
               () => personInput.current?.click(),
               () => setRefPhoto(null),
               'Remove the photo of the new person',
+              undefined,
+              {
+                slot: 'swap',
+                use: (m) => {
+                  setRefPhoto({ src: m.url, item: m.id });
+                  setCharacter(null);
+                },
+              },
             )}
             <CharacterPick
               swap
@@ -999,6 +1042,8 @@ export function CreateView({
               () => faceInput.current?.click(),
               () => setFacePhoto(null),
               'Remove the face close-up',
+              undefined,
+              { slot: 'face', use: async (m) => setFacePhoto(await dataOf(m)) },
             )}
             <p className="ai-muted mk-note">A plain background works best. Photos of real people are never made sexual, and children can’t be swapped.</p>
             <input
@@ -1036,6 +1081,7 @@ export function CreateView({
               () => setRefPhoto(null),
               'Remove the picture',
               vTask === 'motion' ? { slot: 'motion', clear: () => setRefPhoto(null) } : undefined,
+              { slot: 'ref', use: (m) => setRefPhoto({ src: m.url, item: m.id }) },
             )}
             <input
               ref={refInput}
@@ -1065,9 +1111,12 @@ export function CreateView({
               </div>
             ))}
             {editImages.length + (charAsPicture ? 1 : 0) < Math.max(1, needImages) && (
-              <button type="button" className="btn ghost" onClick={() => editInput.current?.click()}>
-                <Icon name="image" size={18} /> {needImages === 2 && editImages.length + (charAsPicture ? 1 : 0) === 1 ? 'Add the outfit' : 'Add a picture'}
-              </button>
+              <>
+                <button type="button" className="btn ghost" onClick={() => editInput.current?.click()}>
+                  <Icon name="image" size={18} /> {needImages === 2 && editImages.length + (charAsPicture ? 1 : 0) === 1 ? 'Add the outfit' : 'Add a picture'}
+                </button>
+                {galleryButton('edit')}
+              </>
             )}
             {!charForJob && editImages.length === 0 && (
               <button type="button" className="btn ghost" aria-expanded={charSlot === 'edit'} onClick={() => setCharSlot((v) => (v === 'edit' ? null : 'edit'))}>
@@ -1086,9 +1135,16 @@ export function CreateView({
             />
           </div>
         )}
+        {kind === 'edit' &&
+          editImages.length + (charAsPicture ? 1 : 0) < Math.max(1, needImages) &&
+          galleryFill('edit', async (m) => {
+            // The first picture goes by its gallery id (the machine has it); a second one as a file.
+            const next = editImages.length === 0 ? { src: m.url, item: m.id } : { src: await dataOf(m) };
+            setEditImages((prev) => [...prev, next].slice(-2));
+          })}
         {kind === 'edit' && !charForJob && editImages.length === 0 && charFill('edit', () => {})}
         {kind === 'video' && takesVideo && !startImage && !endImage && (
-          <VideoSource ai={ai} value={video} onChange={setVideo} onError={(m) => toast(m, 'error')} hint="Or restyle a video you have: it keeps the motion and the sound." />
+          <VideoSource ai={ai} value={video} onChange={setVideo} onError={(m) => toast(m, 'error')} gallery={items.map(asMedia)} hint="Or restyle a video you have: it keeps the motion and the sound." />
         )}
         {talking && <AudioSource ai={ai} value={audio} onChange={setAudio} onError={(m) => toast(m, 'error')} />}
         {kind === 'video' && !restyling && (
@@ -1111,6 +1167,14 @@ export function CreateView({
                   setStartItem(null);
                 },
               },
+              {
+                slot: 'start',
+                use: (m) => {
+                  setStartImage(m.url);
+                  setStartItem(m.id);
+                  setCharacter(null);
+                },
+              },
             )}
             <input
               ref={fileInput}
@@ -1126,7 +1190,10 @@ export function CreateView({
         )}
         {kind === 'video' && accepts.includes('endPhoto') && !restyling && (
           <>
-            {photoRow(endImage, 'Ending photo', 'The video ends on this photo.', 'End on a photo', () => endInput.current?.click(), () => setEndImage(null), 'Remove the ending photo')}
+            {photoRow(endImage, 'Ending photo', 'The video ends on this photo.', 'End on a photo', () => endInput.current?.click(), () => setEndImage(null), 'Remove the ending photo', undefined, {
+              slot: 'end',
+              use: async (m) => setEndImage(await dataOf(m)),
+            })}
             <input
               ref={endInput}
               type="file"
@@ -1178,36 +1245,20 @@ export function CreateView({
   const cloudable = !machineOn && (kind === 'image' || kind === 'video') && Boolean(onCloud);
 
   const jobList = jobs.length > 0 && (
-    <ul className="ai-jobs" aria-label="In progress">
-      {jobs.map((j) => (
-        <li key={j.id} className={`ai-job ai-job-${j.status}`}>
-          <span className="ai-job-art" data-live={active(j)} aria-hidden>
-            <Icon name={j.kind === 'image' ? 'image' : 'film'} size={18} />
-          </span>
-          <div className="ai-job-text">
-            <span className="ai-list-title">{j.prompt}</span>
-            {j.status === 'error' ? (
-              <span className="ai-error">{j.error}</span>
-            ) : (
-              <div className="ai-bar" aria-label={`${j.progress}%`}>
-                <span style={{ width: `${Math.max(3, j.progress)}%` }} />
-              </div>
-            )}
-            {jobLine(j) && (
-              <span className="ai-job-line" data-slow={j.slow || undefined}>
-                {jobLine(j)}
-              </span>
-            )}
-            {(j.notes?.length ?? 0) > 0 && <span className="ai-job-notes">{j.notes!.slice(-2).join(' ')}</span>}
-          </div>
-          {active(j) ? (
-            <IconButton icon="stop" label="Stop" onClick={() => void ai.cancelStudioJob(j.id).then(() => setJobs((p) => p.filter((x) => x.id !== j.id)), () => {})} />
-          ) : (
-            <IconButton icon="close" label="Dismiss" onClick={() => setJobs((p) => p.filter((x) => x.id !== j.id))} />
-          )}
-        </li>
-      ))}
-    </ul>
+    <JobQueue
+      jobs={jobs}
+      line={jobLine}
+      onStop={(id) => void ai.cancelStudioJob(id).then(() => setJobs((p) => p.filter((x) => x.id !== id)), () => {})}
+      onDismiss={(id) => setJobs((p) => p.filter((x) => x.id !== id))}
+      onReorder={async (ids) => {
+        try {
+          const list = await ai.reorderStudioJobs(ids);
+          setJobs((prev) => [...list, ...prev.filter((j) => j.status === 'error' && !list.some((x) => x.id === j.id))]);
+        } catch (err) {
+          toast((err as Error).message, 'error');
+        }
+      }}
+    />
   );
 
   const checkStep: DeckStep = {

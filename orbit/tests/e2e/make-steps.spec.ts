@@ -127,7 +127,7 @@ test.describe('Make, step by step', () => {
     await win.getByRole('button', { name: 'Make image' }).click();
     await expect.poll(() => requests.length).toBe(1);
     expect(requests[0]).toMatchObject({ kind: 'image', maker: 'krea-real', style: 'style-darkbrush', prompt: 'a lighthouse at dawn', size: 'portrait' });
-    await expect(win.getByRole('list', { name: 'In progress' })).toBeVisible();
+    await expect(win.getByRole('list', { name: 'Next in line' })).toBeVisible();
     // A summary row goes back to its step.
     await summary.getByRole('button', { name: /^Words:/ }).click();
     await expectStep(win, 'Describe it');
@@ -280,6 +280,115 @@ test.describe('Make, step by step', () => {
     await win2.getByRole('button', { name: 'Fill for me' }).click();
     await expect(win2.getByRole('textbox', { name: 'Describe it' })).toHaveValue('A snowy owl gliding over a frozen lake 1');
     expect(asked[0]).toContain('Step 3 of 5, Describe it: a landscape video with');
+    expect(errors).toEqual([]);
+  });
+
+  test('every photo slot can take a picture from your gallery, not only an upload', async ({ page }, info) => {
+    await mockAi(page, 'on');
+    const requests = await mockStudio(page);
+    const { errors, win } = await openMake(page);
+    // A video that starts from one gallery picture and ends on another.
+    await win.getByRole('radiogroup', { name: 'What to make' }).getByRole('radio', { name: /^A video/ }).click();
+    await win.getByRole('radiogroup', { name: 'Maker' }).getByRole('radio', { name: /^LTX-2\.5/ }).click();
+    await expectStep(win, 'Describe it');
+    await win.getByRole('textbox', { name: 'Describe it' }).fill('the fox wakes up');
+    await win.getByRole('button', { name: 'Next: Extras' }).click();
+    await expectStep(win, 'Shape, length and photos');
+    // Three slots: a video to restyle, the starting photo and the ending photo.
+    const fromGallery = win.getByRole('button', { name: 'From your gallery' });
+    await expect(fromGallery).toHaveCount(3);
+    await fromGallery.nth(1).click();
+    const pick = win.getByTestId('gallery-pick');
+    await expect(pick.getByRole('list', { name: 'Pick a picture from your gallery' })).toBeVisible();
+    await pick.getByRole('button', { name: 'Use: a red fox in snow' }).click();
+    await expect(win.getByRole('img', { name: 'Starting photo' })).toBeVisible();
+    await win.getByRole('button', { name: 'From your gallery' }).click();
+    if (process.env.MAKESTEPS_SHOTS) await page.screenshot({ path: `${process.env.MAKESTEPS_SHOTS}/${info.project.name}-gallerypick.png` });
+    await win.getByRole('button', { name: 'From your gallery' }).click();
+    await expect(win.getByTestId('gallery-pick')).toHaveCount(0);
+    await win.getByRole('button', { name: 'From your gallery' }).click();
+    await win.getByTestId('gallery-pick').getByRole('button', { name: 'Use: a red fox in snow' }).click();
+    await expect(win.getByRole('img', { name: 'Ending photo' })).toBeVisible();
+    await expectNoHorizontalOverflow(page);
+    await win.getByRole('navigation', { name: 'Make, step by step' }).getByRole('button', { name: /^Step 5 of 5/ }).click();
+    await win.getByRole('button', { name: 'Make video' }).click();
+    await expect.poll(() => requests.length).toBe(1);
+    // The starting picture goes by its gallery id; the ending one as a file.
+    expect(requests[0]).toMatchObject({ kind: 'video', maker: 'ltx-25', fromItem: 'img1' });
+    expect(String(requests[0].endImage)).toMatch(/^data:image\//);
+
+    // An edit: the picture to change, from the gallery.
+    await win.getByRole('navigation', { name: 'Make, step by step' }).getByRole('button', { name: /^Step 1 of/ }).click();
+    await win.getByRole('radiogroup', { name: 'What to make' }).getByRole('radio', { name: /^An edit/ }).click();
+    await expect(win.locator('.mk-pane')).toHaveCount(1);
+    await win.getByRole('navigation', { name: 'Make, step by step' }).getByRole('button', { name: /Extras$|The picture$/ }).click();
+    await win.getByRole('button', { name: 'From your gallery' }).click();
+    await win.getByTestId('gallery-pick').getByRole('button', { name: 'Use: a red fox in snow' }).click();
+    await expect(win.getByRole('img', { name: 'Picture to edit' })).toBeVisible();
+    await expect(win.getByRole('button', { name: 'From your gallery' })).toHaveCount(0);
+    expect(errors).toEqual([]);
+  });
+
+  test('next in line: hold the grip and drag a job up or down, or use the arrow keys; the machine gets the new order', async ({ page }, info) => {
+    await mockAi(page, 'on');
+    await mockStudio(page);
+    const base = { kind: 'image', error: null, createdAt: '', item: null, maker: 'qwen', expectedSeconds: 45, notes: [] };
+    const prompts: Record<string, string> = { j1: 'a castle being made', j2: 'second: a quiet harbour', j3: 'third: a desert road', j4: 'fourth: a neon alley' };
+    let order = ['j2', 'j3', 'j4'];
+    const sent: string[][] = [];
+    const job = (id: string) =>
+      id === 'j1'
+        ? { ...base, id, prompt: prompts[id], status: 'running', progress: 50, position: 0, etaSeconds: 20 }
+        : { ...base, id, prompt: prompts[id], status: 'queued', progress: 0, position: order.indexOf(id) + 1, etaSeconds: 60 * (order.indexOf(id) + 1) };
+    const all = () => ['j1', ...order].map(job);
+    await page.route('**/fake-ai/_orbit/studio', (r) => r.fulfill({ json: { setup: 'running', running: true, image: READY, video: READY, downloading: null, downloadError: null, jobs: all() } }));
+    await page.route('**/fake-ai/_orbit/studio/jobs/*', (r) => r.fulfill({ json: job(r.request().url().split('/').pop()!) }));
+    await page.route('**/fake-ai/_orbit/studio/jobs/order', (r) => {
+      const ids = (r.request().postDataJSON() as { ids: string[] }).ids;
+      sent.push(ids);
+      order = ids;
+      return r.fulfill({ json: { jobs: all() } });
+    });
+    const { errors, win } = await openMake(page);
+    await win.getByRole('navigation', { name: 'Make, step by step' }).getByRole('button', { name: /^Step 5 of/ }).click();
+    const line = win.getByRole('list', { name: 'Next in line' });
+    await expect(line.getByRole('listitem')).toHaveCount(3);
+    await expect(win.getByRole('list', { name: 'In progress' })).toContainText('a castle being made');
+    await expect(win.getByText('hold ⠿ and drag to change the order')).toBeVisible();
+    const titles = () => line.locator('.ai-list-title').allTextContents();
+    await expect.poll(titles).toEqual([prompts.j2, prompts.j3, prompts.j4]);
+
+    // Drag the last one to the top with a finger.
+    const grip = (text: string) => line.getByRole('button', { name: new RegExp(`^Move “${text.slice(0, 12)}`) });
+    await line.scrollIntoViewIfNeeded();
+    await grip(prompts.j4).scrollIntoViewIfNeeded();
+    const from = (await grip(prompts.j4).boundingBox())!;
+    const to = (await line.getByRole('listitem').first().boundingBox())!;
+    const cdp = await page.context().newCDPSession(page);
+    const x = from.x + from.width / 2;
+    await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x, y: from.y + from.height / 2 }] });
+    for (let i = 1; i <= 10; i++) {
+      await cdp.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [{ x, y: from.y + from.height / 2 + ((to.y + 4 - from.y) * i) / 10 }] });
+      await page.waitForTimeout(16);
+    }
+    await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+    await cdp.detach();
+    await expect.poll(() => sent.length).toBe(1);
+    expect(sent[0]).toEqual(['j4', 'j2', 'j3']);
+    await expect.poll(titles).toEqual([prompts.j4, prompts.j2, prompts.j3]);
+    await expect(line.getByRole('listitem').first()).toContainText('Next in line');
+
+    // The arrow keys move one place.
+    await grip(prompts.j3).focus();
+    await page.keyboard.press('ArrowUp');
+    await expect.poll(() => sent.length).toBe(2);
+    expect(sent[1]).toEqual(['j4', 'j3', 'j2']);
+    await expect.poll(titles).toEqual([prompts.j4, prompts.j3, prompts.j2]);
+    if (process.env.MAKESTEPS_SHOTS) await page.screenshot({ path: `${process.env.MAKESTEPS_SHOTS}/${info.project.name}-queue.png` });
+    // The grip is big enough for a finger.
+    const g = (await grip(prompts.j2).boundingBox())!;
+    expect(Math.min(g.width, g.height)).toBeGreaterThanOrEqual(44);
+    await expectNoHorizontalOverflow(page);
     expect(errors).toEqual([]);
   });
 

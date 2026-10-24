@@ -4,6 +4,8 @@ import { IconButton } from '../../ui/components';
 import { Censor } from '../../ui/Censor';
 import { AiError, type LocalAi } from '../../services/ai/LocalAi';
 import { recorderType } from './VoiceMode';
+import { GalleryPick } from '../make/GalleryPick';
+import type { GalleryMedia } from './Gallery';
 
 /**
  * What the video makers work from, besides words: a video (from the gallery, or one you send) and a
@@ -43,15 +45,19 @@ export function VideoSource({
   onChange,
   onError,
   hint,
+  gallery,
 }: {
   ai: LocalAi;
   value: VideoPick | null;
   onChange: (v: VideoPick | null) => void;
   onError: (message: string) => void;
   hint?: string;
+  /** Your gallery: "From your gallery" picks one of your videos (the machine has the file). */
+  gallery?: GalleryMedia[];
 }) {
   const input = useRef<HTMLInputElement>(null);
   const [busy, setBusy] = useState(false);
+  const [browsing, setBrowsing] = useState(false);
   const pick = async (file: File | undefined) => {
     if (!file) return;
     setBusy(true);
@@ -76,10 +82,28 @@ export function VideoSource({
         </div>
       ) : (
         <>
-          <button type="button" className="btn ghost" disabled={busy} onClick={() => input.current?.click()}>
-            <Icon name="film" size={18} /> {busy ? 'Sending the video…' : 'Add a video'}
-          </button>
-          <span className="ai-muted">{hint ?? 'MP4, MOV or WebM, up to 200 MB. Or open a video in your gallery and pick what to do.'}</span>
+          <div className="ai-media-buttons">
+            <button type="button" className="btn ghost" disabled={busy} onClick={() => input.current?.click()}>
+              <Icon name="film" size={18} /> {busy ? 'Sending the video…' : 'Add a video'}
+            </button>
+            {gallery && (
+              <button type="button" className="btn ghost" aria-expanded={browsing} onClick={() => setBrowsing((v) => !v)}>
+                <Icon name="layers" size={18} /> From your gallery
+              </button>
+            )}
+          </div>
+          {gallery && browsing && (
+            <GalleryPick
+              items={gallery}
+              kind="video"
+              label="Pick a video from your gallery"
+              onPick={(m) => {
+                onChange({ src: m.url, item: m.id, nsfw: m.nsfw, label: m.label });
+                setBrowsing(false);
+              }}
+            />
+          )}
+          <span className="ai-muted">{hint ?? 'MP4, MOV or WebM, up to 200 MB.'}</span>
         </>
       )}
       <input

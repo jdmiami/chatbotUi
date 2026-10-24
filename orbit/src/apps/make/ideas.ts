@@ -1,5 +1,5 @@
 import { ideaFor } from '../../shell/orb/assist';
-import { cloudReady, cloudText } from '../../services/ai/CloudAi';
+import { NOT_POSSIBLE, cloudReady, cloudText } from '../../services/ai/CloudAi';
 
 /**
  * "Fill for me": an idea for a text box in Make. The orb's own idea first; if it has none, a quick
@@ -106,7 +106,7 @@ export async function fillIdea(box: IdeaBox, context: string, current: string, n
     if (await cloudReady()) {
       const text = tidy(
         await cloudText({
-          task: 'write',
+          task: 'free',
           maxTokens: 120,
           temperature: 1,
           messages: [
@@ -118,7 +118,7 @@ export async function fillIdea(box: IdeaBox, context: string, current: string, n
           ],
         }),
       );
-      if (text && !before.includes(text)) return text;
+      if (text && !text.includes(NOT_POSSIBLE) && !before.includes(text)) return text;
     }
   } catch {
     /* offline, or cloud AI is off */

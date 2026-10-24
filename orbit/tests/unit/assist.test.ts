@@ -4,6 +4,7 @@ const cloud = vi.hoisted(() => ({ ready: true, text: vi.fn<(req: { messages: { c
 vi.mock('../../src/services/ai/CloudAi', () => ({
   cloudReady: async () => cloud.ready,
   cloudText: (req: { messages: { content: string }[] }) => cloud.text(req),
+  NOT_POSSIBLE: '[not possible]',
 }));
 
 import {

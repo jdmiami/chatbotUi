@@ -120,6 +120,36 @@ test('queue: one job at a time, with its place in line and how long it should ta
   assert.deepEqual(c.prompts, ['p1', 'p2']);
 });
 
+test('queue: your waiting jobs can be put in a new order; the one being made stays, new ones go last', async () => {
+  const { c, clock, studio, done } = await setup();
+  const a = await studio.createJob({ kind: 'image', prompt: 'first' });
+  const b = await studio.createJob({ kind: 'image', prompt: 'second' });
+  const d = await studio.createJob({ kind: 'image', prompt: 'third' });
+  const e = await studio.createJob({ kind: 'image', prompt: 'fourth' });
+  const listed = studio.reorder([e.id, d.id, a.id, 'nope']);
+  assert.deepEqual(
+    listed.filter((j) => j.position).map((j) => [j.prompt, j.position]),
+    [
+      ['fourth', 1],
+      ['third', 2],
+      ['second', 3],
+    ],
+    'the named ones first, in that order; the one not named after them; unknown ids ignored',
+  );
+  assert.equal(studio.job(a.id).position, 0, 'the one being made is not moved');
+  // The next one made is the one put first.
+  const f = await studio.createJob({ kind: 'image', prompt: 'fifth' });
+  assert.equal(studio.job(f.id).position, 4, 'added later: after the ones you ordered');
+  clock.t += 20_000;
+  await done('p1');
+  await studio.poll();
+  assert.equal(studio.job(e.id).position, 0);
+  assert.equal(c.prompts.length, 2);
+  assert.equal(studio.job(d.id).position, 1);
+  assert.throws(() => studio.reorder('x'), (err) => err.status === 400);
+  assert.equal(studio.job(b.id).position, 2);
+});
+
 test('time budget: a job that runs far too long is stopped, the GPU freed, and it runs again once', async () => {
   const { c, clock, studio } = await setup();
   const job = await studio.createJob({ kind: 'image', prompt: 'a lighthouse' });
