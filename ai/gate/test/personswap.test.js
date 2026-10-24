@@ -172,7 +172,7 @@ test('Swap a person: never sexual, never what someone wears, never a child, neve
   assert.equal(blockedSwap('her dress'), true);
 });
 
-test('Swap a person: the result is checked before anyone sees it; NSFW or unchecked results are never kept', async () => {
+test('Swap a person: the result is checked before anyone sees it; NSFW or unchecked results are held for review, not shown or deleted', async () => {
   const shown = [];
   let current = null;
   const run = async (nsfw) => {
@@ -184,7 +184,7 @@ test('Swap a person: the result is checked before anyone sees it; NSFW or unchec
     await fs.writeFile(path.join(dir, 'output', 'orbit', `${job.id}.mp4`), 'video');
     state.done[`p${state.prompts.length}`] = `${job.id}.mp4`;
     for (let i = 0; i < 20 && !['done', 'error'].includes(studio.job(job.id).status); i++) await studio.poll();
-    return { job: studio.job(job.id), item: await studio.item(job.id), file: path.join(dir, 'output', 'orbit', `${job.id}.mp4`) };
+    return { job: studio.job(job.id), item: await studio.item(job.id), file: path.join(dir, 'output', 'orbit', `${job.id}.mp4`), held: path.join(dir, 'held', `${job.id}.mp4`), studio };
   };
   const seen = [];
   const ok = await run({
@@ -206,13 +206,16 @@ test('Swap a person: the result is checked before anyone sees it; NSFW or unchec
   const bad = await run({ check: async () => ({ nsfw: true, score: 0.97 }) });
   assert.equal(bad.job.status, 'error');
   assert.equal(bad.job.error, PHOTO_MESSAGE);
-  assert.equal(bad.item, null, 'removed, not blurred');
-  await assert.rejects(fs.stat(bad.file), 'its file is gone too');
+  assert.equal(bad.item, null, 'not in the gallery, not blurred');
+  await assert.rejects(fs.stat(bad.file), 'its file is no longer in the gallery folder');
+  assert.equal(await fs.readFile(bad.held, 'utf8'), 'video', 'but kept, set aside for the owner to look at');
+  assert.equal((await bad.studio.held.list()).length, 1);
 
   const blind = await run(undefined);
   assert.equal(blind.job.status, 'error');
   assert.equal(blind.job.error, CHECK_MESSAGE);
-  assert.equal(blind.item, null, 'not kept when the check could not look');
+  assert.equal(blind.item, null, 'not shown when the check could not look');
+  assert.equal(await fs.readFile(blind.held, 'utf8'), 'video', 'set aside, not thrown away');
 });
 
 test('Swap a person: expected time is learned like the other makers, from its own size', async () => {

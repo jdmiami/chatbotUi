@@ -5,6 +5,7 @@
  * its OpenAI-compatible API (POST /api/ai/token). Chats stream straight from the AI machine.
  * The token lives only in memory.
  */
+import type { HeldItem } from './HeldReview';
 
 export type AiMachineState = 'unconfigured' | 'off' | 'starting' | 'downloading' | 'on' | 'error';
 
@@ -742,6 +743,21 @@ export class LocalAi {
   async studioItems(): Promise<StudioItem[]> {
     const r = await this.studioCall<{ items: StudioItem[] }>('/_orbit/studio/items');
     return r.items.map((i) => this.absolute(i));
+  }
+
+  // ---- results held for the owner to look at (never in the gallery)
+
+  async heldItems(): Promise<HeldItem[]> {
+    const r = await this.studioCall<{ items: HeldItem[] }>('/_orbit/studio/held');
+    return r.items.map((i) => this.absolute(i));
+  }
+
+  async approveHeld(id: string): Promise<void> {
+    await this.studioCall(`/_orbit/studio/held/${encodeURIComponent(id)}/approve`, { method: 'POST', body: '{}' });
+  }
+
+  async noteHeld(id: string, text: string): Promise<void> {
+    await this.studioCall(`/_orbit/studio/held/${encodeURIComponent(id)}/note`, { method: 'POST', body: JSON.stringify({ text }) });
   }
 
   /** Blur an item (true), never blur it (false), or let the NSFW check decide again (null). */

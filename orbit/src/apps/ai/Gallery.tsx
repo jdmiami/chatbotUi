@@ -105,6 +105,7 @@ export function GalleryViewer({
   onPrev,
   onNext,
   position,
+  lockNsfw = false,
 }: {
   media: GalleryMedia;
   title: string;
@@ -117,9 +118,11 @@ export function GalleryViewer({
   onNext?: (() => void) | null;
   /** "3 of 12", read out with the arrows. */
   position?: { index: number; count: number };
+  /** Always blurred, and no "NSFW" switch (the owner's Held for review screen: nothing there is for marking). */
+  lockNsfw?: boolean;
 }) {
   useNsfwFlags();
-  const nsfw = nsfwFor(media.id, media.nsfw);
+  const nsfw = lockNsfw ? true : nsfwFor(media.id, media.nsfw);
   const swipe = useRef<{ x: number; y: number; t: number } | null>(null);
   const prevRef = useRef(onPrev);
   const nextRef = useRef(onNext);
@@ -158,7 +161,7 @@ export function GalleryViewer({
           }}
           onPointerCancel={() => (swipe.current = null)}
         >
-          <Censor key={media.id} as="div" className="ai-viewer-media" markId={media.id} nsfw={media.nsfw}>
+          <Censor key={media.id} as="div" className="ai-viewer-media" markId={lockNsfw ? undefined : media.id} nsfw={lockNsfw ? true : media.nsfw}>
             {media.kind === 'image' ? <DevelopImg src={media.url} alt={media.label} draggable={false} /> : <ViewerVideo key={media.url} media={media} hidden={nsfw} />}
           </Censor>
         </div>
@@ -178,14 +181,16 @@ export function GalleryViewer({
           </div>
         )}
         {words != null && (
-          <Censor key={`w-${media.id}`} as="div" text markId={media.id} nsfw={media.nsfw}>
+          <Censor key={`w-${media.id}`} as="div" text markId={lockNsfw ? undefined : media.id} nsfw={lockNsfw ? true : media.nsfw}>
             {words}
           </Censor>
         )}
-        <div className="ai-viewer-blur">
-          <span className="ai-muted">{nsfw ? 'NSFW: hidden unless "Show NSFW" is on in Settings' : 'NSFW'}</span>
-          <Toggle checked={nsfw} label="NSFW" onChange={(on) => setMark(media.id, on)} />
-        </div>
+        {!lockNsfw && (
+          <div className="ai-viewer-blur">
+            <span className="ai-muted">{nsfw ? 'NSFW: hidden unless "Show NSFW" is on in Settings' : 'NSFW'}</span>
+            <Toggle checked={nsfw} label="NSFW" onChange={(on) => setMark(media.id, on)} />
+          </div>
+        )}
         {children}
       </div>
     </Sheet>

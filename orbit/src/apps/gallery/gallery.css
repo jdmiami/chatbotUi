@@ -43,3 +43,26 @@
 .gallery-meta { margin: 0; font-size: var(--fs-sm, 14px); overflow-wrap: anywhere; }
 .gallery-links { display: flex; flex-wrap: wrap; gap: 8px; padding-top: 12px; border-top: 1px solid var(--o5-hair, var(--border)); }
 .gallery-links .btn { min-height: 44px; }
+
+/* Held for review (the owner only, and only when something is held): one card per result, blurred until held. */
+.gallery-source-held .gallery-source-n { color: var(--accent, var(--text)); font-weight: 700; }
+.held { display: flex; flex-direction: column; gap: 14px; }
+.held-intro { margin: 0; color: var(--text-2); font-size: var(--fs-sm, 14px); line-height: 1.45; }
+.held-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
+.held-card { display: grid; grid-template-columns: minmax(96px, 132px) minmax(0, 1fr); gap: 14px; padding: 16px 0; border-top: 1px solid var(--o5-hair, var(--border)); }
+.held-card:last-child { border-bottom: 1px solid var(--o5-hair, var(--border)); }
+.held-thumb { width: 100%; align-self: start; border-radius: var(--radius-md); }
+.held-body { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.held-body > * { margin: 0; }
+.held-kicker { font: 500 11px/1.4 var(--font-ui, system-ui); letter-spacing: 0.06em; text-transform: uppercase; color: var(--text-3, var(--text-2)); overflow-wrap: anywhere; }
+.held-reason { font-size: var(--fs-sm, 14px); line-height: 1.4; overflow-wrap: anywhere; }
+.held-prompt { font-family: var(--font-display, Georgia, serif); font-size: calc(18px * var(--text-scale, 1)); line-height: 1.3; overflow-wrap: anywhere; }
+.held-notes { list-style: none; padding: 0; display: grid; gap: 4px; font-size: var(--fs-sm, 14px); }
+.held-note { display: grid; gap: 4px; }
+.held-note textarea, .held-note [contenteditable] {
+  width: 100%; box-sizing: border-box; border: 1px solid var(--border); border-radius: var(--radius-md); background: var(--surface-2); color: var(--text);
+  font: inherit; font-size: 16px; padding: 10px 12px; min-height: 44px;
+}
+.held-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.held-actions .btn { min-height: 44px; }
+@media (max-width: 420px) { .held-card { grid-template-columns: 1fr; } .held-thumb { max-width: 220px; } }
