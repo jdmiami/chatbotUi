@@ -928,11 +928,20 @@ export function createStudio(o) {
   // machine can tell when one takes too long, and a stuck one can be stopped and tried again.
   const active = () => [...jobs.values()].filter((j) => j.status === 'queued' || j.status === 'running');
   /** Jobs waiting their turn, in order (a job being tried again goes first). */
-  // Your jobs before the meme lab's (memes.js), which only fill time nobody is using.
+  // Your jobs before the meme lab's (memes.js), which only fill time nobody is using. Jobs you put
+  // in order yourself (reorder) keep that order; ones added later go after them.
+  const LAST = Number.MAX_SAFE_INTEGER;
   const waiting = () =>
     [...jobs.values()]
       .filter((j) => j.status === 'queued' && !j.promptId)
-      .sort((a, b) => Number(Boolean(a.background)) - Number(Boolean(b.background)) || a.queuedAt - b.queuedAt || a.seq - b.seq);
+      .sort(
+        (a, b) =>
+          Number(Boolean(a.background)) - Number(Boolean(b.background)) ||
+          Number(b.queuedAt === 0) - Number(a.queuedAt === 0) ||
+          (a.rank ?? LAST) - (b.rank ?? LAST) ||
+          a.queuedAt - b.queuedAt ||
+          a.seq - b.seq,
+      );
   /** A job someone asked for is waiting or being made (not just the meme lab's). */
   const hasUserWork = () => active().some((j) => !j.background);
   /** The job ComfyUI is working on (or about to start). */
@@ -1790,6 +1799,25 @@ export function createStudio(o) {
     await releaseGpu();
   }
 
+  /**
+   * Your waiting jobs in the order you want them (ids, first = next). Jobs not named keep their
+   * place after the named ones; the one being made is not moved. Returns your jobs as listed.
+   */
+  function reorder(ids, owner) {
+    if (!Array.isArray(ids)) throw Object.assign(new Error('Send the jobs in order: { ids: [...] }.'), { status: 400 });
+    const mine = waiting().filter((j) => !j.background && (owner === undefined || j.owner === owner));
+    const wanted = ids.map(String).filter((id, i, all) => all.indexOf(id) === i && mine.some((j) => j.id === id));
+    const order = [...wanted, ...mine.map((j) => j.id).filter((id) => !wanted.includes(id))];
+    order.forEach((id, i) => {
+      jobs.get(id).rank = i;
+    });
+    // In line order: the one being made first, then next in line, and so on.
+    return active()
+      .filter((j) => !j.background && (owner === undefined || j.owner === owner))
+      .map(publicJob)
+      .sort((a, b) => a.position - b.position);
+  }
+
   async function cancel(id) {
     const job = jobs.get(id);
     if (!job) return null;
@@ -2316,6 +2344,7 @@ export function createStudio(o) {
       return Math.round(expectedMs({ kind: k, maker: m?.id || maker, width: m?.kind === 'edit' ? undefined : width, height: m?.kind === 'edit' ? undefined : height, seconds }, cold) / 1000);
     },
     cancel,
+    reorder,
     items,
     labItems: (limit = 200) => items(limit, true),
     promote,

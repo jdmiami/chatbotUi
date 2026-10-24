@@ -1,0 +1,37 @@
+/* "From your gallery" in a photo or video slot: a row of tiles you swipe through. */
+.gal-pick { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.gal-pick > .o5-kicker { margin: 0; }
+.gal-pick-row {
+  list-style: none;
+  margin: 0;
+  padding: 2px 2px 6px;
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  scroll-snap-type: x proximity;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+}
+.gal-pick-row::-webkit-scrollbar { display: none; }
+.gal-pick-row > li { flex: none; scroll-snap-align: start; }
+.gal-pick-tile {
+  position: relative;
+  display: block;
+  width: 76px;
+  height: 76px;
+  padding: 0;
+  border: 0;
+  border-radius: 12px;
+  overflow: hidden;
+  background: color-mix(in srgb, var(--text) 8%, transparent);
+  cursor: pointer;
+  transition: transform 0.4s var(--spring-playful, ease);
+  -webkit-tap-highlight-color: transparent;
+}
+.gal-pick-tile:active { transform: scale(0.93); }
+.gal-pick-tile[aria-busy='true'] { outline: 2px solid var(--accent); outline-offset: 2px; }
+.gal-pick-tile:disabled { cursor: progress; }
+.gal-pick-media, .gal-pick-media > :is(img, video) { display: block; width: 100%; height: 100%; object-fit: cover; }
+.gal-pick-len { position: absolute; right: 4px; bottom: 4px; padding: 1px 5px; border-radius: 6px; font-size: 11px; background: rgb(0 0 0 / 0.55); color: #fff; }
+@media (min-width: 700px) { .gal-pick-tile { width: 92px; height: 92px; } }

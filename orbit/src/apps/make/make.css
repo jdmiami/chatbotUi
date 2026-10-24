@@ -115,7 +115,8 @@
 :root[data-motion='full'] .mk-count { animation: mk-pop-in 0.7s var(--spring-playful) both; }
 .mk-live { position: absolute; top: 6px; right: 6px; width: 8px; height: 8px; border-radius: 50%; background: var(--accent); }
 :root[data-motion='full'] .mk-live { animation: mk-breathe 1.4s ease-in-out infinite; }
-.make-root .ai-create.mk > :is(.notice-wrap, .notice-pill) { flex: none; margin-inline: var(--mk-g) var(--mk-gr); }
+/* Inside the side margins, never wider than the screen, so its × can always be reached. */
+.make-root .ai-create.mk > :is(.notice-wrap, .notice-pill) { flex: none; margin-inline: var(--mk-g) var(--mk-gr); width: auto; max-width: calc(100% - var(--mk-g) - var(--mk-gr)); align-self: stretch; box-sizing: border-box; }
 .mk > .notice-wrap .make-banner { margin: 6px 0 0; padding-block: 10px; }
 .mk-main { flex: 1; min-height: 0; display: flex; flex-direction: column; }
 .mk-deck { flex: 1; min-height: 0; display: flex; flex-direction: column; }
@@ -563,9 +564,9 @@
 :root:not([data-motion='off']) .mk-make[data-launched='1'] { animation: mk-launch-b 0.7s var(--spring-playful); }
 :root:not([data-motion='off']) .mk-make[data-launched='0'] .mk-burst { animation: mk-burst-a 0.8s ease-out; }
 :root:not([data-motion='off']) .mk-make[data-launched='1'] .mk-burst { animation: mk-burst-b 0.8s ease-out; }
-/* The latest two jobs show here; the gallery has them all. */
+/* What is being made and what waits: the waiting list scrolls on its own if it is long. */
 .mk-check .ai-jobs { margin: 0; }
-.mk-check .ai-jobs > li:nth-last-child(n + 3) { display: none; }
+.mk-check .ai-queue-list { max-height: min(36vh, 300px); overflow-y: auto; overscroll-behavior: contain; padding-block: 2px; }
 :root[data-motion='full'] .mk-check .ai-job { animation: mk-rise 0.7s var(--spring-bouncy) both; }
 
 /* ---------------------------------------------------------------- the gallery and the cloud: screens over the steps */

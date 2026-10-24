@@ -1,6 +1,7 @@
 import { currentUser } from '@/lib/auth';
 import { fromMachine, sameOrigin } from '@/lib/request';
 import { ORB_TASKS, attempts, callProvider, cleanMessages, orbAiConfigured, orbAiInfo, retryable, type OrbTask } from '@/lib/orbAi';
+import { askedText, looksRefused, replyText, withFreeRule } from '@/lib/freeWrite';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
@@ -33,8 +34,11 @@ export async function POST(request: Request) {
   if (!input) return Response.json({ error: 'Send JSON.' }, { status: 400 });
   const task = input.task as OrbTask;
   if (!ORB_TASKS.includes(task)) return Response.json({ error: `task must be one of ${ORB_TASKS.join(', ')}` }, { status: 400 });
-  const messages = cleanMessages(input.messages);
-  if (typeof messages === 'string') return Response.json({ error: messages }, { status: 400 });
+  const cleaned = cleanMessages(input.messages);
+  if (typeof cleaned === 'string') return Response.json({ error: cleaned }, { status: 400 });
+  // Unfiltered writing: the rule (and its one limit) goes first, whatever the caller sent.
+  const free = task === 'free';
+  const messages = free ? withFreeRule(cleaned) : cleaned;
 
   const prefer = typeof input.prefer === 'string' ? input.prefer : undefined;
   const pinned = input.model === undefined ? undefined : String(input.model);
@@ -86,6 +90,11 @@ export async function POST(request: Request) {
       if (!stream) {
         const text = await res.text().finally(() => clearTimeout(timer));
         request.signal.removeEventListener('abort', stop);
+        // A model that refuses unfiltered writing anyway: the next one is asked.
+        if (free && looksRefused(replyText(text), askedText(messages))) {
+          last = 'refused';
+          continue;
+        }
         return new Response(text, { headers });
       }
       // The timer keeps running so a stalled stream is still cut before Vercel's limit.
@@ -107,5 +116,6 @@ export async function POST(request: Request) {
       return Response.json({ error: `Cloud AI: ${String(message).slice(0, 300) || res.statusText}` }, { status: res.status });
     }
   }
+  if (last === 'refused') return Response.json({ error: 'Every writing model turned this one down. Try it again, or change a few words.' }, { status: 422 });
   return Response.json({ error: `Cloud AI is busy right now (${last || 'no model answered'}). Try again in a moment.` }, { status: 503 });
 }

@@ -871,6 +871,11 @@ export function createGate(cfg, log = console) {
       if (path === '/_orbit/studio/uploads' && req.method === 'POST' && studio.saveMedia) {
         return send(res, 200, await studio.saveMedia(req, req.headers['content-type'], req.headers['content-length']));
       }
+      // Put your waiting jobs in a new order: { ids: [...] }, the first goes next.
+      if (path === '/_orbit/studio/jobs/order' && req.method === 'POST') {
+        const { ids } = JSON.parse((await readBody(req, 64 * 1024)) || '{}');
+        return send(res, 200, { jobs: studio.reorder(ids).map(withJobUrl) });
+      }
       const jobMatch = /^\/_orbit\/studio\/jobs\/([A-Za-z0-9_-]+)(\/cancel)?$/.exec(path);
       if (jobMatch && req.method === 'GET' && !jobMatch[2]) {
         const j = studio.job(jobMatch[1]);

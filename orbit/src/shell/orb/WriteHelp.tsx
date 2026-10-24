@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useShell } from '../../state/shell';
-import { cloudReady, cloudText } from '../../services/ai/CloudAi';
+import { NOT_POSSIBLE, cloudReady, cloudText } from '../../services/ai/CloudAi';
 import { caretOf } from './caret';
 import { currentAssist } from './assist';
 import {
@@ -200,7 +200,8 @@ export function WriteHelp() {
     setBusy(label);
     try {
       const raw = await cloudText({
-        task: 'write',
+        // Unfiltered: your words are rewritten as asked, adult ones too.
+        task: 'free',
         maxTokens: Math.min(2000, Math.ceil(picked.length / 2) + 200),
         temperature: 0.3,
         messages: [
@@ -209,6 +210,10 @@ export function WriteHelp() {
         ],
       });
       const out = cleanReply(raw);
+      if (out === NOT_POSSIBLE) {
+        useShell.getState().toast('Rewrite never writes anything sexual involving anyone under 18.', 'error');
+        return;
+      }
       // Only replace if the same words are still selected.
       if (out && selectionIn(field) === picked) insertText(field, out);
     } catch (err) {

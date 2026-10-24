@@ -8,9 +8,13 @@ import 'server-only';
 
 export const NVIDIA_BASE = 'https://integrate.api.nvidia.com/v1';
 
-/** `chat` is a whole conversation in the AI app; the others are the orb's quick jobs. */
-export type OrbTask = 'fast' | 'agent' | 'vision' | 'write' | 'chat';
-export const ORB_TASKS: OrbTask[] = ['fast', 'agent', 'vision', 'write', 'chat'];
+/**
+ * `chat` is a whole conversation in the AI app; the others are the orb's quick jobs. `free` is
+ * unfiltered writing (Rewrite, Fill for me): models that follow the owner's text without refusing,
+ * with one limit set on the server (freeWrite.ts).
+ */
+export type OrbTask = 'fast' | 'agent' | 'vision' | 'write' | 'chat' | 'free';
+export const ORB_TASKS: OrbTask[] = ['fast', 'agent', 'vision', 'write', 'chat', 'free'];
 
 export type ProviderId = 'nvidia' | 'groq' | 'gemini' | 'cerebras' | 'openrouter' | 'together';
 
@@ -44,6 +48,7 @@ const PROVIDERS: Provider[] = [
       vision: ['nvidia/nemotron-3.5-super-vl-120b-a12b', 'nvidia/nemotron-3-nano-omni-30b-a3b-reasoning'],
       write: ['nvidia/nemotron-3.5-lightning-30b-a3b', 'google/gemma-4-31b-it'],
       chat: ['nvidia/nemotron-3-super-120b-a12b', 'z-ai/glm-5.3', 'google/gemma-4-31b-it'],
+      free: ['nv-mistralai/mistral-nemo-12b-instruct', 'mistralai/mistral-large-2-instruct', 'mistralai/mistral-7b-instruct-v0.3'],
     },
   },
   {
@@ -57,6 +62,7 @@ const PROVIDERS: Provider[] = [
       vision: ['meta-llama/llama-4-scout-17b-16e-instruct'],
       write: ['llama-3.3-70b-versatile', 'openai/gpt-oss-20b'],
       chat: ['llama-3.3-70b-versatile', 'openai/gpt-oss-120b'],
+      free: ['llama-3.3-70b-versatile'],
     },
   },
   {
@@ -70,6 +76,7 @@ const PROVIDERS: Provider[] = [
       vision: ['gemini-2.5-flash', 'gemini-2.5-flash-lite'],
       write: ['gemini-2.5-flash-lite', 'gemini-2.5-flash'],
       chat: ['gemini-2.5-flash', 'gemini-2.5-flash-lite'],
+      free: ['gemini-2.5-flash'],
     },
   },
   {
@@ -83,6 +90,7 @@ const PROVIDERS: Provider[] = [
       vision: [],
       write: ['llama-3.3-70b', 'gpt-oss-120b'],
       chat: ['gpt-oss-120b', 'llama-3.3-70b'],
+      free: ['llama-3.3-70b'],
     },
   },
   {
@@ -96,6 +104,7 @@ const PROVIDERS: Provider[] = [
       vision: ['qwen/qwen2.5-vl-72b-instruct:free', 'google/gemma-3-27b-it:free'],
       write: ['meta-llama/llama-3.3-70b-instruct:free', 'openai/gpt-oss-20b:free'],
       chat: ['deepseek/deepseek-chat-v3.1:free', 'meta-llama/llama-3.3-70b-instruct:free'],
+      free: ['cognitivecomputations/dolphin-mistral-24b-venice-edition:free', 'mistralai/mistral-nemo:free'],
     },
   },
   {
@@ -109,6 +118,7 @@ const PROVIDERS: Provider[] = [
       vision: ['meta-llama/Llama-Vision-Free'],
       write: ['meta-llama/Llama-3.3-70B-Instruct-Turbo-Free'],
       chat: ['meta-llama/Llama-3.3-70B-Instruct-Turbo-Free'],
+      free: ['meta-llama/Llama-3.3-70B-Instruct-Turbo-Free'],
     },
   },
 ];

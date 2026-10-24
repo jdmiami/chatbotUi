@@ -230,7 +230,7 @@ export async function designFromIdea(idea: string, n = 0): Promise<Draft> {
       const timer = setTimeout(() => ctrl.abort(), 12_000);
       try {
         const reply = await cloudText({
-          task: 'write',
+          task: 'free',
           maxTokens: 400,
           temperature: Math.min(1.2, 0.8 + n * 0.1),
           signal: ctrl.signal,

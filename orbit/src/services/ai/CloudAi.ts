@@ -7,7 +7,10 @@ import { useShell } from '../../state/shell';
  * rewriting a sentence, reading a screenshot) go here, and AI app chats while the AI machine is off.
  */
 
-export type CloudTask = 'fast' | 'agent' | 'vision' | 'write' | 'chat';
+/** `free`: unfiltered writing (Rewrite, Fill for me), adults only; see the site's freeWrite.ts. */
+export type CloudTask = 'fast' | 'agent' | 'vision' | 'write' | 'chat' | 'free';
+/** What unfiltered writing answers when the text involves a minor sexually. */
+export const NOT_POSSIBLE = '[not possible]';
 
 export interface CloudStatus {
   configured: boolean;

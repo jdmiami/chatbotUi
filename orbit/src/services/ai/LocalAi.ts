@@ -825,6 +825,12 @@ export class LocalAi {
     await this.studioCall(`/_orbit/studio/jobs/${encodeURIComponent(id)}/cancel`, { method: 'POST', body: '{}' });
   }
 
+  /** Your waiting jobs in a new order (first = next). Returns your jobs in line order. */
+  async reorderStudioJobs(ids: string[]): Promise<StudioJob[]> {
+    const r = await this.studioCall<{ jobs: StudioJob[] }>('/_orbit/studio/jobs/order', { method: 'POST', body: JSON.stringify({ ids }) });
+    return r.jobs.map((j) => this.absoluteJob(j));
+  }
+
   // ---- meme lab (made while the machine is unused; never keeps it on)
 
   private labAbsolute(st: MemeLabState): MemeLabState {

@@ -1,5 +1,5 @@
 import { useEffect, useRef } from 'react';
-import { cloudReady, cloudText } from '../../services/ai/CloudAi';
+import { NOT_POSSIBLE, cloudReady, cloudText } from '../../services/ai/CloudAi';
 import { cleanReply } from './write';
 
 /**
@@ -295,7 +295,7 @@ async function makeIdea(context: string, current: string, n: number): Promise<st
     let raw = '';
     try {
       raw = await cloudText({
-        task: 'write',
+        task: 'free',
         maxTokens: 160,
         temperature: Math.min(1.2, 0.85 + n * 0.05),
         signal: ctrl.signal,
@@ -315,7 +315,7 @@ async function makeIdea(context: string, current: string, n: number): Promise<st
       clearTimeout(timer);
     }
     const idea = tidyIdea(raw);
-    if (!idea || before.includes(idea) || idea === current.trim()) return written();
+    if (!idea || idea.includes(NOT_POSSIBLE) || before.includes(idea) || idea === current.trim()) return written();
     return remember(idea);
   } catch {
     // Quiet: an idea is a nicety, so a written one stands in.

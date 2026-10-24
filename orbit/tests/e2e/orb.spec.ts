@@ -112,10 +112,12 @@ test.describe('the orb', () => {
   });
 
   test('writing help: grey ghost text finishes the sentence, and selected words can be rewritten', async ({ page }) => {
+    const rewrites: string[] = [];
     await page.route('**/api/orb/ai', async (route) => {
       if (route.request().method() === 'GET') return route.fulfill({ json: { configured: true, models: {} } });
       const body = route.request().postDataJSON() as { task: string; messages: { content: string }[] };
       const ghost = body.messages[0].content.includes('next few words');
+      if (!ghost) rewrites.push(body.task);
       const text = ghost ? ' milk and eggs' : 'Please remind me to buy milk and eggs tomorrow.';
       return route.fulfill({ json: { choices: [{ message: { content: text } }] } });
     });
@@ -138,6 +140,8 @@ test.describe('the orb', () => {
     await page.getByRole('button', { name: /Rewrite/ }).click();
     await page.getByRole('menuitem', { name: 'Fix' }).click();
     await expect(box).toHaveValue('Please remind me to buy milk and eggs tomorrow.');
+    // Rewrite is unfiltered writing: it does what you ask with your words (adults only, said on the site).
+    expect(rewrites).toEqual(['free']);
     expect(errors).toEqual([]);
   });
 

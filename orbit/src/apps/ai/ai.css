@@ -249,6 +249,31 @@
 .ai-job-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 6px; }
 .ai-job-line { font-size: var(--fs-xs, 12px); color: var(--text-2); }
 .ai-job-line[data-slow] { color: var(--warning); }
+/* Next in line: hold the grip and drag to change the order (JobQueue). */
+.ai-queue { display: flex; flex-direction: column; gap: var(--space-2); min-width: 0; }
+.ai-queue-head { margin: 4px 0 0; }
+.ai-queue-hint { text-transform: none; letter-spacing: 0; font-weight: 400; color: var(--text-3); }
+.ai-queue-list { position: relative; }
+.ai-queue-list > .ai-job { position: relative; transition: transform 0.32s var(--spring-default, ease), box-shadow 0.2s; background: var(--bg); }
+.ai-queue-list > .ai-job[data-dragging] { box-shadow: 0 10px 30px rgb(0 0 0 / 0.35); border-radius: 14px; }
+.ai-job-grip {
+  flex: none;
+  width: var(--tap, 44px);
+  height: var(--tap, 44px);
+  display: grid;
+  place-items: center;
+  border: 0;
+  border-radius: 12px;
+  background: none;
+  color: var(--text-2);
+  cursor: grab;
+  touch-action: none;
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+}
+.ai-job-grip:active, .ai-job[data-dragging] .ai-job-grip { cursor: grabbing; color: var(--accent); background: color-mix(in srgb, var(--accent) 12%, transparent); }
+:root[data-motion='off'] .ai-queue-list > .ai-job { transition: none; }
 .ai-job-notes { font-size: var(--fs-xs, 12px); color: var(--text-2); font-style: italic; }
 .ai-gallery.ai-gallery { max-width: 1100px; }
 .ai-gallery { list-style: none; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: var(--space-2); }

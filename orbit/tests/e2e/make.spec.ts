@@ -184,6 +184,10 @@ test('Make: the × of the "turn the AI machine on" message never sits on its wor
   expect(words && hide && wrap).toBeTruthy();
   expect(words!.x + words!.width).toBeLessThanOrEqual(hide!.x + 1);
   expect(wrap!.x).toBeGreaterThanOrEqual(12);
+  // The × is on the screen, with the same margin on the right.
+  const vw = page.viewportSize()!.width;
+  expect(hide!.x + hide!.width).toBeLessThanOrEqual(vw - 8);
+  expect(wrap!.x + wrap!.width).toBeLessThanOrEqual(vw - 8);
   await win.getByRole('button', { name: 'Hide this message' }).click();
   await expect(banner).toBeHidden();
 });
