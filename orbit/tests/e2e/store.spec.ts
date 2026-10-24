@@ -156,6 +156,46 @@ test.describe('AI Store', () => {
     expect(errors).toEqual([]);
   });
 
+  test('Swap a person: on the Video editing shelf, its page says what it needs and how it treats photos; add it', async ({ page }, testInfo) => {
+    await mockAi(page, 'on');
+    const calls: string[] = [];
+    let makers = [
+      { id: 'vace', kind: 'videoedit', name: 'Wan VACE', blurb: 'Edit a video.', for: null, twoImages: false, needs: ['video'], tasks: ['replace', 'restyle', 'extend', 'motion'], builtIn: false, wanted: true, installed: true, size: 43.7e9, percent: 100 },
+      { id: 'person-swap', kind: 'videoedit', name: 'Swap a person', blurb: 'Put someone from your photo in place of a person in your video.', for: null, twoImages: false, needs: ['video', 'target', 'photo'], accepts: ['facePhoto'], builtIn: false, wanted: false, installed: false, size: 23.7e9, percent: 0 },
+    ];
+    await page.route('**/fake-ai/_orbit/studio/makers**', async (route) => {
+      const req = route.request();
+      if (req.method() === 'POST') {
+        const { id } = req.postDataJSON() as { id: string };
+        calls.push(`install ${id}`);
+        makers = makers.map((m) => (m.id === id ? { ...m, wanted: true, percent: 10 } : m));
+      }
+      await route.fulfill({ json: { makers } });
+    });
+    const { errors, win } = await openStore(page);
+    await win.getByRole('tab', { name: 'Pictures & video' }).click();
+    const editing = win.getByRole('region', { name: 'Video editing' });
+    await expect(editing).toContainText('Swap a person');
+    await expect(editing).toContainText('Put someone from your photo in place of a person in your video.');
+    await expectNoHorizontalOverflow(page);
+    await page.screenshot({ path: testInfo.outputPath('store-swap-shelf.png') });
+
+    await editing.getByRole('button', { name: 'Swap a person: details' }).click();
+    const detail = page.getByRole('dialog', { name: 'Swap a person' });
+    const specs = detail.getByRole('region', { name: 'Specifications' });
+    await expect(specs.getByText('A video, words saying who to replace and a photo of the new person (a close-up of their face helps)')).toBeVisible();
+    await expect(specs.getByText('About 30 GB of the 48 GB')).toBeVisible();
+    await expect(specs.getByText(/AGPL-3\.0/)).toBeVisible();
+    await expect(detail).toContainText('Photos of real people are never made sexual, and children can\'t be swapped.');
+    await expectNoHorizontalOverflow(page);
+    await page.screenshot({ path: testInfo.outputPath('store-swap-detail.png') });
+    await detail.getByRole('button', { name: 'Get Swap a person' }).click();
+    await expect.poll(() => calls).toEqual(['install person-swap']);
+    await page.keyboard.press('Escape');
+    await expect(editing.getByRole('status', { name: 'Adding Swap a person: 10%' })).toBeVisible();
+    expect(errors).toEqual([]);
+  });
+
   test('a stopped download resumes from its details, and the sheet follows along', async ({ page }) => {
     await mockAi(page, 'on');
     const calls: string[] = [];

@@ -59,9 +59,9 @@ test('recipes take the maker’s own model file and settings', () => {
 });
 
 test('catalog: video makers name what they need, gated files are only LTX-2.5’s, and VRAM fits 48 GB', () => {
-  const INPUTS = ['video', 'audio', 'photo', 'endPhoto', 'target'];
-  const FLOWS = { ltx25: 'video', s2v: 'video', vace: 'videoedit', seedvr2: 'videoedit' };
-  for (const id of ['ltx-25', 's2v', 'vace', 'video-erase', 'video-sharpen']) {
+  const INPUTS = ['video', 'audio', 'photo', 'endPhoto', 'target', 'facePhoto'];
+  const FLOWS = { ltx25: 'video', s2v: 'video', vace: 'videoedit', seedvr2: 'videoedit', swap: 'videoedit' };
+  for (const id of ['ltx-25', 's2v', 'vace', 'video-erase', 'video-sharpen', 'person-swap']) {
     const d = CATALOG.makerDefs.find((m) => m.id === id);
     assert.ok(d, id);
     assert.equal(FLOWS[d.workflow], d.kind, `${id}: its recipe makes a ${d.kind}`);
@@ -78,4 +78,35 @@ test('catalog: video makers name what they need, gated files are only LTX-2.5’
   assert.deepEqual(vace.files.filter((k) => s2v.includes(k)), ['wanTe', 'wanVae']);
   assert.deepEqual(CATALOG.makerDefs.find((m) => m.id === 'video-erase').files, vace.files);
   for (const t of vace.tasks) assert.ok(VACE_TASKS.includes(t), t);
+});
+
+test('catalog: Swap a person, its two new files (sizes checked against Hugging Face) and the files it shares', () => {
+  const d = CATALOG.makerDefs.find((m) => m.id === 'person-swap');
+  assert.deepEqual(
+    { name: d.name, blurb: d.blurb, kind: d.kind, workflow: d.workflow, needs: d.needs, accepts: d.accepts },
+    { name: 'Swap a person', blurb: 'Put someone from your photo in place of a person in your video.', kind: 'videoedit', workflow: 'swap', needs: ['video', 'target', 'photo'], accepts: ['facePhoto'] },
+  );
+  // The two files only it uses, exactly as Hugging Face lists them (HEAD / API, October 2026).
+  assert.deepEqual(FILES.swapUnet, {
+    dir: 'diffusion_models',
+    name: 'Wan2_1_mocha-14B-preview_fp8_e4m3fn_scaled_KJ.safetensors',
+    repo: 'Kijai/WanVideo_comfy_fp8_scaled',
+    path: 'MoCha/Wan2_1_mocha-14B-preview_fp8_e4m3fn_scaled_KJ.safetensors',
+    size: 14341075314,
+  });
+  assert.deepEqual(FILES.swapLora, {
+    dir: 'loras',
+    name: 'lightx2v_T2V_14B_cfg_step_distill_v2_lora_rank64_bf16.safetensors',
+    repo: 'Kijai/WanVideo_comfy',
+    path: 'Lightx2v/lightx2v_T2V_14B_cfg_step_distill_v2_lora_rank64_bf16.safetensors',
+    size: 630697104,
+  });
+  // Everything else is already on a machine with the other video editors: downloaded once.
+  const vace = CATALOG.makerDefs.find((m) => m.id === 'vace').files;
+  assert.deepEqual(d.files.filter((k) => vace.includes(k)), ['wanTe', 'wanVae', 'sam3']);
+  assert.deepEqual(d.files.filter((k) => !vace.includes(k)), ['swapUnet', 'swapLora']);
+  const page = CATALOG.makers['person-swap'];
+  assert.match(page.license, /AGPL-3\.0/);
+  assert.match(page.about, /never made sexual/);
+  assert.ok(page.tryIt.length >= 2);
 });

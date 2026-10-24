@@ -659,6 +659,86 @@ export function vaceWorkflow({ task, prompt, video, width, height, frames, targe
 }
 
 /**
+ * Swap a person: someone from a photo takes the place of a person in a video, with the same moves,
+ * light and sound. From the person-swap example workflow of the video wrapper node pack (pinned in
+ * ai/studio.sh: 6 steps, cfg 1, shift 5, dpm++_sde, the speed-up LoRA at 1), with two changes so it
+ * runs on what the machine already has:
+ *  - who to replace is found from words, on the first frame only (the model needs just that one
+ *    mask): the same text segmenter as Erase from video, instead of the example's clicked points;
+ *    the mask grows by 5 px, as in the example;
+ *  - the text encoder and the VAE are the shared files the other video-edit makers use (the core
+ *    text encoder's result goes over a bridge node; the VAE file holds the very same weights).
+ * The photos are fitted inside the video's frame on white (a clean background, as the model's makers
+ * recommend). `video` is a prepared clip: `width` × `height`, `frames` (4k + 1) at 16 fps, with sound.
+ */
+export const SWAP_FPS = 16;
+export const SWAP_MAX_FRAMES = 81;
+export function swapWorkflow({ video, width, height, frames, target, photo, face = null, prompt = ' ', seed = randomSeed(), prefix = 'orbit/video' }) {
+  if (!target) throw new Error('Swap needs words saying who to replace');
+  if (!photo) throw new Error('Swap needs a photo of the new person');
+  if (!(frames > 0 && (frames - 1) % 4 === 0)) throw new Error('Swap takes 4k + 1 frames');
+  const fit = (image) => ({ class_type: 'ResizeAndPadImage', inputs: { image, target_width: width, target_height: height, padding_color: 'white', interpolation: 'lanczos' } });
+  const wf = {
+    // The model, its speed-up LoRA and block swapping (part of the model waits in RAM: the doubled
+    // input makes this one heavier on GPU memory than other 14B video models).
+    1: { class_type: 'WanVideoLoraSelectMulti', inputs: { lora_0: FILES.swapLora.name, strength_0: 1, lora_1: 'none', strength_1: 1, lora_2: 'none', strength_2: 1, lora_3: 'none', strength_3: 1, lora_4: 'none', strength_4: 1, low_mem_load: false, merge_loras: true } },
+    2: { class_type: 'WanVideoModelLoader', inputs: { model: FILES.swapUnet.name, base_precision: 'fp16_fast', quantization: 'disabled', load_device: 'offload_device', attention_mode: 'sdpa', lora: ['1', 0] } },
+    3: { class_type: 'WanVideoBlockSwap', inputs: { blocks_to_swap: 20, offload_img_emb: false, offload_txt_emb: false, use_non_blocking: true, vace_blocks_to_swap: 0, prefetch_blocks: 1, block_swap_debug: false } },
+    4: { class_type: 'WanVideoSetBlockSwap', inputs: { model: ['2', 0], block_swap_args: ['3', 0] } },
+    5: { class_type: 'WanVideoVAELoader', inputs: { model_name: FILES.wanVae.name, precision: 'bf16' } },
+    // Words: the model's makers run it with an empty prompt and the usual negative one.
+    6: { class_type: 'CLIPLoader', inputs: { clip_name: FILES.wanTe.name, type: 'wan', device: 'default' } },
+    7: { class_type: 'CLIPTextEncode', inputs: { clip: ['6', 0], text: prompt || ' ' } },
+    8: { class_type: 'CLIPTextEncode', inputs: { clip: ['6', 0], text: WAN_NEGATIVE } },
+    9: { class_type: 'WanVideoTextEmbedBridge', inputs: { positive: ['7', 0], negative: ['8', 0] } },
+    // The video.
+    10: { class_type: 'LoadVideo', inputs: { file: video } },
+    11: { class_type: 'GetVideoComponents', inputs: { video: ['10', 0] } },
+    // Who to replace: found from the words on the first frame.
+    30: { class_type: 'CheckpointLoaderSimple', inputs: { ckpt_name: FILES.sam3.name } },
+    31: { class_type: 'CLIPTextEncode', inputs: { clip: ['30', 1], text: target } },
+    32: { class_type: 'ImageFromBatch', inputs: { image: ['11', 0], batch_index: 0, length: 1 } },
+    33: { class_type: 'SAM3_Detect', inputs: { model: ['30', 0], image: ['32', 0], conditioning: ['31', 0], threshold: 0.5, refine_iterations: 2, individual_masks: false } },
+    34: { class_type: 'GrowMask', inputs: { mask: ['33', 0], expand: 5, tapered_corners: true } },
+    // The new person: the photo, and a face close-up when there is one.
+    40: { class_type: 'LoadImage', inputs: { image: photo } },
+    41: fit(['40', 0]),
+    50: { class_type: 'MochaEmbeds', inputs: { vae: ['5', 0], force_offload: true, input_video: ['11', 0], mask: ['34', 0], ref1: ['41', 0], tiled_vae: false } },
+    60: {
+      class_type: 'WanVideoSampler',
+      inputs: {
+        model: ['4', 0],
+        image_embeds: ['50', 0],
+        text_embeds: ['9', 0],
+        steps: 6,
+        cfg: 1,
+        shift: 5,
+        seed,
+        force_offload: true,
+        scheduler: 'dpm++_sde',
+        riflex_freq_index: 0,
+        denoise_strength: 1,
+        batched_cfg: false,
+        rope_function: 'default',
+        start_step: 0,
+        end_step: -1,
+        add_noise_to_samples: false,
+      },
+    },
+    61: { class_type: 'WanVideoDecode', inputs: { vae: ['5', 0], samples: ['60', 0], enable_vae_tiling: false, tile_x: 272, tile_y: 272, tile_stride_x: 144, tile_stride_y: 128, normalization: 'default' } },
+    // The same number of frames as the clip: its own sound fits.
+    62: { class_type: 'CreateVideo', inputs: { images: ['61', 0], audio: ['11', 1], fps: SWAP_FPS } },
+    63: save(['62', 0], prefix),
+  };
+  if (face) {
+    wf[42] = { class_type: 'LoadImage', inputs: { image: face } };
+    wf[43] = fit(['42', 0]);
+    wf[50].inputs.ref2 = ['43', 0];
+  }
+  return wf;
+}
+
+/**
  * SeedVR2 3B: sharpen and enlarge a finished video 2× (sound and frame rate kept). From ComfyUI's
  * "Upscale Video (SeedVR2 3B Int8)" blueprint, with its temporal chunking switched on ("auto": as many
  * frames at a time as fit in the GPU) so long clips don't run out of memory.

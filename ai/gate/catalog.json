@@ -999,6 +999,22 @@
     "the watermark in the corner"
    ]
   },
+  "person-swap": {
+   "publisher": "Orange 3DV Team (Kijai fp8 repack)",
+   "base": "MoCha (a Wan 2.1 14B fine-tune, fp8) + SAM 3.1",
+   "repo": "Orange-3DV-Team/MoCha",
+   "license": "AGPL-3.0 (the speed-up LoRA: Apache 2.0)",
+   "code": "https://github.com/Orange-3DV-Team/MoCha",
+   "output": "Your video with the new person in it, 16 fps, up to 5 s, with its sound",
+   "resolution": "Up to 832 × 480 (its own shape kept)",
+   "gpu": "About 30 GB of the 48 GB",
+   "speed": "6 steps; a few minutes for 5 seconds is expected, not measured yet",
+   "about": "Say who in your video to replace and add a photo of the new person (a face close-up helps): they take over in every frame, with the same moves, light and sound. Only the first frame needs to show who; the words find them there. Photos of real people are never made sexual, and children can't be swapped.",
+   "tryIt": [
+    "the man in the red jacket",
+    "the woman on the left"
+   ]
+  },
   "video-sharpen": {
    "publisher": "ByteDance Seed (Comfy-Org repack)",
    "base": "SeedVR2 3B (int8)",
@@ -1355,6 +1371,20 @@
    "repo": "Comfy-Org/sam3.1",
    "path": "checkpoints/sam3.1_multiplex_fp16.safetensors",
    "size": 1745546848
+  },
+  "swapUnet": {
+   "dir": "diffusion_models",
+   "name": "Wan2_1_mocha-14B-preview_fp8_e4m3fn_scaled_KJ.safetensors",
+   "repo": "Kijai/WanVideo_comfy_fp8_scaled",
+   "path": "MoCha/Wan2_1_mocha-14B-preview_fp8_e4m3fn_scaled_KJ.safetensors",
+   "size": 14341075314
+  },
+  "swapLora": {
+   "dir": "loras",
+   "name": "lightx2v_T2V_14B_cfg_step_distill_v2_lora_rank64_bf16.safetensors",
+   "repo": "Kijai/WanVideo_comfy",
+   "path": "Lightx2v/lightx2v_T2V_14B_cfg_step_distill_v2_lora_rank64_bf16.safetensors",
+   "size": 630697104
   },
   "s2vUnet": {
    "dir": "diffusion_models",
@@ -2158,6 +2188,28 @@
    "needs": [
     "video",
     "target"
+   ]
+  },
+  {
+   "id": "person-swap",
+   "kind": "videoedit",
+   "name": "Swap a person",
+   "blurb": "Put someone from your photo in place of a person in your video.",
+   "files": [
+    "swapUnet",
+    "swapLora",
+    "wanTe",
+    "wanVae",
+    "sam3"
+   ],
+   "workflow": "swap",
+   "needs": [
+    "video",
+    "target",
+    "photo"
+   ],
+   "accepts": [
+    "facePhoto"
    ]
   },
   {

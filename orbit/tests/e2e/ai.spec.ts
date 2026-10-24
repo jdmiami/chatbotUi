@@ -214,6 +214,10 @@ async function mockStudio(page: Page) {
     if (/naked child/.test(String(body.prompt))) {
       return route.fulfill({ status: 422, json: { error: "This can't be made: sexual content involving minors is never allowed.", blocked: true } });
     }
+    // Swap a person refuses children (the AI machine's rule, studio.js).
+    if (body.maker === 'person-swap' && /\b(kid|child|girl|boy|teen\w*)\b/.test(String(body.target))) {
+      return route.fulfill({ status: 422, json: { error: "Swap a person only works with adults: it can't swap a child or a teenager, in the video or from a photo.", blocked: true } });
+    }
     const id = `job${requests.length}`;
     return route.fulfill({ json: { id, kind: body.kind, prompt: body.prompt, status: 'queued', progress: 0, error: null, createdAt: new Date().toISOString(), item: null } });
   });
@@ -243,6 +247,7 @@ async function mockStudio(page: Page) {
     { id: 's2v', kind: 'video', name: 'Talking photo', blurb: 'A photo and a voice.', for: null, twoImages: false, needs: ['photo', 'audio'], builtIn: false, wanted: true, installed: true, size: 25e9, percent: 100 },
     { id: 'vace', kind: 'videoedit', name: 'Wan VACE', blurb: 'Edit a video.', for: null, twoImages: false, needs: ['video'], tasks: ['replace', 'restyle', 'extend', 'motion'], builtIn: false, wanted: true, installed: true, size: 43.7e9, percent: 100 },
     { id: 'video-erase', kind: 'videoedit', name: 'Erase from video', blurb: 'Remove a thing.', for: null, twoImages: false, needs: ['video', 'target'], builtIn: false, wanted: true, installed: true, size: 43.7e9, percent: 100 },
+    { id: 'person-swap', kind: 'videoedit', name: 'Swap a person', blurb: 'Put someone from your photo in place of a person in your video.', for: null, twoImages: false, needs: ['video', 'target', 'photo'], accepts: ['facePhoto'], builtIn: false, wanted: true, installed: true, size: 23.7e9, percent: 100 },
     { id: 'video-sharpen', kind: 'videoedit', name: 'Sharpen video', blurb: 'Twice as large.', for: null, twoImages: false, needs: ['video'], builtIn: false, wanted: true, installed: true, size: 4e9, percent: 100 },
   ];
   const makerCalls: string[] = [];
@@ -1047,6 +1052,93 @@ test.describe('AI app: video makers', () => {
     await (await makeButton(page, 'Sharpen video')).click();
     await expect.poll(() => studio.requests.length).toBe(2);
     expect(studio.requests[1]).toMatchObject({ kind: 'video', maker: 'video-sharpen', videoItem: 'vid1' });
+  });
+
+  test('swap a person: the video, who to replace (talk or fill), the new person’s photo and a face close-up', async ({ page }, testInfo) => {
+    await mockAi(page, 'on');
+    const studio = await mockStudio(page);
+    const errors = await openOrbit(page);
+    await openCreate(page);
+    // Screenshots of each step (MAKE_SHOTS_DIR: also kept in that folder, from the iPhone run).
+    const shot = async (name: string) => {
+      const dir = process.env.MAKE_SHOTS_DIR;
+      await page.screenshot({ path: testInfo.outputPath(`${name}.png`) });
+      if (dir && testInfo.project.name === 'iphone-portrait') await page.screenshot({ path: `${dir}/${name}.png` });
+    };
+    const win = page.locator('.app-window[data-app="make"]');
+    const dots = win.getByRole('navigation', { name: 'Make, step by step' }).getByRole('button');
+    await pickKind(page, 'vedit');
+    await expect((await makerPicks(page)).getByRole('radio', { name: 'Swap a person' })).toBeVisible();
+    await (await makerPicks(page)).getByRole('radio', { name: 'Swap a person' }).click();
+    // Straight on to the video: it gets a step of its own, and the others are named for what they hold.
+    await expect(dots.filter({ hasText: 'The video' })).toHaveAttribute('aria-current', 'step');
+    await expect(dots).toHaveText(['01What', '02Maker & style', '03The video', '04Who to replace', '05The new person', '06Check & make']);
+    await makeStep(page, 'Maker & style');
+    await expect(win.getByText('Put someone from your photo in place of a person in your video.')).toBeVisible();
+    await expect(page.getByRole('radiogroup', { name: 'What to do' })).toHaveCount(0);
+    await shot('swap-1-maker');
+
+    await makeStep(page, 'The video');
+    await expect(win.getByText('The person to replace should be in its first frame.', { exact: false })).toBeVisible();
+    await shot('swap-2-video');
+    await page.locator('input[aria-label="Video file"]').setInputFiles({ name: 'clip.mp4', mimeType: 'video/mp4', buffer: MP4 });
+    await expect(page.locator('video[aria-label="Video to work on"]')).toBeVisible();
+    expect(studio.uploads).toEqual([{ type: 'video/mp4', size: MP4.length }]);
+
+    await makeStep(page, 'Who to replace');
+    await expect(page.getByRole('textbox', { name: 'Describe it' })).toHaveCount(0);
+    const who = page.getByRole('textbox', { name: 'Who to replace' });
+    await expect(page.getByRole('button', { name: 'Hold to talk: who to replace' })).toBeVisible();
+    // Fill for me: an idea naming a person.
+    await page.getByRole('button', { name: 'Fill for me' }).click();
+    await expect(who).not.toHaveValue('');
+    await who.fill('the man in the red jacket');
+    await shot('swap-3-who');
+
+    const make = await makeButton(page, 'Swap the person');
+    await expect(make).toBeDisabled();
+    await expect(win.getByRole('status').filter({ hasText: 'Add a photo of the new person.' })).toBeVisible();
+    await makeStep(page, 'The new person');
+    await page.locator('input[aria-label="Photo of the new person"]').setInputFiles({ name: 'me.png', mimeType: 'image/png', buffer: PNG });
+    await expect(page.getByRole('img', { name: 'The new person' })).toBeVisible();
+    await page.locator('input[aria-label="Face close-up"]').setInputFiles({ name: 'face.png', mimeType: 'image/png', buffer: PNG });
+    await expect(page.getByRole('img', { name: 'Their face, close up' })).toBeVisible();
+    await expect(win.getByText('children can’t be swapped', { exact: false })).toBeVisible();
+    await expectNoHorizontalOverflow(page);
+    await shot('swap-4-new-person');
+
+    await makeStep(page, 'Check & make');
+    const summary = win.getByRole('list', { name: 'Your choices' });
+    await expect(summary).toContainText('Your video');
+    await expect(summary).toContainText('Replace the man in the red jacket');
+    await expect(summary).toContainText('A photo of them · a face close-up');
+    await expect(make).toBeEnabled();
+    await expectNoHorizontalOverflow(page);
+    await shot('swap-5-check');
+    await make.click();
+    await expect.poll(() => studio.requests.length).toBe(1);
+    const req = studio.requests[0];
+    expect(req).toMatchObject({ kind: 'video', maker: 'person-swap', videoUpload: 'uvid1', target: 'the man in the red jacket', prompt: '' });
+    expect(req.task).toBeUndefined();
+    expect(String(req.image)).toMatch(/^data:image\/jpeg;base64,/);
+    expect((req.images as string[]).map((s) => s.slice(0, 23))).toEqual(['data:image/jpeg;base64,']);
+
+    // Children are refused, and it says why.
+    await makeStep(page, 'Who to replace');
+    await who.fill('the kid on the bike');
+    await (await makeButton(page, 'Swap the person')).click();
+    await expect(page.getByText('only works with adults', { exact: false })).toBeVisible();
+
+    // From a gallery video: "Swap a person" goes straight to who to replace, with the video in.
+    await openMakeGallery(page);
+    await page.getByRole('button', { name: 'Video: waves at sunset' }).click();
+    await page.getByRole('dialog', { name: 'Video' }).getByRole('button', { name: 'Swap a person' }).click();
+    await expect(dots.filter({ hasText: 'Who to replace' })).toHaveAttribute('aria-current', 'step');
+    await expect(who).toHaveValue('');
+    await makeStep(page, 'The video');
+    await expect(page.locator('video[aria-label="Video to work on"]')).toBeVisible();
+    // (The browser logs the refusal's 422 itself; nothing else may go wrong.)
+    expect(errors.filter((e) => !/status of 422/.test(e))).toEqual([]);
   });
 
   test('talking photo: a photo and a voice file; LTX-2.5 ends on a photo or restyles a video', async ({ page }) => {

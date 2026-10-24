@@ -22,6 +22,7 @@ const ENTRIES: Entry[] = [
   ['s2v', 'video', 'Talking photo', 'A photo and a voice or song become a talking or singing video (Wan 2.2 S2V).', { needs: ['photo', 'audio'] }],
   ['vace', 'videoedit', 'Wan VACE', 'Edit a video: replace something by naming it, restyle it, extend it, or move a photo like it.', { needs: ['video'], tasks: ['replace', 'restyle', 'extend', 'motion'] }],
   ['video-erase', 'videoedit', 'Erase from video', 'Name what to remove (a person, a sign, a watermark) and it is gone from every frame.', { needs: ['video', 'target'] }],
+  ['person-swap', 'videoedit', 'Swap a person', 'Put someone from your photo in place of a person in your video.', { needs: ['video', 'target', 'photo'], accepts: ['facePhoto'] }],
   ['video-sharpen', 'videoedit', 'Sharpen video', 'Makes a finished video twice as large and crisper (SeedVR2).', { needs: ['video'] }],
 ];
 

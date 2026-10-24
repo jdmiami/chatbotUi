@@ -1,5 +1,5 @@
 {
- "_about": "Node schemas from ComfyUI v0.41.2 /object_info, trimmed to the nodes the gate’s recipes use (to refresh: start that ComfyUI, save GET /object_info, keep the class types the recipes in src/workflows.js use). test/workflows.test.js checks every recipe against it.",
+ "_about": "Node schemas from ComfyUI v0.41.2 /object_info, trimmed to the nodes the gate’s recipes use (to refresh: start that ComfyUI, save GET /object_info, keep the class types the recipes in src/workflows.js use), plus the video wrapper node pack pinned in ai/studio.sh (its nodes, for Swap a person). test/workflows.test.js checks every recipe against it.",
  "comfyui": "0.41.2",
  "nodes": {
   "AudioEncoderEncode": {
@@ -1489,6 +1489,45 @@
     "LATENT"
    ]
   },
+  "MochaEmbeds": {
+   "input": {
+    "required": {
+     "vae": [
+      "WANVAE",
+      {}
+     ],
+     "force_offload": [
+      "BOOLEAN",
+      {}
+     ],
+     "input_video": [
+      "IMAGE",
+      {}
+     ],
+     "mask": [
+      "MASK",
+      {}
+     ],
+     "ref1": [
+      "IMAGE",
+      {}
+     ]
+    },
+    "optional": {
+     "ref2": [
+      "IMAGE",
+      {}
+     ],
+     "tiled_vae": [
+      "BOOLEAN",
+      {}
+     ]
+    }
+   },
+   "output": [
+    "WANVIDIMAGE_EMBEDS"
+   ]
+  },
   "ModelPatchLoader": {
    "input": {
     "required": {
@@ -1671,6 +1710,56 @@
       {
        "min": 1,
        "max": 4096
+      }
+     ]
+    }
+   },
+   "output": [
+    "IMAGE"
+   ]
+  },
+  "ResizeAndPadImage": {
+   "input": {
+    "required": {
+     "image": [
+      "IMAGE",
+      {}
+     ],
+     "target_width": [
+      "INT",
+      {
+       "min": 1,
+       "max": 16384
+      }
+     ],
+     "target_height": [
+      "INT",
+      {
+       "min": 1,
+       "max": 16384
+      }
+     ],
+     "padding_color": [
+      "COMBO",
+      {
+       "multiselect": false,
+       "options": [
+        "white",
+        "black"
+       ]
+      }
+     ],
+     "interpolation": [
+      "COMBO",
+      {
+       "multiselect": false,
+       "options": [
+        "area",
+        "bicubic",
+        "nearest-exact",
+        "bilinear",
+        "lanczos"
+       ]
       }
      ]
     }
@@ -3051,6 +3140,589 @@
     "CONDITIONING",
     "LATENT",
     "INT"
+   ]
+  },
+  "WanVideoBlockSwap": {
+   "input": {
+    "required": {
+     "blocks_to_swap": [
+      "INT",
+      {
+       "min": 0,
+       "max": 48
+      }
+     ],
+     "offload_img_emb": [
+      "BOOLEAN",
+      {}
+     ],
+     "offload_txt_emb": [
+      "BOOLEAN",
+      {}
+     ]
+    },
+    "optional": {
+     "use_non_blocking": [
+      "BOOLEAN",
+      {}
+     ],
+     "vace_blocks_to_swap": [
+      "INT",
+      {
+       "min": 0,
+       "max": 15
+      }
+     ],
+     "prefetch_blocks": [
+      "INT",
+      {
+       "min": 0,
+       "max": 40
+      }
+     ],
+     "block_swap_debug": [
+      "BOOLEAN",
+      {}
+     ]
+    }
+   },
+   "output": [
+    "BLOCKSWAPARGS"
+   ]
+  },
+  "WanVideoDecode": {
+   "input": {
+    "required": {
+     "vae": [
+      "WANVAE",
+      {}
+     ],
+     "samples": [
+      "LATENT",
+      {}
+     ],
+     "enable_vae_tiling": [
+      "BOOLEAN",
+      {}
+     ],
+     "tile_x": [
+      "INT",
+      {
+       "min": 40,
+       "max": 2048
+      }
+     ],
+     "tile_y": [
+      "INT",
+      {
+       "min": 40,
+       "max": 2048
+      }
+     ],
+     "tile_stride_x": [
+      "INT",
+      {
+       "min": 32,
+       "max": 2040
+      }
+     ],
+     "tile_stride_y": [
+      "INT",
+      {
+       "min": 32,
+       "max": 2040
+      }
+     ]
+    },
+    "optional": {
+     "normalization": [
+      "COMBO",
+      {
+       "options": [
+        "default",
+        "minmax",
+        "none"
+       ]
+      }
+     ]
+    }
+   },
+   "output": [
+    "IMAGE"
+   ]
+  },
+  "WanVideoLoraSelectMulti": {
+   "input": {
+    "required": {
+     "lora_0": [
+      "COMBO",
+      {
+       "options": [
+        "none"
+       ]
+      }
+     ],
+     "strength_0": [
+      "FLOAT",
+      {
+       "min": -10,
+       "max": 10
+      }
+     ],
+     "lora_1": [
+      "COMBO",
+      {
+       "options": [
+        "none"
+       ]
+      }
+     ],
+     "strength_1": [
+      "FLOAT",
+      {
+       "min": -10,
+       "max": 10
+      }
+     ],
+     "lora_2": [
+      "COMBO",
+      {
+       "options": [
+        "none"
+       ]
+      }
+     ],
+     "strength_2": [
+      "FLOAT",
+      {
+       "min": -10,
+       "max": 10
+      }
+     ],
+     "lora_3": [
+      "COMBO",
+      {
+       "options": [
+        "none"
+       ]
+      }
+     ],
+     "strength_3": [
+      "FLOAT",
+      {
+       "min": -10,
+       "max": 10
+      }
+     ],
+     "lora_4": [
+      "COMBO",
+      {
+       "options": [
+        "none"
+       ]
+      }
+     ],
+     "strength_4": [
+      "FLOAT",
+      {
+       "min": -10,
+       "max": 10
+      }
+     ]
+    },
+    "optional": {
+     "prev_lora": [
+      "WANVIDLORA",
+      {}
+     ],
+     "blocks": [
+      "SELECTEDBLOCKS",
+      {}
+     ],
+     "low_mem_load": [
+      "BOOLEAN",
+      {}
+     ],
+     "merge_loras": [
+      "BOOLEAN",
+      {}
+     ]
+    }
+   },
+   "output": [
+    "WANVIDLORA"
+   ]
+  },
+  "WanVideoModelLoader": {
+   "input": {
+    "required": {
+     "model": [
+      "COMBO",
+      {
+       "options": []
+      }
+     ],
+     "base_precision": [
+      "COMBO",
+      {
+       "options": [
+        "fp32",
+        "bf16",
+        "fp16",
+        "fp16_fast"
+       ]
+      }
+     ],
+     "quantization": [
+      "COMBO",
+      {
+       "options": [
+        "disabled",
+        "fp8_e4m3fn",
+        "fp8_e4m3fn_fast",
+        "fp8_e4m3fn_scaled",
+        "fp8_e4m3fn_scaled_fast",
+        "fp8_e5m2",
+        "fp8_e5m2_fast",
+        "fp8_e5m2_scaled",
+        "fp8_e5m2_scaled_fast"
+       ]
+      }
+     ],
+     "load_device": [
+      "COMBO",
+      {
+       "options": [
+        "main_device",
+        "offload_device"
+       ]
+      }
+     ]
+    },
+    "optional": {
+     "attention_mode": [
+      "COMBO",
+      {
+       "options": [
+        "sdpa",
+        "flash_attn_2",
+        "flash_attn_3",
+        "sageattn",
+        "sageattn_3",
+        "radial_sage_attention",
+        "sageattn_compiled",
+        "sageattn_ultravico",
+        "comfy"
+       ]
+      }
+     ],
+     "compile_args": [
+      "WANCOMPILEARGS",
+      {}
+     ],
+     "block_swap_args": [
+      "BLOCKSWAPARGS",
+      {}
+     ],
+     "lora": [
+      "WANVIDLORA",
+      {}
+     ],
+     "vram_management_args": [
+      "VRAM_MANAGEMENTARGS",
+      {}
+     ],
+     "extra_model": [
+      "VACEPATH",
+      {}
+     ],
+     "fantasytalking_model": [
+      "FANTASYTALKINGMODEL",
+      {}
+     ],
+     "multitalk_model": [
+      "MULTITALKMODEL",
+      {}
+     ],
+     "fantasyportrait_model": [
+      "FANTASYPORTRAITMODEL",
+      {}
+     ],
+     "rms_norm_function": [
+      "COMBO",
+      {
+       "options": [
+        "default",
+        "pytorch"
+       ]
+      }
+     ]
+    }
+   },
+   "output": [
+    "WANVIDEOMODEL"
+   ]
+  },
+  "WanVideoSampler": {
+   "input": {
+    "required": {
+     "model": [
+      "WANVIDEOMODEL",
+      {}
+     ],
+     "image_embeds": [
+      "WANVIDIMAGE_EMBEDS",
+      {}
+     ],
+     "steps": [
+      "INT",
+      {
+       "min": 1
+      }
+     ],
+     "cfg": [
+      "FLOAT",
+      {
+       "min": 0,
+       "max": 30
+      }
+     ],
+     "shift": [
+      "FLOAT",
+      {
+       "min": 0,
+       "max": 1000
+      }
+     ],
+     "seed": [
+      "INT",
+      {
+       "min": 0,
+       "max": 18446744073709551615
+      }
+     ],
+     "force_offload": [
+      "BOOLEAN",
+      {}
+     ],
+     "scheduler": [
+      "COMBO",
+      {
+       "options": [
+        "unipc",
+        "unipc/beta",
+        "dpm++",
+        "dpm++/beta",
+        "dpm++_sde",
+        "dpm++_sde/beta",
+        "euler",
+        "euler/beta",
+        "longcat_distill_euler",
+        "deis",
+        "lcm",
+        "lcm/beta",
+        "res_multistep",
+        "er_sde",
+        "flowmatch_causvid",
+        "flowmatch_distill",
+        "flowmatch_pusa",
+        "multitalk",
+        "sa_ode_stable",
+        "rcm",
+        "vibt_unipc"
+       ]
+      }
+     ],
+     "riflex_freq_index": [
+      "INT",
+      {
+       "min": 0,
+       "max": 1000
+      }
+     ]
+    },
+    "optional": {
+     "text_embeds": [
+      "WANVIDEOTEXTEMBEDS",
+      {}
+     ],
+     "samples": [
+      "LATENT",
+      {}
+     ],
+     "denoise_strength": [
+      "FLOAT",
+      {
+       "min": 0,
+       "max": 1
+      }
+     ],
+     "feta_args": [
+      "FETAARGS",
+      {}
+     ],
+     "context_options": [
+      "WANVIDCONTEXT",
+      {}
+     ],
+     "cache_args": [
+      "CACHEARGS",
+      {}
+     ],
+     "flowedit_args": [
+      "FLOWEDITARGS",
+      {}
+     ],
+     "batched_cfg": [
+      "BOOLEAN",
+      {}
+     ],
+     "slg_args": [
+      "SLGARGS",
+      {}
+     ],
+     "rope_function": [
+      "COMBO",
+      {
+       "options": [
+        "default",
+        "comfy",
+        "comfy_chunked"
+       ]
+      }
+     ],
+     "loop_args": [
+      "LOOPARGS",
+      {}
+     ],
+     "experimental_args": [
+      "EXPERIMENTALARGS",
+      {}
+     ],
+     "sigmas": [
+      "SIGMAS",
+      {}
+     ],
+     "unianimate_poses": [
+      "UNIANIMATE_POSE",
+      {}
+     ],
+     "fantasytalking_embeds": [
+      "FANTASYTALKING_EMBEDS",
+      {}
+     ],
+     "uni3c_embeds": [
+      "UNI3C_EMBEDS",
+      {}
+     ],
+     "multitalk_embeds": [
+      "MULTITALK_EMBEDS",
+      {}
+     ],
+     "freeinit_args": [
+      "FREEINITARGS",
+      {}
+     ],
+     "start_step": [
+      "INT",
+      {
+       "min": 0,
+       "max": 10000
+      }
+     ],
+     "end_step": [
+      "INT",
+      {
+       "min": -1,
+       "max": 10000
+      }
+     ],
+     "add_noise_to_samples": [
+      "BOOLEAN",
+      {}
+     ]
+    }
+   },
+   "output": [
+    "LATENT",
+    "LATENT"
+   ]
+  },
+  "WanVideoSetBlockSwap": {
+   "input": {
+    "required": {
+     "model": [
+      "WANVIDEOMODEL",
+      {}
+     ]
+    },
+    "optional": {
+     "block_swap_args": [
+      "BLOCKSWAPARGS",
+      {}
+     ]
+    }
+   },
+   "output": [
+    "WANVIDEOMODEL"
+   ]
+  },
+  "WanVideoTextEmbedBridge": {
+   "input": {
+    "required": {
+     "positive": [
+      "CONDITIONING",
+      {}
+     ]
+    },
+    "optional": {
+     "negative": [
+      "CONDITIONING",
+      {}
+     ]
+    }
+   },
+   "output": [
+    "WANVIDEOTEXTEMBEDS"
+   ]
+  },
+  "WanVideoVAELoader": {
+   "input": {
+    "required": {
+     "model_name": [
+      "COMBO",
+      {
+       "options": []
+      }
+     ]
+    },
+    "optional": {
+     "precision": [
+      "COMBO",
+      {
+       "options": [
+        "fp16",
+        "fp32",
+        "bf16"
+       ]
+      }
+     ],
+     "compile_args": [
+      "WANCOMPILEARGS",
+      {}
+     ],
+     "use_cpu_cache": [
+      "BOOLEAN",
+      {}
+     ],
+     "verbose": [
+      "BOOLEAN",
+      {}
+     ]
+    }
+   },
+   "output": [
+    "WANVAE"
    ]
   }
  }

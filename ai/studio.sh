@@ -20,7 +20,13 @@ TORCH_INDEX=https://download.pytorch.org/whl/cu128
 # engines (gate/canvas_worker.py) run here too; its sketch reader needs transformers' own Florence-2
 # (4.57 or newer).
 LIVE="diffusers==0.37.1 peft==0.18.1 transformers>=4.57,<6"
-STAMP="$COMFY_VERSION $TORCH $LIVE"
+# Swap a person runs on the video wrapper node pack (WRAPPER_REPO below), pinned to one
+# commit, with the packages its nodes import beyond ComfyUI's own (the versions it was checked with on
+# ComfyUI v0.41.2; OpenCV without its desktop parts, as the machine has no screen).
+WRAPPER_REPO=https://github.com/kijai/ComfyUI-WanVideoWrapper
+WRAPPER_COMMIT=088128b224242e110d3906c6750e9a3a348a659b
+WRAPPER_PIP="ftfy==6.3.1 accelerate==1.15.0 protobuf==7.36.2 pyloudnorm==0.2.0 gguf==0.19.0 opencv-python-headless==5.0.0.93"
+STAMP="$COMFY_VERSION $TORCH $LIVE $WRAPPER_COMMIT $WRAPPER_PIP"
 
 log() { echo "[studio] $*"; }
 # Each role writes its own state file (the gate's studio.js reads it by role): state, state-helper, state-canvas.
@@ -62,6 +68,15 @@ install() {
     log "updating ComfyUI to $COMFY_VERSION"
     git -C "$S/ComfyUI" fetch -q --depth 1 origin tag "$COMFY_VERSION" && git -C "$S/ComfyUI" checkout -q "$COMFY_VERSION" || return 1
   fi
+  # The video wrapper nodes (Swap a person), at the pinned commit.
+  local wrapper="$S/ComfyUI/custom_nodes/ComfyUI-WanVideoWrapper"
+  if [ "$(git -C "$wrapper" rev-parse HEAD 2>/dev/null)" != "$WRAPPER_COMMIT" ]; then
+    log "downloading the video wrapper nodes"
+    rm -rf "$wrapper"
+    git init -q "$wrapper" &&
+      git -C "$wrapper" fetch -q --depth 1 "$WRAPPER_REPO" "$WRAPPER_COMMIT" &&
+      git -C "$wrapper" checkout -q FETCH_HEAD || return 1
+  fi
   # Models live outside the ComfyUI folder so an update never touches them.
   if [ ! -L "$S/ComfyUI/models" ]; then
     rm -rf "$S/ComfyUI/models"
@@ -76,6 +91,8 @@ install() {
     "$S/venv/bin/python" -m pip install -q -r "$S/ComfyUI/requirements.txt" || return 1
     # shellcheck disable=SC2086
     "$S/venv/bin/python" -m pip install -q $LIVE || return 1
+    # shellcheck disable=SC2086
+    "$S/venv/bin/python" -m pip install -q $WRAPPER_PIP || return 1
     echo "$STAMP" > "$S/venv/.installed"
   fi
 }
@@ -86,7 +103,10 @@ if ! command -v git >/dev/null || ! python3 -c 'import ensurepip' 2>/dev/null; t
   (apt-get update -qq && DEBIAN_FRONTEND=noninteractive apt-get install -y -qq git python3-venv >/dev/null) || true
 fi
 
-installed() { [ "$(cat "$S/venv/.installed" 2>/dev/null)" = "$STAMP" ] && [ -d "$S/ComfyUI/.git" ] && [ -L "$S/ComfyUI/models" ]; }
+installed() {
+  [ "$(cat "$S/venv/.installed" 2>/dev/null)" = "$STAMP" ] && [ -d "$S/ComfyUI/.git" ] && [ -L "$S/ComfyUI/models" ] &&
+    [ "$(git -C "$S/ComfyUI/custom_nodes/ComfyUI-WanVideoWrapper" rev-parse HEAD 2>/dev/null)" = "$WRAPPER_COMMIT" ]
+}
 if packed && ! installed; then
   state installing
   log "bringing back the maker's environment"

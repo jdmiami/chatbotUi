@@ -19,6 +19,8 @@ import {
   s2vChunks,
   s2vWorkflow,
   seedvr2Workflow,
+  SWAP_FPS,
+  swapWorkflow,
   upscaleWorkflow,
   vaceWorkflow,
   videoWorkflow,
@@ -57,6 +59,8 @@ const GRAPHS = {
   vaceMotion: vaceWorkflow({ task: 'motion', prompt: 'x', video: V, width: 960, height: 960, frames: 81, reference: P }),
   vaceExtend: vaceWorkflow({ task: 'extend', prompt: 'x', video: V, width: 1280, height: 720, frames: 80 }),
   seedvr2: seedvr2Workflow({ video: V }),
+  swap: swapWorkflow({ video: V, width: 832, height: 464, frames: 81, target: 'the man in the red jacket', photo: P }),
+  swapFace: swapWorkflow({ video: V, width: 480, height: 832, frames: 33, target: 'the woman on the left', photo: P, face: 'orbit-face.png' }),
   sketch: zimageSketchWorkflow({ prompt: 'x', sketch: P, width: 832, height: 1216, strength: 0.65 }),
 };
 
@@ -228,6 +232,49 @@ test('Wan VACE: replace and erase find the words with SAM 3.1; restyle, motion a
   assert.deepEqual(x[24].inputs.images, ['46', 0]);
   for (const g of [r, e, GRAPHS.vaceRestyle, x]) assert.deepEqual(node(g, 'CreateVideo').inputs.audio, ['9', 1], 'the clip keeps its sound');
   assert.throws(() => vaceWorkflow({ task: 'dance', prompt: 'x', video: V, width: 16, height: 16, frames: 5 }), /Unknown VACE task/);
+});
+
+test('Swap a person: words find who on the first frame; the photo (and a face close-up) go in; shared files', () => {
+  const s = GRAPHS.swap;
+  // Who to replace: the text segmenter looks for the words on the first frame only.
+  assert.equal(s[31].inputs.text, 'the man in the red jacket');
+  assert.deepEqual(s[32].inputs, { image: ['11', 0], batch_index: 0, length: 1 }, 'the first frame');
+  assert.deepEqual(s[33].inputs.image, ['32', 0]);
+  assert.deepEqual(s[33].inputs.conditioning, ['31', 0]);
+  assert.equal(s[34].inputs.expand, 5, 'the mask grows 5 px, as in the example');
+  const e = node(s, 'MochaEmbeds');
+  assert.deepEqual(e.inputs.mask, ['34', 0], 'that mask is the one the model gets');
+  assert.deepEqual(e.inputs.input_video, ['11', 0], 'the whole clip');
+  assert.deepEqual(e.inputs.ref1, ['41', 0]);
+  assert.equal(e.inputs.ref2, undefined, 'no face close-up: one picture');
+  assert.equal(s[40].inputs.image, P);
+  assert.deepEqual([s[41].inputs.target_width, s[41].inputs.target_height, s[41].inputs.padding_color], [832, 464, 'white'], 'the photo fitted in the frame on white');
+  // The example's settings: 6 steps, cfg 1, shift 5, dpm++_sde, the speed-up LoRA at 1.
+  const k = node(s, 'WanVideoSampler').inputs;
+  assert.deepEqual([k.steps, k.cfg, k.shift, k.scheduler], [6, 1, 5, 'dpm++_sde']);
+  assert.deepEqual(k.image_embeds, ['50', 0]);
+  assert.deepEqual(k.text_embeds, ['9', 0]);
+  assert.equal(node(s, 'WanVideoLoraSelectMulti').inputs.lora_0, FILES.swapLora.name);
+  assert.equal(node(s, 'WanVideoLoraSelectMulti').inputs.strength_0, 1);
+  assert.deepEqual(node(s, 'WanVideoModelLoader').inputs.lora, ['1', 0]);
+  assert.equal(node(s, 'WanVideoModelLoader').inputs.attention_mode, 'sdpa', 'no extra attention package needed');
+  // Shared files: the text encoder (through the bridge), the VAE and the segmenter.
+  for (const f of ['swapUnet', 'swapLora', 'wanTe', 'wanVae', 'sam3']) assert.ok(usesFile(s, FILES[f]), f);
+  assert.equal(node(s, 'CLIPLoader').inputs.type, 'wan');
+  assert.deepEqual(node(s, 'WanVideoTextEmbedBridge').inputs, { positive: ['7', 0], negative: ['8', 0] });
+  assert.equal(s[7].inputs.text, ' ', "an empty prompt, as the model's makers run it");
+  assert.equal(s[8].inputs.text, WAN_NEGATIVE);
+  // The clip keeps its sound and timing.
+  assert.deepEqual(node(s, 'CreateVideo').inputs, { images: ['61', 0], audio: ['11', 1], fps: SWAP_FPS });
+
+  const f = GRAPHS.swapFace;
+  assert.deepEqual(node(f, 'MochaEmbeds').inputs.ref2, ['43', 0], 'the face close-up is the second picture');
+  assert.equal(f[42].inputs.image, 'orbit-face.png');
+  assert.deepEqual([f[43].inputs.target_width, f[43].inputs.target_height], [480, 832]);
+
+  assert.throws(() => swapWorkflow({ video: V, width: 832, height: 480, frames: 81, target: '', photo: P }), /who to replace/);
+  assert.throws(() => swapWorkflow({ video: V, width: 832, height: 480, frames: 81, target: 'x' }), /photo/);
+  assert.throws(() => swapWorkflow({ video: V, width: 832, height: 480, frames: 80, target: 'x', photo: P }), /4k \+ 1/);
 });
 
 test('SeedVR2: 2× with chunking, the frame rate and sound of the original', () => {

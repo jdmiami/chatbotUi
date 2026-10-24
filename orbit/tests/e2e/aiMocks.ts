@@ -212,8 +212,11 @@ export async function openMakeApp(page: Page) {
   return win;
 }
 
-/** Make is a walk-through: go to one of its steps with the step dots ("What", "Maker & style", "Describe it", "Extras", "Check & make"). */
-export async function makeStep(page: Page, name: 'What' | 'Maker & style' | 'Describe it' | 'Extras' | 'Check & make') {
+/**
+ * Make is a walk-through: go to one of its steps with the step dots ("What", "Maker & style", "Describe it",
+ * "Extras", "Check & make"; Swap a person has "The video", "Who to replace" and "The new person").
+ */
+export async function makeStep(page: Page, name: 'What' | 'Maker & style' | 'The video' | 'Describe it' | 'Who to replace' | 'Extras' | 'The new person' | 'Check & make') {
   const win = page.locator('.app-window[data-app="make"]');
   const dot = win.getByRole('navigation', { name: 'Make, step by step' }).getByRole('button', { name: new RegExp(`: ${name}$`) });
   if ((await dot.getAttribute('aria-current')) !== 'step') await dot.click();
