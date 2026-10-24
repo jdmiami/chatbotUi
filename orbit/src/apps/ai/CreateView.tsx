@@ -562,11 +562,11 @@ export function CreateView({
       if (!video) return 'Add the video to work on.';
       if (wantsTarget && !target.trim()) return vTask === 'erase' ? 'Say what to erase.' : vTask === 'swap' ? 'Say who to replace.' : 'Say what to replace.';
       if (vTask === 'motion' && !refPhoto) return 'Add a photo of who should move.';
-      if (swapping && !refPhoto && !charForJob) return 'Add a photo of the new person, or pick a character.';
+      if (swapping && !refPhoto && !charForJob) return 'Add a photo of the new person. You can also pick a character.';
       if (swapping) return 'The first 5 seconds, in a few minutes.';
       return sharpenVideo ? 'Makes the video twice as large and crisper: a few minutes.' : 'Works on the first 5 seconds. Video edits take a few minutes.';
     }
-    if (talking) return !startImage && !charForJob ? 'Add a photo of the person, or add a character.' : !audio ? 'Add a voice recording or a song.' : 'Talking videos take a few minutes.';
+    if (talking) return !startImage && !charForJob ? 'Add a photo of the person. You can also add a character.' : !audio ? 'Add a voice recording or a song.' : 'Talking videos take a few minutes.';
     if (restyling) return 'Keeps the motion and the sound of your video (up to 10 s).';
     if (!promptOk) return 'Describe it first.';
     return kind === 'image' ? 'Images take under a minute.' : 'Videos with sound take a few minutes.';

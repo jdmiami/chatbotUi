@@ -507,12 +507,14 @@ export function CharacterWizard({
                     {e.status === 'stopped' && !pic && <span className="chr-tile-state">Stopped</span>}
                   </div>
                   <div className="chr-tile-foot">
-                    <span className="chr-tile-label">{e.label}</span>
-                    {e.identity?.checked && (
-                      <span className="chr-tile-id" data-low={e.identity.score < 60 || undefined} title={`Same-person check: ${e.identity.score} of 100`}>
-                        {e.identity.score < 60 ? 'Check this' : 'Matches'}
-                      </span>
-                    )}
+                    <span className="chr-tile-text">
+                      <span className="chr-tile-label">{e.label}</span>
+                      {e.identity?.checked && (
+                        <span className="chr-tile-id" data-low={e.identity.score < 60 || undefined} title={`Same-person check: ${e.identity.score} of 100`}>
+                          {e.identity.score < 60 ? 'Check this' : 'Matches'}
+                        </span>
+                      )}
+                    </span>
                     {!running && pic && machineOn && (
                       <button type="button" className="chr-redo" aria-label={`Make the ${e.label} view again`} onClick={() => (e.view === 'front' ? setConfirmFront(true) : void redoView(e.view))}>
                         <Icon name="refresh" size={16} />

@@ -276,7 +276,7 @@ test.describe('Characters', () => {
     await expect(grid.getByRole('button', { name: 'Mira Vale, 34' })).toBeVisible();
     await expect(grid.getByText('Unfinished')).toHaveCount(0);
     expect(m.calls.some((c) => c.method === 'POST' && c.path.endsWith('/accept'))).toBe(true);
-    await expect(win.getByText('Mira Vale is saved.', { exact: false })).toBeVisible();
+    await expect(page.getByText('Mira Vale is saved.', { exact: false })).toBeVisible();
     await shot(page, 'library-saved', testInfo.project.name);
     expect(errors.filter((e) => !/status of (422|409)/.test(e))).toEqual([]);
   });

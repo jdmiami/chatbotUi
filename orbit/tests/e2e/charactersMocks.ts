@@ -165,6 +165,8 @@ export async function mockCharacters(page: Page, initial: MockCharacter[] = []) 
     const r = runs.get(c.id);
     if (!r || r.status === 'done') return;
     r.polls++;
+    // Each view is on the character as soon as it is made.
+    for (const v of r.views.slice(0, r.polls * 3)) if (!c.views.includes(v)) c.views.push(v);
     if (r.polls >= 2) {
       r.status = 'done';
       for (const v of r.views) if (!c.views.includes(v)) c.views.push(v);
