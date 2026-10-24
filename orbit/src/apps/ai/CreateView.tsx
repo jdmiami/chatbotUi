@@ -192,6 +192,8 @@ export function CreateView({
   const [facePhoto, setFacePhoto] = useState<string | null>(null);
   /** A saved character added to this one (Add a character / the new person in Swap a person). */
   const [character, setCharacter] = useState<string | null>(null);
+  /** Which photo slot has its "Use a character" chooser open. */
+  const [charSlot, setCharSlot] = useState<string | null>(null);
   const [studio, setStudio] = useState<StudioState | null>(null);
   const [studioError, setStudioError] = useState<string | null>(null);
   const [makers, setMakersState] = useState<StudioMakerInfo[] | null>(null);
@@ -326,14 +328,14 @@ export function CreateView({
   const noWords = sharpenVideo || vTask === 'erase' || vTask === 'swap';
   const promptOk = sharpen || noWords || talking || Boolean(prompt.trim());
   // A saved character: in the words of a picture, a video or an edit, and as the new person in Swap a person.
-  const charApplies = swapping || ((kind === 'image' || kind === 'video' || kind === 'edit') && !sharpen && !restyling);
+  const charApplies = swapping || (kind === 'vedit' && vTask === 'motion') || ((kind === 'image' || kind === 'video' || kind === 'edit') && !sharpen && !restyling);
   const chosenChar = chars.ready.find((c) => c.id === character) ?? null;
   const charForJob = chosenChar && charApplies ? chosenChar : null;
   // An edit works on your picture; a character stands in when there is none (outfit swap: as the person).
   const charAsPicture = Boolean(charForJob) && kind === 'edit' && (Boolean(chosen?.twoImages) || editImages.length === 0);
   const inputsOk =
     kind === 'vedit'
-      ? Boolean(video) && (!wantsTarget || Boolean(target.trim())) && (vTask !== 'motion' || Boolean(refPhoto)) && (!swapping || Boolean(refPhoto) || Boolean(charForJob))
+      ? Boolean(video) && (!wantsTarget || Boolean(target.trim())) && (vTask !== 'motion' || Boolean(refPhoto) || Boolean(charForJob)) && (!swapping || Boolean(refPhoto) || Boolean(charForJob))
       : kind === 'video' && talking
         ? (Boolean(startImage) || Boolean(charForJob)) && Boolean(audio)
         : editImages.length + (charAsPicture ? 1 : 0) >= needImages;
@@ -699,8 +701,18 @@ export function CreateView({
               <span className="mk-kind-hint">{k.hint}</span>
             </button>
           ))}
+          {/* Characters: made-up grown-ups you create once and use in anything you make. */}
+          {onCharacters && (
+            <button type="button" className="mk-kind mk-kind-character" style={{ '--i': KINDS.length } as React.CSSProperties} onClick={() => onCharacters()}>
+              <span className="mk-kind-art" aria-hidden>
+                <Icon name="user" size={20} />
+              </span>
+              <span className="mk-kind-label">A character</span>
+              <span className="mk-kind-hint">Make a person once, then use them in any picture or video</span>
+            </button>
+          )}
           {/* Drawing has its own app now: this opens it. */}
-          <button type="button" className="mk-kind mk-kind-draw" style={{ '--i': KINDS.length } as React.CSSProperties} onClick={() => launch('livedraw')}>
+          <button type="button" className="mk-kind mk-kind-draw" style={{ '--i': KINDS.length + 1 } as React.CSSProperties} onClick={() => launch('livedraw')}>
             <span className="mk-kind-art" aria-hidden>
               <Icon name="brush" size={20} />
             </span>
@@ -845,20 +857,60 @@ export function CreateView({
     ),
   };
 
-  const photoRow = (src: string | null, alt: string, note: string, add: string, onAdd: () => void, onRemove: () => void, removeLabel: string) => (
-    <div className="ai-create-photo">
-      {src ? (
-        <>
-          <img src={src} alt={alt} />
-          <span className="ai-muted">{note}</span>
-          <IconButton icon="close" label={removeLabel} onClick={onRemove} />
-        </>
-      ) : (
-        <button type="button" className="btn ghost" onClick={onAdd}>
-          <Icon name="image" size={18} /> {add}
-        </button>
-      )}
-    </div>
+  /** One of your characters in a photo's place: the slot it fills is told by `slot`, and `clear` drops the photo there. */
+  const charFill = (slot: string, clear: () => void) =>
+    charSlot === slot ? (
+      <CharacterPick
+        slot
+        characters={chars.ready}
+        value={character}
+        onChange={(id) => {
+          setCharacter(id);
+          if (id) clear();
+          setCharSlot(null);
+        }}
+        onCreate={onCharacters}
+      />
+    ) : null;
+  const photoRow = (
+    src: string | null,
+    alt: string,
+    note: string,
+    add: string,
+    onAdd: () => void,
+    onRemove: () => void,
+    removeLabel: string,
+    char?: { slot: string; clear: () => void },
+  ) => (
+    <>
+      <div className="ai-create-photo">
+        {src ? (
+          <>
+            <img src={src} alt={alt} />
+            <span className="ai-muted">{note}</span>
+            <IconButton icon="close" label={removeLabel} onClick={onRemove} />
+          </>
+        ) : char && charForJob ? (
+          <>
+            {thumbOf(charForJob) ? <img src={thumbOf(charForJob)!} alt={charForJob.name} /> : <span className="chr-pick-face" aria-hidden />}
+            <span className="ai-muted">{charForJob.name}, your character</span>
+            <IconButton icon="close" label={`Take ${charForJob.name} out`} onClick={() => setCharacter(null)} />
+          </>
+        ) : (
+          <>
+            <button type="button" className="btn ghost" onClick={onAdd}>
+              <Icon name="image" size={18} /> {add}
+            </button>
+            {char && (
+              <button type="button" className="btn ghost" aria-expanded={charSlot === char.slot} onClick={() => setCharSlot((v) => (v === char.slot ? null : char.slot))}>
+                <Icon name="user" size={18} /> Use a character
+              </button>
+            )}
+          </>
+        )}
+      </div>
+      {char && !src && !charForJob && charFill(char.slot, char.clear)}
+    </>
   );
 
   /** Swap a person: the video first, on a step of its own. */
@@ -983,6 +1035,7 @@ export function CreateView({
               () => refInput.current?.click(),
               () => setRefPhoto(null),
               'Remove the picture',
+              vTask === 'motion' ? { slot: 'motion', clear: () => setRefPhoto(null) } : undefined,
             )}
             <input
               ref={refInput}
@@ -999,15 +1052,26 @@ export function CreateView({
         )}
         {kind === 'edit' && (
           <div className="ai-edit-photos">
+            {charAsPicture && charForJob && (
+              <div className="ai-edit-photo">
+                {thumbOf(charForJob) ? <img src={thumbOf(charForJob)!} alt={`${charForJob.name}, your character`} /> : <span className="chr-pick-face" aria-hidden />}
+                <IconButton icon="close" label={`Take ${charForJob.name} out`} onClick={() => setCharacter(null)} />
+              </div>
+            )}
             {editImages.map((p, i) => (
               <div key={i} className="ai-edit-photo">
                 <img src={p.src} alt={needImages === 2 ? (i === 0 ? 'The person' : 'The outfit') : 'Picture to edit'} />
                 <IconButton icon="close" label="Remove this picture" onClick={() => setEditImages((prev) => prev.filter((_, k) => k !== i))} />
               </div>
             ))}
-            {editImages.length < Math.max(1, needImages) && (
+            {editImages.length + (charAsPicture ? 1 : 0) < Math.max(1, needImages) && (
               <button type="button" className="btn ghost" onClick={() => editInput.current?.click()}>
-                <Icon name="image" size={18} /> {needImages === 2 && editImages.length === 1 ? 'Add the outfit' : 'Add a picture'}
+                <Icon name="image" size={18} /> {needImages === 2 && editImages.length + (charAsPicture ? 1 : 0) === 1 ? 'Add the outfit' : 'Add a picture'}
+              </button>
+            )}
+            {!charForJob && editImages.length === 0 && (
+              <button type="button" className="btn ghost" aria-expanded={charSlot === 'edit'} onClick={() => setCharSlot((v) => (v === 'edit' ? null : 'edit'))}>
+                <Icon name="user" size={18} /> Use a character
               </button>
             )}
             <input
@@ -1022,6 +1086,7 @@ export function CreateView({
             />
           </div>
         )}
+        {kind === 'edit' && !charForJob && editImages.length === 0 && charFill('edit', () => {})}
         {kind === 'video' && takesVideo && !startImage && !endImage && (
           <VideoSource ai={ai} value={video} onChange={setVideo} onError={(m) => toast(m, 'error')} hint="Or restyle a video you have: it keeps the motion and the sound." />
         )}
@@ -1039,6 +1104,13 @@ export function CreateView({
                 setStartItem(null);
               },
               'Remove the starting photo',
+              {
+                slot: 'start',
+                clear: () => {
+                  setStartImage(null);
+                  setStartItem(null);
+                },
+              },
             )}
             <input
               ref={fileInput}

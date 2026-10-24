@@ -159,6 +159,18 @@
 @media (max-height: 520px) {
   .chr-tiles { grid-template-columns: repeat(5, minmax(0, 1fr)); }
   .chr-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+  /* The rules (25 or older, made up) stay said on a phone on its side. */
+  .chr-wizard .mk-dek { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; white-space: normal; }
+  /* Each field's label sits above it, with the box and its buttons side by side below. */
+  .chr-wizard .mk-field { flex-wrap: wrap; align-items: center; column-gap: 12px; row-gap: 4px; }
+  .chr-wizard .mk-field > .o5-kicker:first-child { flex: 1 0 100%; }
+  .chr-wizard .mk-field > .o5-kicker + * { flex: 1 1 220px; min-width: 0; }
+  .chr-wizard .mk-field .mk-tools { flex-direction: row; flex-wrap: wrap; }
+  /* The step dots keep their own row here, so they never float over a field when the step scrolls. */
+  .chr-wizard .mk-dots { position: static; transform: none; padding: 2px var(--mk-gr) 0 var(--mk-g); }
+  .mk-characters .mk-screen-head { padding-bottom: 6px; }
+  .mk-characters .mk-screen-head .o5-kicker { display: none; }
+  .mk-characters .mk-screen-head .o5-chapter-title { margin-top: 0; font-size: calc(26px * var(--text-scale, 1)); }
 }
 
 /* Three buttons in the header on a phone: the small line over "Make" gives way. */

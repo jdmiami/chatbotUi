@@ -46,7 +46,7 @@ async function noSiteStorage(page: Page) {
 
 async function openCharacters(page: Page) {
   const win = await openMakeApp(page);
-  await win.getByRole('button', { name: 'Characters' }).click();
+  await win.getByRole('button', { name: /^A character/ }).click();
   const screen = win.getByRole('region', { name: 'Characters' });
   await expect(screen).toBeVisible();
   return { win, screen };
@@ -59,20 +59,20 @@ async function expectStep(win: Locator, title: string) {
 }
 
 test.describe('Characters', () => {
-  test('the header has a Characters button beside Cloud and Gallery; the library reads from cloud storage with the machine off', async ({ page }, testInfo) => {
+  test('the header keeps Cloud and Gallery only; A character on step 1 opens the library, read from cloud storage with the machine off', async ({ page }, testInfo) => {
     await mockAi(page, 'off');
     await page.route('**/fake-ai/_orbit/**', (r) => r.abort());
     await mockStoredCharacters(page, [READY('r1', 'Mira Vale', 34, 1), READY('r2', 'Tomas Reyes', 41, 2), DRAFT('d1', 'Ines Okafor', 29, 3)]);
     const errors = await openOrbit(page);
     const win = await openMakeApp(page);
     const header = win.locator('.mk-actions');
-    await expect(header.getByRole('button')).toHaveText(['Cloud', 'Characters', 'Gallery']);
+    await expect(header.getByRole('button')).toHaveText(['Cloud', 'Gallery']);
     for (const b of await header.getByRole('button').all()) {
       const box = (await b.boundingBox())!;
       expect(Math.min(box.width, box.height)).toBeGreaterThanOrEqual(44);
     }
     await expectNoHorizontalOverflow(page);
-    await win.getByRole('button', { name: 'Characters' }).click();
+    await win.getByRole('button', { name: /^A character/ }).click();
     const screen = win.getByRole('region', { name: 'Characters' });
     await expect(screen).toBeVisible();
     await expect(screen.getByRole('heading', { name: 'Your characters' })).toBeVisible();
@@ -459,4 +459,52 @@ test.describe('Characters', () => {
     await expect.poll(() => m.calls.some((c) => c.method === 'POST' && c.path === '/r1/sheet' && c.body?.redo === true)).toBe(true);
     await expect(wiz.getByRole('button', { name: 'Looks good' })).toBeVisible({ timeout: 15_000 });
   });
+});
+
+test('Characters is one of the main choices on step 1, not a button at the top', async ({ page }) => {
+  await mockAi(page, 'on');
+  await mockStudio(page);
+  await noSiteStorage(page);
+  await mockCharacters(page, [READY('r1', 'Mira Vale', 34, 1)]);
+  await openOrbit(page);
+  const win = await openMakeApp(page);
+  await expect(win.locator('.mk-top').getByRole('button', { name: 'Characters' })).toHaveCount(0);
+  await win.getByRole('button', { name: /^A character/ }).click();
+  await expect(win.getByRole('region', { name: 'Characters' })).toBeVisible();
+});
+
+test('a character in place of a photo: the starting photo of a video, and the picture to edit', async ({ page }) => {
+  await mockAi(page, 'on');
+  const requests = await mockStudio(page);
+  await noSiteStorage(page);
+  await mockCharacters(page, [READY('r1', 'Mira Vale', 34, 1), READY('r2', 'Tomas Reyes', 41, 2)]);
+  await openOrbit(page);
+  const win = await openMakeApp(page);
+  const nav = win.getByRole('navigation', { name: 'Make, step by step' });
+
+  // A video that starts from a character instead of a photo.
+  await win.getByRole('radio', { name: /^A video/ }).click();
+  await nav.getByRole('button', { name: /: Describe it$/ }).click();
+  await win.getByRole('textbox', { name: /Describe/ }).first().fill('walking through a rainy market at night');
+  await nav.getByRole('button', { name: /: Extras$/ }).click();
+  await pane(win).getByRole('button', { name: 'Use a character' }).first().click();
+  await pane(win).getByRole('group', { name: 'Use one of your characters' }).getByRole('button', { name: 'Tomas Reyes' }).click();
+  await expect(pane(win).getByText('Tomas Reyes, your character')).toBeVisible();
+  await expectNoHorizontalOverflow(page);
+  await nav.getByRole('button', { name: /: Check & make$/ }).click();
+  await win.getByRole('button', { name: 'Make video', exact: true }).click();
+  await expect.poll(() => requests.length).toBe(1);
+  expect(requests[0]).toMatchObject({ kind: 'video', character: 'r2' });
+  expect(requests[0].image).toBeUndefined();
+
+  // An edit of a character instead of a picture.
+  await nav.getByRole('button', { name: /: What$/ }).click();
+  await win.getByRole('radio', { name: /^An edit/ }).click();
+  await nav.getByRole('button', { name: /: Extras$/ }).click();
+  // The video's character is still chosen: take it out, then pick one for the edit.
+  const out = pane(win).getByRole('button', { name: /^Take .* out$/ });
+  if (await out.count()) await out.first().click();
+  await pane(win).getByRole('button', { name: 'Use a character' }).click();
+  await pane(win).getByRole('group', { name: 'Use one of your characters' }).getByRole('button', { name: 'Mira Vale' }).click();
+  await expect(pane(win).getByRole('img', { name: 'Mira Vale, your character' })).toBeVisible();
 });

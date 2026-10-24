@@ -13,6 +13,7 @@ export function CharacterPick({
   onChange,
   onCreate,
   swap = false,
+  slot = false,
 }: {
   characters: Character[];
   value: string | null;
@@ -20,8 +21,10 @@ export function CharacterPick({
   /** Opens Characters to make the first one. */
   onCreate?: () => void;
   swap?: boolean;
+  /** In place of a photo (a starting photo, the picture to edit, who should move). */
+  slot?: boolean;
 }) {
-  const label = swap ? 'Pick one of your characters' : 'Add a character';
+  const label = slot ? 'Use one of your characters' : swap ? 'Pick one of your characters' : 'Add a character';
   return (
     <div className="chr-pick" data-testid="character-pick">
       <p className="o5-kicker">{label}</p>
@@ -46,7 +49,9 @@ export function CharacterPick({
         </div>
       )}
       <p className="ai-muted chr-pick-note">
-        {swap
+        {slot
+          ? 'Your character goes in instead of a photo, looking the same every time.'
+          : swap
           ? 'Photos of real people work as before. For adult results a character is needed: a made-up grown-up you create in Characters.'
           : 'A character is added to your words, so the same person shows up every time. Photos you upload work as before; for adult results use a character.'}
       </p>
