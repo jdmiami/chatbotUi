@@ -1,5 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Step, nextStep } from '../../shell/o5/Step';
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useShell } from '../../state/shell';
 import { Icon } from '../../ui/Icon';
 import { ConfirmSheet, EmptyState, IconButton, Segmented } from '../../ui/components';
@@ -10,6 +9,12 @@ import { AiError, type LocalAi, type StudioItem, type StudioJob, type StudioKind
 import { PENDING_TEXT, offlineMakers, progressText, progressWhy, rememberMakers, withCatalog } from './makerCatalog';
 import { AudioSource, VideoSource, type AudioPick, type VideoPick } from './VideoInputs';
 import { TextArea } from '../../ui/TextArea';
+import { useMotionLevel } from '../../motion/MotionProvider';
+import { cue } from '../../motion/feedback';
+import { orbApprove, useOrbAssist, type AssistOption, type OrbAssist } from '../../shell/orb/assist';
+import { StepDeck, type DeckStep } from '../make/StepDeck';
+import { ChooseButton, FillButton, TalkButton } from '../make/StepTools';
+import type { IdeaBox } from '../make/ideas';
 
 /** vedit: change, erase or sharpen a video you have. (Drawing lives in its own app: Live Draw.) */
 type Mode = StudioKind | 'edit' | 'vedit';
@@ -21,6 +26,18 @@ const TASKS: Record<VideoTask, { label: string; placeholder: string }> = {
   motion: { label: 'Move a photo', placeholder: 'Describe the scene, e.g. she dances in a sunlit room' },
 };
 const ANGLES = ['front-right quarter view, eye-level shot', 'right side view, eye-level shot', 'back view, eye-level shot', 'left side view, eye-level shot', 'front view, high-angle shot', 'front view, eye-level shot close-up'];
+
+/** The walk-through: one step per screen. Steps that don't apply are left out. */
+type StepId = 'what' | 'maker' | 'describe' | 'extras' | 'check';
+const STEP_NAME: Record<StepId, string> = { what: 'What', maker: 'Maker & style', describe: 'Describe it', extras: 'Extras', check: 'Check & make' };
+
+const KINDS: { id: Mode; label: string; hint: string; icon: 'image' | 'film' | 'pencil' | 'brush' }[] = [
+  { id: 'image', label: 'A picture', hint: 'From a description', icon: 'image' },
+  { id: 'video', label: 'A video', hint: 'With sound, from words or a photo', icon: 'film' },
+  { id: 'edit', label: 'An edit', hint: 'Change a photo with words', icon: 'pencil' },
+  { id: 'vedit', label: 'Edit a video', hint: 'Change, erase or sharpen one you have', icon: 'film' },
+];
+const KIND_NOUN: Record<Mode, string> = { image: 'picture', video: 'video', edit: 'picture edit', vedit: 'video edit' };
 
 function loadPick(): Record<Mode, string> {
   try {
@@ -82,9 +99,27 @@ function jobLine(j: StudioJob): string | null {
 const withParam = (url: string, param: string) => url + (url.includes('?') ? '&' : '?') + param;
 const active = (j: StudioJob) => j.status === 'queued' || j.status === 'running';
 
+/** A maker that works without words: sharpening a picture, or a video maker with nothing to describe. */
+function wordless(kind: Mode, maker: StudioMakerInfo | null) {
+  if (kind === 'edit') return maker?.kind === 'upscale';
+  if (kind === 'vedit') return !(maker?.tasks?.length) && !(maker?.needs ?? []).includes('target');
+  return false;
+}
+
+/** Replay the candy "pop" on a picked element. */
+function pop(el: HTMLElement | null) {
+  if (!el) return;
+  el.removeAttribute('data-pop');
+  void el.offsetWidth;
+  el.setAttribute('data-pop', '');
+}
+
+const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
 /**
- * Create: make images and videos (with sound) on the AI machine. Results stay on the machine's
- * storage and show in the gallery on every device.
+ * Make: images and videos (with sound) on the AI machine, as a walk-through, one step per screen:
+ * what, the maker, the words, the extras, then a check and Make. Results stay on the machine's
+ * storage and show in the gallery (behind its own button) on every device.
  */
 export function CreateView({
   ai,
@@ -92,6 +127,11 @@ export function CreateView({
   isActive,
   onOpenMakers,
   reloadKey = 0,
+  kicker,
+  actions,
+  notice,
+  onCloud,
+  covered = false,
 }: {
   ai: LocalAi;
   machineOn: boolean;
@@ -100,11 +140,23 @@ export function CreateView({
   reloadKey?: number;
   /** Opens the Store at its picture and video makers. */
   onOpenMakers?: () => void;
+  /** The small line over "Make" (how the AI machine is). */
+  kicker?: ReactNode;
+  /** More buttons at the top, beside Gallery. */
+  actions?: ReactNode;
+  /** A message under the top bar (the machine is off). */
+  notice?: ReactNode;
+  /** The machine is off: make this in the cloud instead. */
+  onCloud?: (seed: { prompt: string; kind: 'image' | 'video' }) => void;
+  /** Another screen (the cloud) is over the steps. */
+  covered?: boolean;
 }) {
   const toast = useShell((s) => s.toast);
   const launch = useShell((s) => s.launch);
-  // The next step glides into view once this one is answered.
-  const next = nextStep;
+  const level = useMotionLevel();
+  const [step, setStep] = useState<StepId>('what');
+  const [galleryOpen, setGalleryOpen] = useState(false);
+  const [pane, setPane] = useState<HTMLElement | null>(null);
   const [kind, setKind] = useState<Mode>('image');
   const [prompt, setPrompt] = useState('');
   const [size, setSize] = useState<Record<StudioKind, string>>({ image: 'square', video: 'landscape' });
@@ -121,7 +173,7 @@ export function CreateView({
   const [task, setTask] = useState<VideoTask>('replace');
   const [target, setTarget] = useState('');
   const [change, setChange] = useState<'little' | 'lot'>('lot');
-  /** Wan VACE: a picture of the new thing (replace) or of who should move (motion). */
+  /** Video editing: a picture of the new thing (replace) or of who should move (motion). */
   const [refPhoto, setRefPhoto] = useState<{ src: string; item?: string } | null>(null);
   const [studio, setStudio] = useState<StudioState | null>(null);
   const [studioError, setStudioError] = useState<string | null>(null);
@@ -142,6 +194,7 @@ export function CreateView({
   const [items, setItems] = useState<StudioItem[]>([]);
   const [submitting, setSubmitting] = useState(false);
   const [viewing, setViewing] = useState<StudioItem | null>(null);
+  const [launched, setLaunched] = useState(0);
   // The tapped tile, so the viewer grows out of it and the picture appears to fly up.
   const viewFrom = useRef<DOMRect | null>(null);
   const [confirmDelete, setConfirmDelete] = useState<StudioItem | null>(null);
@@ -149,6 +202,8 @@ export function CreateView({
   const editInput = useRef<HTMLInputElement>(null);
   const endInput = useRef<HTMLInputElement>(null);
   const refInput = useRef<HTMLInputElement>(null);
+  const secondRow = useRef<HTMLDivElement>(null);
+  const picking = useRef(false);
 
   const setPick = (mode: Mode, id: string) =>
     setPickState((prev) => {
@@ -210,7 +265,10 @@ export function CreateView({
     const t = setInterval(async () => {
       const updated = await Promise.all(running.map((j) => ai.studioJob(j.id).catch(() => j)));
       setJobs((prev) => prev.map((j) => updated.find((x) => x.id === j.id) ?? j).filter((j) => j.status !== 'done' && j.status !== 'stopped'));
-      if (updated.some((u) => u.status === 'done')) loadItems();
+      if (updated.some((u) => u.status === 'done')) {
+        loadItems();
+        cue('done');
+      }
     }, 2000);
     return () => clearInterval(t);
   }, [running.map((j) => j.id).join(','), ai, loadItems]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -221,7 +279,8 @@ export function CreateView({
   const choices = known.filter((m) => kindsFor(kind).includes(m.kind) && (m.installed || m.wanted || kind === 'vedit'));
   const chosen = known.find((m) => m.id === pick[kind]) ?? known.find((m) => m.id === DEFAULT_PICK[kind]) ?? null;
   const chosenId = chosen?.id ?? DEFAULT_PICK[kind];
-  const styles = known.filter((m) => m.kind === 'style' && m.for === chosenId && m.installed);
+  const stylesFor = (id: string) => known.filter((m) => m.kind === 'style' && m.for === id && m.installed);
+  const styles = stylesFor(chosenId);
   const sharpen = chosen?.kind === 'upscale';
   const needImages = kind === 'edit' ? (chosen?.twoImages ? 2 : 1) : 0;
   // What the chosen maker works from (video makers): the machine says; older ones don't.
@@ -246,6 +305,46 @@ export function CreateView({
   const builtInMaker = studio?.[kind === 'video' || kind === 'vedit' ? 'video' : 'image'];
   const makerReady = machineOn && Boolean(studio?.running) && (chosen ? chosen.installed : Boolean(builtInMaker?.ready));
   const canMake = makerReady && promptOk && inputsOk && !submitting;
+
+  /* ---------------------------------------------------------------- the steps that apply */
+  const hasDescribe = !wordless(kind, chosen);
+  const stepIds: StepId[] = ['what', 'maker', ...(hasDescribe ? (['describe'] as const) : []), 'extras', 'check'];
+  // A step that no longer applies (the maker changed to one without words): the next one.
+  useEffect(() => {
+    if (!stepIds.includes(step)) setStep('extras');
+  }, [stepIds.join(','), step]); // eslint-disable-line react-hooks/exhaustive-deps
+  const go = useCallback((id: string) => {
+    setStep(id as StepId);
+    cue('tap');
+  }, []);
+
+  /** Picked: the candy, the orb's nod, then the next step slides in. */
+  const choose = (el: HTMLElement | null, apply: () => void, nextId: StepId | null) => {
+    apply();
+    pop(el);
+    cue('pop');
+    if (!nextId || picking.current) return;
+    picking.current = true;
+    void orbApprove(el)
+      .catch(() => {})
+      .then(() => wait(level === 'full' ? 260 : level === 'lite' ? 120 : 0))
+      .then(() => {
+        picking.current = false;
+        setStep(nextId);
+      });
+  };
+
+  const chooseKind = (v: Mode, el: HTMLElement | null) => choose(el, () => setKind(v), 'maker');
+  const chooseMaker = (m: StudioMakerInfo, el: HTMLElement | null) => {
+    const second = kind === 'vedit' ? (m.tasks?.length ?? 0) > 0 : stylesFor(m.id).length > 0;
+    if (second) {
+      // It has looks (or things to do) to pick too: point at them instead of moving on.
+      choose(el, () => setPick(kind, m.id), null);
+      requestAnimationFrame(() => pop(secondRow.current));
+      return;
+    }
+    choose(el, () => setPick(kind, m.id), wordless(kind, m) ? 'extras' : 'describe');
+  };
 
   const make = async () => {
     if (!canMake) return false;
@@ -285,12 +384,16 @@ export function CreateView({
       });
       if (job.status === 'error') {
         toast(job.error || 'That did not start.', 'error');
+        cue('error');
         return false;
       }
       setJobs((prev) => [...prev, job]);
+      setLaunched((n) => n + 1);
+      cue('send');
       return true;
     } catch (err) {
       toast((err as Error).message, 'error');
+      cue('error');
       return false;
     } finally {
       setSubmitting(false);
@@ -318,13 +421,19 @@ export function CreateView({
     }
   };
 
+  const leaveGallery = (to: StepId) => {
+    setViewing(null);
+    setGalleryOpen(false);
+    setStep(to);
+  };
+
   const animate = (item: StudioItem) => {
     setStartImage(item.url);
     setStartItem(item.id);
     setKind('video');
     setPrompt('');
-    setViewing(null);
-    toast('Describe how it should move, then tap Make video.', 'info');
+    leaveGallery('describe');
+    toast('Describe how it should move, then make the video.', 'info');
   };
 
   const editItem = (item: StudioItem, maker = 'edit') => {
@@ -332,18 +441,18 @@ export function CreateView({
     setPick('edit', maker);
     setEditImages([{ src: item.url, item: item.id }]);
     setPrompt('');
-    setViewing(null);
-    if (maker !== 'sharpen') toast('Describe the change, then tap Edit.', 'info');
+    leaveGallery(maker === 'sharpen' ? 'check' : 'describe');
+    if (maker !== 'sharpen') toast('Describe the change, then make the edit.', 'info');
   };
 
   /** A gallery video into Video edit, with the maker that does what was tapped. */
-  const workOnVideo = (item: StudioItem, maker: string, hint: string) => {
+  const workOnVideo = (item: StudioItem, maker: string, hint: string, to: StepId) => {
     setKind('vedit');
     setPick('vedit', maker);
     setVideo({ src: item.url, item: item.id, nsfw: nsfwFor(item.id, item.nsfw === true || isNsfw(item.prompt)), label: item.prompt });
     setPrompt('');
     setTarget('');
-    setViewing(null);
+    leaveGallery(to);
     toast(hint, 'info');
   };
   const installed = (id: string) => known.some((m) => m.id === id && m.installed);
@@ -365,12 +474,19 @@ export function CreateView({
     }
   };
 
+  /** Anything about the maker itself that stops it now (shown on the maker step too). */
+  const makerNote = (() => {
+    if (!machineOn) return null;
+    if (chosen?.pending) return `${chosen.name}: ${PENDING_TEXT.toLowerCase()}. Turn it off and on again to get it.`;
+    if (chosen && !chosen.installed) return chosen.wanted ? progressWhy(chosen, machineOn) : `${chosen.name} is not installed. Open Makers to add it.`;
+    return null;
+  })();
+
   const status = (() => {
     if (!machineOn) return 'Turn on your AI machine to make images and videos.';
     if (studioError) return studioError;
     if (!studio) return 'Checking the image and video maker…';
-    if (chosen?.pending) return `${chosen.name}: ${PENDING_TEXT.toLowerCase()}. Turn it off and on again to get it.`;
-    if (chosen && !chosen.installed) return chosen.wanted ? progressWhy(chosen, machineOn) : `${chosen.name} is not installed. Open Makers to add it.`;
+    if (makerNote) return makerNote;
     if (!chosen && !builtInMaker?.downloaded) return `The maker is downloading (first start only): ${builtInMaker?.percent ?? 0}%.`;
     if (!studio.running) return studio.setup.startsWith('error') ? `The maker had a problem: ${studio.setup.slice(6).trim()}` : 'The image and video maker is starting…';
     if (kind === 'edit') return needImages === 2 && editImages.length < 2 ? 'Add the person first, then the outfit.' : sharpen ? 'Makes the picture four times larger and crisper.' : 'Edits take under a minute.';
@@ -382,135 +498,330 @@ export function CreateView({
     }
     if (talking) return !startImage ? 'Add a photo of the person.' : !audio ? 'Add a voice recording or a song.' : 'Talking videos take a few minutes.';
     if (restyling) return 'Keeps the motion and the sound of your video (up to 10 s).';
+    if (!promptOk) return 'Describe it first.';
     return kind === 'image' ? 'Images take under a minute.' : 'Videos with sound take a few minutes.';
   })();
 
   const verb =
     kind === 'image' ? 'Make image' : kind === 'video' ? 'Make video' : kind === 'vedit' ? (sharpenVideo ? 'Sharpen video' : vTask === 'erase' ? 'Erase it' : 'Edit video') : sharpen ? 'Sharpen' : 'Edit';
 
-  return (
-    <div className="ai-create">
-      <form
-        className="ai-create-form"
-        onSubmit={(e) => {
-          e.preventDefault();
-          void make().then((started) => {
-            // Only once something is actually being made; a failed start leaves you on the form.
-            if (started) setTimeout(() => next('o5-making'), 120);
-          });
-        }}
-      >
-        <Step n="01" id="o5-make-what" title="What will it be?">
-          <div className="o5-choices" role="radiogroup" aria-label="What to make">
-            {(
-              [
-                ['image', 'A picture', 'From a description'],
-                ['video', 'A video', 'With sound, from words or a photo'],
-                ['edit', 'An edit', 'Change a photo with words'],
-                ['vedit', 'Edit a video', 'Change, erase or sharpen one you have'],
-              ] as const
-            ).map(([v, label, hint]) => (
-              <button
-                key={v}
-                type="button"
-                role="radio"
-                aria-checked={kind === v}
-                className="o5-choice"
-                onClick={() => {
-                  setKind(v);
-                  next('o5-make-who');
-                }}
-              >
-                <span className="o5-go-label">{label}</span>
-                <span className="o5-go-hint">{hint}</span>
-              </button>
-            ))}
-            {/* Drawing has its own app now: this opens it. */}
-            <button type="button" className="o5-choice" onClick={() => launch('livedraw')}>
-              <span className="o5-go-label">Draw it</span>
-              <span className="o5-go-hint">Opens Live Draw: draw, and watch it become a picture</span>
-            </button>
-          </div>
-        </Step>
-        <>
-        <Step n="02" id="o5-make-who" title="Who makes it">
-        <div className="ai-maker-picks" role="radiogroup" aria-label="Maker">
-          {(choices.length ? choices : chosen ? [chosen] : []).map((m) => (
-            <button key={m.id} type="button" role="radio" aria-checked={m.id === chosenId} className="ai-maker-chip" onClick={() => {
-              setPick(kind, m.id);
-              next('o5-make-describe');
-            }}>
-              {m.name}
-              {!m.installed && <span className="ai-muted"> {m.pending ? 'soon' : m.wanted ? progressText(m, machineOn) : 'not added'}</span>}
+  /* ---------------------------------------------------------------- words for the orb and the summary */
+  const styleName = styles.find((s) => s.id === style)?.name;
+  const shapeWord = kind === 'image' || kind === 'video' ? (SIZES[kind].find((s) => s.value === size[kind])?.label ?? '').toLowerCase() : '';
+  const makerName = chosen?.name ?? 'the built-in maker';
+  const about1 = `a ${shapeWord ? `${shapeWord} ` : ''}${KIND_NOUN[kind]} with ${makerName}${styleName ? `, style ${styleName}` : ''}${vTask && tasks.length ? `, ${TASKS[vTask as VideoTask]?.label.toLowerCase() ?? vTask}` : ''}`;
+  const stepNo = stepIds.indexOf(step) + 1;
+  const context = `Step ${stepNo} of ${stepIds.length}, ${STEP_NAME[step]}: ${about1}`;
+  const promptBox: IdeaBox =
+    kind === 'vedit' && vTask && vTask !== 'erase' ? (vTask === 'replace' ? 'replace' : vTask) : talking ? 'talking' : restyling ? 'restyle' : kind === 'edit' ? 'edit' : kind === 'video' ? 'video' : 'picture';
+  const placeholder =
+    kind === 'vedit' && vTask && vTask in TASKS
+      ? TASKS[vTask as VideoTask].placeholder
+      : talking
+        ? 'Describe the scene (optional), e.g. she sings softly on a stage'
+        : restyling
+          ? 'The new look, e.g. as a claymation'
+          : kind === 'edit'
+            ? chosenId === 'angles'
+              ? 'Which angle? e.g. back view, eye-level shot'
+              : chosenId === 'outfit'
+                ? 'e.g. Dress the person in image 1 in the denim jacket from image 2.'
+                : 'Describe the change… e.g. make it night, add snow'
+            : kind === 'image'
+              ? 'Describe the picture…'
+              : startImage
+                ? 'Describe how the photo should move, and any sound…'
+                : 'Describe the scene, the motion and the sound…';
+
+  const kindOptions: AssistOption[] = KINDS.map((k) => ({ id: k.id, label: k.label }));
+  const makerList = choices.length ? choices : chosen ? [chosen] : [];
+  const makerOptions: AssistOption[] = makerList.map((m) => ({ id: m.id, label: m.name }));
+  const byOption = (id: string) => pane?.querySelector<HTMLElement>(`[data-assist-option="${CSS.escape(id)}"]`) ?? null;
+
+  const assist: OrbAssist | null = useMemo(() => {
+    if (!isActive || galleryOpen || covered) return null;
+    const targetEl = pane?.querySelector<HTMLElement>('[data-assist-target]') ?? null;
+    const opts = (list: AssistOption[]) => list.map((o) => ({ ...o, el: byOption(o.id) }));
+    switch (step) {
+      case 'what':
+        return { id: 'make:what', context, target: targetEl, kind: 'choice', options: opts(kindOptions), selected: kind, choose: (id) => chooseKind(id as Mode, byOption(id)) };
+      case 'maker':
+        return {
+          id: 'make:maker',
+          context,
+          target: targetEl,
+          kind: 'choice',
+          options: opts(makerOptions),
+          selected: chosenId,
+          choose: (id) => {
+            const m = makerList.find((x) => x.id === id);
+            if (m) chooseMaker(m, byOption(id));
+          },
+        };
+      case 'describe':
+        return noWords
+          ? { id: 'make:describe', context: `${context}. Say what to erase.`, target: targetEl, kind: 'text', value: target, setValue: setTarget }
+          : { id: 'make:describe', context, target: targetEl, kind: 'text', value: prompt, setValue: setPrompt };
+      case 'extras':
+        return kind === 'image' || (kind === 'video' && !restyling)
+          ? {
+              id: 'make:extras',
+              context,
+              target: targetEl,
+              kind: 'choice',
+              options: SIZES[kind].map((s) => ({ id: s.value, label: s.label, el: null })),
+              selected: size[kind],
+              choose: (id) => setSize((s) => ({ ...s, [kind]: id })),
+            }
+          : { id: 'make:extras', context, target: targetEl, kind: 'choice', options: [], selected: null };
+      case 'check':
+        return { id: 'make:check', context: `${context}. ${status}`, target: targetEl, kind: 'choice', options: [{ id: 'make', label: verb, el: targetEl }], selected: null, choose: () => void make() };
+    }
+  }, [isActive, galleryOpen, covered, pane, step, context, kind, chosenId, prompt, target, noWords, size, restyling, status, verb, makerOptions.map((o) => o.id).join(',')]); // eslint-disable-line react-hooks/exhaustive-deps
+  useOrbAssist(assist);
+
+  /* ---------------------------------------------------------------- the steps */
+  const textTools = (box: IdeaBox, id: string, value: string, set: (v: string) => void, what: string, ctx = context) => (
+    <div className="mk-tools" role="group" aria-label={`Help with ${what}`}>
+      <TalkButton value={value} onChange={set} what={what} />
+      <FillButton box={box} id={id} context={ctx} value={value} onChange={set} />
+    </div>
+  );
+
+  const whatStep: DeckStep = {
+    id: 'what',
+    name: STEP_NAME.what,
+    title: 'What will it be?',
+    body: (
+      <>
+        <div className="mk-kinds" role="radiogroup" aria-label="What to make" data-assist-target>
+          {KINDS.map((k, i) => (
+            <button
+              key={k.id}
+              type="button"
+              role="radio"
+              aria-checked={kind === k.id}
+              className="mk-kind"
+              style={{ '--i': i } as React.CSSProperties}
+              data-assist-option={k.id}
+              onClick={(e) => chooseKind(k.id, e.currentTarget)}
+            >
+              <span className="mk-kind-art" aria-hidden>
+                <Icon name={k.icon} size={20} />
+              </span>
+              <span className="mk-kind-label">{k.label}</span>
+              <span className="mk-kind-hint">{k.hint}</span>
             </button>
           ))}
-          <button type="button" className="ai-maker-chip ai-maker-more" onClick={() => onOpenMakers?.()}>
-            <Icon name="plus" size={14} /> Makers
+          {/* Drawing has its own app now: this opens it. */}
+          <button type="button" className="mk-kind mk-kind-draw" style={{ '--i': KINDS.length } as React.CSSProperties} onClick={() => launch('livedraw')}>
+            <span className="mk-kind-art" aria-hidden>
+              <Icon name="brush" size={20} />
+            </span>
+            <span className="mk-kind-label">Draw it</span>
+            <span className="mk-kind-hint">Opens Live Draw: draw, and watch it become a picture</span>
           </button>
         </div>
-        {styles.length > 0 && (
-          <div className="ai-maker-picks" role="radiogroup" aria-label="Style">
-            <button type="button" role="radio" aria-checked={!style} className="ai-maker-chip" onClick={() => setStyle('')}>
-              No style
+        <div className="mk-tools">
+          <ChooseButton context={context} options={kindOptions} onChoose={(id) => chooseKind(id as Mode, byOption(id))} />
+        </div>
+      </>
+    ),
+  };
+
+  const makerStep: DeckStep = {
+    id: 'maker',
+    name: STEP_NAME.maker,
+    title: kind === 'vedit' ? 'Who does it, and what' : 'Who makes it',
+    dek: chosen?.blurb ? (
+      <>
+        <em>{chosen.name}</em>: {chosen.blurb}
+      </>
+    ) : undefined,
+    body: (
+      <>
+        <div className="mk-makers" role="radiogroup" aria-label="Maker" data-assist-target>
+          {makerList.map((m) => (
+            <button
+              key={m.id}
+              type="button"
+              role="radio"
+              aria-checked={m.id === chosenId}
+              className="mk-maker ai-maker-chip"
+              data-assist-option={m.id}
+              onClick={(e) => chooseMaker(m, e.currentTarget)}
+            >
+              <span className="mk-maker-name">{m.name}</span>
+              {!m.installed && <span className="ai-muted mk-maker-state"> {m.pending ? 'soon' : m.wanted ? progressText(m, machineOn) : 'not added'}</span>}
             </button>
-            {styles.map((s) => (
-              <button key={s.id} type="button" role="radio" aria-checked={style === s.id} className="ai-maker-chip" onClick={() => setStyle(s.id)}>
-                {s.name}
+          ))}
+        </div>
+        {kind !== 'vedit' && styles.length > 0 && (
+          <div className="mk-row" ref={secondRow}>
+            <p className="o5-kicker">Style</p>
+            <div className="mk-chips" role="radiogroup" aria-label="Style">
+              <button type="button" role="radio" aria-checked={!style} className="mk-chip" onClick={(e) => choose(e.currentTarget, () => setStyle(''), 'describe')}>
+                No style
+              </button>
+              {styles.map((s) => (
+                <button key={s.id} type="button" role="radio" aria-checked={style === s.id} className="mk-chip" onClick={(e) => choose(e.currentTarget, () => setStyle(s.id), 'describe')}>
+                  {s.name}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+        {kind === 'vedit' && tasks.length > 0 && (
+          <div className="mk-row" ref={secondRow}>
+            <p className="o5-kicker">What to do</p>
+            <div className="mk-chips" role="radiogroup" aria-label="What to do">
+              {tasks.map((t) => (
+                <button key={t} type="button" role="radio" aria-checked={vTask === t} className="mk-chip" onClick={(e) => choose(e.currentTarget, () => setTask(t), 'describe')}>
+                  {TASKS[t].label}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+        {makerNote && (
+          <p className="ai-muted mk-note" role="status">
+            {makerNote}
+          </p>
+        )}
+        <div className="mk-tools">
+          <ChooseButton
+            context={context}
+            options={makerOptions}
+            onChoose={(id) => {
+              const m = makerList.find((x) => x.id === id);
+              if (m) chooseMaker(m, byOption(id));
+            }}
+          />
+          <button type="button" className="mk-tool" onClick={() => onOpenMakers?.()}>
+            <Icon name="plus" size={18} />
+            <span className="mk-tool-word">Makers</span>
+          </button>
+        </div>
+      </>
+    ),
+  };
+
+  const describeStep: DeckStep = {
+    id: 'describe',
+    name: STEP_NAME.describe,
+    title: vTask === 'erase' ? 'What should go?' : kind === 'edit' || kind === 'vedit' ? 'Say the change' : 'Describe it',
+    body: (
+      <>
+        {wantsTarget && (
+          <div className="mk-field" data-assist-target={noWords || undefined}>
+            <input
+              className="input ai-target"
+              value={target}
+              onChange={(e) => setTarget(e.target.value)}
+              aria-label={vTask === 'erase' ? 'What to erase' : 'What to replace'}
+              placeholder={vTask === 'erase' ? 'What to erase, e.g. the man in the red shirt' : 'What to replace, e.g. the red car'}
+              maxLength={200}
+              enterKeyHint="done"
+            />
+            {textTools(vTask === 'erase' ? 'erase' : 'replace', `make:target:${vTask}`, target, setTarget, vTask === 'erase' ? 'what to erase' : 'what to replace', `${context}. ${vTask === 'erase' ? 'Name the thing to erase from the video, in a few words.' : 'Name the thing in the video to replace, in a few words.'}`)}
+          </div>
+        )}
+        {!noWords && (
+          <div className="mk-field" data-assist-target>
+            <TextArea value={prompt} onChange={(e) => setPrompt(e.target.value)} rows={3} aria-label="Describe it" placeholder={placeholder} />
+            {textTools(promptBox, `make:prompt:${promptBox}`, prompt, setPrompt, 'the description')}
+          </div>
+        )}
+        {kind === 'edit' && chosenId === 'angles' && (
+          <div className="mk-chips" aria-label="Angles">
+            {ANGLES.map((a) => (
+              <button key={a} type="button" className="mk-chip" onClick={(e) => choose(e.currentTarget, () => setPrompt(a), null)}>
+                {a.split(',')[0]}
               </button>
             ))}
           </div>
         )}
-        </Step>
-        <Step n="03" id="o5-make-describe" title={kind === 'edit' || kind === 'vedit' ? 'Show it, then say the change' : 'Describe it'}>
-        {kind === 'vedit' && (
+      </>
+    ),
+  };
+
+  const photoRow = (src: string | null, alt: string, note: string, add: string, onAdd: () => void, onRemove: () => void, removeLabel: string) => (
+    <div className="ai-create-photo">
+      {src ? (
+        <>
+          <img src={src} alt={alt} />
+          <span className="ai-muted">{note}</span>
+          <IconButton icon="close" label={removeLabel} onClick={onRemove} />
+        </>
+      ) : (
+        <button type="button" className="btn ghost" onClick={onAdd}>
+          <Icon name="image" size={18} /> {add}
+        </button>
+      )}
+    </div>
+  );
+
+  const extrasStep: DeckStep = {
+    id: 'extras',
+    name: STEP_NAME.extras,
+    title:
+      kind === 'edit'
+        ? needImages === 2
+          ? 'The person, then the outfit'
+          : 'The picture'
+        : kind === 'vedit'
+          ? 'The video'
+          : kind === 'video'
+            ? talking
+              ? 'The photo and the sound'
+              : restyling
+                ? 'How much to change'
+                : 'Shape, length and photos'
+            : 'Shape',
+    body: (
+      <div className="mk-extras" data-assist-target>
+        {(kind === 'image' || kind === 'video') && !restyling && (
+          <div className="ai-create-options">
+            <Segmented label="Shape" value={size[kind]} onChange={(v) => setSize((s) => ({ ...s, [kind]: v }))} options={SIZES[kind]} />
+            {kind === 'video' && !talking && <Segmented label="Length" value={seconds} onChange={setSeconds} options={LENGTHS} />}
+          </div>
+        )}
+        {restyling && (
+          <div className="ai-create-options">
+            <Segmented
+              label="How much to change"
+              value={change}
+              onChange={setChange}
+              options={[
+                { value: 'little', label: 'A little' },
+                { value: 'lot', label: 'A lot' },
+              ]}
+            />
+          </div>
+        )}
+        {kind === 'vedit' && <VideoSource ai={ai} value={video} onChange={setVideo} onError={(m) => toast(m, 'error')} />}
+        {kind === 'vedit' && wantsRef && (
           <>
-            <VideoSource ai={ai} value={video} onChange={setVideo} onError={(m) => toast(m, 'error')} />
-            {tasks.length > 0 && (
-              <div className="ai-maker-picks" role="radiogroup" aria-label="What to do">
-                {tasks.map((t) => (
-                  <button key={t} type="button" role="radio" aria-checked={vTask === t} className="ai-maker-chip" onClick={() => setTask(t)}>
-                    {TASKS[t].label}
-                  </button>
-                ))}
-              </div>
+            {photoRow(
+              refPhoto?.src ?? null,
+              vTask === 'motion' ? 'Who should move' : 'The new thing',
+              vTask === 'motion' ? 'This person moves like the video.' : 'It looks like this picture.',
+              vTask === 'motion' ? 'Add a photo of who should move' : 'Add a picture of it (optional)',
+              () => refInput.current?.click(),
+              () => setRefPhoto(null),
+              'Remove the picture',
             )}
-            {wantsTarget && (
-              <input
-                className="input ai-target"
-                value={target}
-                onChange={(e) => setTarget(e.target.value)}
-                aria-label={vTask === 'erase' ? 'What to erase' : 'What to replace'}
-                placeholder={vTask === 'erase' ? 'What to erase, e.g. the man in the red shirt' : 'What to replace, e.g. the red car'}
-                maxLength={200}
-                enterKeyHint="done"
-              />
-            )}
-            {wantsRef && (
-              <div className="ai-create-photo">
-                {refPhoto ? (
-                  <>
-                    <img src={refPhoto.src} alt={vTask === 'motion' ? 'Who should move' : 'The new thing'} />
-                    <span className="ai-muted">{vTask === 'motion' ? 'This person moves like the video.' : 'It looks like this picture.'}</span>
-                    <IconButton icon="close" label="Remove the picture" onClick={() => setRefPhoto(null)} />
-                  </>
-                ) : (
-                  <button type="button" className="btn ghost" onClick={() => refInput.current?.click()}>
-                    <Icon name="image" size={18} /> {vTask === 'motion' ? 'Add a photo of who should move' : 'Add a picture of it (optional)'}
-                  </button>
-                )}
-                <input
-                  ref={refInput}
-                  type="file"
-                  accept="image/*"
-                  hidden
-                  aria-label="Picture for the video edit"
-                  onChange={(e) => {
-                    void pickRef(e.target.files?.[0]);
-                    e.target.value = '';
-                  }}
-                />
-              </div>
-            )}
+            <input
+              ref={refInput}
+              type="file"
+              accept="image/*"
+              hidden
+              aria-label="Picture for the video edit"
+              onChange={(e) => {
+                void pickRef(e.target.files?.[0]);
+                e.target.value = '';
+              }}
+            />
           </>
         )}
         {kind === 'edit' && (
@@ -538,113 +849,23 @@ export function CreateView({
             />
           </div>
         )}
-        {!sharpen && !noWords && (
-          <TextArea
-            value={prompt}
-            onChange={(e) => setPrompt(e.target.value)}
-            rows={3}
-            aria-label="Describe it"
-            placeholder={
-              kind === 'vedit' && vTask && vTask in TASKS
-                ? TASKS[vTask as VideoTask].placeholder
-                : talking
-                  ? 'Describe the scene (optional), e.g. she sings softly on a stage'
-                  : restyling
-                    ? 'The new look, e.g. as a claymation'
-                    : kind === 'edit'
-                ? chosenId === 'angles'
-                  ? 'Which angle? e.g. back view, eye-level shot'
-                  : chosenId === 'outfit'
-                    ? 'e.g. Dress the person in image 1 in the denim jacket from image 2.'
-                    : 'Describe the change… e.g. make it night, add snow'
-                : kind === 'image'
-                  ? 'Describe the picture…'
-                  : startImage
-                    ? 'Describe how the photo should move, and any sound…'
-                    : 'Describe the scene, the motion and the sound…'
-            }
-          />
-        )}
-        {kind === 'edit' && chosenId === 'angles' && (
-          <div className="ai-maker-picks" aria-label="Angles">
-            {ANGLES.map((a) => (
-              <button key={a} type="button" className="ai-maker-chip" onClick={() => setPrompt(a)}>
-                {a.split(',')[0]}
-              </button>
-            ))}
-          </div>
-        )}
-        </Step>
-        {kind !== 'edit' && kind !== 'vedit' && (
-        <Step n="04" id="o5-make-shape" title={kind === 'video' ? (talking ? 'Shape, photo and sound' : 'Shape, length and start') : 'Shape'}>
-        {(kind === 'image' || kind === 'video') && !restyling && (
-          <div className="ai-create-options">
-            <Segmented label="Shape" value={size[kind]} onChange={(v) => setSize((s) => ({ ...s, [kind]: v }))} options={SIZES[kind]} />
-            {kind === 'video' && !talking && <Segmented label="Length" value={seconds} onChange={setSeconds} options={LENGTHS} />}
-          </div>
-        )}
-        {restyling && (
-          <div className="ai-create-options">
-            <Segmented
-              label="How much to change"
-              value={change}
-              onChange={setChange}
-              options={[
-                { value: 'little', label: 'A little' },
-                { value: 'lot', label: 'A lot' },
-              ]}
-            />
-          </div>
-        )}
         {kind === 'video' && takesVideo && !startImage && !endImage && (
           <VideoSource ai={ai} value={video} onChange={setVideo} onError={(m) => toast(m, 'error')} hint="Or restyle a video you have: it keeps the motion and the sound." />
         )}
         {talking && <AudioSource ai={ai} value={audio} onChange={setAudio} onError={(m) => toast(m, 'error')} />}
-        {kind === 'video' && accepts.includes('endPhoto') && !restyling && (
-          <div className="ai-create-photo">
-            {endImage ? (
-              <>
-                <img src={endImage} alt="Ending photo" />
-                <span className="ai-muted">The video ends on this photo.</span>
-                <IconButton icon="close" label="Remove the ending photo" onClick={() => setEndImage(null)} />
-              </>
-            ) : (
-              <button type="button" className="btn ghost" onClick={() => endInput.current?.click()}>
-                <Icon name="image" size={18} /> End on a photo
-              </button>
-            )}
-            <input
-              ref={endInput}
-              type="file"
-              accept="image/*"
-              hidden
-              aria-label="Ending photo file"
-              onChange={(e) => {
-                void pickEnd(e.target.files?.[0]);
-                e.target.value = '';
-              }}
-            />
-          </div>
-        )}
         {kind === 'video' && !restyling && (
-          <div className="ai-create-photo">
-            {startImage ? (
-              <>
-                <img src={startImage} alt="Starting photo" />
-                <span className="ai-muted">The video starts from this photo.</span>
-                <IconButton
-                  icon="close"
-                  label="Remove the starting photo"
-                  onClick={() => {
-                    setStartImage(null);
-                    setStartItem(null);
-                  }}
-                />
-              </>
-            ) : (
-              <button type="button" className="btn ghost" onClick={() => fileInput.current?.click()}>
-                <Icon name="image" size={18} /> {talking ? 'Add a photo of the person' : 'Start from a photo'}
-              </button>
+          <>
+            {photoRow(
+              startImage,
+              'Starting photo',
+              'The video starts from this photo.',
+              talking ? 'Add a photo of the person' : 'Start from a photo',
+              () => fileInput.current?.click(),
+              () => {
+                setStartImage(null);
+                setStartItem(null);
+              },
+              'Remove the starting photo',
             )}
             <input
               ref={fileInput}
@@ -656,84 +877,196 @@ export function CreateView({
                 e.target.value = '';
               }}
             />
-          </div>
+          </>
         )}
-        </Step>
+        {kind === 'video' && accepts.includes('endPhoto') && !restyling && (
+          <>
+            {photoRow(endImage, 'Ending photo', 'The video ends on this photo.', 'End on a photo', () => endInput.current?.click(), () => setEndImage(null), 'Remove the ending photo')}
+            <input
+              ref={endInput}
+              type="file"
+              accept="image/*"
+              hidden
+              aria-label="Ending photo file"
+              onChange={(e) => {
+                void pickEnd(e.target.files?.[0]);
+                e.target.value = '';
+              }}
+            />
+          </>
         )}
-        <Step n={kind === 'edit' || kind === 'vedit' ? '04' : '05'} id="o5-make-go" title="Make it">
-        <button type="submit" className="btn primary ai-make" disabled={!canMake}>
-          <Icon name={kind === 'video' || kind === 'vedit' ? 'film' : kind === 'edit' ? 'pencil' : 'image'} size={18} /> {submitting ? 'Starting…' : verb}
-        </button>
-        <p className="ai-muted" role="status">
-          {status}
-        </p>
-        </Step>
-        </>
-      </form>
+      </div>
+    ),
+  };
 
+  /* ---------------------------------------------------------------- check & make */
+  const kindLabel = KINDS.find((k) => k.id === kind)!.label;
+  const words = noWords ? (vTask === 'erase' ? (target.trim() ? `Erase ${target.trim()}` : '') : 'No words needed') : [wantsTarget && target.trim() ? `${target.trim()} →` : '', prompt.trim()].filter(Boolean).join(' ');
+  const wordsMissing = (!promptOk && !noWords) || (wantsTarget && !target.trim());
+  const extrasWords = (() => {
+    const shape = kind === 'image' || kind === 'video' ? SIZES[kind].find((s) => s.value === size[kind])?.label : '';
+    if (kind === 'image') return shape;
+    if (kind === 'video') {
+      if (restyling) return `Restyles your video · changes it ${change === 'lot' ? 'a lot' : 'a little'}`;
+      if (talking) return `${startImage ? 'Photo added' : 'No photo yet'} · ${audio ? 'sound added' : 'no sound yet'}`;
+      return [shape, `${seconds} s`, startImage ? 'starts from your photo' : '', endImage ? 'ends on a photo' : ''].filter(Boolean).join(' · ');
+    }
+    if (kind === 'edit') return editImages.length >= Math.max(1, needImages) ? (needImages === 2 ? 'The person and the outfit' : 'Your picture') : needImages === 2 ? `${editImages.length} of 2 pictures` : 'No picture yet';
+    return [video ? 'Your video' : 'No video yet', wantsRef ? (refPhoto ? 'a photo' : vTask === 'motion' ? 'no photo yet' : '') : ''].filter(Boolean).join(' · ');
+  })();
+  const thumbs = [startImage && kind === 'video' && !restyling ? startImage : null, endImage && kind === 'video' && !restyling ? endImage : null, ...(kind === 'edit' ? editImages.map((p) => p.src) : []), kind === 'vedit' && refPhoto ? refPhoto.src : null].filter(Boolean) as string[];
+  const rows: { id: StepId; key: string; value: ReactNode; missing?: boolean }[] = [
+    { id: 'what', key: 'What', value: kindLabel },
+    { id: 'maker', key: 'Maker', value: `${makerName}${styleName ? ` · ${styleName}` : ''}${kind === 'vedit' && tasks.length && vTask ? ` · ${TASKS[vTask as VideoTask].label}` : ''}`, missing: Boolean(makerNote) },
+    ...(hasDescribe ? [{ id: 'describe' as StepId, key: 'Words', value: words || (talking ? 'None (optional)' : 'Nothing yet'), missing: wordsMissing }] : []),
+    { id: 'extras', key: 'Extras', value: extrasWords, missing: !inputsOk },
+  ];
+  const cloudable = !machineOn && (kind === 'image' || kind === 'video') && Boolean(onCloud);
 
-      {jobs.length > 0 && (
-        <h3 className="o5-chapter-title" id="o5-making">
-          In the making
-        </h3>
-      )}
-      {jobs.length > 0 && (
-        <ul className="ai-jobs" aria-label="In progress">
-          {jobs.map((j) => (
-            <li key={j.id} className={`ai-job ai-job-${j.status}`}>
-              <span className="ai-job-art" data-live={active(j)} aria-hidden>
-                <Icon name={j.kind === 'image' ? 'image' : 'film'} size={18} />
-              </span>
-              <div className="ai-job-text">
-                <span className="ai-list-title">{j.prompt}</span>
-                {j.status === 'error' ? (
-                  <span className="ai-error">{j.error}</span>
-                ) : (
-                  <div className="ai-bar" aria-label={`${j.progress}%`}>
-                    <span style={{ width: `${Math.max(3, j.progress)}%` }} />
-                  </div>
-                )}
-                {jobLine(j) && (
-                  <span className="ai-job-line" data-slow={j.slow || undefined}>
-                    {jobLine(j)}
-                  </span>
-                )}
-                {(j.notes?.length ?? 0) > 0 && <span className="ai-job-notes">{j.notes!.slice(-2).join(' ')}</span>}
+  const jobList = jobs.length > 0 && (
+    <ul className="ai-jobs" aria-label="In progress">
+      {jobs.map((j) => (
+        <li key={j.id} className={`ai-job ai-job-${j.status}`}>
+          <span className="ai-job-art" data-live={active(j)} aria-hidden>
+            <Icon name={j.kind === 'image' ? 'image' : 'film'} size={18} />
+          </span>
+          <div className="ai-job-text">
+            <span className="ai-list-title">{j.prompt}</span>
+            {j.status === 'error' ? (
+              <span className="ai-error">{j.error}</span>
+            ) : (
+              <div className="ai-bar" aria-label={`${j.progress}%`}>
+                <span style={{ width: `${Math.max(3, j.progress)}%` }} />
               </div>
-              {active(j) ? (
-                <IconButton
-                  icon="stop"
-                  label="Stop"
-                  onClick={() => void ai.cancelStudioJob(j.id).then(() => setJobs((p) => p.filter((x) => x.id !== j.id)), () => {})}
-                />
-              ) : (
-                <IconButton icon="close" label="Dismiss" onClick={() => setJobs((p) => p.filter((x) => x.id !== j.id))} />
-              )}
+            )}
+            {jobLine(j) && (
+              <span className="ai-job-line" data-slow={j.slow || undefined}>
+                {jobLine(j)}
+              </span>
+            )}
+            {(j.notes?.length ?? 0) > 0 && <span className="ai-job-notes">{j.notes!.slice(-2).join(' ')}</span>}
+          </div>
+          {active(j) ? (
+            <IconButton icon="stop" label="Stop" onClick={() => void ai.cancelStudioJob(j.id).then(() => setJobs((p) => p.filter((x) => x.id !== j.id)), () => {})} />
+          ) : (
+            <IconButton icon="close" label="Dismiss" onClick={() => setJobs((p) => p.filter((x) => x.id !== j.id))} />
+          )}
+        </li>
+      ))}
+    </ul>
+  );
+
+  const checkStep: DeckStep = {
+    id: 'check',
+    name: STEP_NAME.check,
+    title: 'Check, then make it',
+    body: (
+      <div className="mk-check">
+        <ul className="mk-summary" aria-label="Your choices">
+          {rows.map((r) => (
+            <li key={r.id}>
+              <button type="button" className="mk-sum-row" data-missing={r.missing || undefined} onClick={() => go(r.id)} aria-label={`${r.key}: ${typeof r.value === 'string' ? r.value : ''}. Change it`}>
+                <span className="o5-kicker">{r.key}</span>
+                <span className="mk-sum-value">{r.value}</span>
+                <span className="mk-sum-change" aria-hidden>
+                  Change
+                </span>
+              </button>
             </li>
           ))}
         </ul>
-      )}
+        {thumbs.length > 0 && (
+          <div className="mk-thumbs" aria-hidden>
+            {thumbs.map((src, i) => (
+              <img key={i} src={src} alt="" />
+            ))}
+          </div>
+        )}
+        <div className="mk-go">
+          <button
+            type="button"
+            className="btn primary ai-make mk-make"
+            data-assist-target
+            data-launched={launched ? launched % 2 : undefined}
+            disabled={!canMake}
+            onClick={() => void make()}
+          >
+            <Icon name={kind === 'video' || kind === 'vedit' ? 'film' : kind === 'edit' ? 'pencil' : 'image'} size={18} /> {submitting ? 'Starting…' : verb}
+            <span className="mk-burst" aria-hidden />
+          </button>
+          {cloudable && (
+            <button type="button" className="mk-tool" onClick={() => onCloud?.({ prompt: prompt.trim(), kind: kind as 'image' | 'video' })}>
+              <Icon name="sparkle" size={18} />
+              <span className="mk-tool-word">Make it in the cloud</span>
+            </button>
+          )}
+          <p className="ai-muted mk-status" role="status">
+            {status}
+          </p>
+        </div>
+        {!galleryOpen && jobList}
+      </div>
+    ),
+  };
 
-      {items.length > 0 && (
-        <header className="o5-gallery-head">
-          <p className="o5-kicker">The gallery</p>
-          <h3 className="o5-chapter-title">Your creations</h3>
+  const steps = [whatStep, makerStep, ...(hasDescribe ? [describeStep] : []), extrasStep, checkStep];
+  const shown = stepIds.includes(step) ? step : 'extras';
+
+  return (
+    <div className="ai-create mk" data-gallery={galleryOpen || undefined} inert={covered} aria-hidden={covered || undefined}>
+      <header className="mk-top">
+        <div className="mk-brand">
+          {kicker && <p className="o5-kicker">{kicker}</p>}
+          <h2 className="mk-brand-title">Make</h2>
+        </div>
+        <div className="mk-actions">
+          {actions}
+          <button type="button" className="mk-top-btn" aria-label={`Gallery: ${items.length === 1 ? '1 creation' : `${items.length} creations`}`} aria-expanded={galleryOpen} onClick={() => setGalleryOpen(true)}>
+            <Icon name="image" size={18} />
+            <span>Gallery</span>
+            {items.length > 0 && (
+              <span className="mk-count" key={items.length}>
+                {items.length}
+              </span>
+            )}
+            {running.length > 0 && <span className="mk-live" aria-hidden />}
+          </button>
+        </div>
+      </header>
+      {notice}
+      <div className="mk-main" inert={galleryOpen} aria-hidden={galleryOpen || undefined}>
+        <StepDeck steps={steps} current={shown} onGo={go} onActivePane={setPane} label="Make, step by step" />
+      </div>
+
+      <section className="mk-screen" aria-label="Gallery" hidden={!galleryOpen}>
+        <header className="mk-screen-head">
+          <div>
+            <p className="o5-kicker">The gallery</p>
+            <h3 className="o5-chapter-title">Your creations</h3>
+          </div>
+          <button type="button" className="mk-top-btn" onClick={() => setGalleryOpen(false)}>
+            <Icon name="back" size={18} />
+            <span>Back to making</span>
+          </button>
         </header>
-      )}
-      {items.length === 0 ? (
-        <EmptyState icon="image" title="Your creations">
-          Pictures and videos you make are kept on your AI machine and show up here on all your devices.
-        </EmptyState>
-      ) : (
-        <GalleryGrid
-          items={items.map(asMedia)}
-          label="Your creations"
-          onOpen={(m, from) => {
-            viewFrom.current = from;
-            setViewing(items.find((x) => x.id === m.id) ?? null);
-          }}
-        />
-      )}
+        <div className="mk-screen-scroll">
+          {galleryOpen && jobList}
+          {items.length === 0 ? (
+            <EmptyState icon="image" title="Nothing here yet">
+              Pictures and videos you make are kept on your AI machine and show up here on all your devices.
+            </EmptyState>
+          ) : (
+            <GalleryGrid
+              items={items.map(asMedia)}
+              label="Your creations"
+              onOpen={(m, from) => {
+                viewFrom.current = from;
+                setViewing(items.find((x) => x.id === m.id) ?? null);
+              }}
+            />
+          )}
+        </div>
+      </section>
 
       {viewing && (
         <GalleryViewer
@@ -743,60 +1076,60 @@ export function CreateView({
           onClose={() => setViewing(null)}
           words={<p className="ai-viewer-prompt">{viewing.prompt}</p>}
         >
-            <div className="ai-viewer-actions">
-              <a className="btn" href={withParam(viewing.url, 'download=1')} download>
-                <Icon name="download" size={16} /> Save
-              </a>
-              <button
-                type="button"
-                className="btn"
-                onClick={() => {
-                  setKind(viewing.kind);
-                  setVideo(null);
-                  setPrompt(viewing.prompt === 'Sharpened 4×' ? '' : viewing.prompt);
-                  setViewing(null);
-                }}
-              >
-                <Icon name="refresh" size={16} /> Use prompt
-              </button>
-              {viewing.kind === 'image' && (
-                <>
-                  <button type="button" className="btn" onClick={() => animate(viewing)}>
-                    <Icon name="film" size={16} /> Make it move
+          <div className="ai-viewer-actions">
+            <a className="btn" href={withParam(viewing.url, 'download=1')} download>
+              <Icon name="download" size={16} /> Save
+            </a>
+            <button
+              type="button"
+              className="btn"
+              onClick={() => {
+                setKind(viewing.kind);
+                setVideo(null);
+                setPrompt(viewing.prompt === 'Sharpened 4×' ? '' : viewing.prompt);
+                leaveGallery('describe');
+              }}
+            >
+              <Icon name="refresh" size={16} /> Use prompt
+            </button>
+            {viewing.kind === 'image' && (
+              <>
+                <button type="button" className="btn" onClick={() => animate(viewing)}>
+                  <Icon name="film" size={16} /> Make it move
+                </button>
+                <button type="button" className="btn" onClick={() => editItem(viewing)}>
+                  <Icon name="pencil" size={16} /> Edit
+                </button>
+                {makers?.some((m) => m.id === 'sharpen' && m.installed) && (
+                  <button type="button" className="btn" onClick={() => editItem(viewing, 'sharpen')}>
+                    <Icon name="sparkle" size={16} /> Sharpen
                   </button>
-                  <button type="button" className="btn" onClick={() => editItem(viewing)}>
-                    <Icon name="pencil" size={16} /> Edit
+                )}
+              </>
+            )}
+            {viewing.kind === 'video' && (
+              <>
+                {installed('vace') && (
+                  <button type="button" className="btn" onClick={() => workOnVideo(viewing, 'vace', 'Pick what to do, then describe the change.', 'maker')}>
+                    <Icon name="pencil" size={16} /> Edit this video
                   </button>
-                  {makers?.some((m) => m.id === 'sharpen' && m.installed) && (
-                    <button type="button" className="btn" onClick={() => editItem(viewing, 'sharpen')}>
-                      <Icon name="sparkle" size={16} /> Sharpen
-                    </button>
-                  )}
-                </>
-              )}
-              {viewing.kind === 'video' && (
-                <>
-                  {installed('vace') && (
-                    <button type="button" className="btn" onClick={() => workOnVideo(viewing, 'vace', 'Pick what to do, then describe the change.')}>
-                      <Icon name="pencil" size={16} /> Edit this video
-                    </button>
-                  )}
-                  {installed('video-erase') && (
-                    <button type="button" className="btn" onClick={() => workOnVideo(viewing, 'video-erase', 'Say what to erase, then tap Erase it.')}>
-                      <Icon name="close" size={16} /> Erase from video
-                    </button>
-                  )}
-                  {installed('video-sharpen') && (
-                    <button type="button" className="btn" onClick={() => workOnVideo(viewing, 'video-sharpen', 'Tap Sharpen video to make it twice as large and crisper.')}>
-                      <Icon name="sparkle" size={16} /> Sharpen video
-                    </button>
-                  )}
-                </>
-              )}
-              <button type="button" className="btn danger" onClick={() => setConfirmDelete(viewing)}>
-                <Icon name="trash" size={16} /> Delete
-              </button>
-            </div>
+                )}
+                {installed('video-erase') && (
+                  <button type="button" className="btn" onClick={() => workOnVideo(viewing, 'video-erase', 'Say what to erase, then tap Erase it.', 'describe')}>
+                    <Icon name="close" size={16} /> Erase from video
+                  </button>
+                )}
+                {installed('video-sharpen') && (
+                  <button type="button" className="btn" onClick={() => workOnVideo(viewing, 'video-sharpen', 'Tap Sharpen video to make it twice as large and crisper.', 'check')}>
+                    <Icon name="sparkle" size={16} /> Sharpen video
+                  </button>
+                )}
+              </>
+            )}
+            <button type="button" className="btn danger" onClick={() => setConfirmDelete(viewing)}>
+              <Icon name="trash" size={16} /> Delete
+            </button>
+          </div>
         </GalleryViewer>
       )}
       {confirmDelete && (

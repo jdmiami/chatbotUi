@@ -1,11 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { AppProps } from '../types';
-import { MagCover } from '../../ui/Magazine';
 import { useShell } from '../../state/shell';
 import { useWorkspace } from '../../state/workspace';
-import { useScrollDepth } from '../../shell/o5/depth';
 import { getLocalAi, type AiMachineStatus } from '../../services/ai/LocalAi';
+import type { CloudKind } from '../../services/ai/CloudMake';
 import { CreateView } from '../ai/CreateView';
+import { Icon } from '../../ui/Icon';
 import { CloudMake } from './CloudMake';
 import { MakeDownloads } from './MakeDownloads';
 import { MachineNotice } from '../../ui/MachineNotice';
@@ -15,9 +15,9 @@ import '../ai/ai.css';
 import './make.css';
 
 /**
- * Make: pictures, videos and edits, as an app of its own (it used to be a
- * tab of the AI app, beside the chat). Drawing lives in Live Draw ("Draw it" opens it). The steps are
- * the chapters of the page; the gallery closes it.
+ * Make: pictures, videos and edits, as an app of its own. A walk-through one step per screen (no
+ * scrolling): swipe left for the next step, right to go back. The gallery and making in the cloud
+ * open over it. Drawing lives in Live Draw ("Draw it" opens it).
  */
 export default function MakeApp({ isActive }: AppProps) {
   const ai = useMemo(() => getLocalAi(), []);
@@ -26,10 +26,9 @@ export default function MakeApp({ isActive }: AppProps) {
   const [status, setStatus] = useState<AiMachineStatus | null>(null);
   const [powering, setPowering] = useState(false);
   const [cloudOpen, setCloudOpen] = useState(false);
+  const [seed, setSeed] = useState<{ prompt: string; kind: CloudKind; n: number } | null>(null);
   const [moved, setMoved] = useState(0);
   const speed = useSpeed(status);
-  const scroller = useRef<HTMLDivElement>(null);
-  useScrollDepth(scroller, isActive, 'edges');
 
   const refresh = useCallback(async () => {
     try {
@@ -71,43 +70,62 @@ export default function MakeApp({ isActive }: AppProps) {
   };
   const state = machineOn ? 'on' : waking ? 'waking up' : status ? 'resting' : null;
 
+  const notice = status && !machineOn && (status.state === 'off' || waking) && (
+    <MachineNotice id="make" label={waking ? 'AI machine waking up' : 'AI machine off'}>
+      <div className="ai-banner make-banner" role="status">
+        <p>{waking ? 'Your AI machine is waking up. Make is ready the moment it is.' : 'Turn the AI machine on to make pictures and videos (2–4 minutes).'}</p>
+        {!waking && (
+          <>
+            <SpeedChoice {...speed} />
+            <button type="button" className="btn primary" onClick={() => void turnOn()} disabled={powering}>
+              {powering ? 'Turning on…' : 'Turn it on'}
+            </button>
+          </>
+        )}
+      </div>
+    </MachineNotice>
+  );
+
   return (
     <div className="ag-root ai-root make-root">
-      <div className="make-scroll" ref={scroller}>
-        <MakeDownloads ai={ai} status={status} machineOn={machineOn} isActive={isActive} />
-        <MagCover
-          kicker={<>Make{state ? ` · your AI machine is ${state}` : ''}</>}
-          title="Make"
-          dek="Pictures, videos and edits from a few words, a sketch or your camera. Everything you make lands in the gallery below, on every device."
-        />
-        {status && !machineOn && (status.state === 'off' || waking) && (
-          <MachineNotice id="make" label={waking ? 'AI machine waking up' : 'AI machine off'}>
-            <div className="ai-banner make-banner" role="status">
-              <p>{waking ? 'Your AI machine is waking up. Make is ready the moment it is.' : 'Turn the AI machine on to make pictures and videos (2–4 minutes).'}</p>
-              {!waking && (
-                <>
-                  <SpeedChoice {...speed} />
-                  <button type="button" className="btn primary" onClick={() => void turnOn()} disabled={powering}>
-                    {powering ? 'Turning on…' : 'Turn it on'}
-                  </button>
-                </>
-              )}
-            </div>
-          </MachineNotice>
-        )}
-        {/* No machine on (or you'd rather): pictures and videos from the cloud, in seconds. */}
-        {status && (
-          <CloudMake
-            ai={ai}
-            machineOn={machineOn}
-            isActive={isActive}
-            open={!machineOn || cloudOpen}
-            onOpen={() => setCloudOpen(true)}
-            onMoved={() => setMoved((n) => n + 1)}
-          />
-        )}
-        <CreateView ai={ai} machineOn={machineOn} isActive={isActive} onOpenMakers={openMakers} reloadKey={moved} />
-      </div>
+      <MakeDownloads ai={ai} status={status} machineOn={machineOn} isActive={isActive} />
+      <CreateView
+        ai={ai}
+        machineOn={machineOn}
+        isActive={isActive}
+        covered={cloudOpen}
+        onOpenMakers={openMakers}
+        reloadKey={moved}
+        kicker={state ? `AI machine ${state}` : undefined}
+        notice={notice}
+        onCloud={(s) => {
+          setSeed((p) => ({ ...s, n: (p?.n ?? 0) + 1 }));
+          setCloudOpen(true);
+        }}
+        actions={
+          status ? (
+            <button type="button" className="mk-top-btn" aria-label="Cloud" aria-expanded={cloudOpen} onClick={() => setCloudOpen(true)}>
+              <Icon name="sparkle" size={18} />
+              <span>Cloud</span>
+            </button>
+          ) : null
+        }
+      />
+      {/* No machine on (or you'd rather): pictures and videos from the cloud, in seconds. Always
+          mounted, so what waits on this device moves into the gallery once the machine is on. */}
+      {status && (
+        <section className="mk-screen mk-cloud" aria-label="Cloud making" hidden={!cloudOpen}>
+          <header className="mk-screen-head mk-screen-head-bare">
+            <button type="button" className="mk-top-btn" onClick={() => setCloudOpen(false)}>
+              <Icon name="back" size={18} />
+              <span>Back to making</span>
+            </button>
+          </header>
+          <div className="mk-screen-scroll">
+            <CloudMake ai={ai} machineOn={machineOn} isActive={isActive} open onOpen={() => setCloudOpen(true)} onMoved={() => setMoved((n) => n + 1)} seed={seed} />
+          </div>
+        </section>
+      )}
     </div>
   );
 }

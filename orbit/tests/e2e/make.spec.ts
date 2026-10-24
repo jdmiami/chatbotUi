@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test';
 import { expectNoHorizontalOverflow, openOrbit } from './helpers';
-import { mockAi, openMakeApp } from './aiMocks';
+import { closeMakeGallery, makeStep, mockAi, openMakeApp, openMakeGallery } from './aiMocks';
 
 /** Make, its own app: in the cloud while the AI machine rests; what is made there moves into the gallery when it is on. */
 
@@ -46,8 +46,14 @@ test('Make in the cloud: a picture straight away, a video after a wait; both mov
 
   const errors = await openOrbit(page);
   const win = await openMakeApp(page);
+  // The steps hand over to the cloud while the machine rests: the words come along.
+  await makeStep(page, 'Describe it');
+  await win.getByRole('textbox', { name: 'Describe it' }).fill('a lighthouse at dawn');
+  await makeStep(page, 'Check & make');
+  await win.getByRole('button', { name: 'Make it in the cloud' }).click();
   const cloud = win.getByRole('region', { name: 'Make it in the cloud' });
   await expect(cloud).toBeVisible();
+  await expect(cloud.getByRole('textbox', { name: 'Describe it for the cloud' })).toHaveValue('a lighthouse at dawn');
   await expect(cloud).toContainText('Cloudflare: about 230 a day free');
 
   // A picture: back at once, waiting on this device.
@@ -72,20 +78,25 @@ test('Make in the cloud: a picture straight away, a video after a wait; both mov
   await expect(made.getByRole('button', { name: 'Video: waves at sunset' })).toBeVisible({ timeout: 15_000 });
   await expectNoHorizontalOverflow(page);
 
-  // Still there after a reload (kept on this device).
+  // Still there after a reload (kept on this device): the Cloud button opens it.
   await page.reload();
   const win2 = await openMakeApp(page);
+  await win2.getByRole('button', { name: 'Cloud', exact: true }).click();
   const made2 = win2.getByRole('list', { name: 'Made in the cloud' });
   await expect(made2.getByRole('listitem')).toHaveCount(2);
+  await win2.getByRole('region', { name: 'Cloud making' }).getByRole('button', { name: 'Back to making' }).click();
+  await expect(made2).toBeHidden();
 
-  // The machine comes on: both move into the gallery, and the cloud section folds away.
+  // The machine comes on: both move into the gallery.
   await win2.getByRole('button', { name: 'Turn it on' }).click();
   await expect.poll(() => imported.length, { timeout: 40_000 }).toBe(2);
   expect(imported.map((b) => b.prompt).sort()).toEqual(['a lighthouse at dawn', 'waves at sunset']);
   expect(imported.find((b) => b.kind === 'video')).toMatchObject({ url: 'https://v3.fal.media/files/clip.mp4', maker: 'cloud:fal' });
   expect(imported.find((b) => b.kind === 'image')).toMatchObject({ url: `data:image/png;base64,${PNG}`, maker: 'cloud:cloudflare' });
-  await expect(win2.getByRole('button', { name: 'Make it in the cloud instead' })).toBeVisible();
+  await expect(win2.getByRole('button', { name: 'Cloud', exact: true })).toBeVisible();
+  await openMakeGallery(page);
   await expect(win2.getByRole('list', { name: 'Your creations' }).getByRole('listitem')).toHaveCount(2);
+  await closeMakeGallery(page);
   expect(errors).toEqual([]);
 });
 

@@ -1,6 +1,6 @@
 import { expect, test, type Page } from '@playwright/test';
 import { expectNoHorizontalOverflow } from './helpers';
-import { mockAi } from './aiMocks';
+import { makeStep, mockAi } from './aiMocks';
 
 /** Orbit 0.5 in the AI app: Talk · Make and the orb, folded tools, a quiet conversation, the maker as a walk-through. */
 
@@ -94,12 +94,17 @@ test.describe('Orbit 0.5: AI', () => {
     );
     const errors = await openO5Ai(page);
     const win = await openO5Make(page);
-    for (const t of ['What will it be?', 'Who makes it', 'Describe it', 'Shape', 'Make it']) await expect(win.getByRole('heading', { name: t, exact: true })).toBeAttached();
+    // One step on screen at a time; the dots name all five.
+    await expect(win.getByRole('heading', { name: 'What will it be?', exact: true })).toBeInViewport();
+    const dots = win.getByRole('navigation', { name: 'Make, step by step' });
+    for (const t of ['What', 'Maker & style', 'Describe it', 'Extras', 'Check & make']) await expect(dots.getByRole('button', { name: new RegExp(`: ${t}$`) })).toBeVisible();
     await win.getByRole('radio', { name: /A video/ }).click();
     await expect(win.getByRole('heading', { name: 'Who makes it' })).toBeInViewport();
-    await expect(win.getByRole('heading', { name: 'Shape, length and start' })).toBeAttached();
+    await expect(win.getByRole('heading', { name: 'What will it be?' })).toHaveCount(0);
     await win.getByRole('radio', { name: 'LTX' }).click();
     await expect(win.getByRole('textbox', { name: 'Describe it' })).toBeInViewport();
+    await makeStep(page, 'Extras');
+    await expect(win.getByRole('heading', { name: 'Shape, length and photos' })).toBeInViewport();
     await expectNoHorizontalOverflow(page);
     await expectTappable(page, 'make');
     expect(errors).toEqual([]);
@@ -129,7 +134,7 @@ test.describe('Orbit 0.5: AI', () => {
       await expectNoHorizontalOverflow(page);
       await expectTappable(page, 'make');
       await page.screenshot({ path: testInfo.outputPath('make-vedit.png') });
-      await picks.getByRole('button', { name: 'Makers' }).click();
+      await win.getByRole('button', { name: 'Makers', exact: true }).click();
       const store = page.locator('.app-window[data-app="store"]');
       const editing = store.getByRole('region', { name: 'Video editing' });
       for (const n of ['Wan VACE', 'Erase from video', 'Sharpen video']) await expect(editing).toContainText(n);
@@ -150,7 +155,8 @@ test.describe('Orbit 0.5: AI', () => {
     await qwen.click();
     await expect(win.getByRole('textbox', { name: 'Describe it' })).toBeInViewport();
     // Makers opens the Store at its picture and video shelves, with a way to turn the machine on.
-    await picks.getByRole('button', { name: 'Makers' }).click();
+    await makeStep(page, 'Maker & style');
+    await win.getByRole('button', { name: 'Makers', exact: true }).click();
     const store = page.locator('.app-window[data-app="store"]');
     await expect(store.getByText(/Your AI machine is resting/)).toBeVisible();
     await expect(store.getByRole('region', { name: 'Video', exact: true })).toContainText('H3 Max');
@@ -195,7 +201,9 @@ test.describe('Orbit 0.5: AI', () => {
     const errors = await openO5Ai(page);
     const win = await openO5Make(page);
     await win.getByRole('radio', { name: /A picture/ }).click();
+    await makeStep(page, 'Describe it');
     await win.getByRole('textbox', { name: 'Describe it' }).fill('a lighthouse at dusk');
+    await makeStep(page, 'Check & make');
     await win.getByRole('button', { name: 'Make image' }).click();
     const job = win.locator('.ai-job').first();
     await expect(job.locator('.ai-job-line')).toHaveText('2nd in line · ready in about 3 min');
