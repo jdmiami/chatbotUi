@@ -318,6 +318,8 @@ export interface StudioRequest {
   change?: 'little' | 'lot';
   /** Sketch finish: how closely to follow the drawing's lines, 0..1. */
   follow?: number;
+  /** A saved character's id (Characters): its description goes first, its sheet pictures stand in for a photo. */
+  character?: string;
 }
 
 /** soReal: one shot of a movie (a video made from the last frame of the shot before). */
@@ -737,6 +739,16 @@ export class LocalAi {
 
   studioState(): Promise<StudioState> {
     return this.studioCall<StudioState>('/_orbit/studio').then((s) => ({ ...s, jobs: s.jobs.map((j) => this.absoluteJob(j)) }));
+  }
+
+  /** The character library on the AI machine (Characters in Make). */
+  characterCall<T>(path: string, init: RequestInit = {}): Promise<T> {
+    return this.studioCall<T>(`/_orbit/studio/characters${path}`, init);
+  }
+
+  /** A character's picture link, made absolute (the same link all day, so nothing reloads). */
+  characterLink(url: string): string {
+    return this.absolute({ url }).url;
   }
 
   async studioItems(): Promise<StudioItem[]> {

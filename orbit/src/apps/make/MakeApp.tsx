@@ -7,6 +7,7 @@ import type { CloudKind } from '../../services/ai/CloudMake';
 import { CreateView } from '../ai/CreateView';
 import { Icon } from '../../ui/Icon';
 import { CloudMake } from './CloudMake';
+import { CharactersScreen } from './CharactersScreen';
 import { MakeDownloads } from './MakeDownloads';
 import { MachineNotice } from '../../ui/MachineNotice';
 import { SpeedChoice, useSpeed } from '../../ui/SpeedChoice';
@@ -26,6 +27,8 @@ export default function MakeApp({ isActive }: AppProps) {
   const [status, setStatus] = useState<AiMachineStatus | null>(null);
   const [powering, setPowering] = useState(false);
   const [cloudOpen, setCloudOpen] = useState(false);
+  const [charsOpen, setCharsOpen] = useState(false);
+  const [useCharacter, setUseCharacter] = useState<{ id: string; n: number } | null>(null);
   const [seed, setSeed] = useState<{ prompt: string; kind: CloudKind; n: number } | null>(null);
   const [moved, setMoved] = useState(0);
   const speed = useSpeed(status);
@@ -93,7 +96,9 @@ export default function MakeApp({ isActive }: AppProps) {
         ai={ai}
         machineOn={machineOn}
         isActive={isActive}
-        covered={cloudOpen}
+        covered={cloudOpen || charsOpen}
+        useCharacter={useCharacter}
+        onCharacters={() => setCharsOpen(true)}
         onOpenMakers={openMakers}
         reloadKey={moved}
         kicker={state ? `AI machine ${state}` : undefined}
@@ -103,12 +108,18 @@ export default function MakeApp({ isActive }: AppProps) {
           setCloudOpen(true);
         }}
         actions={
-          status ? (
-            <button type="button" className="mk-top-btn" aria-label="Cloud" aria-expanded={cloudOpen} onClick={() => setCloudOpen(true)}>
-              <Icon name="sparkle" size={18} />
-              <span>Cloud</span>
+          <>
+            {status && (
+              <button type="button" className="mk-top-btn" aria-label="Cloud" aria-expanded={cloudOpen} onClick={() => setCloudOpen(true)}>
+                <Icon name="sparkle" size={18} />
+                <span>Cloud</span>
+              </button>
+            )}
+            <button type="button" className="mk-top-btn" aria-label="Characters" aria-expanded={charsOpen} onClick={() => setCharsOpen(true)}>
+              <Icon name="user" size={18} />
+              <span>Characters</span>
             </button>
-          ) : null
+          </>
         }
       />
       {/* No machine on (or you'd rather): pictures and videos from the cloud, in seconds. Always
@@ -126,6 +137,20 @@ export default function MakeApp({ isActive }: AppProps) {
           </div>
         </section>
       )}
+      {/* Characters: made-up adults you create from words, to add to a prompt or swap in. Over the steps, like the gallery. */}
+      <section className="mk-screen mk-characters" aria-label="Characters" hidden={!charsOpen}>
+        <CharactersScreen
+          ai={ai}
+          machineOn={machineOn}
+          open={charsOpen && isActive}
+          reloadKey={moved}
+          onClose={() => setCharsOpen(false)}
+          onUse={(c) => {
+            setUseCharacter((p) => ({ id: c.id, n: (p?.n ?? 0) + 1 }));
+            setCharsOpen(false);
+          }}
+        />
+      </section>
     </div>
   );
 }

@@ -1159,8 +1159,8 @@ export function createStudio(o) {
     return name;
   }
   /** The saved character a job names (only your own, and only once its sheet is accepted). */
-  function characterFor(req) {
-    const c = o.characters?.get?.(String(req.character));
+  async function characterFor(req) {
+    const c = await o.characters?.get?.(String(req.character));
     if (!c || (c.owner || '') !== (typeof req.owner === 'string' ? req.owner : '')) throw bad('That character is not in your library any more.', 404);
     return c;
   }
@@ -1195,7 +1195,7 @@ export function createStudio(o) {
     if (task === 'motion') needs.add('photo');
     // A saved character (characters.js): its description goes first in what the makers read, and its
     // sheet pictures stand in for the photo you would have added.
-    const character = req.character ? characterFor(req) : null;
+    const character = req.character ? await characterFor(req) : null;
     let prompt = String(req.prompt || '').trim().slice(0, 4000);
     if (character && (mode === 'image' || mode === 'video')) prompt = injectCharacter(prompt, character).slice(0, 4000);
     const target = String(req.target || '').trim().slice(0, 200);

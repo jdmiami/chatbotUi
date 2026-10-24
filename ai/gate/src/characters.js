@@ -343,9 +343,28 @@ export function createCharacters(o) {
       .map(publicOf);
   }
   /** A saved character that can be used: the other modules read it with this (draft ones are not). */
-  function get(id) {
+  function readyOf(id) {
     const c = lookup(id);
-    return c && c.status === 'ready' ? publicOf(c) : null;
+    return c && c.status === 'ready' ? c : null;
+  }
+  /**
+   * A character that can be used, for the other modules (studio.js, the held-review rules):
+   * `{ id, name, adult, fictional, age, owner?, descriptor, traits, sheet: [{ view, label, file }] }`.
+   * The sheet is ordered for use (index 0 the front view, index 1 the face close-up, then the rest)
+   * and each `file` is an absolute path to a picture on this machine's disk: pictures kept only in R2
+   * are brought down first. A draft (sheet not accepted) returns null.
+   */
+  async function get(id) {
+    const c = readyOf(id);
+    if (!c) return null;
+    const order = ['front', 'face'];
+    const rank = (e) => (order.includes(e.view) ? order.indexOf(e.view) : order.length);
+    const sheet = [];
+    for (const e of [...(c.sheet || [])].sort((a, b) => rank(a) - rank(b))) {
+      const p = await ensureFile(c, path.basename(e.file));
+      if (p) sheet.push({ view: e.view, label: e.label, file: p });
+    }
+    return { ...publicOf(c), sheet };
   }
   function lookup(id) {
     const c = cache.get(String(id)) || readSync(String(id));
@@ -835,6 +854,8 @@ export function createCharacters(o) {
     attach,
     list,
     get,
+    /** Whether a character is saved and usable (no files are fetched). */
+    has: (id) => Boolean(readyOf(id)),
     getAny: lookup,
     view,
     create,

@@ -93,7 +93,7 @@ test('a picture made with a character: the description goes first, the job and i
   assert.equal(job.character, made.id, 'the job is tagged');
   const wf = state.prompts.at(-1);
   const text = node(wf, 'TextEncodeQwenImage21').inputs.prompt;
-  assert.equal(text, `${characters.get(made.id).descriptor}, wearing a charcoal wool coat. walking a dog in the park`);
+  assert.equal(text, `${(await characters.get(made.id)).descriptor}, wearing a charcoal wool coat. walking a dog in the park`);
   assert.equal(node(wf, 'KSampler').inputs.seed, 12345, 'a locked seed');
   // The result is tagged too, so rules can see it.
   await fs.mkdir(path.join(dir, 'output', 'orbit'), { recursive: true });
@@ -150,7 +150,7 @@ test('video makers: the front view is the first frame unless you gave a photo; t
   assert.equal(job.character, made.id);
   let wf = state.prompts.at(-1);
   assert.ok(node(wf, 'LoadImage'), 'a first frame from the sheet');
-  assert.match(JSON.stringify(wf), new RegExp(characters.get(made.id).descriptor.slice(0, 30)));
+  assert.match(JSON.stringify(wf), new RegExp((await characters.get(made.id)).descriptor.slice(0, 30)));
   // Your own starting photo wins.
   await make(studio, { kind: 'video', prompt: 'she waves', character: made.id, image: PNG, seconds: 3 });
   wf = state.prompts.at(-1);

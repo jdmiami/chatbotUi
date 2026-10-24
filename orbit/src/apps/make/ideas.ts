@@ -7,7 +7,9 @@ import { cloudReady, cloudText } from '../../services/ai/CloudAi';
  * different one.
  */
 
-export type IdeaBox = 'picture' | 'video' | 'edit' | 'vedit' | 'replace' | 'erase' | 'swap' | 'restyle' | 'extend' | 'motion' | 'talking';
+export type IdeaBox = 'picture' | 'video' | 'edit' | 'vedit' | 'replace' | 'erase' | 'swap' | 'restyle' | 'extend' | 'motion' | 'talking' | CharacterBox;
+/** The boxes of the character maker. */
+export type CharacterBox = 'charname' | 'charidea' | 'charmarks' | 'charoutfit' | 'charpersonality';
 
 const LOCAL: Record<IdeaBox, string[]> = {
   picture: [
@@ -47,6 +49,24 @@ const LOCAL: Record<IdeaBox, string[]> = {
   extend: ['The camera pulls back to reveal the whole city', 'She turns, smiles and walks out of frame', 'The sun sets and the lights come on', 'A flock of birds flies across the sky'],
   motion: ['She dances in a sunlit room', 'He waves and walks towards the camera', 'They turn their head and laugh', 'A slow spin with the arms out wide'],
   talking: ['She sings softly on a small stage, warm spotlight', 'He talks to the camera in a cosy study', 'A friendly hello in a sunny garden'],
+  // The character maker: invented names and looks only, never real people.
+  charname: ['Mira Vale', 'Tomas Reyes', 'Ines Okafor', 'Kenji Hale', 'Saoirse Lund', 'Dario Voss', 'Noor Castell', 'Elio Marsh'],
+  charidea: [
+    'A retired lighthouse keeper who restores old clocks',
+    'A sharp-tongued detective who loves jazz and rainy nights',
+    'A cheerful pastry chef with a secret past as a sailor',
+    'A calm space pilot who writes letters home',
+    'A wandering healer with silver hair and a long coat',
+    'A sunny botanist who talks to her plants',
+  ],
+  charmarks: ['A small scar over the left eyebrow', 'Freckles across the nose and a gap in the front teeth', 'A silver streak in the hair and laugh lines', 'A tiny mole under the right eye', 'Ink on the fingers and a worn leather watch'],
+  charoutfit: ['A charcoal wool coat over a cream sweater and dark jeans', 'A forest-green linen shirt, brown trousers and boots', 'A tailored navy suit with a white open collar', 'A mustard raincoat over a striped top and black trousers', 'A denim jacket, white tee and tan boots'],
+  charpersonality: [
+    'Dry humour, fiercely loyal, hates early mornings and loves good coffee.',
+    'Warm and curious, always asking questions, a little bit clumsy.',
+    'Calm and watchful, speaks softly, never wastes a word.',
+    'Bold and playful, laughs easily, loves a dare.',
+  ],
 };
 
 /** Words that change between ideas (the cloud is asked for a fresh one each time). */
@@ -62,12 +82,25 @@ function tidy(text: string) {
     .trim();
 }
 
+/** What each character box wants, so a name is a name and not a picture prompt. */
+const CHARACTER_ASK: Record<CharacterBox, string> = {
+  charname: 'You suggest a name for a made-up adult character. Reply with a first name and a last name only, invented, never a real or famous person. Nothing else.',
+  charidea: 'You suggest a one-line idea for a made-up adult character (25 or older): who they are and what they are like, in plain words, under 20 words. Never a real or famous person. Nothing else.',
+  charmarks: 'You suggest distinguishing marks for a made-up adult character: a scar, freckles, a tattoo, glasses or similar, in plain words, under 15 words. Nothing else.',
+  charoutfit: 'You suggest an everyday outfit for a made-up adult character: clothes and colours, fully dressed, in plain words, under 20 words. Nothing else.',
+  charpersonality: 'You suggest personality notes for a made-up adult character: two or three traits and a habit, in plain words, under 25 words. Nothing else.',
+};
+const isCharacterBox = (box: IdeaBox): box is CharacterBox => box in CHARACTER_ASK;
+
 export async function fillIdea(box: IdeaBox, context: string, current: string, n: number, before: string[]): Promise<string> {
-  try {
-    const own = tidy(await ideaFor(context, current, n));
-    if (own) return own;
-  } catch {
-    /* the orb had nothing */
+  const character = isCharacterBox(box);
+  if (!character) {
+    try {
+      const own = tidy(await ideaFor(context, current, n));
+      if (own) return own;
+    } catch {
+      /* the orb had nothing */
+    }
   }
   try {
     if (await cloudReady()) {
@@ -77,7 +110,7 @@ export async function fillIdea(box: IdeaBox, context: string, current: string, n
           maxTokens: 120,
           temperature: 1,
           messages: [
-            { role: 'system', content: ASK },
+            { role: 'system', content: isCharacterBox(box) ? CHARACTER_ASK[box] : ASK },
             {
               role: 'user',
               content: `${context}\n${current.trim() ? `What is written now: ${current.trim()}\n` : ''}${before.length ? `Not any of these: ${before.slice(-4).join(' | ')}\n` : ''}Give idea number ${n + 1}.`,

@@ -213,7 +213,7 @@ test('store: create, change, rename, duplicate and delete; only accepted charact
   assert.match(made.id, /^[A-Za-z0-9_-]{6,40}$/);
   assert.ok(Number.isInteger(made.seed) && made.seed > 0, 'a seed is locked at creation');
   assert.equal(made.descriptor, checkCharacter(GOOD).value.descriptor);
-  assert.equal(characters.get(made.id), null, 'a draft is not for use');
+  assert.equal((await characters.get(made.id)), null, 'a draft is not for use');
   assert.deepEqual((await characters.list()).map((c) => c.id), [made.id], 'but it is in the library, as unfinished');
   await assert.rejects(characters.create({ ...GOOD, age: 20 }), (e) => e.status === 422 && e.blocked && e.message === MESSAGES.age);
   await assert.rejects(characters.create({ ...GOOD, name: 'Taylor Swift' }), (e) => e.status === 422 && e.message === MESSAGES.real);
@@ -306,22 +306,42 @@ test('sheet: the front from the text maker, every other view from the front with
   assert.equal(studio.removed.length, 8, 'every sheet picture was taken out of the gallery');
 
   // Not usable until the sheet is accepted.
-  assert.equal(characters.get(made.id), null);
+  assert.equal((await characters.get(made.id)), null);
   const ready = await characters.accept(made.id);
   assert.equal(ready.status, 'ready');
-  const got = characters.get(made.id);
+  const got = (await characters.get(made.id));
   assert.equal(got.adult, true);
   assert.equal(got.fictional, true);
   assert.equal(got.name, 'Mira Vale');
   assert.equal(got.descriptor, made.descriptor);
   assert.equal(got.sheet.length, 8);
-  assert.ok(got.sheet.every((e) => typeof e.file === 'string'));
+  // For the other modules: the front first, the face close-up second, each a picture on this machine's disk.
+  assert.deepEqual(got.sheet.slice(0, 2).map((e) => e.view), ['front', 'face']);
+  for (const e of got.sheet) {
+    assert.ok(path.isAbsolute(e.file), e.file);
+    assert.ok(await fs.stat(e.file), e.file);
+  }
   assert.equal(got.traits.hair, 'long wavy dark brown');
   const ref = await characters.reference(made.id, 'face');
   assert.equal(ref.view, 'face');
   assert.equal((await characters.reference(made.id, 'nope')).view, 'front', 'falls back to the front');
   assert.equal((await characters.file(made.id, 'front-1.png')).type, 'image/png');
   assert.equal(await characters.file(made.id, '../character.json'), null);
+});
+
+test('get brings pictures that are only in R2 down to the disk first', async () => {
+  const { dir, characters, mem } = await setup({ r2: true });
+  const made = await characters.create(GOOD);
+  await characters.startSheet(made.id, { extras: false });
+  await finished(characters, made.id);
+  await characters.accept(made.id);
+  await fs.rm(path.join(dir, 'characters', made.id, 'front-1.png'));
+  await fs.rm(path.join(dir, 'characters', made.id, 'face-5.png'), { force: true });
+  assert.ok(mem.objects.has(`characters/${made.id}/front-1.png`));
+  const got = await characters.get(made.id);
+  assert.ok(await fs.stat(got.sheet[0].file), 'the front was fetched');
+  assert.equal(path.basename(got.sheet[0].file), 'front-1.png');
+  assert.equal(got.sheet.length, 5);
 });
 
 test('sheet: without the angle maker the edit maker does every angle; without any picture maker it says so', async () => {
@@ -451,14 +471,14 @@ test('a changed look makes the sheet out of date and takes the character out of 
   await characters.startSheet(made.id, { extras: false });
   await finished(characters, made.id);
   await characters.accept(made.id);
-  assert.ok(characters.get(made.id));
+  assert.ok((await characters.get(made.id)));
   // Rename, age within the same words, or personality: the sheet is still right.
   await characters.update(made.id, { traits: { personality: 'Quiet and kind.' } });
-  assert.ok(characters.get(made.id));
+  assert.ok((await characters.get(made.id)));
   const edited = await characters.update(made.id, { traits: { hair: 'cropped grey' } });
   assert.equal(edited.sheetStale, true);
   assert.equal(edited.status, 'draft');
-  assert.equal(characters.get(made.id), null);
+  assert.equal((await characters.get(made.id)), null);
   await assert.rejects(characters.accept(made.id), /make the reference sheet again/i);
   await characters.startSheet(made.id, { redo: true, extras: false });
   const run = await finished(characters, made.id);
