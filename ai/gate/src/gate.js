@@ -13,6 +13,7 @@ import net from 'node:net';
 import { signJwt, verifyJwt } from './jwt.js';
 import { AUTO_OFF } from '../../../shared/autooff.js';
 import { acceptWebSocket, askedProtocols } from './wsock.js';
+import { createCharacterRoutes } from './characterRoutes.js';
 
 export const COOKIE = '__Host-orbit_ai';
 const COOKIE_HOURS = 12;
@@ -107,6 +108,7 @@ const bearer = (req) => {
  *   idleState()             numbers for the unauthenticated /_orbit/idle (the site's watchdog reads it)
  *   status()                async () => object for /_orbit/status
  *   studio                  image/video maker (studio.js), optional
+ *   characters              saved characters (characters.js), optional: the owner's routes under /_orbit/studio/characters
  *   lab                     meme lab (memes.js), optional
  *   studioKey               key Open WebUI uses for the studio from inside the machine (loopback only)
  *   r2test                  R2 speed test (r2.js createR2Test), optional
@@ -192,6 +194,8 @@ export function createGate(cfg, log = console) {
     res.writeHead(code, { 'content-type': type, 'cache-control': 'no-store' });
     res.end(type === 'application/json' ? JSON.stringify(body) : body);
   };
+  // Saved characters (characters.js): the owner's routes under /_orbit/studio/characters.
+  const handleCharacters = cfg.characters ? createCharacterRoutes({ characters: cfg.characters, send, readBody, sendFile, fileToken, fileTokenOk, activity }) : null;
 
   function upstreamHeaders(req, user) {
     const out = {};
@@ -743,6 +747,7 @@ export function createGate(cfg, log = console) {
       if (!signedIn && !fileTokenOk(url.searchParams.get('t'), fileMatch[1])) return send(res, 401, { error: 'Unauthorized' });
       return sendFile(req, res, await studio.file(fileMatch[1]), url.searchParams.has('download'));
     }
+    if (handleCharacters && (await handleCharacters(req, res, url, path, { signedIn }))) return;
     if (!signedIn) return send(res, 401, { error: { message: 'Unauthorized' } });
     if (req.method !== 'GET' && req.method !== 'HEAD') activity();
     // Results carry a link; API callers (Orbit) get one that works in <img>/<video> tags.

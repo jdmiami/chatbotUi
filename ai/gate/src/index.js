@@ -12,6 +12,7 @@ import fs from 'node:fs/promises';
 import { createStudio } from './studio.js';
 import { createMovies, runFfmpeg } from './movies.js';
 import { createNsfwCheck } from './nsfwcheck.js';
+import { createCharacters } from './characters.js';
 import { ADULT_NOTE, createMemeLab } from './memes.js';
 import { createStyleProfile } from './style.js';
 import { createSysStats } from './sysstats.js';
@@ -83,7 +84,19 @@ const gpuMemory = async () => Math.max(0, ...((await gpuStats().catch(() => null
 const liveEnvs = env.STUDIO_DIR
   ? createLiveEnvs({ dir: env.STUDIO_DIR, script: fileURLToPath(new URL('../live_env.sh', import.meta.url)), node: process.execPath, log: console })
   : null;
+// Characters (characters.js): fictional adults made from words, each with a reference sheet. Kept next to the
+// studio's files, and in R2 with the gallery when R2 is used. The studio reads them for jobs made with a character.
+const characters = env.STUDIO_DIR ? createCharacters({ dir: path.join(env.STUDIO_DIR, 'characters'), r2: galleryR2, log: console }) : null;
 // Image and video maker (ComfyUI, started by ai/studio.sh). Off when STUDIO_DIR isn't set.
+// Looks at every picture and video for NSFW, on the CPU (nsfwcheck.js).
+const nsfwCheck = env.STUDIO_DIR
+  ? createNsfwCheck({
+      python: path.join(env.STUDIO_DIR, 'venv', 'bin', 'python'),
+      script: fileURLToPath(new URL('../nsfw_worker.py', import.meta.url)),
+      env: { HF_HOME: path.join(env.STUDIO_DIR, 'hf') },
+      ffmpeg: (args) => runFfmpeg(args, { timeoutMs: 60_000 }),
+    })
+  : null;
 const studio = env.STUDIO_DIR
   ? createStudio({
       dir: env.STUDIO_DIR,
@@ -110,13 +123,8 @@ const studio = env.STUDIO_DIR
       turboMessage: TURBO_MESSAGE,
       // Gated downloads (LTX-2.5). A Runpod secret that was never set arrives as "{{ RUNPOD_SECRET_… }}".
       hfToken: /^\{\{/.test(env.HF_TOKEN || '') ? '' : env.HF_TOKEN || env.HUGGING_FACE_HUB_TOKEN || '',
-      // Looks at every picture and video for NSFW, on the CPU (nsfwcheck.js).
-      nsfw: createNsfwCheck({
-        python: path.join(env.STUDIO_DIR, 'venv', 'bin', 'python'),
-        script: fileURLToPath(new URL('../nsfw_worker.py', import.meta.url)),
-        env: { HF_HOME: path.join(env.STUDIO_DIR, 'hf') },
-        ffmpeg: (args) => runFfmpeg(args, { timeoutMs: 60_000 }),
-      }),
+      nsfw: nsfwCheck,
+      characters,
     })
   : null;
 // Live draw (live.js): pix2pix-turbo answers each stroke in its own worker on the graphics card,
@@ -373,6 +381,38 @@ const lab =
       })
     : null;
 
+// A vision model on this machine (when there is one) tells whether a new view of a character is the same
+// person as the front view; the character maker remakes the ones that are not.
+async function sameCharacter({ reference, candidate }) {
+  const m = await labChatModel();
+  if (!m?.vision) return null;
+  await studio?.yieldGpu?.().catch(() => {});
+  const [a, b] = await Promise.all([fs.readFile(reference), fs.readFile(candidate)]);
+  const res = await fetch(`${OLLAMA}/api/chat`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({
+      model: m.name,
+      stream: false,
+      options: { temperature: 0.1 },
+      messages: [
+        {
+          role: 'system',
+          content:
+            'You compare two pictures of made-up characters. Answer only with JSON: {"score": 0 to 100}. ' +
+            'The score says how sure you are that both pictures show the same person: same face, hair, skin, eyes and build (the pose, the angle, the expression and the clothes may differ). 100 is certainly the same person.',
+        },
+        { role: 'user', content: 'The first picture is the reference. Is the second picture the same person?', images: [a.toString('base64'), b.toString('base64')] },
+      ],
+    }),
+    signal: AbortSignal.timeout(120_000),
+  });
+  if (!res.ok) return null;
+  const score = /"score"\s*:\s*(\d{1,3})/.exec((await res.json())?.message?.content || '');
+  return score ? { score: Math.min(100, Number(score[1])) } : null;
+}
+characters?.attach({ studio, judge: sameCharacter, check: nsfwCheck ? (file) => nsfwCheck.check(file, { kind: 'image' }) : null });
+
 const sys = createSysStats({ volume: env.PERSIST_DIR || '/workspace' });
 const gpu = createGpuStats({ ollama: OLLAMA, comfy: studio ? env.COMFY_URL || 'http://127.0.0.1:8188' : null });
 const storage = createStorageReport({
@@ -456,6 +496,7 @@ const server = createGate({
   // The same shape as the Linux machine's /idle, plus which AI machine this is.
   idleState: () => ({ ...idle.state(), role: ROLE, uptimeMinutes: Math.round((Date.now() - startedAt) / 60000) }),
   studio,
+  characters,
   movies,
   lab,
   liveDraw,
@@ -475,6 +516,7 @@ idle.start();
 webuiBackup?.start();
 
 if (studio) studio.start();
+void characters?.start().catch((err) => console.warn(`[gate] characters: ${err.message}`));
 lab?.start();
 if (studio && !NO_CHAT) {
   // Put the Image/Video maker models in the playground once Open WebUI is up.
