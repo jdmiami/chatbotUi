@@ -675,3 +675,4 @@
   .mk-top .mk-top-btn > span:not(.mk-count, .mk-live) { display: none; }
   .mk-top .mk-count { position: absolute; top: -4px; right: -6px; }
 }
+.mk-screen-acts { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; }

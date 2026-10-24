@@ -4,7 +4,7 @@ import { Icon } from '../../ui/Icon';
 import { ConfirmSheet, EmptyState, IconButton, Segmented } from '../../ui/components';
 import { isNsfw } from '../../ui/nsfw';
 import { connectMarks, nsfwFor, rememberItems, useNsfwFlags } from '../../ui/nsfwFlags';
-import { GalleryGrid, GalleryViewer, type GalleryMedia } from './Gallery';
+import { GalleryGrid, GalleryViewer, useGalleryStepper, type GalleryMedia } from './Gallery';
 import { AiError, type LocalAi, type StudioItem, type StudioJob, type StudioKind, type StudioMakerInfo, type StudioState, type VideoTask } from '../../services/ai/LocalAi';
 import { PENDING_TEXT, offlineMakers, progressText, progressWhy, rememberMakers, withCatalog } from './makerCatalog';
 import { AudioSource, VideoSource, type AudioPick, type VideoPick } from './VideoInputs';
@@ -217,6 +217,8 @@ export function CreateView({
     });
 
   useNsfwFlags();
+  // The viewer steps through the gallery in the order the grid shows it.
+  const stepper = useGalleryStepper(items.map(asMedia), viewing?.id);
   useEffect(() => connectMarks(ai), [ai]);
   const loadItems = useCallback(() => {
     ai.studioItems()
@@ -1044,10 +1046,16 @@ export function CreateView({
             <p className="o5-kicker">The gallery</p>
             <h3 className="o5-chapter-title">Your creations</h3>
           </div>
-          <button type="button" className="mk-top-btn" onClick={() => setGalleryOpen(false)}>
-            <Icon name="back" size={18} />
-            <span>Back to making</span>
-          </button>
+          <div className="mk-screen-acts">
+            <button type="button" className="mk-top-btn" onClick={() => launch('gallery')}>
+              <Icon name="image" size={18} />
+              <span>Everything, in Gallery</span>
+            </button>
+            <button type="button" className="mk-top-btn" onClick={() => setGalleryOpen(false)}>
+              <Icon name="back" size={18} />
+              <span>Back to making</span>
+            </button>
+          </div>
         </header>
         <div className="mk-screen-scroll">
           {galleryOpen && jobList}
@@ -1074,6 +1082,9 @@ export function CreateView({
           title={viewing.kind === 'image' ? 'Image' : 'Video'}
           origin={viewFrom.current}
           onClose={() => setViewing(null)}
+          onPrev={stepper.prev ? () => setViewing(items.find((x) => x.id === stepper.prev!.id) ?? null) : null}
+          onNext={stepper.next ? () => setViewing(items.find((x) => x.id === stepper.next!.id) ?? null) : null}
+          position={stepper.index >= 0 ? { index: stepper.index, count: stepper.count } : undefined}
           words={<p className="ai-viewer-prompt">{viewing.prompt}</p>}
         >
           <div className="ai-viewer-actions">

@@ -11,6 +11,7 @@ export type AppId =
   | 'store'
   | 'soreal'
   | 'lab'
+  | 'gallery'
   | 'stats'
   | 'settings'
   // Full-screen apps that live on the site (Orbit shows their page and opens them).
@@ -212,4 +213,4 @@ function migrate(s: Settings): Settings {
   return rest;
 }
 
-export const APP_ORDER: AppId[] = ['terminal', 'editor', 'agent', 'ai', 'make', 'livedraw', 'store', 'soreal', 'lab', 'stats', 'playground', 'vscode', 'desktop', 'windows', 'settings'];
+export const APP_ORDER: AppId[] = ['terminal', 'editor', 'agent', 'ai', 'make', 'livedraw', 'store', 'soreal', 'lab', 'gallery', 'stats', 'playground', 'vscode', 'desktop', 'windows', 'settings'];

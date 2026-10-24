@@ -299,7 +299,9 @@ async function createAiPod(tier: AiTier, role: 'main' | 'helper' = 'main', usual
             ALLOWED_ORIGINS: origins,
             IDLE_MINUTES: String(autoOffMinutes()),
             DEFAULT_MODELS: e.models,
-            ...(r2 ? { STORAGE: 'r2', ...r2SecretEnv() } : {}),
+            // On a network volume the gallery still goes to R2 too (GALLERY=r2), so the site can show
+            // it while the machine is off (the machine copies what was only on the volume first).
+            ...(r2 ? { STORAGE: 'r2', ...r2SecretEnv() } : { GALLERY: 'r2', ...r2SecretEnv() }),
             ...hfTokenEnv(),
             ...(role === 'helper' ? { AI_ROLE: 'helper' } : {}),
           },

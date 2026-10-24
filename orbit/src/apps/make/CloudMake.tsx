@@ -1,9 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useShell } from '../../state/shell';
 import { Icon } from '../../ui/Icon';
+import { ConfirmSheet } from '../../ui/components';
 import { TextArea } from '../../ui/TextArea';
 import { isNsfw } from '../../ui/nsfw';
-import { GalleryGrid, GalleryViewer, type GalleryMedia } from '../ai/Gallery';
+import { GalleryGrid, GalleryViewer, useGalleryStepper, type GalleryMedia } from '../ai/Gallery';
+import { saveCloudToStorage } from '../../services/ai/StoredGallery';
 import type { LocalAi } from '../../services/ai/LocalAi';
 import {
   cloudMadeAdd,
@@ -13,6 +15,7 @@ import {
   cloudMakeStart,
   cloudMakeStatus,
   moveCloudMadeToGallery,
+  moveCloudMadeToStorage,
   type CloudJob,
   type CloudKind,
   type CloudMade,
@@ -22,7 +25,9 @@ import {
 
 /**
  * Make in the cloud: pictures and videos without the AI machine (Cloudflare, fal.ai), a few cents
- * or free. What comes back waits on this device and moves into the gallery once the machine is on.
+ * or free. What comes back is saved straight into the gallery kept in cloud storage when the site
+ * has it (it shows in the Gallery app at once); otherwise it waits on this device and moves into
+ * the gallery once the machine is on.
  */
 export function CloudMake({
   ai,
@@ -53,6 +58,11 @@ export function CloudMake({
   const [made, setMade] = useState<CloudMade[]>([]);
   const [viewing, setViewing] = useState<CloudMade | null>(null);
   const from = useRef<DOMRect | null>(null);
+  // Saved into cloud storage during this visit: still shown here (with links that work for hours).
+  const [saved, setSaved] = useState<CloudMade[]>([]);
+  const [confirmDelete, setConfirmDelete] = useState<CloudMade | null>(null);
+  const [storage, setStorage] = useState(true);
+  const launch = useShell((s) => s.launch);
 
   useEffect(() => {
     if (!seed) return;
@@ -79,6 +89,17 @@ export function CloudMake({
     });
   }, [machineOn, made.length, ai, reload, onMoved, toast]);
 
+  // The machine is off: what waits here goes into cloud storage when the site has it.
+  useEffect(() => {
+    if (machineOn || !made.length || !storage) return;
+    const waiting = made;
+    void moveCloudMadeToStorage(saveCloudToStorage).then((n) => {
+      if (!n) return setStorage(false);
+      reload();
+      void cloudMadeList().then((left) => setSaved((list) => [...waiting.filter((w) => !left.some((l) => l.id === w.id)), ...list]));
+    });
+  }, [machineOn, made, storage, reload]);
+
   // Follow queued jobs until they are done.
   const waiting = jobs.filter((j) => j.status === 'queued' || j.status === 'running');
   useEffect(() => {
@@ -99,6 +120,16 @@ export function CloudMake({
 
   const keep = async (j: CloudJob & { prompt: string }) => {
     const item: CloudMade = { id: j.id.slice(-24) + Date.now().toString(36), kind: j.kind, prompt: j.prompt, url: j.url!, provider: j.provider, createdAt: new Date().toISOString() };
+    // Straight into the gallery kept in cloud storage (machine off), else it waits on this device.
+    if (!machineOn && storage) {
+      try {
+        await saveCloudToStorage({ url: item.url, kind: item.kind, prompt: item.prompt, maker: `cloud:${item.provider}` });
+        setSaved((list) => [item, ...list]);
+        return;
+      } catch {
+        setStorage(false);
+      }
+    }
     await cloudMadeAdd(item);
     reload();
   };
@@ -120,6 +151,14 @@ export function CloudMake({
     }
   };
 
+  // The viewer steps through what is shown below (hooks before the early answer).
+  const shownMade = [...saved.filter((s) => !made.some((m) => m.id === s.id)), ...made];
+  const step = useGalleryStepper(
+    shownMade.map((m) => ({ id: `cloud-${m.id}`, kind: m.kind, url: m.url, label: m.prompt, nsfw: isNsfw(m.prompt) })),
+    viewing ? `cloud-${viewing.id}` : null,
+  );
+  const byMediaId = (id: string | undefined) => shownMade.find((x) => `cloud-${x.id}` === id) ?? null;
+
   if (info === undefined) return null;
   if (!open)
     return (
@@ -131,6 +170,7 @@ export function CloudMake({
     );
   const makers = kind === 'video' ? info?.video ?? [] : info?.image ?? [];
   const media = (m: CloudMade): GalleryMedia => ({ id: `cloud-${m.id}`, kind: m.kind, url: m.url, label: m.prompt, nsfw: isNsfw(m.prompt) });
+  const isSaved = (m: CloudMade) => saved.some((s) => s.id === m.id);
 
   return (
     <section className="cloud-make" aria-labelledby="cloud-make-t">
@@ -217,21 +257,42 @@ export function CloudMake({
           )}
         </>
       )}
-      {made.length > 0 && (
+      {shownMade.length > 0 && (
         <>
-          <p className="o5-kicker cloud-make-made">Made in the cloud{machineOn ? ' · moving into your gallery' : ' · waiting on this device'}</p>
+          <p className="o5-kicker cloud-make-made">
+            Made in the cloud{made.length === 0 ? ' · saved in your gallery' : machineOn ? ' · moving into your gallery' : ' · waiting on this device'}
+          </p>
           <GalleryGrid
-            items={made.map(media)}
+            items={shownMade.map(media)}
             label="Made in the cloud"
             onOpen={(m, rect) => {
               from.current = rect;
-              setViewing(made.find((x) => `cloud-${x.id}` === m.id) ?? null);
+              setViewing(byMediaId(m.id));
             }}
           />
         </>
       )}
       {viewing && (
-        <GalleryViewer media={media(viewing)} title={viewing.kind === 'video' ? 'Video' : 'Picture'} origin={from.current} onClose={() => setViewing(null)} words={viewing.prompt}>
+        <GalleryViewer
+          media={media(viewing)}
+          title={viewing.kind === 'video' ? 'Video' : 'Picture'}
+          origin={from.current}
+          onClose={() => setViewing(null)}
+          onPrev={step.prev ? () => setViewing(byMediaId(step.prev!.id)) : null}
+          onNext={step.next ? () => setViewing(byMediaId(step.next!.id)) : null}
+          position={step.index >= 0 ? { index: step.index, count: step.count } : undefined}
+          words={viewing.prompt}
+        >
+          {isSaved(viewing) ? (
+            <div className="row-inline">
+              <a className="btn small ghost" href={viewing.url} download target="_blank" rel="noopener noreferrer">
+                Save
+              </a>
+              <button type="button" className="btn small ghost" onClick={() => launch('gallery')}>
+                Saved in your gallery: open Gallery
+              </button>
+            </div>
+          ) : (
           <div className="row-inline">
             <a className="btn small ghost" href={viewing.url} download target="_blank" rel="noopener noreferrer">
               Save
@@ -239,15 +300,28 @@ export function CloudMake({
             <button
               type="button"
               className="btn small ghost"
-              onClick={() => {
-                void cloudMadeRemove(viewing.id).then(reload);
-                setViewing(null);
-              }}
+              onClick={() => setConfirmDelete(viewing)}
             >
               Delete
             </button>
           </div>
+          )}
         </GalleryViewer>
+      )}
+      {confirmDelete && (
+        <ConfirmSheet
+          title="Delete this?"
+          message="It is removed from this device."
+          confirmLabel="Delete"
+          destructive
+          onConfirm={() => {
+            const it = confirmDelete;
+            setConfirmDelete(null);
+            setViewing(null);
+            void cloudMadeRemove(it.id).then(reload);
+          }}
+          onCancel={() => setConfirmDelete(null)}
+        />
       )}
     </section>
   );
