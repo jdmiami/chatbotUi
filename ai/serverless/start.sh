@@ -20,9 +20,11 @@ log() { echo "[serverless] $*"; }
 if ! grep -qs " $V " /proc/mounts && [ ! -d "$V/models" ]; then
   log "warning: no network volume at $V; models will be downloaded onto the container's disk every time"
 fi
-mkdir -p "$V/models" "$V/hf" "$S/input" "$S/output" "$S/uploads"
-# Models live on the volume (studio.sh links $S/models there); the NSFW check's model too.
-export MODELS_DIR="$V/models"
+mkdir -p "$V/models" "$V/hf" "$S/input" "$S/output" "$S/uploads" /opt/stage
+# Models live on the volume (studio.sh links $S/models there); the NSFW check's model too. A global
+# volume is object storage (no partial writes), so each file comes down onto the container's own disk
+# first (MODEL_STAGE_DIR) and is copied over whole, as on the drawing machine.
+export MODELS_DIR="$V/models" MODEL_STAGE_DIR=/opt/stage
 rm -rf "$S/hf" && ln -sfn "$V/hf" "$S/hf"
 
 # ComfyUI, already installed in the image (ENV_BAKED: never packed to or from R2).
