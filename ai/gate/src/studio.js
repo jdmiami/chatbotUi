@@ -311,7 +311,7 @@ export function createStudio(o) {
       lastProgressLog = t;
       const pct = c.total ? Math.floor((c.completed / c.total) * 100) : null;
       const sp = speedOf(c);
-      log.info?.(`[download] ${c.name}: ${pct != null ? `${pct}%` : `${(c.completed / GB).toFixed(1)} GB`} ${c.saving ? `onto ${c.source}` : `from ${c.source}`}${sp ? `, ${Math.round(sp / 1e6)} MB/s` : ''}`);
+      log.info?.(`[download] ${c.name}: ${pct != null ? `${pct}%` : `${(c.completed / GB).toFixed(1)} GB`} ${c.saving || c.placing ? `onto ${c.source}` : `from ${c.source}`}${sp ? `, ${Math.round(sp / 1e6)} MB/s` : ''}`);
     }
   }
   function speedOf(c) {
@@ -340,6 +340,9 @@ export function createStudio(o) {
     // A file whose size is known is told apart from a half-copied one by its size; one without is
     // copied under another name first.
     const to = file.size ? dest : `${dest}.copying`;
+    // A second pass over the same bytes: the count starts again so it reads 0–100%, not up to 200%.
+    const c = download.current;
+    if (c) Object.assign(c, { completed: 0, source: 'the drive', placing: true, samples: [[Date.now(), 0]] });
     const counter = new Transform({
       transform(chunk, _enc, cb) {
         tick(chunk.length);
@@ -621,7 +624,7 @@ export function createStudio(o) {
     if (state === 'retrying') return `The last try failed (${download.error}). It tries again by itself.`;
     if (!c) return 'Starting the next file…';
     if (speed != null && speed < 5e6) return `Slow: ${c.name} is coming from ${c.source} at only ${mb(speed)}. That site is the bottleneck, not your machine.`;
-    const why = c.saving ? `saving ${c.name} to cloud storage, so the next start is quick` : `downloading ${c.name} from ${c.source}${speed ? ` at ${mb(speed)}` : ''}`;
+    const why = c.saving ? `saving ${c.name} to cloud storage, so the next start is quick` : c.placing ? `copying ${c.name} onto the drive` : `downloading ${c.name} from ${c.source}${speed ? ` at ${mb(speed)}` : ''}`;
     return `One file at a time: ${why}.${waiting ? ` ${waiting} more wait${waiting === 1 ? 's' : ''} behind it.` : ''}`;
   }
 
@@ -658,7 +661,7 @@ export function createStudio(o) {
       total += file.size || 0;
       if (download.done.has(fid(file))) done += file.size || 0;
       // Downloaded and being copied to cloud storage: here already.
-      else if (download.current?.id === fid(file)) done += download.current.saving ? file.size || download.current.total : download.current.completed;
+      else if (download.current?.id === fid(file)) done += download.current.saving || download.current.placing ? file.size || download.current.total : download.current.completed;
     }
     return { total, done };
   }
@@ -2249,7 +2252,7 @@ export function createStudio(o) {
       running: up,
       image: { ready: imageReady && up, downloaded: imageReady, percent: imageReady ? 100 : kindProgress('image') },
       video: { ready: videoReady && up, downloaded: videoReady, percent: videoReady ? 100 : kindProgress('video') },
-      downloading: download.current ? { name: download.current.name, saving: Boolean(download.current.saving), percent: download.current.total ? Math.floor((download.current.completed / download.current.total) * 100) : 0 } : null,
+      downloading: download.current ? { name: download.current.name, saving: Boolean(download.current.saving), percent: download.current.total ? Math.min(100, Math.floor((download.current.completed / download.current.total) * 100)) : 0 } : null,
       downloadError: download.error,
       jobs: active().filter((j) => !j.background).map(publicJob),
     };

@@ -39,5 +39,5 @@ cd /opt/gate
 exec env PORT=8080 \
   SITE_URL="${SITE_URL:-}" ALLOWED_ORIGINS="${ALLOWED_ORIGINS:-}" IDLE_MINUTES="${IDLE_MINUTES:-60}" \
   AI_USER_EMAIL="${AI_USER_EMAIL:-owner@orbit.local}" \
-  STUDIO_DIR="$S" AI_ROLE=helper PERSIST_DIR=/opt STORAGE=r2 \
+  STUDIO_DIR="$S" AI_ROLE=helper PERSIST_DIR=/opt STORAGE=r2 KEEP_MODELS_LOADED=1 \
   "$NODE" src/index.js

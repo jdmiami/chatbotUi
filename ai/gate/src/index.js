@@ -104,6 +104,9 @@ const studio = env.STUDIO_DIR
       ollama: OLLAMA,
       helper: HELPER,
       role: ROLE,
+      // The serverless worker has no chat to make room for: its makers stay loaded between jobs
+      // (reading them from the drive again costs minutes); Runpod stops the worker itself.
+      freeAfterMs: env.KEEP_MODELS_LOADED ? Infinity : undefined,
       r2,
       gallery: galleryR2,
       // STORAGE=global (the drawing machine): files come down onto the pod's disk, then go to the drive.

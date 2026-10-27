@@ -122,6 +122,19 @@ test('studio: a job frees the chat model, runs on ComfyUI, and lands in the gall
   assert.deepEqual(await studio.items(), []);
 });
 
+test('studio on the serverless worker (makers kept loaded): the GPU is never handed back between jobs', async () => {
+  const { dir, state } = await newStudio();
+  const studio = createStudio({ dir, files: FILES, fetchImpl: fakeServices(state), WebSocketImpl: null, log: { warn() {}, info() {} }, freeAfterMs: Infinity });
+  const job = await studio.createJob({ kind: 'image', prompt: 'a red fox in snow', size: 'portrait' });
+  await fs.mkdir(path.join(dir, 'output', 'orbit'), { recursive: true });
+  await fs.writeFile(path.join(dir, 'output', 'orbit', state.outName), 'PNGDATA');
+  state.finished = true;
+  await studio.poll();
+  await studio.poll();
+  assert.equal(studio.job(job.id).status, 'done');
+  assert.ok(!state.calls.some((c) => c.path === '/free'), 'the maker stays loaded for the next picture');
+});
+
 test('studio with R2: the gallery is kept there, shows up on a fresh machine, and is deleted there too', async () => {
   const { r2, objects } = memoryR2();
   const { dir, state } = await newStudio();
