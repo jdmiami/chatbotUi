@@ -26,6 +26,12 @@ import { imageFor, mapStatus, serverlessRefusal, WORKER_IMAGE, type ServerlessJo
 export const POOLS = ['AMPERE_48', 'ADA_48_PRO'];
 /** Per hour of GPU time, billed by the second (Runpod's serverless rates for those pools). */
 export const PRICE_PER_HOUR = { from: 1.22, to: 1.75 };
+/**
+ * How long a worker stays up after a job, billed. Loading a maker from the drive takes minutes (about
+ * 100 MB/s: 3 min for a picture maker, 7+ for a video one), so a few minutes of warm waiting lets the
+ * next picture in a row start at once instead of paying that load again.
+ */
+export const IDLE_SECONDS = 300;
 
 const RP_JOBS = 'https://api.runpod.ai/v2/';
 const endpointName = () => `${env().name}-serverless`;
@@ -99,7 +105,7 @@ export async function ensureEndpoint(): Promise<Endpoint | null> {
         disk: 80,
         env: workerEnv(),
         // One worker: two at once would write the same drive (model downloads) at the same time.
-        workers: { min: 0, max: 1, idleTimeout: 90 },
+        workers: { min: 0, max: 1, idleTimeout: IDLE_SECONDS },
         flashboot: 'FLASHBOOT',
         // A job may first bring a maker's files onto the drive (tens of GB), then make a video.
         timeout: 2 * 3600_000,
@@ -137,14 +143,19 @@ async function desiredImage(): Promise<string> {
 }
 
 /**
- * The endpoint runs this deployment's image (like the AI machine gets REPO_RAW at start); a new image
- * carries the current settings too. Only a changed image makes a release (workers are replaced then).
+ * The endpoint runs this deployment's image (like the AI machine gets REPO_RAW at start) with this
+ * deployment's idle time; a new image carries the current settings too. Only a changed image makes a
+ * release (workers are replaced then); the idle time alone reaches the scheduler without one.
  */
 async function syncImage(ep: Endpoint) {
   const image = await desiredImage();
-  if (ep.image === image) return;
-  await runpod(`/serverless/${encodeURIComponent(ep.id)}`, { method: 'PATCH', body: JSON.stringify({ image, env: { ...(ep.env ?? {}), ...workerEnv() } }) });
+  const idleOk = ep.workers?.idleTimeout === IDLE_SECONDS;
+  if (ep.image === image && idleOk) return;
+  const body: Record<string, unknown> = idleOk ? {} : { workers: { min: 0, max: 1, idleTimeout: IDLE_SECONDS } };
+  if (ep.image !== image) Object.assign(body, { image, env: { ...(ep.env ?? {}), ...workerEnv() } });
+  await runpod(`/serverless/${encodeURIComponent(ep.id)}`, { method: 'PATCH', body: JSON.stringify(body) });
   ep.image = image;
+  ep.workers = { ...(ep.workers ?? {}), min: 0, max: 1, idleTimeout: IDLE_SECONDS };
 }
 
 export interface ServerlessInfo {

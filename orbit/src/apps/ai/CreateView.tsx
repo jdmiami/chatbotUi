@@ -583,7 +583,7 @@ export function CreateView({
       return 'Turn on your AI machine to make images and videos.';
     }
     // Ready to go on the serverless machine: say where it is made and what it costs.
-    if (!machineOn && serverless && promptOk && inputsOk) return `Your AI machine is off, so this is made on a pay-per-second GPU: ${serverlessPriceWords(serverless)}.`;
+    if (!machineOn && serverless && promptOk && inputsOk) return `Your AI machine is off, so this is made on a pay-per-second GPU: ${serverlessPriceWords(serverless)}. The first one after a quiet spell takes a few minutes while the maker loads; the next ones in a row start at once.`;
     if (machineOn) {
       if (studioError) return studioError;
       if (!studio) return 'Checking the image and video maker…';
