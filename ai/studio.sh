@@ -38,7 +38,8 @@ ENV_KEY="env/studio-$(echo "$STAMP" | sha1sum | cut -c1-12).tar"
 r2() { "${NODE:-node}" /opt/gate/src/r2cli.js "$@"; }
 # The packed environment: on the global volume (ENV_STORE) or in R2. On the volume a tar counts only
 # once its .ok mark is written (a half-written one is never unpacked).
-packed() { [ "${STORAGE:-volume}" = r2 ] || [ "${STORAGE:-}" = global ]; }
+# ENV_BAKED=1 (the serverless AI machine): the environment is built into the container, never packed or unpacked.
+packed() { [ -z "${ENV_BAKED:-}" ] && { [ "${STORAGE:-volume}" = r2 ] || [ "${STORAGE:-}" = global ]; }; }
 env_get() { if [ -n "${ENV_STORE:-}" ]; then [ -e "$ENV_STORE/$1.ok" ] && tar -xf "$ENV_STORE/$1" -C "$2"; else r2 get-tar "$1" "$2"; fi; }
 env_has() { if [ -n "${ENV_STORE:-}" ]; then [ -e "$ENV_STORE/$1.ok" ]; else r2 has "$1"; fi; }
 env_put() {
@@ -127,6 +128,12 @@ if [ -n "$SHARED_HELPER" ]; then
   done
 fi
 
+# STUDIO_INSTALL_ONLY=1: install once and stop, never retry (building the serverless AI machine's container, ai/serverless/Dockerfile).
+if [ -n "${STUDIO_INSTALL_ONLY:-}" ]; then
+  install || { log "install failed"; exit 1; }
+  log "installed"
+  exit 0
+fi
 until [ -n "$SHARED_HELPER" ] || install; do
   state "error: install failed, retrying in 60s"
   log "install failed, retrying in 60s"

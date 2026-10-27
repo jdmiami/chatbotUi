@@ -1,4 +1,5 @@
 import { runWatchdog, type WatchdogResult } from '@/lib/watchdog';
+import { ensureEndpoint } from '@/lib/serverlessMake';
 
 export const dynamic = 'force-dynamic';
 
@@ -12,6 +13,9 @@ export async function GET() {
   if (last && Date.now() - last.at < 60_000) return Response.json(last.result, { headers: { 'cache-control': 'no-store' } });
   try {
     const result = await runWatchdog();
+    // The serverless AI machine's endpoint is made (or moved to this deployment's image) here too, so it
+    // is ready before anyone opens Make with the machine off. Nothing about it is reported.
+    await ensureEndpoint().catch(() => null);
     last = { at: Date.now(), result };
     return Response.json(result, { headers: { 'cache-control': 'no-store' } });
   } catch (err) {

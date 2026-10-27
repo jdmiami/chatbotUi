@@ -296,6 +296,8 @@ const idle = createAutoOff({
   warnMinutes: AUTO_OFF.warnMinutes,
   warn: push ? async () => void (await push.send()) : null,
   stop: async () => {
+    // The serverless AI machine (ai/serverless) has no pod of its own: Runpod stops its worker itself.
+    if (!env.RUNPOD_POD_ID) return;
     // Last chats first: the disk is wiped when the machine stops.
     if (webuiBackup) await webuiBackup.snapshot().catch((err) => console.warn(`[gate] could not save the playground: ${err.message}`));
     await runpodStopSelf({ podId: env.RUNPOD_POD_ID, apiKey: env.RUNPOD_API_KEY });

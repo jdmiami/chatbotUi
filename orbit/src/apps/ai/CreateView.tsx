@@ -5,7 +5,8 @@ import { ConfirmSheet, EmptyState, IconButton, Segmented } from '../../ui/compon
 import { isNsfw } from '../../ui/nsfw';
 import { connectMarks, nsfwFor, rememberItems, useNsfwFlags } from '../../ui/nsfwFlags';
 import { GalleryGrid, GalleryViewer, useGalleryStepper, type GalleryMedia } from './Gallery';
-import { AiError, type LocalAi, type StudioItem, type StudioJob, type StudioKind, type StudioMakerInfo, type StudioState, type VideoTask } from '../../services/ai/LocalAi';
+import { AiError, type LocalAi, type StudioItem, type StudioJob, type StudioKind, type StudioMakerInfo, type StudioRequest, type StudioState, type VideoTask } from '../../services/ai/LocalAi';
+import { isServerlessId, onServerless, serverlessCancel, serverlessInfo, serverlessJob, serverlessPriceWords, serverlessStart, type ServerlessInfo } from '../../services/ai/Serverless';
 import { PENDING_TEXT, offlineMakers, progressText, progressWhy, rememberMakers, withCatalog } from './makerCatalog';
 import { AudioSource, VideoSource, type AudioPick, type VideoPick } from './VideoInputs';
 import { TextArea } from '../../ui/TextArea';
@@ -198,6 +199,8 @@ export function CreateView({
   const [charSlot, setCharSlot] = useState<string | null>(null);
   // Which photo or video slot shows "From your gallery" (one at a time).
   const [galSlot, setGalSlot] = useState<string | null>(null);
+  // The serverless AI machine (Serverless.ts): with the AI machine off, your makers on a pay-per-second GPU.
+  const [serverless, setServerless] = useState<ServerlessInfo | null>(null);
   const [studio, setStudio] = useState<StudioState | null>(null);
   const [studioError, setStudioError] = useState<string | null>(null);
   const [makers, setMakersState] = useState<StudioMakerInfo[] | null>(null);
@@ -290,15 +293,29 @@ export function CreateView({
     if (reloadKey && machineOn) loadItems();
   }, [reloadKey]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Follow running jobs closely.
+  // With the machine off: is the serverless machine there, and which makers it has.
+  useEffect(() => {
+    if (!isActive || machineOn) return;
+    let alive = true;
+    const look = () => void serverlessInfo().then((i) => alive && setServerless(i));
+    look();
+    const t = setInterval(look, 60_000);
+    return () => {
+      alive = false;
+      clearInterval(t);
+    };
+  }, [isActive, machineOn]);
+
+  // Follow running jobs closely (serverless ones through the site).
   const running = jobs.filter(active);
   useEffect(() => {
     if (!running.length) return;
     const t = setInterval(async () => {
-      const updated = await Promise.all(running.map((j) => ai.studioJob(j.id).catch(() => j)));
+      const updated = await Promise.all(running.map((j) => (isServerlessId(j.id) ? serverlessJob(j) : ai.studioJob(j.id)).catch(() => j)));
       setJobs((prev) => prev.map((j) => updated.find((x) => x.id === j.id) ?? j).filter((j) => j.status !== 'done' && j.status !== 'stopped'));
       if (updated.some((u) => u.status === 'done')) {
-        loadItems();
+        if (machineOn) loadItems();
+        if (updated.some((u) => u.status === 'done' && isServerlessId(u.id))) toast('Done. It is in your Gallery.', 'info');
         cue('done');
       }
     }, 2000);
@@ -344,7 +361,10 @@ export function CreateView({
         ? (Boolean(startImage) || Boolean(charForJob)) && Boolean(audio)
         : editImages.length + (charAsPicture ? 1 : 0) >= needImages;
   const builtInMaker = studio?.[kind === 'video' || kind === 'vedit' ? 'video' : 'image'];
-  const makerReady = machineOn && Boolean(studio?.running) && (chosen ? chosen.installed : Boolean(builtInMaker?.ready));
+  // With the machine off, the serverless machine takes the job when it has the maker (a built-in or an added one)
+  // and nothing was uploaded (an uploaded video or sound only ever lives on the AI machine).
+  const serverlessOk = !machineOn && onServerless(serverless, chosen) && !video?.upload && !audio;
+  const makerReady = (machineOn && Boolean(studio?.running) && (chosen ? chosen.installed : Boolean(builtInMaker?.ready))) || serverlessOk;
   const canMake = makerReady && promptOk && inputsOk && !submitting;
 
   /* ---------------------------------------------------------------- the steps that apply */
@@ -412,7 +432,7 @@ export function CreateView({
       const fromGallery = kind === 'edit' ? editImages.find((p, i) => i === 0 && p.item)?.item : undefined;
       const videoRef = video ? (video.item ? { videoItem: video.item } : { videoUpload: video.upload }) : {};
       const sendChar = Boolean(charForJob) && (kind !== 'edit' || charAsPicture);
-      const job = await ai.createStudioJob({
+      const req: StudioRequest = {
         kind: kind === 'video' || kind === 'vedit' ? 'video' : 'image',
         maker: chosenId,
         prompt: noWords ? '' : prompt.trim(),
@@ -445,7 +465,8 @@ export function CreateView({
               images: editImages.filter((p, i) => !(i === 0 && p.item)).map((p) => p.src).slice(0, needImages),
             }
           : {}),
-      });
+      };
+      const job = machineOn ? await ai.createStudioJob(req) : await serverlessStart(req);
       if (job.status === 'error') {
         toast(job.error || 'That did not start.', 'error');
         cue('error');
@@ -557,12 +578,19 @@ export function CreateView({
   })();
 
   const status = (() => {
-    if (!machineOn) return 'Turn on your AI machine to make images and videos.';
-    if (studioError) return studioError;
-    if (!studio) return 'Checking the image and video maker…';
-    if (makerNote) return makerNote;
-    if (!chosen && !builtInMaker?.downloaded) return `The maker is downloading (first start only): ${builtInMaker?.percent ?? 0}%.`;
-    if (!studio.running) return studio.setup.startsWith('error') ? `The maker had a problem: ${studio.setup.slice(6).trim()}` : 'The image and video maker is starting…';
+    if (!machineOn && !serverlessOk) {
+      if (serverless?.ready) return video?.upload || audio ? 'A video or sound you upload needs your AI machine on.' : 'This maker needs your AI machine on: add it there first.';
+      return 'Turn on your AI machine to make images and videos.';
+    }
+    // Ready to go on the serverless machine: say where it is made and what it costs.
+    if (!machineOn && serverless && promptOk && inputsOk) return `Your AI machine is off, so this is made on a pay-per-second GPU: ${serverlessPriceWords(serverless)}.`;
+    if (machineOn) {
+      if (studioError) return studioError;
+      if (!studio) return 'Checking the image and video maker…';
+      if (makerNote) return makerNote;
+      if (!chosen && !builtInMaker?.downloaded) return `The maker is downloading (first start only): ${builtInMaker?.percent ?? 0}%.`;
+      if (!studio.running) return studio.setup.startsWith('error') ? `The maker had a problem: ${studio.setup.slice(6).trim()}` : 'The image and video maker is starting…';
+    }
     if (kind === 'edit') return needImages === 2 && editImages.length < 2 ? 'Add the person first, then the outfit.' : sharpen ? 'Makes the picture four times larger and crisper.' : 'Edits take under a minute.';
     if (kind === 'vedit') {
       if (!video) return 'Add the video to work on.';
@@ -1248,7 +1276,7 @@ export function CreateView({
     <JobQueue
       jobs={jobs}
       line={jobLine}
-      onStop={(id) => void ai.cancelStudioJob(id).then(() => setJobs((p) => p.filter((x) => x.id !== id)), () => {})}
+      onStop={(id) => void (isServerlessId(id) ? serverlessCancel(id) : ai.cancelStudioJob(id)).then(() => setJobs((p) => p.filter((x) => x.id !== id)), () => {})}
       onDismiss={(id) => setJobs((p) => p.filter((x) => x.id !== id))}
       onReorder={async (ids) => {
         try {
