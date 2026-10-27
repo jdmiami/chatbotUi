@@ -13,11 +13,13 @@ import { imageFor, mapStatus, serverlessRefusal, WORKER_IMAGE, type ServerlessJo
  * in R2, so the Gallery app shows them at once. Billed by the second only while a job runs, plus the
  * volume's storage. Runpod's key stays here on the server.
  *
- * Set up with: RUNPOD_API_KEY (as for the AI machine), AI_SERVERLESS_VOLUME_ID (the network volume
- * holding the models; its data center fixes where workers run). The endpoint itself is found by name
- * (AI_POD_NAME + "-serverless") or made when missing; AI_SERVERLESS_ENDPOINT pins one. AI_SERVERLESS=off
- * turns it off. The image: this deployment's build of the worker (ghcr.io/jdmiami/orbit-ai-worker:<commit>,
- * .github/workflows/worker.yml), or the newest when that build isn't there yet.
+ * Set up with: RUNPOD_API_KEY (as for the AI machine) and a drive for the models: the drawing machine's
+ * global volume (CANVAS_GLOBAL_VOLUME_ID: works in any data center, its model folder is shared) or
+ * AI_SERVERLESS_GLOBAL_VOLUME_ID, else a network volume (AI_SERVERLESS_VOLUME_ID; its data center fixes
+ * where workers run). The endpoint itself is found by name (AI_POD_NAME + "-serverless") or made when
+ * missing; AI_SERVERLESS_ENDPOINT pins one. AI_SERVERLESS=off turns it off. The image: this deployment's
+ * build of the worker (ghcr.io/jdmiami/orbit-ai-worker:<commit>, .github/workflows/worker.yml), or the
+ * newest when that build isn't there yet.
  */
 
 /** The GPU pools workers may use (list-gpu-types `pool`): the 48 GB cards the AI machine's Standard speed uses, then the newer 48 GB cards. */
@@ -37,9 +39,16 @@ export class ServerlessError extends Error {
   }
 }
 
+/** The drive the models live on: a global volume (any data center) or a network volume (one data center). */
+export function modelDrive(): { global: string } | { network: string } | null {
+  const g = process.env.AI_SERVERLESS_GLOBAL_VOLUME_ID || process.env.CANVAS_GLOBAL_VOLUME_ID;
+  if (g) return { global: g };
+  return process.env.AI_SERVERLESS_VOLUME_ID ? { network: process.env.AI_SERVERLESS_VOLUME_ID } : null;
+}
+
 export function serverlessConfigured(): boolean {
   if (process.env.AI_SERVERLESS === 'off') return false;
-  return Boolean(process.env.RUNPOD_API_KEY && env().secret.length >= 32 && (process.env.AI_SERVERLESS_VOLUME_ID || process.env.AI_SERVERLESS_ENDPOINT));
+  return Boolean(process.env.RUNPOD_API_KEY && env().secret.length >= 32 && (modelDrive() || process.env.AI_SERVERLESS_ENDPOINT));
 }
 
 interface Endpoint {
@@ -76,8 +85,8 @@ export async function ensureEndpoint(): Promise<Endpoint | null> {
   const pinned = process.env.AI_SERVERLESS_ENDPOINT;
   if (pinned) ep = (await runpod(`/serverless/${encodeURIComponent(pinned)}`).catch(() => null)) as Endpoint | null;
   if (!ep) ep = (await listEndpoints().catch(() => [])).find((e) => e.name === endpointName()) ?? null;
-  const volume = process.env.AI_SERVERLESS_VOLUME_ID;
-  if (!ep && volume) {
+  const drive = modelDrive();
+  if (!ep && drive) {
     ep = (await runpod('/serverless', {
       method: 'POST',
       body: JSON.stringify({
@@ -86,15 +95,15 @@ export async function ensureEndpoint(): Promise<Endpoint | null> {
         scaling: { type: 'QUEUE_DELAY', queueDelay: 4 },
         gpu: { pools: POOLS, count: 1, minCudaVersion: '12.8' },
         image: await desiredImage(),
-        // Outputs, inputs and ComfyUI's temp files; the models are on the volume.
-        disk: 60,
+        // Outputs, inputs, ComfyUI's temp files, and one model file at a time on its way to the drive.
+        disk: 80,
         env: workerEnv(),
         // One worker: two at once would write the same drive (model downloads) at the same time.
         workers: { min: 0, max: 1, idleTimeout: 90 },
         flashboot: 'FLASHBOOT',
         // A job may first bring a maker's files onto the drive (tens of GB), then make a video.
         timeout: 2 * 3600_000,
-        mounts: { network: [{ volumeId: volume }] },
+        mounts: 'global' in drive ? { global: [{ volumeId: drive.global }] } : { network: [{ volumeId: drive.network }] },
       }),
     })) as Endpoint;
   }
