@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import { persist, createJSONStorage } from 'zustand/middleware';
 import type { AppId } from './shell';
+import type { StudioItem } from '../services/ai/LocalAi';
 
 /**
  * Cross-app plumbing:
@@ -19,7 +20,9 @@ export type Intent =
   /** Chat with this model in the AI app (from the store). */
   | { seq: number; app: 'ai'; type: 'use-model'; model: string }
   /** Open one chat (the orb's "find"). */
-  | { seq: number; app: 'ai'; type: 'open-chat'; chatId: string };
+  | { seq: number; app: 'ai'; type: 'open-chat'; chatId: string }
+  /** Carry on from a creation in Make (the Gallery's "Use prompt", "Make it move", "Edit"…): `maker` for an edit or a video maker. */
+  | { seq: number; app: 'make'; type: 'continue'; action: 'prompt' | 'animate' | 'edit' | 'video'; maker?: string; item: StudioItem };
 
 type IntentInput = Intent extends infer I ? (I extends { seq: number } ? Omit<I, 'seq'> : never) : never;
 

@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useShell } from '../../state/shell';
+import { useWorkspace } from '../../state/workspace';
+import { deleteStored, storedGallery, type StoredItem } from '../../services/ai/StoredGallery';
 import { Icon } from '../../ui/Icon';
 import { ConfirmSheet, EmptyState, IconButton, Segmented } from '../../ui/components';
 import { isNsfw } from '../../ui/nsfw';
@@ -38,6 +40,13 @@ type StepId = 'what' | 'maker' | 'video' | 'describe' | 'extras' | 'check';
 const STEP_NAME: Record<StepId, string> = { what: 'What', maker: 'Maker & style', video: 'The video', describe: 'Describe it', extras: 'Extras', check: 'Check & make' };
 /** Swap a person: the video gets its own step, and the others are named after what they hold. */
 const SWAP_STEP_NAME: Partial<Record<StepId, string>> = { describe: 'Who to replace', extras: 'The new person' };
+/** What can be done to a video you have, by maker: the button, the hint, and the step it opens on. */
+export const VIDEO_WORK: { maker: string; label: string; icon: 'pencil' | 'close' | 'refresh' | 'sparkle'; hint: string; to: StepId }[] = [
+  { maker: 'vace', label: 'Edit this video', icon: 'pencil', hint: 'Pick what to do, then describe the change.', to: 'maker' },
+  { maker: 'video-erase', label: 'Erase from video', icon: 'close', hint: 'Say what to erase, then tap Erase it.', to: 'describe' },
+  { maker: 'person-swap', label: 'Swap a person', icon: 'refresh', hint: 'Say who to replace, then add a photo of the new person.', to: 'describe' },
+  { maker: 'video-sharpen', label: 'Sharpen video', icon: 'sparkle', hint: 'Tap Sharpen video to make it twice as large and crisper.', to: 'check' },
+];
 /** A video maker that puts someone from a photo in place of a person named in words. */
 const isSwap = (m: StudioMakerInfo | null | undefined) => m?.kind === 'videoedit' && Boolean(m.needs?.includes('target')) && Boolean(m.needs?.includes('photo'));
 
@@ -253,14 +262,16 @@ export function CreateView({
   // The viewer steps through the gallery in the order the grid shows it.
   const stepper = useGalleryStepper(items.map(asMedia), viewing?.id);
   useEffect(() => connectMarks(ai), [ai]);
+  // The gallery: the machine's while it is on; with it off, the same gallery as kept in cloud storage
+  // (what the machine and the serverless machine made), so pictures can still be reused and carried on.
   const loadItems = useCallback(() => {
-    ai.studioItems()
+    (machineOn ? ai.studioItems() : storedGallery().then((g) => (g?.items ?? []).filter((it) => !it.lab).map(storedAsItem)))
       .then((list) => {
         rememberItems(list);
         setItems(list);
       })
       .catch(() => {});
-  }, [ai]);
+  }, [ai, machineOn]);
 
   const refresh = useCallback(async () => {
     try {
@@ -280,17 +291,18 @@ export function CreateView({
     }
   }, [ai, setMakers]);
 
-  // Machine state and the gallery while this view is open.
+  // The gallery while this view is open (machine on or off), and the machine's state while it is on.
   useEffect(() => {
-    if (!isActive || !machineOn) return;
-    void refresh();
+    if (!isActive) return;
     loadItems();
+    if (!machineOn) return;
+    void refresh();
     const t = setInterval(() => void refresh(), 5000);
     return () => clearInterval(t);
   }, [isActive, machineOn, refresh, loadItems]);
 
   useEffect(() => {
-    if (reloadKey && machineOn) loadItems();
+    if (reloadKey) loadItems();
   }, [reloadKey]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // With the machine off: is the serverless machine there, and which makers it has.
@@ -314,7 +326,7 @@ export function CreateView({
       const updated = await Promise.all(running.map((j) => (isServerlessId(j.id) ? serverlessJob(j) : ai.studioJob(j.id)).catch(() => j)));
       setJobs((prev) => prev.map((j) => updated.find((x) => x.id === j.id) ?? j).filter((j) => j.status !== 'done' && j.status !== 'stopped'));
       if (updated.some((u) => u.status === 'done')) {
-        if (machineOn) loadItems();
+        loadItems();
         if (updated.some((u) => u.status === 'done' && isServerlessId(u.id))) toast('Done. It is in your Gallery.', 'info');
         cue('done');
       }
@@ -532,16 +544,36 @@ export function CreateView({
   };
 
   /** A gallery video into Video edit, with the maker that does what was tapped. */
-  const workOnVideo = (item: StudioItem, maker: string, hint: string, to: StepId) => {
+  const workOnVideo = (item: StudioItem, maker: string) => {
+    const work = VIDEO_WORK.find((w) => w.maker === maker) ?? VIDEO_WORK[0];
     setKind('vedit');
     setPick('vedit', maker);
     setVideo({ src: item.url, item: item.id, nsfw: nsfwFor(item.id, item.nsfw === true || isNsfw(item.prompt)), label: item.prompt });
     setPrompt('');
     setTarget('');
-    leaveGallery(to);
-    toast(hint, 'info');
+    leaveGallery(work.to);
+    toast(work.hint, 'info');
+  };
+  /** The same kind again, with this creation's words. */
+  const usePrompt = (item: StudioItem) => {
+    setKind(item.kind);
+    setVideo(null);
+    setPrompt(item.prompt === 'Sharpened 4×' ? '' : item.prompt);
+    leaveGallery('describe');
   };
   const installed = (id: string) => known.some((m) => m.id === id && m.installed);
+
+  // Carry on from a creation opened in the Gallery app: it hands the item over and opens Make.
+  const intent = useWorkspace((s) => s.intent);
+  useEffect(() => {
+    if (!intent || intent.app !== 'make' || !isActive) return;
+    useWorkspace.getState().consumeIntent(intent.seq);
+    const it = intent.item;
+    if (intent.action === 'prompt') usePrompt(it);
+    else if (intent.action === 'animate') animate(it);
+    else if (intent.action === 'edit') editItem(it, intent.maker ?? 'edit');
+    else if (intent.action === 'video') workOnVideo(it, intent.maker ?? 'vace');
+  }, [intent, isActive]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const pickRef = async (file: File | undefined) => {
     if (!file) return;
@@ -1392,7 +1424,7 @@ export function CreateView({
           {galleryOpen && jobList}
           {items.length === 0 ? (
             <EmptyState icon="image" title="Nothing here yet">
-              Pictures and videos you make are kept on your AI machine and show up here on all your devices.
+              Pictures and videos you make are kept in your gallery and show up here on all your devices.
             </EmptyState>
           ) : (
             <GalleryGrid
@@ -1423,16 +1455,7 @@ export function CreateView({
             <a className="btn" href={withParam(viewing.url, 'download=1')} download>
               <Icon name="download" size={16} /> Save
             </a>
-            <button
-              type="button"
-              className="btn"
-              onClick={() => {
-                setKind(viewing.kind);
-                setVideo(null);
-                setPrompt(viewing.prompt === 'Sharpened 4×' ? '' : viewing.prompt);
-                leaveGallery('describe');
-              }}
-            >
+            <button type="button" className="btn" onClick={() => usePrompt(viewing)}>
               <Icon name="refresh" size={16} /> Use prompt
             </button>
             {viewing.kind === 'image' && (
@@ -1443,37 +1466,19 @@ export function CreateView({
                 <button type="button" className="btn" onClick={() => editItem(viewing)}>
                   <Icon name="pencil" size={16} /> Edit
                 </button>
-                {makers?.some((m) => m.id === 'sharpen' && m.installed) && (
+                {installed('sharpen') && (
                   <button type="button" className="btn" onClick={() => editItem(viewing, 'sharpen')}>
                     <Icon name="sparkle" size={16} /> Sharpen
                   </button>
                 )}
               </>
             )}
-            {viewing.kind === 'video' && (
-              <>
-                {installed('vace') && (
-                  <button type="button" className="btn" onClick={() => workOnVideo(viewing, 'vace', 'Pick what to do, then describe the change.', 'maker')}>
-                    <Icon name="pencil" size={16} /> Edit this video
-                  </button>
-                )}
-                {installed('video-erase') && (
-                  <button type="button" className="btn" onClick={() => workOnVideo(viewing, 'video-erase', 'Say what to erase, then tap Erase it.', 'describe')}>
-                    <Icon name="close" size={16} /> Erase from video
-                  </button>
-                )}
-                {installed('person-swap') && (
-                  <button type="button" className="btn" onClick={() => workOnVideo(viewing, 'person-swap', 'Say who to replace, then add a photo of the new person.', 'describe')}>
-                    <Icon name="refresh" size={16} /> Swap a person
-                  </button>
-                )}
-                {installed('video-sharpen') && (
-                  <button type="button" className="btn" onClick={() => workOnVideo(viewing, 'video-sharpen', 'Tap Sharpen video to make it twice as large and crisper.', 'check')}>
-                    <Icon name="sparkle" size={16} /> Sharpen video
-                  </button>
-                )}
-              </>
-            )}
+            {viewing.kind === 'video' &&
+              VIDEO_WORK.filter((w) => installed(w.maker)).map((w) => (
+                <button key={w.maker} type="button" className="btn" onClick={() => workOnVideo(viewing, w.maker)}>
+                  <Icon name={w.icon} size={16} /> {w.label}
+                </button>
+              ))}
             <button type="button" className="btn danger" onClick={() => setConfirmDelete(viewing)}>
               <Icon name="trash" size={16} /> Delete
             </button>
@@ -1490,7 +1495,7 @@ export function CreateView({
             const it = confirmDelete;
             setConfirmDelete(null);
             setViewing(null);
-            ai.deleteStudioItem(it.id).then(
+            (machineOn ? ai.deleteStudioItem(it.id) : deleteStored(it.id)).then(
               () => setItems((list) => list.filter((x) => x.id !== it.id)),
               (err: Error) => toast(err.message, 'error'),
             );
@@ -1501,6 +1506,23 @@ export function CreateView({
     </div>
   );
 }
+
+/** A creation from the gallery kept in cloud storage, as Make's own list holds it. */
+const storedAsItem = (it: StoredItem): StudioItem => ({
+  id: it.id,
+  kind: it.kind,
+  prompt: it.prompt,
+  width: it.width,
+  height: it.height,
+  seconds: it.seconds,
+  maker: it.maker,
+  movie: it.movie,
+  nsfw: it.nsfw,
+  nsfwUser: it.nsfwUser,
+  createdAt: it.createdAt,
+  url: it.url,
+  thumbUrl: it.thumbUrl,
+});
 
 /** A gallery item as the shared gallery shows it (Gallery.tsx). */
 const asMedia = (it: StudioItem): GalleryMedia => ({ id: it.id, kind: it.kind, url: it.url, thumbUrl: it.thumbUrl, width: it.width, height: it.height, label: it.prompt, nsfw: it.nsfw === true || isNsfw(it.prompt), seconds: it.seconds });
