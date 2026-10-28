@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { expect, test, type Locator, type Page } from '@playwright/test';
 import { readPsd } from 'ag-psd';
-import { expectNoHorizontalOverflow } from './helpers';
+import { expectNoHorizontalOverflow, expectValue } from './helpers';
 
 /**
  * Live Draw (its own app, Orbit 0.5): the drawing machine starts from its card, strokes go up over a
@@ -168,7 +168,7 @@ test.describe('Live Draw', () => {
     // The sketch reader offers guesses once you stop (no words yet); a guess fills the words.
     await expect(win.getByRole('list', { name: 'Guesses' })).toBeVisible({ timeout: 8000 });
     await win.getByRole('button', { name: /a house/ }).click();
-    await expect(win.getByRole('textbox', { name: 'What is it?' })).toHaveValue('a little house on a hill');
+    await expectValue(win.getByRole('textbox', { name: 'What is it?' }), 'a little house on a hill');
 
     await win.getByRole('button', { name: 'Bring to life' }).click();
     await expect(win.locator('img.ldx-picture[data-living]')).toBeVisible();

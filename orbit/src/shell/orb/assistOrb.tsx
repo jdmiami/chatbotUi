@@ -75,7 +75,7 @@ export function fieldOf(a: OrbAssist | null): Field | null {
   if (!a?.target || a.kind !== 'text') return null;
   const own = writable(a.target);
   if (own) return own;
-  const inner = a.target.querySelector('textarea, input, [contenteditable="true"]');
+  const inner = a.target.querySelector('textarea, input, [contenteditable]:not([contenteditable="false"])');
   return inner ? writable(inner) : null;
 }
 

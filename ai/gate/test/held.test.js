@@ -5,7 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { Readable } from 'node:stream';
 import http from 'node:http';
-import { ADULT_SWAP_MESSAGE, BLOCKED_MESSAGE, CHARACTER_MESSAGE, CHECK_MESSAGE, PHOTO_MESSAGE, SWAP_NSFW_MESSAGE, createStudio } from '../src/studio.js';
+import { ADULT_SWAP_MESSAGE, BLOCKED_MESSAGE, CHARACTER_MESSAGE, CHECK_MESSAGE, PHOTO_MESSAGE, PHOTO_SOURCE_MESSAGE, SWAP_NSFW_MESSAGE, createStudio } from '../src/studio.js';
 import { APPROVE_BLOCKED_MESSAGE } from '../src/held.js';
 import { createGate } from '../src/gate.js';
 import { signJwt } from '../src/jwt.js';
@@ -365,4 +365,23 @@ test('held results are not served by the studio members\' door either', async ()
     gate.close();
   }
   void http;
+});
+
+test('the photo rule follows the picture, not the way it is picked: gallery pictures by id keep their own rule', async () => {
+  const { dir, studio } = await setup();
+  for (const k of MAKERS.find((m) => m.id === 'outfit').files) await place(dir, REAL[k]);
+  // Made here from words: free to edit any way. Made from an uploaded photo: keeps the photo rule, and says so plainly.
+  await galleryPicture(dir, 'words01');
+  await galleryPicture(dir, 'photo01', { photo: true, fromImage: true });
+  const edit = (extra) => ({ kind: 'image', maker: 'edit', prompt: 'make her topless', ...extra });
+  const a = await studio.createJob(edit({ fromItem: 'words01' }));
+  assert.equal(a.status, 'queued', 'a picture made from words can be edited freely');
+  assert.ok(!studio.job(a.id).photo);
+  await assert.rejects(studio.createJob(edit({ fromItem: 'photo01' })), refused(PHOTO_SOURCE_MESSAGE), 'inherited: the clearer message');
+  await assert.rejects(studio.createJob(edit({ image: PNG })), refused(PHOTO_MESSAGE), 'an upload now: the upload message');
+  // A second gallery picture by id (an outfit, a face close-up) is not an upload either, and brings its own rule.
+  const b = await studio.createJob({ kind: 'image', maker: 'outfit', prompt: 'the outfit from the second picture', fromItem: 'words01', imageItems: ['words01'] });
+  assert.ok(!studio.job(b.id).photo);
+  await assert.rejects(studio.createJob({ kind: 'image', maker: 'outfit', prompt: 'make her topless', fromItem: 'words01', imageItems: ['photo01'] }), refused(PHOTO_SOURCE_MESSAGE));
+  await assert.rejects(studio.createJob(edit({ fromItem: 'words01', imageItems: ['gone99'] })), (e) => e.status === 404);
 });

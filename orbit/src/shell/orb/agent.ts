@@ -70,7 +70,7 @@ function roleOf(el: HTMLElement): PageItem['role'] {
   if (r === 'tab') return 'tab';
   if (r === 'radio' || r === 'option' || r === 'menuitem') return 'option';
   if (r === 'switch' || (el instanceof HTMLInputElement && el.type === 'checkbox')) return 'switch';
-  if (el.matches('input, textarea, select, [contenteditable="true"]')) return 'field';
+  if (el.matches('input, textarea, select, [contenteditable]:not([contenteditable="false"])')) return 'field';
   if (el.tagName === 'A') return 'link';
   return 'button';
 }
@@ -90,7 +90,7 @@ export function privateField(el: Element): boolean {
 
 export function snapshot(skip?: Element | null, root: ParentNode = document, { all = false } = {}): PageItem[] {
   const els = root.querySelectorAll<HTMLElement>(
-    'button, a[href], input:not([type="hidden"]), textarea, select, [role="button"], [role="tab"], [role="radio"], [role="switch"], [role="menuitem"], [contenteditable="true"]',
+    'button, a[href], input:not([type="hidden"]), textarea, select, [role="button"], [role="tab"], [role="radio"], [role="switch"], [role="menuitem"], [contenteditable]:not([contenteditable="false"])',
   );
   const items: PageItem[] = [];
   const vh = window.innerHeight, vw = window.innerWidth;

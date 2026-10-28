@@ -152,6 +152,8 @@ export function blockedReplace(target, prompt) {
   return blockedTarget(target) && !GARMENT.test(String(prompt || '').toLowerCase());
 }
 export const PHOTO_MESSAGE = "Photos you upload can't be made sexual or have clothes removed: they may show real people. Pictures made here from a description can.";
+/** The same rule, inherited: the gallery picture or video it starts from was itself made from an uploaded photo. */
+export const PHOTO_SOURCE_MESSAGE = "This one was made from a photo you uploaded (or a video that had one in it), so it keeps the photo rule: nothing sexual, no clothes removed. Start from a picture made here from a description instead.";
 /**
  * Swap a person puts a real person's photo into a video: only adults, never into a video marked NSFW,
  * and a result the NSFW check flags (or that it could not look at) is thrown away, not just blurred.
@@ -1251,6 +1253,15 @@ export function createStudio(o) {
     // A gallery picture or video that came from someone's photo keeps the photo rule.
     const fromId = req.fromLastFrameOf || req.fromItem;
     const source = fromId ? await readItem(String(fromId)) : null;
+    // More gallery pictures (the outfit in an outfit swap, a face close-up): by id, so each keeps its own rule
+    // instead of counting as an upload.
+    const itemIds = (Array.isArray(req.imageItems) ? req.imageItems : []).filter((x) => typeof x === 'string' && x).map(String).slice(0, 2);
+    const itemSources = [];
+    for (const iid of itemIds) {
+      const it = await readItem(iid);
+      if (!it || it.kind !== 'image') throw bad('That picture is no longer in your gallery.', 404);
+      itemSources.push(it);
+    }
     // soReal: a gallery picture a video should end on (first and last frame).
     const toSource = req.toItem && mode === 'video' ? await readItem(String(req.toItem)) : null;
     // A video to work on: from the gallery, or one you uploaded.
@@ -1261,11 +1272,14 @@ export function createStudio(o) {
     const withVideo = Boolean(videoSource || videoUpload) && (mode === 'videoedit' || (maker.accepts || []).includes('video'));
     // Any photo or video you bring may show real people (a recording of a voice doesn't change that).
     // A drawing made in Live draw isn't a photo (a gallery picture used as the drawing keeps its own rule).
-    const photo = (mode !== 'sketch' && uploads.length > 0) || Boolean(endUpload) || Boolean(source?.photo) || Boolean(toSource?.photo) || (withVideo && (Boolean(videoUpload) || Boolean(videoSource?.photo)));
+    // Brought in now (an upload), or inherited from a gallery picture or video that has a photo behind it.
+    const photoNow = (mode !== 'sketch' && uploads.length > 0) || Boolean(endUpload) || (withVideo && Boolean(videoUpload));
+    const photoBefore = Boolean(source?.photo) || Boolean(toSource?.photo) || itemSources.some((it) => it.photo) || (withVideo && Boolean(videoSource?.photo));
+    const photo = photoNow || photoBefore;
     // Made from an NSFW picture or video: NSFW too, before anyone has looked.
-    const nsfwSource = Boolean(source?.nsfw) || Boolean(toSource?.nsfw) || (withVideo && Boolean(videoSource?.nsfw));
+    const nsfwSource = Boolean(source?.nsfw) || Boolean(toSource?.nsfw) || itemSources.some((it) => it.nsfw) || (withVideo && Boolean(videoSource?.nsfw));
     // A character is the other way to name a person for Swap a person: never mixed with a photo (a character is made-up, a photo may not be).
-    if (character && swap && (uploads.length || req.fromItem)) throw bad('Pick a character or add a photo, not both.');
+    if (character && swap && (uploads.length || req.fromItem || itemIds.length)) throw bad('Pick a character or add a photo, not both.');
     // An adult swap: a fictional adult character in a video made here from words alone. Nothing about a real
     // person's photo or an upload can be in it (photo is false only when no upload is anywhere in its past).
     const wantsAdult = swap && req.adult === true;
@@ -1281,11 +1295,11 @@ export function createStudio(o) {
     if (photo) {
       const refused =
         blockedForPhoto(prompt) || (task === 'erase' ? blockedTarget(target) : task === 'replace' ? blockedReplace(target, prompt) : target ? blockedForPhoto(target) : false);
-      if (refused) throw Object.assign(new Error(PHOTO_MESSAGE), { status: 422, blocked: true });
+      if (refused) throw Object.assign(new Error(photoNow ? PHOTO_MESSAGE : PHOTO_SOURCE_MESSAGE), { status: 422, blocked: true });
     }
     if (needs.has('video') && !withVideo) throw bad('Add the video to work on.');
     if (needs.has('audio') && !audioUpload) throw bad('Add a voice recording or a song.');
-    if (needs.has('photo') && !uploads.length && !req.fromItem && !character) throw bad(task === 'motion' ? 'Add a photo of who should move.' : swap ? 'Add a photo of the new person.' : 'Add a photo of the person.');
+    if (needs.has('photo') && !uploads.length && !req.fromItem && !itemIds.length && !character) throw bad(task === 'motion' ? 'Add a photo of who should move.' : swap ? 'Add a photo of the new person.' : 'Add a photo of the person.');
     if (!(await makerReady(maker))) {
       const pct = (await makers()).find((m) => m.id === maker.id)?.percent ?? 0;
       const what = maker.builtIn ? `The ${maker.name} maker is still downloading (${pct}%)` : `${maker.name} is ${wanted.has(maker.id) ? `still downloading (${pct}%)` : 'not installed'}`;
@@ -1322,6 +1336,7 @@ export function createStudio(o) {
     if (req.fromLastFrameOf) inputs.push(await lastFrameOf(String(req.fromLastFrameOf)));
     else if (req.fromItem) inputs.push(await copyFromGallery(String(req.fromItem)));
     for (const u of uploads) inputs.push(await saveUpload(u));
+    for (const it of itemSources) inputs.push(await copyFromGallery(it.id));
     for (const src of internal.refs || []) inputs.push(await copyInput(src));
     // A character's sheet pictures start the job when no photo does (outfit swap: the person, then your outfit picture;
     // Swap a person: the front, then the face close-up). The sheet comes ordered: the front first, the face close-up second.
@@ -1467,7 +1482,7 @@ export function createStudio(o) {
       // Made from an NSFW picture or video, or asked to be adult (an allowed adult swap): NSFW before anyone has looked.
       nsfwSource: nsfwSource || (adultSwap && wantsAdult),
       // What it started from (gallery ids): the trail an adult swap's origin is checked along.
-      sources: [fromId, req.toItem, req.videoItem].filter((x) => typeof x === 'string' && x).map(String),
+      sources: [fromId, req.toItem, req.videoItem, ...itemIds].filter((x) => typeof x === 'string' && x).map(String),
       character: character ? { id: String(character.id), name: String(character.name || '').slice(0, 80) } : undefined,
       adultSwap: adultSwap || undefined,
       // What was asked, kept with a held result so the owner sees it (never the uploads themselves).
@@ -1479,6 +1494,7 @@ export function createStudio(o) {
             videoUpload: Boolean(videoUpload) || undefined,
             photoUpload: uploads.length > 0 || undefined,
             fromItem: req.fromItem ? String(req.fromItem) : undefined,
+            imageItems: itemIds.length ? itemIds : undefined,
             character: character ? String(character.id) : undefined,
             adult: wantsAdult || undefined,
           }

@@ -88,7 +88,7 @@ export function coversControl(x: number, y: number, size: number, self: Element 
   for (const [dx, dy] of [[0, 0], [q, 0], [-q, 0], [0, q], [0, -q]]) {
     const px = x + dx + sx, py = y + dy + sy;
     const hit = document.elementsFromPoint(px, py).find((e) => !self?.contains(e));
-    if (hit?.closest('button, a, input, textarea, select, [role="button"], [contenteditable="true"]')) return true;
+    if (hit?.closest('button, a, input, textarea, select, [role="button"], [contenteditable]:not([contenteditable="false"])')) return true;
     // Nor over words you are reading (a sentence, a heading, a list item).
     const text = hit?.closest('p, h1, h2, h3, h4, li, blockquote');
     if (text && text.textContent?.trim() && (!opts.words || onWords(text, px, py, size * 0.12))) return true;

@@ -7,7 +7,7 @@ import path from 'node:path';
 import { Readable } from 'node:stream';
 import { createGate } from '../src/gate.js';
 import { signJwt } from '../src/jwt.js';
-import { BLOCKED_MESSAGE, PHOTO_MESSAGE, TOKEN_MESSAGE, blockedReplace, blockedTarget, createStudio } from '../src/studio.js';
+import { BLOCKED_MESSAGE, PHOTO_MESSAGE, PHOTO_SOURCE_MESSAGE, TOKEN_MESSAGE, blockedReplace, blockedTarget, createStudio } from '../src/studio.js';
 import { FILES as REAL, MAKERS, S2V_CHUNK, VACE_EXTEND_KEEP, VACE_MAX_FRAMES, WAN_NEGATIVE } from '../src/workflows.js';
 
 // The five video makers of the store: LTX-2.5, Wan S2V (talking photo), Wan VACE, Erase from video
@@ -211,7 +211,7 @@ test('Wan VACE: replace, restyle, extend and move a photo; generated videos may 
   await make(studio, { maker: 'vace', videoItem: 'vid002', task: 'restyle', prompt: 'make her nude on the beach' });
   // One that came from a photo, or an uploaded video: never.
   await galleryVideo(dir, 'vid003', { photo: true });
-  await assert.rejects(studio.createJob({ maker: 'vace', videoItem: 'vid003', task: 'restyle', prompt: 'make her nude' }), (e) => e.message === PHOTO_MESSAGE);
+  await assert.rejects(studio.createJob({ maker: 'vace', videoItem: 'vid003', task: 'restyle', prompt: 'make her nude' }), (e) => e.message === PHOTO_SOURCE_MESSAGE);
   const v = await upload(studio, VIDEO);
   await assert.rejects(studio.createJob({ maker: 'vace', videoUpload: v.id, task: 'replace', target: 'her dress', prompt: 'bare skin' }), (e) => e.message === PHOTO_MESSAGE);
   await make(studio, { maker: 'vace', videoUpload: v.id, task: 'replace', target: 'her dress', prompt: 'a red ball gown' });

@@ -309,8 +309,12 @@ export interface StudioRequest {
   image?: string;
   /** Or a picture from the gallery, by id. */
   fromItem?: string;
+  /** More gallery pictures by id (an outfit, a face close-up): each keeps its own photo rule instead of counting as an upload. */
+  imageItems?: string[];
   /** The picture a video ends on, as a data URL. */
   endImage?: string;
+  /** Or the gallery picture a video ends on, by id. */
+  toItem?: string;
   /** A gallery video to work on, or an uploaded one (StudioUpload id). */
   videoItem?: string;
   videoUpload?: string;

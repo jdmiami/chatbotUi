@@ -1,6 +1,6 @@
 import { expect, test, type Locator, type Page } from '@playwright/test';
 import path from 'node:path';
-import { expectNoHorizontalOverflow, openOrbit } from './helpers';
+import { expectNoHorizontalOverflow, openOrbit, expectNotValue, expectValue } from './helpers';
 import { mockAi, openMakeApp } from './aiMocks';
 import { DRAFT, READY, mockCharacters, mockStoredCharacters, portrait } from './charactersMocks';
 
@@ -185,7 +185,7 @@ test.describe('Characters', () => {
     // 1 · name and age: Hold to talk and Fill for me, and the age rule said straight away.
     await expect(wiz.getByRole('button', { name: 'Hold to talk: their name' })).toBeVisible();
     await wiz.getByRole('group', { name: 'Help with their name' }).getByRole('button', { name: 'Fill for me' }).click();
-    await expect(wiz.getByRole('textbox', { name: 'Name' })).not.toHaveValue('');
+    await expectNotValue(wiz.getByRole('textbox', { name: 'Name' }), '');
     await wiz.getByRole('textbox', { name: 'Name' }).fill('Mira Vale');
     await wiz.getByRole('textbox', { name: 'Age' }).fill('20');
     await expect(wiz.getByRole('alert')).toContainText('A character must be 25 or older.');
@@ -195,7 +195,7 @@ test.describe('Characters', () => {
     // The one-line idea: Fill for me, and the whole character designed from it.
     const idea = wiz.getByRole('textbox', { name: 'A one-line idea' });
     await wiz.getByRole('group', { name: 'Help with the idea' }).getByRole('button', { name: 'Fill for me' }).click();
-    await expect(idea).not.toHaveValue('');
+    await expectNotValue(idea, '');
     await expect(wiz.getByRole('button', { name: 'Design it for me' })).toBeEnabled();
     await shot(page, 'create-1-name-age', testInfo.project.name);
 
@@ -218,14 +218,14 @@ test.describe('Characters', () => {
     await wiz.getByRole('textbox', { name: 'Hair, in your own words' }).fill('Short silver hair with a fringe');
     await expect(wiz.getByRole('button', { name: 'Hold to talk: their distinguishing marks' })).toBeVisible();
     await wiz.getByRole('group', { name: 'Help with their distinguishing marks' }).getByRole('button', { name: 'Fill for me' }).click();
-    await expect(wiz.getByRole('textbox', { name: 'Distinguishing marks' })).not.toHaveValue('');
+    await expectNotValue(wiz.getByRole('textbox', { name: 'Distinguishing marks' }), '');
     await shot(page, 'create-3-face-hair', testInfo.project.name);
 
     // 4 · outfit
     await wiz.getByRole('button', { name: 'Next: Outfit' }).click();
     await expectStep(wiz, 'What do they wear?');
     await wiz.getByRole('group', { name: 'Help with their outfit' }).getByRole('button', { name: 'Fill for me' }).click();
-    await expect(wiz.getByRole('textbox', { name: 'Everyday outfit' })).not.toHaveValue('');
+    await expectNotValue(wiz.getByRole('textbox', { name: 'Everyday outfit' }), '');
     await wiz.getByRole('button', { name: 'Add another outfit' }).click();
     await wiz.getByRole('textbox', { name: 'Another outfit 1' }).fill('A red silk shirt and black trousers');
     await shot(page, 'create-4-outfit', testInfo.project.name);
@@ -234,7 +234,7 @@ test.describe('Characters', () => {
     await wiz.getByRole('button', { name: 'Next: Personality' }).click();
     await expectStep(wiz, 'What are they like?');
     await wiz.getByRole('group', { name: 'Help with their personality' }).getByRole('button', { name: 'Fill for me' }).click();
-    await expect(wiz.getByRole('textbox', { name: 'Personality notes' })).not.toHaveValue('');
+    await expectNotValue(wiz.getByRole('textbox', { name: 'Personality notes' }), '');
     await shot(page, 'create-5-personality', testInfo.project.name);
 
     // 6 · the sheet: made on the machine, with progress, then accepted
@@ -318,8 +318,8 @@ test.describe('Characters', () => {
     await expect(wiz.getByRole('button', { name: 'Design it for me' })).toBeDisabled();
     await wiz.getByRole('textbox', { name: 'A one-line idea' }).fill('a retired lighthouse keeper who restores old clocks, 63');
     await wiz.getByRole('button', { name: 'Design it for me' }).click();
-    await expect(wiz.getByRole('textbox', { name: 'Name' })).not.toHaveValue('');
-    await expect(wiz.getByRole('textbox', { name: 'Age' })).toHaveValue('63');
+    await expectNotValue(wiz.getByRole('textbox', { name: 'Name' }), '');
+    await expectValue(wiz.getByRole('textbox', { name: 'Age' }), '63');
     await wiz.getByRole('button', { name: 'Next: Look' }).click();
     await expect(wiz.getByRole('radiogroup', { name: 'Build' }).getByRole('radio', { checked: true })).toHaveCount(1);
   });

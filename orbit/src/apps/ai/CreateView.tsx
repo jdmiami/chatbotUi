@@ -11,7 +11,7 @@ import { AiError, type LocalAi, type StudioItem, type StudioJob, type StudioKind
 import { isServerlessId, onServerless, serverlessCancel, serverlessInfo, serverlessJob, serverlessPriceWords, serverlessStart, type ServerlessInfo } from '../../services/ai/Serverless';
 import { PENDING_TEXT, offlineMakers, progressText, progressWhy, rememberMakers, withCatalog } from './makerCatalog';
 import { AudioSource, VideoSource, type AudioPick, type VideoPick } from './VideoInputs';
-import { TextArea } from '../../ui/TextArea';
+import { TextArea, TextField } from '../../ui/TextArea';
 import { useMotionLevel } from '../../motion/MotionProvider';
 import { cue } from '../../motion/feedback';
 import { orbApprove, useOrbAssist, type AssistOption, type OrbAssist } from '../../shell/orb/assist';
@@ -57,6 +57,17 @@ const KINDS: { id: Mode; label: string; hint: string; icon: 'image' | 'film' | '
   { id: 'vedit', label: 'Edit a video', hint: 'Change, erase or sharpen one you have', icon: 'film' },
 ];
 const KIND_NOUN: Record<Mode, string> = { image: 'picture', video: 'video', edit: 'picture edit', vedit: 'video edit' };
+
+const DRAFT_KEY = 'orbit:make:draft';
+/** The words from this visit (sessionStorage: gone when the tab closes). */
+function readDraft(): { prompt: string; target: string } {
+  try {
+    const d = JSON.parse(sessionStorage.getItem(DRAFT_KEY) || '{}') as { prompt?: unknown; target?: unknown };
+    return { prompt: typeof d.prompt === 'string' ? d.prompt : '', target: typeof d.target === 'string' ? d.target : '' };
+  } catch {
+    return { prompt: '', target: '' };
+  }
+}
 
 function loadPick(): Record<Mode, string> {
   try {
@@ -183,7 +194,8 @@ export function CreateView({
   const [galleryOpen, setGalleryOpen] = useState(false);
   const [pane, setPane] = useState<HTMLElement | null>(null);
   const [kind, setKind] = useState<Mode>('image');
-  const [prompt, setPrompt] = useState('');
+  // The words you typed are kept for this visit (a step change, an app switch or a page reload never drops them).
+  const [prompt, setPrompt] = useState(() => readDraft().prompt);
   const [size, setSize] = useState<Record<StudioKind, string>>({ image: 'square', video: 'landscape' });
   const [seconds, setSeconds] = useState('5');
   const [startImage, setStartImage] = useState<string | null>(null);
@@ -195,8 +207,18 @@ export function CreateView({
   const [video, setVideo] = useState<VideoPick | null>(null);
   const [audio, setAudio] = useState<AudioPick | null>(null);
   const [endImage, setEndImage] = useState<string | null>(null);
+  /** When the ending photo / face close-up comes from the gallery: its id (sent by id, so it keeps its own rule). */
+  const [endItem, setEndItem] = useState<string | null>(null);
+  const [faceItem, setFaceItem] = useState<string | null>(null);
   const [task, setTask] = useState<VideoTask>('replace');
-  const [target, setTarget] = useState('');
+  const [target, setTarget] = useState(() => readDraft().target);
+  useEffect(() => {
+    try {
+      sessionStorage.setItem(DRAFT_KEY, JSON.stringify({ prompt, target }));
+    } catch {
+      /* private mode */
+    }
+  }, [prompt, target]);
   const [change, setChange] = useState<'little' | 'lot'>('lot');
   /** Video editing: a picture of the new thing (replace) or of who should move (motion). */
   const [refPhoto, setRefPhoto] = useState<{ src: string; item?: string } | null>(null);
@@ -456,7 +478,7 @@ export function CreateView({
           ? {
               seconds: Number(seconds),
               ...(startItem ? { fromItem: startItem } : { image: startImage ?? undefined }),
-              ...(endImage && accepts.includes('endPhoto') ? { endImage } : {}),
+              ...(endImage && accepts.includes('endPhoto') ? (endItem ? { toItem: endItem } : { endImage }) : {}),
               ...(talking && audio ? { audioUpload: audio.upload } : {}),
             }
           : {}),
@@ -468,13 +490,15 @@ export function CreateView({
               // A character is the new person, or a photo is: never both.
               ...((wantsRef || swapping) && refPhoto && !charForJob ? (refPhoto.item ? { fromItem: refPhoto.item } : { image: refPhoto.src }) : {}),
               // The face close-up goes after the photo of the new person.
-              ...(swapping && facePhoto && !charForJob ? { images: [facePhoto] } : {}),
+              ...(swapping && facePhoto && !charForJob ? (faceItem ? { imageItems: [faceItem] } : { images: [facePhoto] }) : {}),
             }
           : {}),
         ...(kind === 'edit'
           ? {
               ...(fromGallery ? { fromItem: fromGallery } : {}),
-              images: editImages.filter((p, i) => !(i === 0 && p.item)).map((p) => p.src).slice(0, needImages),
+              // Gallery pictures go by id (they keep their own photo rule); only files you add are uploads.
+              images: editImages.filter((p) => !p.item).map((p) => p.src).slice(0, needImages),
+              ...(editImages.slice(1).some((p) => p.item) ? { imageItems: editImages.slice(1).flatMap((p) => (p.item ? [p.item] : [])) } : {}),
             }
           : {}),
       };
@@ -889,7 +913,7 @@ export function CreateView({
       <>
         {wantsTarget && (
           <div className="mk-field" data-assist-target={noWords || undefined}>
-            <input
+            <TextField
               className="input ai-target"
               value={target}
               onChange={(e) => setTarget(e.target.value)}
@@ -936,12 +960,6 @@ export function CreateView({
         onCreate={onCharacters}
       />
     ) : null;
-  /** A gallery picture as a data link, for slots the machine takes as a file (an ending photo, a face, a second picture). */
-  const dataOf = async (m: GalleryMedia) => {
-    const res = await fetch(m.url);
-    if (!res.ok) throw new Error('That picture could not be loaded.');
-    return toDataUrl(await res.blob());
-  };
   const galleryButton = (slot: string) => (
     <button type="button" className="btn ghost" aria-expanded={galSlot === slot} onClick={() => setGalSlot((v) => (v === slot ? null : slot))}>
       <Icon name="layers" size={18} /> From your gallery
@@ -1090,6 +1108,7 @@ export function CreateView({
                 if (id) {
                   setRefPhoto(null);
                   setFacePhoto(null);
+                  setFaceItem(null);
                 }
               }}
               onCreate={onCharacters}
@@ -1100,10 +1119,19 @@ export function CreateView({
               'Helps keep their face right.',
               'Add a close-up of their face (optional)',
               () => faceInput.current?.click(),
-              () => setFacePhoto(null),
+              () => {
+                setFacePhoto(null);
+                setFaceItem(null);
+              },
               'Remove the face close-up',
               undefined,
-              { slot: 'face', use: async (m) => setFacePhoto(await dataOf(m)) },
+              {
+                slot: 'face',
+                use: (m) => {
+                  setFacePhoto(m.url);
+                  setFaceItem(m.id);
+                },
+              },
             )}
             <p className="ai-muted mk-note">A plain background works best. Photos of real people are never made sexual, and children can’t be swapped.</p>
             <input
@@ -1197,10 +1225,9 @@ export function CreateView({
         )}
         {kind === 'edit' &&
           editImages.length + (charAsPicture ? 1 : 0) < Math.max(1, needImages) &&
-          galleryFill('edit', async (m) => {
-            // The first picture goes by its gallery id (the machine has it); a second one as a file.
-            const next = editImages.length === 0 ? { src: m.url, item: m.id } : { src: await dataOf(m) };
-            setEditImages((prev) => [...prev, next].slice(-2));
+          galleryFill('edit', (m) => {
+            // Every gallery picture goes by its id: the machine has the file, and it keeps its own photo rule.
+            setEditImages((prev) => [...prev, { src: m.url, item: m.id }].slice(-2));
           })}
         {kind === 'edit' && !charForJob && editImages.length === 0 && charFill('edit', () => {})}
         {kind === 'video' && takesVideo && !startImage && !endImage && (
@@ -1250,10 +1277,26 @@ export function CreateView({
         )}
         {kind === 'video' && accepts.includes('endPhoto') && !restyling && (
           <>
-            {photoRow(endImage, 'Ending photo', 'The video ends on this photo.', 'End on a photo', () => endInput.current?.click(), () => setEndImage(null), 'Remove the ending photo', undefined, {
-              slot: 'end',
-              use: async (m) => setEndImage(await dataOf(m)),
-            })}
+            {photoRow(
+              endImage,
+              'Ending photo',
+              'The video ends on this photo.',
+              'End on a photo',
+              () => endInput.current?.click(),
+              () => {
+                setEndImage(null);
+                setEndItem(null);
+              },
+              'Remove the ending photo',
+              undefined,
+              {
+                slot: 'end',
+                use: (m) => {
+                  setEndImage(m.url);
+                  setEndItem(m.id);
+                },
+              },
+            )}
             <input
               ref={endInput}
               type="file"

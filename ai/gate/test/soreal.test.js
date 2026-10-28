@@ -6,7 +6,7 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { createMovies, shotCount, stitchArgs } from '../src/movies.js';
-import { BLOCKED_MESSAGE, PHOTO_MESSAGE, createStudio } from '../src/studio.js';
+import { BLOCKED_MESSAGE, PHOTO_MESSAGE, PHOTO_SOURCE_MESSAGE, createStudio } from '../src/studio.js';
 import { checkMovieText, createWriter, fallbackStory, parseStory } from '../src/story.js';
 import { h3Workflow, videoWorkflow } from '../src/workflows.js';
 
@@ -119,7 +119,7 @@ test('studio: a video between two gallery pictures, with the photo rule for eith
   // A picture that came from someone's photo keeps the photo rule, as the start or the end.
   await assert.rejects(
     studio.createJob({ kind: 'video', prompt: 'she undresses', fromItem: 'frameaaa1', toItem: 'photoccc3' }),
-    (e) => e.status === 422 && e.message === PHOTO_MESSAGE,
+    (e) => e.status === 422 && e.message === PHOTO_SOURCE_MESSAGE,
   );
   // Learned timings give estimates: a video takes longer than a picture, a cold start longer still.
   const pic = studio.estimate({ kind: 'image', maker: 'qwen', size: 'tall' });
