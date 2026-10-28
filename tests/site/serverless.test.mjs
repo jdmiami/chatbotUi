@@ -2,7 +2,7 @@
 // them, which image the endpoint runs, and what may not go there. Run with: npm run test:site.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { imageFor, mapStatus, serverlessRefusal, WORKER_IMAGE } from '../../lib/serverlessShared.ts';
+import { imageFor, mapStatus, nextImage, serverlessRefusal, WORKER_IMAGE } from '../../lib/serverlessShared.ts';
 
 test('a job in the queue, running (with the worker’s own progress), done, failed, stopped', () => {
   assert.deepEqual(mapStatus('j1', { status: 'IN_QUEUE' }), { id: 'j1', status: 'queued', progress: 0, detail: 'Waiting for a GPU', waitedSeconds: undefined, ranSeconds: undefined });
@@ -31,6 +31,16 @@ test('the endpoint runs this deployment’s image when it is built, else the new
   assert.equal(imageFor('abc123', true), `${WORKER_IMAGE}:abc123`);
   assert.equal(imageFor('abc123', false), `${WORKER_IMAGE}:main`);
   assert.equal(imageFor(undefined, false), `${WORKER_IMAGE}:main`);
+});
+
+test('between a deploy and its image build the endpoint keeps the build it runs; it moves once the new one exists', () => {
+  const old = `${WORKER_IMAGE}:0ld0ld`;
+  assert.equal(nextImage(old, 'abc123', false), old);
+  assert.equal(nextImage(`${WORKER_IMAGE}:main`, 'abc123', false), `${WORKER_IMAGE}:main`);
+  assert.equal(nextImage(old, 'abc123', true), `${WORKER_IMAGE}:abc123`);
+  // A fresh endpoint, or one running something else entirely, gets the newest build.
+  assert.equal(nextImage(undefined, 'abc123', false), `${WORKER_IMAGE}:main`);
+  assert.equal(nextImage('docker.io/someone/else:1', undefined, false), `${WORKER_IMAGE}:main`);
 });
 
 test('uploads stay on the AI machine; gallery videos and pictures may go', () => {

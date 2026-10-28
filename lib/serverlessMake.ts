@@ -3,7 +3,7 @@ import { runpod } from './runpod';
 import { env, hfTokenEnv, r2SecretEnv, siteUrl } from './ai';
 import { createR2, r2Config } from './r2';
 import { autoOffMinutes } from './autoOff';
-import { imageFor, mapStatus, serverlessRefusal, WORKER_IMAGE, type ServerlessJob } from './serverlessShared';
+import { mapStatus, nextImage, serverlessRefusal, WORKER_IMAGE, type ServerlessJob } from './serverlessShared';
 
 /**
  * The serverless AI machine: your own makers (the uncensored ones on the AI machine) on Runpod's
@@ -136,10 +136,10 @@ async function imageBuilt(sha: string): Promise<boolean> {
   }
 }
 
-async function desiredImage(): Promise<string> {
+async function desiredImage(current?: string): Promise<string> {
   if (process.env.AI_WORKER_IMAGE) return process.env.AI_WORKER_IMAGE;
   const sha = process.env.VERCEL_GIT_COMMIT_SHA;
-  return imageFor(sha, sha ? await imageBuilt(sha) : false);
+  return nextImage(current, sha, sha ? await imageBuilt(sha) : false);
 }
 
 /**
@@ -148,7 +148,7 @@ async function desiredImage(): Promise<string> {
  * release (workers are replaced then); the idle time alone reaches the scheduler without one.
  */
 async function syncImage(ep: Endpoint) {
-  const image = await desiredImage();
+  const image = await desiredImage(ep.image);
   const idleOk = ep.workers?.idleTimeout === IDLE_SECONDS;
   if (ep.image === image && idleOk) return;
   const body: Record<string, unknown> = idleOk ? {} : { workers: { min: 0, max: 1, idleTimeout: IDLE_SECONDS } };
