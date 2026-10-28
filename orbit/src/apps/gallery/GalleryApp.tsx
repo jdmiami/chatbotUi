@@ -2,6 +2,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import type { AppProps } from '../types';
 import { MagCover } from '../../ui/Magazine';
 import { useShell } from '../../state/shell';
+import { useWorkspace } from '../../state/workspace';
 import { useScrollDepth } from '../../shell/o5/depth';
 import { Icon } from '../../ui/Icon';
 import { ConfirmSheet, Segmented } from '../../ui/components';
@@ -15,6 +16,8 @@ import { readLast, saveLast, type LastGallery } from '../../services/ai/galleryC
 import { cloudMadeList, cloudMadeRemove, moveCloudMadeToStorage } from '../../services/ai/CloudMake';
 import { deleteStored, keepStored, makeStoredThumbs, markStoredNsfw, saveCloudToStorage, sourceOf, storedGallery, type CreationSource, type StoredGallery, type StoredItem } from '../../services/ai/StoredGallery';
 import { GalleryGrid, GalleryViewer, useGalleryStepper, type GalleryMedia } from '../ai/Gallery';
+import { VIDEO_WORK } from '../ai/CreateView';
+import { offlineMakers } from '../ai/makerCatalog';
 import { loadHeld, type HeldItem } from '../../services/ai/HeldReview';
 import { HeldReview } from './HeldReview';
 import '../agent/agent.css';
@@ -407,6 +410,22 @@ export default function GalleryApp({ isActive }: AppProps) {
     );
   };
 
+  /** Carry on from this creation in Make ("Use prompt", "Make it move", "Edit", a video maker): Make takes it from here. */
+  const carryOn = (c: Creation, action: 'prompt' | 'animate' | 'edit' | 'video', maker?: string) => {
+    setViewing(null);
+    useWorkspace.getState().sendIntent({
+      app: 'make',
+      type: 'continue',
+      action,
+      maker,
+      item: { id: c.id, kind: c.kind, prompt: c.prompt, url: c.url, thumbUrl: c.thumbUrl, width: c.width, height: c.height, seconds: c.seconds, nsfw: c.nsfw || undefined, createdAt: c.createdAt },
+    });
+    launch('make');
+  };
+  // Video makers the AI machine has (as Make last saw them): the buttons Make's own gallery shows.
+  const [videoMakers] = useState(() => new Set(offlineMakers().filter((m) => m.installed).map((m) => m.id)));
+  const makerHere = (id: string) => videoMakers.has(id);
+
   const off = status ? !machineOn : false;
   const waking = status?.state === 'starting' || status?.state === 'downloading';
   const noStorage = stored !== undefined && !configured;
@@ -560,6 +579,32 @@ export default function GalleryApp({ isActive }: AppProps) {
             <a className="btn" href={open.downloadUrl} download target={open.origin === 'device' ? '_blank' : undefined} rel="noopener noreferrer">
               <Icon name="download" size={16} /> Save
             </a>
+            {/* Carry on in Make, as from Make's own gallery (not for what still waits on this device: Make has no file for it). */}
+            {open.origin !== 'device' && (
+              <>
+                {open.prompt && (
+                  <button type="button" className="btn" onClick={() => carryOn(open, 'prompt')}>
+                    <Icon name="refresh" size={16} /> Use prompt
+                  </button>
+                )}
+                {open.kind === 'image' && (
+                  <>
+                    <button type="button" className="btn" onClick={() => carryOn(open, 'animate')}>
+                      <Icon name="film" size={16} /> Make it move
+                    </button>
+                    <button type="button" className="btn" onClick={() => carryOn(open, 'edit')}>
+                      <Icon name="pencil" size={16} /> Edit
+                    </button>
+                  </>
+                )}
+                {open.kind === 'video' &&
+                  VIDEO_WORK.filter((w) => makerHere(w.maker)).map((w) => (
+                    <button key={w.maker} type="button" className="btn" onClick={() => carryOn(open, 'video', w.maker)}>
+                      <Icon name={w.icon} size={16} /> {w.label}
+                    </button>
+                  ))}
+              </>
+            )}
             {open.lab && (
               <button type="button" className="btn" disabled={busy === open.id} onClick={() => void keep(open)}>
                 <Icon name="check" size={16} /> Keep in my gallery
