@@ -375,3 +375,19 @@ test('studio: a picture made in the cloud is added to the gallery; only cloud ma
   await assert.rejects(studio.importItem({ url: 'http://v3.fal.media/x.png', kind: 'image', prompt: 'x' }), /Only files from the cloud makers/);
   await assert.rejects(studio.importItem({ url: 'file:///etc/passwd', kind: 'image', prompt: 'x' }), /Only files from the cloud makers/);
 });
+
+test('studio with R2: a job can start from a gallery picture made on another machine (its note and file are only in R2)', async () => {
+  const { r2, objects } = memoryR2();
+  // Another machine made this picture: R2 has its note and its file; this machine has never seen it.
+  objects.set('gallery/orbit/far0001.json', Buffer.from(JSON.stringify({ id: 'far0001', kind: 'image', maker: 'qwen', prompt: 'a lighthouse', width: 1024, height: 1024, fromImage: false, file: 'orbit/far0001.png', createdAt: '2026-10-27T00:00:00Z' })));
+  objects.set('gallery/orbit/far0001.png', Buffer.from('PNGDATA'));
+  const { dir, state } = await newStudio();
+  const studio = createStudio({ dir, files: FILES, fetchImpl: fakeServices(state), WebSocketImpl: null, log: { warn() {}, info() {} }, freeAfterMs: 0, r2 });
+  const job = await studio.createJob({ kind: 'image', prompt: 'the same lighthouse at night', fromItem: 'far0001' });
+  assert.equal(job.status, 'queued');
+  // The picture was brought down and handed to the maker as its starting picture.
+  const inputs = await fs.readdir(path.join(dir, 'input'));
+  assert.equal(inputs.length, 1);
+  assert.equal((await fs.readFile(path.join(dir, 'input', inputs[0]))).toString(), 'PNGDATA');
+  await assert.rejects(studio.createJob({ kind: 'image', prompt: 'x', fromItem: 'gone99' }), (e) => e.status === 404 && /no longer in your gallery/.test(e.message));
+});
