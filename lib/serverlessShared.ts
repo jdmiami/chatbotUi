@@ -28,6 +28,18 @@ export interface ServerlessJob {
 export const WORKER_IMAGE = 'ghcr.io/jdmiami/orbit-ai-worker';
 export const imageFor = (sha: string | undefined, built: boolean) => `${WORKER_IMAGE}:${sha && built ? sha : 'main'}`;
 
+/**
+ * The image the endpoint should run next, given what it runs now. Changing the image makes a release
+ * (every worker is replaced, a picture being made on one is lost), so it only changes for this
+ * deployment's own build once that is published. In the minutes between a deploy and its image build
+ * the endpoint keeps the build it has rather than stepping to the newest and back again.
+ */
+export function nextImage(current: string | undefined, sha: string | undefined, built: boolean): string {
+  if (sha && built) return imageFor(sha, true);
+  if (current && current.startsWith(`${WORKER_IMAGE}:`)) return current;
+  return imageFor(sha, false);
+}
+
 /** Runpod's answer for a job (POST /run, GET /status/<id>) turned into a ServerlessJob. */
 export function mapStatus(id: string, st: Record<string, unknown>): ServerlessJob {
   const status = String(st.status ?? '');
