@@ -1,5 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
-import { expectNoHorizontalOverflow, indexButton, openApp, openOrbit } from './helpers';
+import { expectNoHorizontalOverflow, indexButton, openApp, openOrbit, expectNotValue, expectValue } from './helpers';
 import { INSTALLED, aiMenu, closeMakeGallery, expectTappable, makeStep, mockAi, openAi, openMakeApp, openMakeGallery, recordChats, sendText, setShowNsfw, showTools, typeAndSend } from './aiMocks';
 
 /**
@@ -59,7 +59,7 @@ test.describe('AI app', () => {
     await expect(page.getByText(/^Thought for \d+s$|^Thinking$/)).toBeVisible();
     await expect(page.getByText(/\d+ tokens\/s/)).toBeVisible();
     await expect(page.locator('.ai-msg-from').last()).toContainText('qwen3.8-obliterated:27b');
-    await expect(box).toHaveValue('');
+    await expectValue(box, '');
 
     await expectNoHorizontalOverflow(page);
     // The wide code line scrolls inside its own block, not the page.
@@ -146,7 +146,7 @@ test.describe('AI app', () => {
     await openAi(page);
     await expect(page.getByRole('heading', { name: 'What can I help with?' })).toBeVisible();
     await page.getByRole('button', { name: 'Write code' }).click();
-    await expect(page.getByRole('textbox', { name: 'Message' })).toHaveValue(/Python script/);
+    await expectValue(page.getByRole('textbox', { name: 'Message' }), /Python script/);
     await expectNoHorizontalOverflow(page);
     await expectTappable(page);
   });
@@ -707,7 +707,7 @@ test.describe('AI app: chat powers', () => {
     await page.locator('.ai-msg-user .ai-user-text').first().click();
     await page.locator('.ai-msg-user').first().getByRole('button', { name: 'Edit' }).click();
     await expect(page.getByText(/Editing your message/)).toBeVisible();
-    await expect(page.getByRole('textbox', { name: 'Message' })).toHaveValue('First try');
+    await expectValue(page.getByRole('textbox', { name: 'Message' }), 'First try');
     await sendText(page, 'Better first try');
     await expect(page.locator('.ai-msg')).toHaveCount(2);
     await expect(page.locator('.ai-user-text')).toHaveText(['Better first try']);
@@ -747,12 +747,12 @@ test.describe('AI app: chat powers', () => {
     await expect(page.locator('.ai-msg-assistant').last()).toContainText('first draft');
     await page.locator('.ai-msg-assistant').getByRole('button', { name: 'Canvas' }).click();
     const doc = page.getByRole('textbox', { name: 'Document' });
-    await expect(doc).toHaveValue('A long first draft about the sea.');
+    await expectValue(doc, 'A long first draft about the sea.');
     await recordChats(page, 'Short sea poem.');
     await page.getByRole('button', { name: 'Shorter' }).click();
-    await expect(doc).toHaveValue('Short sea poem.');
+    await expectValue(doc, 'Short sea poem.');
     await page.getByRole('button', { name: 'Undo' }).click();
-    await expect(doc).toHaveValue('A long first draft about the sea.');
+    await expectValue(doc, 'A long first draft about the sea.');
     await doc.fill('My own edit.');
     await page.getByRole('button', { name: 'Put back in chat' }).click();
     await expect(page.locator('.ai-msg-assistant').last()).toContainText('My own edit.');
@@ -1095,7 +1095,7 @@ test.describe('AI app: video makers', () => {
     await expect(page.getByRole('button', { name: 'Hold to talk: who to replace' })).toBeVisible();
     // Fill for me: an idea naming a person.
     await page.getByRole('button', { name: 'Fill for me' }).click();
-    await expect(who).not.toHaveValue('');
+    await expectNotValue(who, '');
     await who.fill('the man in the red jacket');
     await shot('swap-3-who');
 
@@ -1138,7 +1138,7 @@ test.describe('AI app: video makers', () => {
     await page.getByRole('button', { name: 'Video: waves at sunset' }).click();
     await page.getByRole('dialog', { name: 'Video' }).getByRole('button', { name: 'Swap a person' }).click();
     await expect(dots.filter({ hasText: 'Who to replace' })).toHaveAttribute('aria-current', 'step');
-    await expect(who).toHaveValue('');
+    await expectValue(who, '');
     await makeStep(page, 'The video');
     await expect(page.locator('video[aria-label="Video to work on"]')).toBeVisible();
     // (The browser logs the refusal's 422 itself; nothing else may go wrong.)

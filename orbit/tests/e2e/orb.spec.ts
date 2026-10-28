@@ -1,5 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
-import { expectNoHorizontalOverflow, openApp } from './helpers';
+import { expectNoHorizontalOverflow, openApp, expectValue } from './helpers';
 import { aiMenu, mockAi } from './aiMocks';
 
 /** The orb: on every screen, physics you can grab and throw, and it uses Orbit for you. */
@@ -133,13 +133,13 @@ test.describe('the orb', () => {
     const ghost = page.locator('.wh-ghost');
     await expect(ghost).toHaveText(/milk and eggs/);
     await box.press('Tab');
-    await expect(box).toHaveValue('remind me to buy milk and eggs');
+    await expectValue(box, 'remind me to buy milk and eggs');
     await expect(ghost).toHaveCount(0);
 
     await box.selectText();
     await page.getByRole('button', { name: /Rewrite/ }).click();
     await page.getByRole('menuitem', { name: 'Fix' }).click();
-    await expect(box).toHaveValue('Please remind me to buy milk and eggs tomorrow.');
+    await expectValue(box, 'Please remind me to buy milk and eggs tomorrow.');
     // Rewrite is unfiltered writing: it does what you ask with your words (adults only, said on the site).
     expect(rewrites).toEqual(['free']);
     expect(errors).toEqual([]);
@@ -206,7 +206,7 @@ test.describe('the orb', () => {
     const box = win.getByRole('textbox', { name: 'Message' });
     await box.click();
     await ask('bring me the paris plan');
-    await expect(box).toHaveValue(/Louvre.*Montmartre/);
+    await expectValue(box, /Louvre.*Montmartre/);
     expect(errors).toEqual([]);
   });
 
@@ -526,9 +526,10 @@ test.describe('the orb', () => {
     await page.mouse.up();
     await expect(box).toBeFocused();
     await expect(page.locator('.orb-layer')).toHaveAttribute('data-caret', 'true');
-    expect(await box.evaluate((el) => (el as HTMLTextAreaElement).selectionStart)).toBeLessThan(3);
+    // The caret landed near the start (a textarea's selectionStart; a plain box's selection offset).
+    expect(await box.evaluate((el) => (el as HTMLTextAreaElement).selectionStart ?? window.getSelection()?.anchorOffset ?? 99)).toBeLessThan(3);
     await page.keyboard.type('>');
-    await expect(box).toHaveValue(/^.{0,2}>/);
+    await expectValue(box, /^.{0,2}>/);
     expect(errors).toEqual([]);
   });
 

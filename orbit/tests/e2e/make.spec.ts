@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { expectNoHorizontalOverflow, openOrbit } from './helpers';
+import { expectNoHorizontalOverflow, openOrbit, expectValue } from './helpers';
 import { closeMakeGallery, makeStep, mockAi, openMakeApp, openMakeGallery } from './aiMocks';
 
 /** Make, its own app: in the cloud while the AI machine rests; what is made there moves into the gallery when it is on. */
@@ -53,7 +53,7 @@ test('Make in the cloud: a picture straight away, a video after a wait; both mov
   await win.getByRole('button', { name: 'Make it in the cloud' }).click();
   const cloud = win.getByRole('region', { name: 'Make it in the cloud' });
   await expect(cloud).toBeVisible();
-  await expect(cloud.getByRole('textbox', { name: 'Describe it for the cloud' })).toHaveValue('a lighthouse at dawn');
+  await expectValue(cloud.getByRole('textbox', { name: 'Describe it for the cloud' }), 'a lighthouse at dawn');
   await expect(cloud).toContainText('Cloudflare: about 230 a day free');
 
   // A picture: back at once, waiting on this device.
@@ -133,6 +133,12 @@ test('Make: a bar at the top shows what is still loading, and a stopped download
   await expect(bar.getByRole('button', { name: 'Resume H3 Max' })).toHaveCount(0);
   await expect(bar).toContainText(/H3 Max\s*40%/);
   await expectNoHorizontalOverflow(page);
+  // Hide puts the bar away for these downloads, and it stays away after a reload.
+  await bar.getByRole('button', { name: 'Hide' }).click();
+  await expect(bar).toHaveCount(0);
+  await page.reload();
+  const again = await openMakeApp(page);
+  await expect(again.getByRole('region', { name: 'Makers loading' })).toHaveCount(0);
   expect(errors).toEqual([]);
 });
 

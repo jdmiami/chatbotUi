@@ -92,7 +92,7 @@ function scrollerTakes(target: EventTarget | null, stage: HTMLElement, dx: numbe
 function ownsGesture(target: EventTarget | null) {
   const el = target as HTMLElement | null;
   if (!el?.closest) return false;
-  if (el.closest('input, textarea, select, [contenteditable="true"], [contenteditable=""], audio, video, [data-noswipe]')) return true;
+  if (el.closest('input, textarea, select, [contenteditable]:not([contenteditable="false"]), audio, video, [data-noswipe]')) return true;
   const sel = typeof window.getSelection === 'function' ? window.getSelection() : null;
   return Boolean(sel && !sel.isCollapsed && sel.toString().trim());
 }

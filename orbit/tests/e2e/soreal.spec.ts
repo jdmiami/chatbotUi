@@ -1,5 +1,5 @@
 import { expect, test, type Locator, type Page } from '@playwright/test';
-import { expectNoHorizontalOverflow, openApp, openOrbit } from './helpers';
+import { expectNoHorizontalOverflow, openApp, openOrbit, expectValue } from './helpers';
 import { mockAi } from './aiMocks';
 import { mockMovies, type Shot } from './soRealMocks';
 
@@ -88,7 +88,7 @@ test.describe('soReal', () => {
     const errors = await openOrbit(page);
     const win = await openSoReal(page);
     await win.getByRole('button', { name: 'Music video' }).click();
-    await expect(win.getByRole('textbox', { name: 'What’s your movie about?' })).toHaveValue(/neon rooftop/);
+    await expectValue(win.getByRole('textbox', { name: 'What’s your movie about?' }), /neon rooftop/);
     await win.getByRole('button', { name: 'Walk me through it' }).click();
     expect(api.calls.find((c) => c.method === 'POST' && c.path === '')!.body).toMatchObject({ template: 'music-video', length: 20 });
 

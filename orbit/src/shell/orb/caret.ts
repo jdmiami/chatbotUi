@@ -217,3 +217,34 @@ export function offsetAt(el: HTMLInputElement | HTMLTextAreaElement, x: number, 
   }
   return lo;
 }
+
+/**
+ * The spot in an editable block nearest to the point (x, y), as a collapsed range: for when the browser's
+ * own point lookup lands outside it (on the orb, say). Measures each letter; blocks hold short texts.
+ */
+export function nearestCaret(el: HTMLElement, x: number, y: number): Range | null {
+  const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
+  let best: { node: Text; offset: number } | null = null;
+  let bestD = Infinity;
+  const r = document.createRange();
+  for (let node = walker.nextNode() as Text | null, seen = 0; node && seen < 5000; node = walker.nextNode() as Text | null) {
+    const n = node.data.length;
+    for (let i = 0; i <= n && seen < 5000; i++, seen++) {
+      r.setStart(node, i);
+      r.setEnd(node, i);
+      const b = r.getBoundingClientRect();
+      if (!b.height && !b.width && i < n) continue;
+      const d = Math.abs(b.left - x) + Math.abs(b.top + b.height / 2 - y) * 4;
+      if (d < bestD) ((bestD = d), (best = { node, offset: i }));
+    }
+  }
+  if (!best) {
+    if (!el.firstChild) return null;
+    r.selectNodeContents(el);
+    r.collapse(false);
+    return r;
+  }
+  r.setStart(best.node, best.offset);
+  r.setEnd(best.node, best.offset);
+  return r;
+}

@@ -1,4 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
+import { expectValue } from './helpers';
 
 /**
  * The orb on a walkthrough (shell/orb/assist.ts), on a test page with three steps that register the
@@ -133,7 +134,7 @@ test.describe('the orb on a walkthrough step', () => {
 
     // Tap the words to take them.
     await ghost.click();
-    await expect(box).toHaveValue(PICTURES[2]);
+    await expectValue(box, PICTURES[2]);
     await expect(ghost).toHaveCount(0);
     expect(errors).toEqual([]);
   });
@@ -158,7 +159,7 @@ test.describe('the orb on a walkthrough step', () => {
     const box = page.getByRole('textbox', { name: 'Describe it' });
     await expect(box).toBeVisible();
     await tapOrb(page);
-    await expect(box).toHaveValue(PICTURES[0]);
+    await expectValue(box, PICTURES[0]);
     // Say (or type) "write it for me" to the orb: the next idea.
     const at = await settled(page);
     await page.mouse.move(at.x, at.y);
@@ -169,7 +170,7 @@ test.describe('the orb on a walkthrough step', () => {
     await expect(panel.getByRole('button', { name: 'Write it for me' })).toBeVisible();
     await panel.getByRole('textbox', { name: 'Tell the orb what to do' }).fill('another idea please');
     await panel.getByRole('button', { name: 'Go' }).click();
-    await expect(box).toHaveValue(PICTURES[1]);
+    await expectValue(box, PICTURES[1]);
   });
 
   test('a one-line box: the orb rides its edge, sliding over the words it offers', async ({ page }) => {
@@ -188,7 +189,7 @@ test.describe('the orb on a walkthrough step', () => {
     expect(Math.max(...xs) - Math.min(...xs)).toBeGreaterThan(20);
     // Tap the orb to take them.
     await page.mouse.click(path[path.length - 1].x, path[path.length - 1].y);
-    await expect(box).toHaveValue(NAMES[0]);
+    await expectValue(box, NAMES[0]);
     expect(errors).toEqual([]);
   });
 
@@ -290,7 +291,7 @@ test.describe('the orb on a walkthrough step', () => {
     await expect(page.locator('.orb-cursor')).toHaveCount(0);
     const box = page.getByRole('textbox', { name: 'Describe it' });
     await page.getByRole('button', { name: 'Fill for me' }).click();
-    await expect(box).toHaveValue(PICTURES[0]);
+    await expectValue(box, PICTURES[0]);
     await page.getByRole('button', { name: 'Next' }).click();
     await page.getByRole('radio', { name: 'Paper cut' }).click();
     await expect(page.getByRole('textbox', { name: 'Name it' })).toBeVisible();

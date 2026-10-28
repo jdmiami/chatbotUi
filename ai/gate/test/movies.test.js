@@ -5,7 +5,7 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { createMovies, lastFrameArgs, runFfmpeg, stitchArgs } from '../src/movies.js';
-import { PHOTO_MESSAGE, createStudio } from '../src/studio.js';
+import { PHOTO_SOURCE_MESSAGE, createStudio } from '../src/studio.js';
 
 const hasFfmpeg = spawnSync('ffmpeg', ['-version']).status === 0;
 const tmp = (p) => fs.mkdtemp(path.join(os.tmpdir(), p));
@@ -117,7 +117,7 @@ test('the photo rule follows a picture from the gallery that came from an upload
   const studio = createStudio({ dir, files: { image: [], video: [] }, fetchImpl: async () => Response.json({}), WebSocketImpl: null, log: { warn() {} } });
   await assert.rejects(
     studio.createJob({ kind: 'video', prompt: 'she takes off her clothes', fromLastFrameOf: 'fromphoto1' }),
-    (e) => e.status === 422 && e.message === PHOTO_MESSAGE,
+    (e) => e.status === 422 && e.message === PHOTO_SOURCE_MESSAGE,
   );
 });
 

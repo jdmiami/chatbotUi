@@ -1,5 +1,5 @@
 import { expect, test, type Locator, type Page } from '@playwright/test';
-import { expectNoHorizontalOverflow, openOrbit } from './helpers';
+import { expectNoHorizontalOverflow, openOrbit, expectNotValue, expectValue, valueOf } from './helpers';
 import { mockAi, openMakeApp } from './aiMocks';
 
 /**
@@ -196,7 +196,7 @@ test.describe('Make, step by step', () => {
     const tb = (await box.boundingBox())!;
     await swipe(page, win, 'left', { x: tb.x + tb.width * 0.8, y: tb.y + tb.height / 2 });
     await expectStep(win, 'Describe it');
-    await expect(box).toHaveValue('waves at sunset with gulls');
+    await expectValue(box, 'waves at sunset with gulls');
   });
 
   test('hold to talk fills the box with what you say', async ({ page }) => {
@@ -239,13 +239,13 @@ test.describe('Make, step by step', () => {
     await page.waitForTimeout(600);
     await page.mouse.up();
     const box = win.getByRole('textbox', { name: 'Describe it' });
-    await expect(box).toHaveValue('a red balloon over the sea');
+    await expectValue(box, 'a red balloon over the sea');
     await expect(win.getByRole('button', { name: 'Hold to talk: the description' })).toHaveAttribute('aria-pressed', 'false');
     // Talking again adds to what is there.
     await page.mouse.down();
     await page.waitForTimeout(600);
     await page.mouse.up();
-    await expect(box).toHaveValue('a red balloon over the sea a red balloon over the sea');
+    await expectValue(box, 'a red balloon over the sea a red balloon over the sea');
     expect(errors).toEqual([]);
   });
 
@@ -259,11 +259,11 @@ test.describe('Make, step by step', () => {
     const box = win.getByRole('textbox', { name: 'Describe it' });
     const fill = win.getByRole('button', { name: 'Fill for me' });
     await fill.click();
-    await expect(box).not.toHaveValue('');
-    const first = await box.inputValue();
+    await expectNotValue(box, '');
+    const first = await valueOf(box);
     await fill.click();
-    await expect(box).not.toHaveValue(first);
-    expect((await box.inputValue()).length).toBeGreaterThan(10);
+    await expectNotValue(box, first);
+    expect((await valueOf(box)).length).toBeGreaterThan(10);
 
     // With cloud AI: it is asked, with what the step is about.
     const asked: string[] = [];
@@ -278,7 +278,7 @@ test.describe('Make, step by step', () => {
     await win2.getByRole('radio', { name: /^A video/ }).click();
     await win2.getByRole('button', { name: 'Next: Describe it' }).click();
     await win2.getByRole('button', { name: 'Fill for me' }).click();
-    await expect(win2.getByRole('textbox', { name: 'Describe it' })).toHaveValue('A snowy owl gliding over a frozen lake 1');
+    await expectValue(win2.getByRole('textbox', { name: 'Describe it' }), 'A snowy owl gliding over a frozen lake 1');
     expect(asked[0]).toContain('Step 3 of 5, Describe it: a landscape video with');
     expect(errors).toEqual([]);
   });
@@ -313,9 +313,9 @@ test.describe('Make, step by step', () => {
     await win.getByRole('navigation', { name: 'Make, step by step' }).getByRole('button', { name: /^Step 5 of 5/ }).click();
     await win.getByRole('button', { name: 'Make video' }).click();
     await expect.poll(() => requests.length).toBe(1);
-    // The starting picture goes by its gallery id; the ending one as a file.
-    expect(requests[0]).toMatchObject({ kind: 'video', maker: 'ltx-25', fromItem: 'img1' });
-    expect(String(requests[0].endImage)).toMatch(/^data:image\//);
+    // Both gallery pictures go by their ids (each keeps its own photo rule); nothing is sent as a file.
+    expect(requests[0]).toMatchObject({ kind: 'video', maker: 'ltx-25', fromItem: 'img1', toItem: 'img1' });
+    expect(requests[0].endImage).toBeUndefined();
 
     // An edit: the picture to change, from the gallery.
     await win.getByRole('navigation', { name: 'Make, step by step' }).getByRole('button', { name: /^Step 1 of/ }).click();

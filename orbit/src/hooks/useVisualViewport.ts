@@ -39,6 +39,9 @@ export function useVisualViewport() {
           height: Math.round(height),
           keyboardOpen,
         });
+        // What you type always comes first: once the keyboard is up (and the layout has shrunk to
+        // the space above it), bring the box being typed in back into view wherever it is.
+        if (keyboardOpen && editing) keepInView(document.activeElement as HTMLElement);
       });
     };
 
@@ -78,6 +81,19 @@ const floatingKeyboardBar =
   typeof navigator !== 'undefined' &&
   /iPhone/.test(navigator.userAgent) &&
   Number(navigator.userAgent.match(/Version\/(\d+)/)?.[1] ?? 0) >= 26;
+
+let keepTimer = 0;
+/** Scroll the box being typed in into view, after the keyboard has finished arriving (it animates in). */
+function keepInView(el: HTMLElement) {
+  clearTimeout(keepTimer);
+  keepTimer = window.setTimeout(() => {
+    if (document.activeElement !== el) return;
+    const r = el.getBoundingClientRect();
+    const seen = window.visualViewport?.height ?? window.innerHeight;
+    if (r.top >= 0 && r.bottom <= seen) return;
+    el.scrollIntoView({ block: r.height > seen * 0.6 ? 'start' : 'center', behavior: 'smooth' });
+  }, 320);
+}
 
 function isEditableFocused() {
   const el = document.activeElement as HTMLElement | null;

@@ -10,6 +10,11 @@
   --mk-gr: calc(var(--safe-right) + clamp(16px, 5vw, 56px));
 }
 
+/* The keyboard is up: what you type comes first. The step's title, the dots and arrows, the loading
+   strip and the notice step aside until it goes, so the words and their tools have the whole space. */
+.shell[data-keyboard='true'] .make-root :is(.make-loading, .mk-dots, .mk-nav, .mk-pane-head, .notice-wrap, .notice-pill) { display: none; }
+.shell[data-keyboard='true'] .make-root .mk-pane { padding-top: 8px; }
+
 /* ---------------------------------------------------------------- what is still loading (top strip) */
 .make-root > .make-loading {
   flex: none;
@@ -46,6 +51,8 @@
 }
 @media (prefers-reduced-motion: reduce) { .make-bar-busy span { animation: none; } }
 .make-loading-all { appearance: none; border: 0; background: none; padding: 6px 0; min-height: 44px; color: var(--accent, #8b9cff); font: 600 var(--fs-sm, 14px) / 1 var(--font-ui); cursor: pointer; }
+.make-loading-head > .icon-btn { align-self: center; }
+.make-loading-acts { display: inline-flex; align-items: center; gap: 8px; margin-left: auto; }
 
 /* ---------------------------------------------------------------- the frame: top bar, steps, buttons */
 :root[data-skin='o5'] .ai-create.mk,
@@ -488,7 +495,7 @@
   animation: mk-shimmer 1.1s linear infinite;
 }
 .mk-field { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
-:root[data-skin='o5'] .mk :is(textarea, .ta-plain) {
+:root[data-skin='o5'] .mk :is(textarea, .ta-plain:not(.ta-line)) {
   width: 100%;
   box-sizing: border-box;
   resize: none;
@@ -506,7 +513,7 @@
   box-shadow: none;
   overflow-y: auto;
 }
-:root[data-skin='o5'] .mk :is(textarea, .ta-plain):focus { outline: none; border-bottom-color: var(--text); }
+:root[data-skin='o5'] .mk :is(textarea, .ta-plain:not(.ta-line)):focus { outline: none; border-bottom-color: var(--text); }
 :root[data-skin='o5'] .mk .ai-target { border: 0; border-bottom: 1px solid var(--o5-hair); border-radius: 0; background: none; padding: 8px 0; font-family: var(--font-display); font-size: calc(19px * var(--text-scale, 1)); }
 
 /* ---------------------------------------------------------------- 4 · extras */
@@ -650,7 +657,7 @@
   .mk-field { flex-direction: row; align-items: flex-end; gap: 12px; }
   .mk-field > :first-child { flex: 1; min-width: 0; }
   .mk-field .mk-tools { flex: none; flex-direction: column; align-items: stretch; }
-  :root[data-skin='o5'] .mk :is(textarea, .ta-plain) { height: calc(2 * 1.45em + 18px); font-size: calc(18px * var(--text-scale, 1)); }
+  :root[data-skin='o5'] .mk :is(textarea, .ta-plain:not(.ta-line)) { height: calc(2 * 1.45em + 18px); font-size: calc(18px * var(--text-scale, 1)); }
   .mk-extras { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px 24px; align-items: start; }
   .mk-extras > .ai-create-options { grid-row: span 3; flex-direction: column; align-items: flex-start; }
   .mk-check { display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr); gap: 4px 24px; align-items: start; }
@@ -670,7 +677,7 @@
 :root[data-skin='o5'] .mk :is(input, textarea, .ta-plain):not([type='range']):not([type='checkbox']) { border-radius: 0; }
 /* Room to write on a tall screen. */
 @media (min-height: 700px) {
-  :root[data-skin='o5'] .mk :is(textarea, .ta-plain) { height: clamp(calc(3 * 1.45em + 18px), 22vh, calc(7 * 1.45em + 18px)); }
+  :root[data-skin='o5'] .mk :is(textarea, .ta-plain:not(.ta-line)) { height: clamp(calc(3 * 1.45em + 18px), 22vh, calc(7 * 1.45em + 18px)); }
 }
 
 /* Wide screens: the top bar, the dots and the buttons line up with the step's own column. */

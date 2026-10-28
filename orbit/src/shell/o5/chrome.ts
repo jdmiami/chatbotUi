@@ -16,7 +16,7 @@ export function useChromeOnScroll() {
       if (e instanceof KeyboardEvent) {
         if (!SCROLL_KEYS.has(e.key)) return;
         // Space or arrows on a control press it or move inside it; they don't scroll the page.
-        if ((e.target as Element | null)?.closest?.('button, a, input, textarea, select, [role="slider"], [contenteditable="true"]')) return;
+        if ((e.target as Element | null)?.closest?.('button, a, input, textarea, select, [role="slider"], [contenteditable]:not([contenteditable="false"])')) return;
       }
       userAt = performance.now();
       userTarget = e.target instanceof Node ? e.target : null;

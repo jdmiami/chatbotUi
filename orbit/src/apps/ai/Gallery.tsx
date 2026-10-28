@@ -176,7 +176,7 @@ export function GalleryViewer({
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if ((e.target as HTMLElement | null)?.closest('input, textarea, select, [contenteditable="true"]')) return;
+      if ((e.target as HTMLElement | null)?.closest('input, textarea, select, [contenteditable]:not([contenteditable="false"])')) return;
       if (e.key === 'ArrowLeft' && prevRef.current) prevRef.current();
       else if (e.key === 'ArrowRight' && nextRef.current) nextRef.current();
     };

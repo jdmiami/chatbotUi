@@ -12,7 +12,7 @@ import { canSpeak, createSpeaker } from '../../apps/ai/speech';
 import { Icon } from '../../ui/Icon';
 import { DEEP_PRESS, SPRINGS, ShakeDetector, SpringValue, VelocityTracker, landing, rubberClamp, spring, stretchFor, type Rect } from './physics';
 import { findFocus, restSpot } from './attention';
-import { caretField, caretOf, offsetAt } from './caret';
+import { caretField, caretOf, nearestCaret, offsetAt } from './caret';
 import {
   PLANNER_PROMPT,
   describe,
@@ -58,7 +58,7 @@ const BOUNCE = spring(0.6, 0.34);
 const ZOOM = { min: 0.9, max: 1.3, step: 0.05, per: 1.2 } as const;
 /** What the orb can press as a cursor (dropped on it), and lights up while it passes over. */
 const PRESSABLE =
-  'button, a[href], input, textarea, select, label, summary, [role="button"], [role="tab"], [role="link"], [role="menuitem"], [role="option"], [role="switch"], [role="checkbox"], [role="radio"], [contenteditable="true"]';
+  'button, a[href], input, textarea, select, label, summary, [role="button"], [role="tab"], [role="link"], [role="menuitem"], [role="option"], [role="switch"], [role="checkbox"], [role="radio"], [contenteditable]:not([contenteditable="false"])';
 const TEXT_TYPES = new Set(['text', 'search', 'url', 'email', 'tel', 'password', 'number', '']);
 const isText = (el: Element) =>
   el instanceof HTMLTextAreaElement || (el instanceof HTMLInputElement && TEXT_TYPES.has(el.type)) || (el as HTMLElement).isContentEditable;
@@ -762,9 +762,11 @@ function Orb() {
       el.focus({ preventScroll: true });
       const doc = document as Document & { caretPositionFromPoint?: (x: number, y: number) => { offsetNode: Node; offset: number } | null };
       const pos = doc.caretPositionFromPoint?.(px, py);
-      const range = pos ? document.createRange() : document.caretRangeFromPoint?.(px, py);
+      let range = pos ? document.createRange() : document.caretRangeFromPoint?.(px, py);
       if (pos && range) range.setStart(pos.offsetNode, pos.offset);
-      if (range && el.contains(range.startContainer)) {
+      // The point may land on the orb itself (or outside the text): then the nearest letter is the spot.
+      if (!range || !el.contains(range.startContainer)) range = nearestCaret(el, px, py);
+      if (range) {
         range.collapse(true);
         const sel = window.getSelection();
         sel?.removeAllRanges();
@@ -1210,7 +1212,7 @@ function Orb() {
           let field: HTMLElement | null = null;
           if (step.target) field = (await findSoon(step.target, ['field']))?.el ?? null;
           const active = document.activeElement as HTMLElement | null;
-          if (!field && active?.matches('input, textarea, [contenteditable="true"]') && !layer.current?.contains(active)) field = active;
+          if (!field && active?.matches('input, textarea, [contenteditable]:not([contenteditable="false"])') && !layer.current?.contains(active)) field = active;
           if (!field) field = items().find((i) => i.role === 'field')?.el ?? null;
           if (!field) throw new Error('There is no box to type in on this screen.');
           await aimAt(field, signal);

@@ -53,6 +53,9 @@ select {
   pointer-events: none;
 }
 .ta-plain[aria-disabled='true'] { opacity: .6; cursor: default; }
+/* One line (in place of an <input>): no wrapping, scrolls sideways like a text field. */
+.ta-plain.ta-line { min-height: calc(1.5em + 16px); white-space: pre; overflow-x: auto; overflow-y: hidden; scrollbar-width: none; }
+.ta-plain.ta-line::-webkit-scrollbar { display: none; }
 
 /* iOS zooms into inputs with font-size < 16px; keep editable text at >= 16px on touch devices. */
 @media (pointer: coarse) {

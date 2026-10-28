@@ -1,5 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
-import { expectNoHorizontalOverflow, openApp, openOrbit } from './helpers';
+import { expectNoHorizontalOverflow, openApp, openOrbit, expectValue } from './helpers';
 import { mockAi, openMakeApp } from './aiMocks';
 
 /**
@@ -87,7 +87,7 @@ test('Gallery app: "Use prompt", "Make it move" and "Edit" hand a creation to Ma
   // Make opens on the words, with the picture's prompt filled in.
   const make = page.locator('.app-window[data-app="make"]');
   await expect(make).toBeVisible();
-  await expect(make.getByRole('textbox', { name: 'Describe it' })).toHaveValue('a red fox in snow');
+  await expectValue(make.getByRole('textbox', { name: 'Describe it' }), 'a red fox in snow');
   await expect(make.locator('.mk-pane[data-step="describe"]')).toBeVisible();
 
   // Back to the Gallery: "Edit" opens Make on the edit, with the picture in place.
@@ -98,5 +98,34 @@ test('Gallery app: "Use prompt", "Make it move" and "Edit" hand a creation to Ma
   await expect(page.getByText('Describe the change, then make the edit.')).toBeVisible();
   await expect(make.locator('.mk-pane[data-step="describe"]')).toBeVisible();
   await expectNoHorizontalOverflow(page);
+  expect(errors).toEqual([]);
+});
+
+test('Make: words typed on the edit step stay when you go Next and come back (plain box, as on an iPhone)', async ({ page }) => {
+  await offWithGallery(page);
+  // The plain box every iPhone and iPad gets (the page's root is not there yet when this runs).
+  await page.addInitScript(() => {
+    const mark = () => document.documentElement?.setAttribute('data-textbox', 'plain');
+    if (document.documentElement) mark();
+    else new MutationObserver((_, o) => void (document.documentElement && (mark(), o.disconnect()))).observe(document, { childList: true });
+  });
+  const errors = await openOrbit(page);
+  const win = await openMakeApp(page);
+  await win.getByRole('radiogroup', { name: 'What to make' }).getByRole('radio', { name: /^An edit/ }).click();
+  await win.getByRole('radiogroup', { name: 'Maker' }).getByRole('radio', { name: /^Edit with words/ }).click();
+  await expect(win.locator('.mk-pane')).toHaveCount(1);
+  const box = win.getByRole('textbox', { name: 'Describe it' });
+  await expect(box).toHaveAttribute('contenteditable', /plaintext-only|true/);
+  await box.click();
+  await page.keyboard.type('make it snow over the hills');
+  await expectValue(box, 'make it snow over the hills');
+  await win.getByRole('button', { name: /^Next:/ }).click();
+  await expect(win.locator('.mk-pane')).toHaveCount(1);
+  await win.getByRole('button', { name: /^Back:/ }).click();
+  await expect(win.locator('.mk-pane')).toHaveCount(1);
+  await expectValue(win.getByRole('textbox', { name: 'Describe it' }), 'make it snow over the hills');
+  // And the last step shows the words.
+  await win.getByRole('navigation', { name: 'Make, step by step' }).getByRole('button', { name: /Check & make$/ }).click();
+  await expect(win.locator('.mk-pane[data-step="check"]')).toContainText('make it snow over the hills');
   expect(errors).toEqual([]);
 });

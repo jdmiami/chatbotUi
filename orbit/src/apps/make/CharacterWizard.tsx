@@ -3,7 +3,7 @@ import { useShell } from '../../state/shell';
 import { cue } from '../../motion/feedback';
 import { Icon } from '../../ui/Icon';
 import { ConfirmSheet } from '../../ui/components';
-import { TextArea } from '../../ui/TextArea';
+import { TextArea, TextField } from '../../ui/TextArea';
 import { useOrbAssist, type AssistOption, type OrbAssist } from '../../shell/orb/assist';
 import { sheetComplete, thumbOf, type Character, type CharactersApi, type SheetRun } from '../../services/ai/Characters';
 import { StepDeck, type DeckStep } from './StepDeck';
@@ -54,7 +54,7 @@ function TraitRow({ id, label, value, options, onChange }: { id: string; label: 
           Own words
         </button>
       </div>
-      {showInput && <input className="input ai-target chr-own" aria-label={`${label}, in your own words`} value={value} maxLength={100} onChange={(e) => onChange(e.target.value)} placeholder={`${label}, in your own words`} enterKeyHint="done" />}
+      {showInput && <TextField className="input ai-target chr-own" aria-label={`${label}, in your own words`} value={value} maxLength={100} onChange={(e) => onChange(e.target.value)} placeholder={`${label}, in your own words`} enterKeyHint="done" />}
     </div>
   );
 }
@@ -311,12 +311,12 @@ export function CharacterWizard({
         </div>
         <div className="mk-field chr-name">
           <p className="o5-kicker">Name</p>
-          <input className="input ai-target" value={draft.name} onChange={(e) => set('name', e.target.value)} aria-label="Name" placeholder="A name you invent" maxLength={40} enterKeyHint="next" autoComplete="off" />
+          <TextField className="input ai-target" value={draft.name} onChange={(e) => set('name', e.target.value)} aria-label="Name" placeholder="A name you invent" maxLength={40} enterKeyHint="next" autoComplete="off" />
           {tools('charname', 'character:name', draft.name, (v) => set('name', v), 'their name')}
         </div>
         <div className="mk-field chr-age">
           <p className="o5-kicker">Age</p>
-          <input className="input ai-target" value={draft.age} onChange={(e) => set('age', e.target.value.replace(/[^\d]/g, '').slice(0, 3))} aria-label="Age" inputMode="numeric" placeholder="25 or older" enterKeyHint="done" autoComplete="off" />
+          <TextField className="input ai-target" value={draft.age} onChange={(e) => set('age', e.target.value.replace(/[^\d]/g, '').slice(0, 3))} aria-label="Age" inputMode="numeric" placeholder="25 or older" enterKeyHint="done" autoComplete="off" />
         </div>
         {problemLine}
       </>
@@ -403,7 +403,7 @@ export function CharacterWizard({
         </div>
         {draft.outfits.slice(1).map((o, i) => (
           <div key={i} className="chr-outfit-more">
-            <input
+            <TextField
               className="input ai-target"
               aria-label={`Another outfit ${i + 1}`}
               value={o}

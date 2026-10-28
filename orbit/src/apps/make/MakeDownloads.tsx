@@ -2,17 +2,28 @@ import { useCallback, useEffect, useState } from 'react';
 import { useShell } from '../../state/shell';
 import { useWorkspace } from '../../state/workspace';
 import type { AiMachineStatus, LocalAi, StudioMakerInfo } from '../../services/ai/LocalAi';
+import { IconButton } from '../../ui/components';
 import { canResume, progressText, progressWhy } from '../ai/makerCatalog';
 
 /**
  * The bar at the top of Make: what is still loading. While the AI machine wakes up, its models
  * coming down; once it is on, every maker still downloading, with its own bar, and Resume on one
- * that stopped (nothing fetching it, or it gave up on a full disk).
+ * that stopped (nothing fetching it, or it gave up on a full disk). Hide puts it away for this set
+ * of downloads (remembered on this device); it comes back when something new starts loading.
  */
+const HIDE_KEY = 'orbit:make:loading-hidden';
+
 export function MakeDownloads({ ai, status, machineOn, isActive }: { ai: LocalAi; status: AiMachineStatus | null; machineOn: boolean; isActive: boolean }) {
   const toast = useShell((s) => s.toast);
   const [makers, setMakers] = useState<StudioMakerInfo[]>([]);
   const [busy, setBusy] = useState<string | null>(null);
+  const [hidden, setHidden] = useState<string | null>(() => {
+    try {
+      return localStorage.getItem(HIDE_KEY);
+    } catch {
+      return null;
+    }
+  });
 
   const load = useCallback(() => ai.studioMakers().then(setMakers, () => {}), [ai]);
   const loading = makers.filter((m) => m.wanted && !m.installed);
@@ -43,13 +54,29 @@ export function MakeDownloads({ ai, status, machineOn, isActive }: { ai: LocalAi
   };
 
   const waking = status?.state === 'starting' || status?.state === 'downloading';
+  // What this bar is about right now: the machine waking, or these makers. Hide applies to just that.
+  const about = waking && !machineOn ? 'waking' : loading.map((m) => m.id).sort().join(',');
+  const hide = () => {
+    setHidden(about);
+    try {
+      localStorage.setItem(HIDE_KEY, about);
+    } catch {
+      /* private mode */
+    }
+  };
+  const hideButton = <IconButton icon="close" label="Hide" onClick={hide} />;
+  if (hidden === about) return null;
+
   if (waking && !machineOn) {
     const pull = status?.pulling;
     return (
       <section className="make-loading" role="status" aria-label="Loading">
         <p className="make-loading-head">
-          {status?.state === 'starting' ? 'Your AI machine is starting…' : 'Loading the models…'}
-          {pull ? <span className="ai-muted"> {pull.model}: {pull.percent}%</span> : null}
+          <span>
+            {status?.state === 'starting' ? 'Your AI machine is starting…' : 'Loading the models…'}
+            {pull ? <span className="ai-muted"> {pull.model}: {pull.percent}%</span> : null}
+          </span>
+          {hideButton}
         </p>
         <div className={`ai-bar${pull ? '' : ' make-bar-busy'}`} aria-hidden>
           <span style={{ width: `${pull ? pull.percent : 30}%` }} />
@@ -68,9 +95,12 @@ export function MakeDownloads({ ai, status, machineOn, isActive }: { ai: LocalAi
           {loading.length === 1 ? `Loading ${loading[0].name}` : `Loading ${loading.length} makers`}
           <span className="ai-muted"> · {overall}%</span>
         </span>
-        <button type="button" className="make-loading-all" onClick={openManager}>
-          Download manager
-        </button>
+        <span className="make-loading-acts">
+          <button type="button" className="make-loading-all" onClick={openManager}>
+            Download manager
+          </button>
+          {hideButton}
+        </span>
       </p>
       <ul className="make-loading-list">
         {loading.map((m) => (

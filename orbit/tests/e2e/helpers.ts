@@ -1,4 +1,16 @@
-import { expect, type Page, type TestInfo } from '@playwright/test';
+import { expect, type Locator, type Page, type TestInfo } from '@playwright/test';
+
+/**
+ * What a text box holds. On iPhone and iPad projects Orbit's boxes are plain editable blocks (ui/TextArea.tsx),
+ * not <input>/<textarea>, so Playwright's toHaveValue can't read them; both kinds expose `.value`.
+ */
+export const valueOf = (box: Locator) => box.evaluate((el) => String((el as unknown as { value?: string }).value ?? ''));
+export async function expectValue(box: Locator, expected: string | RegExp, opts: { timeout?: number } = {}) {
+  await expect.poll(() => valueOf(box), opts).toEqual(expected instanceof RegExp ? expect.stringMatching(expected) : expected);
+}
+export async function expectNotValue(box: Locator, unwanted: string, opts: { timeout?: number } = {}) {
+  await expect.poll(() => valueOf(box), opts).not.toEqual(unwanted);
+}
 
 /** Fresh app with the first-run sheet dismissed. Collects page errors so tests can assert none happened. */
 export async function openOrbit(page: Page, opts: { keepIntro?: boolean } = {}) {
