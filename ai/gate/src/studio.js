@@ -1220,6 +1220,9 @@ export function createStudio(o) {
    * Throws errors with .status for bad requests.
    */
   async function createJob(req, internal = {}) {
+    // A job may start from gallery pictures made on another machine (the serverless worker starts empty):
+    // their notes come down from R2 first, as when the gallery is listed.
+    if (mirror && (req.fromItem || req.toItem || req.videoItem || req.fromLastFrameOf || (Array.isArray(req.imageItems) && req.imageItems.length))) await syncGallery().catch(() => {});
     const maker = req.maker ? makerById(String(req.maker)) : makerById(req.kind === 'video' ? 'ltx' : 'qwen');
     // Live makers (live.js) answer on their own connection, not as jobs.
     if (!maker || maker.kind === 'style' || maker.kind === 'live') throw Object.assign(new Error('No such maker.'), { status: 400 });
@@ -1860,9 +1863,24 @@ export function createStudio(o) {
     for (let tries = 0; tries < 2; tries++) {
       try {
         return JSON.parse(await fsp.readFile(note, 'utf8'));
-      } catch {
-        // Made on the other machine or before this start: its note may only be in R2 so far.
-        if (!mirror || tries || !(await mirror.fetch(note).catch(() => false))) return null;
+      } catch (err) {
+        if (!mirror || tries) {
+          if (tries) log.warn?.(`[gallery] the note for ${id} could not be read: ${err.message}`);
+          return null;
+        }
+        // Made on another machine (or before this start): its note is in R2. Bring it down, with the
+        // rest of the gallery's notes (one listing), the way the machine does when it lists the gallery.
+        let here = false;
+        try {
+          here = await mirror.fetch(note);
+        } catch (e) {
+          log.warn?.(`[gallery] could not fetch the note for ${id} from R2: ${e.message}`);
+        }
+        if (!here) {
+          synced = 0;
+          await syncGallery();
+          if (!(await fsp.stat(note).catch(() => null))) return null;
+        }
       }
     }
     return null;

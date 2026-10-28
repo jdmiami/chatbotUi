@@ -20,12 +20,14 @@ log() { echo "[serverless] $*"; }
 if ! grep -qs " $V " /proc/mounts && [ ! -d "$V/models" ]; then
   log "warning: no network volume at $V; models will be downloaded onto the container's disk every time"
 fi
-mkdir -p "$V/models" "$V/hf" "$S/input" "$S/output" "$S/uploads" /opt/stage
-# Models live on the volume (studio.sh links $S/models there); the NSFW check's model too. A global
-# volume is object storage (no partial writes), so each file comes down onto the container's own disk
-# first (MODEL_STAGE_DIR) and is copied over whole, as on the drawing machine.
+mkdir -p "$V/models" "$S/input" "$S/output" "$S/uploads" /opt/stage /opt/hf
+# Models live on the volume (studio.sh links $S/models there). A global volume is object storage (no
+# partial writes), so each file comes down onto the container's own disk first (MODEL_STAGE_DIR) and is
+# copied over whole, as on the drawing machine. The NSFW check's small model is written piecemeal by its
+# own downloader, which the volume garbles (a config file came back as not JSON): it lives on the
+# container's disk and comes down again on a cold start (a few seconds).
 export MODELS_DIR="$V/models" MODEL_STAGE_DIR=/opt/stage
-rm -rf "$S/hf" && ln -sfn "$V/hf" "$S/hf"
+rm -rf "$S/hf" && ln -sfn /opt/hf "$S/hf"
 
 # ComfyUI, already installed in the image (ENV_BAKED: never packed to or from R2).
 (env -u GATEWAY_SECRET -u RUNPOD_API_KEY -u HF_TOKEN \
