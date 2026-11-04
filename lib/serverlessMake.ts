@@ -3,7 +3,7 @@ import { runpod } from './runpod';
 import { env, hfTokenEnv, r2SecretEnv, siteUrl } from './ai';
 import { createR2, r2Config } from './r2';
 import { autoOffMinutes } from './autoOff';
-import { mapStatus, nextImage, serverlessRefusal, WORKER_IMAGE, type ServerlessJob } from './serverlessShared';
+import { imageBuilt, mapStatus, nextImage, serverlessRefusal, WORKER_IMAGE, type ServerlessJob } from './serverlessShared';
 
 /**
  * The serverless AI machine: your own makers (the uncensored ones on the AI machine) on Runpod's
@@ -116,24 +116,6 @@ export async function ensureEndpoint(): Promise<Endpoint | null> {
   if (ep) await syncImage(ep).catch(() => {});
   cached = { at: Date.now(), endpoint: ep };
   return ep;
-}
-
-/** Is this deployment's worker image published yet (the registry answers without a key: the package is public)? */
-async function imageBuilt(sha: string): Promise<boolean> {
-  try {
-    const repo = WORKER_IMAGE.replace(/^ghcr\.io\//, '');
-    const t = (await (await fetch(`https://ghcr.io/token?scope=repository:${repo}:pull&service=ghcr.io`, { cache: 'no-store', signal: AbortSignal.timeout(5000) })).json()) as { token?: string };
-    if (!t.token) return false;
-    const res = await fetch(`https://ghcr.io/v2/${repo}/manifests/${sha}`, {
-      method: 'HEAD',
-      headers: { authorization: `Bearer ${t.token}`, accept: 'application/vnd.oci.image.index.v1+json, application/vnd.oci.image.manifest.v1+json, application/vnd.docker.distribution.manifest.list.v2+json, application/vnd.docker.distribution.manifest.v2+json' },
-      cache: 'no-store',
-      signal: AbortSignal.timeout(5000),
-    });
-    return res.ok;
-  } catch {
-    return false;
-  }
 }
 
 async function desiredImage(current?: string): Promise<string> {

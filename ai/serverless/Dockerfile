@@ -12,6 +12,12 @@ RUN apt-get update -qq && apt-get install -y -qq --no-install-recommends \
       ca-certificates curl git python3 python3-venv python3-pip ffmpeg xz-utils \
     && rm -rf /var/lib/apt/lists/*
 
+# cloudflared: the AI machine on GPU.ai opens its own tunnel (ai/serverless/machine.sh) so Orbit reaches
+# the gate at a plain https address, with no login page in front of it.
+ARG CLOUDFLARED_VERSION=2025.11.1
+RUN curl -fsSL "https://github.com/cloudflare/cloudflared/releases/download/${CLOUDFLARED_VERSION}/cloudflared-linux-amd64" -o /usr/local/bin/cloudflared \
+    && chmod +x /usr/local/bin/cloudflared && /usr/local/bin/cloudflared --version
+
 # Node.js for the gate (the same version ai/setup.sh installs on the AI machine).
 ARG NODE_VERSION=22.20.0
 RUN curl -fsSL "https://nodejs.org/dist/v${NODE_VERSION}/node-v${NODE_VERSION}-linux-x64.tar.xz" | tar -xJ -C /opt \
@@ -31,8 +37,8 @@ RUN STUDIO_INSTALL_ONLY=1 ENV_BAKED=1 PERSIST_DIR=/opt STORAGE=volume AI_ROLE=ma
     && /opt/studio/venv/bin/python -m pip install -q "runpod>=1.7,<2" \
     && rm -rf /opt/studio/pip-cache
 
-COPY ai/serverless/start.sh ai/serverless/handler.py /opt/serverless/
-RUN chmod +x /opt/serverless/start.sh
+COPY ai/serverless/start.sh ai/serverless/machine.sh ai/serverless/handler.py /opt/serverless/
+RUN chmod +x /opt/serverless/start.sh /opt/serverless/machine.sh
 
 # Runpod serverless workers run the handler; it starts ComfyUI and the gate itself.
 CMD ["/opt/studio/venv/bin/python", "-u", "/opt/serverless/handler.py"]

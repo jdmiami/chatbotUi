@@ -276,7 +276,10 @@ export function createStudio(o) {
   // Saved characters (characters.js): characters.get(id) -> { id, name, adult, fictional, sheet: [{ file }], descriptor, traits } (front first, face close-up second).
   const characters = o.characters || null;
   // A machine with its own short list keeps only those makers (and what is added), not the built-ins.
+  // `strictMakers`: only the list, whatever was added on another machine (an AI machine told to load
+  // just Qwen Image and H3 Max never brings down the rest).
   const only = Array.isArray(o.makers) ? new Set(o.makers) : null;
+  const strict = Boolean(only && o.strictMakers);
   const modelKey = (file) => `models/${file.dir}/${file.name}`;
   const ffmpeg = o.ffmpeg || runFfmpeg;
   const probe = o.probe || probeMedia;
@@ -374,7 +377,7 @@ export function createStudio(o) {
   // Live Draw and live video run only on the drawing machine (role 'canvas'): any other machine
   // never keeps, lists or downloads them, even if an older version of it was asked to.
   const drawingOnly = (m) => role !== 'canvas' && (m.kind === 'live' || m.kind === 'sketch');
-  const keeps = (m) => !drawingOnly(m) && ((only ? only.has(m.id) : m.builtIn) || wanted.has(m.id));
+  const keeps = (m) => !drawingOnly(m) && ((only ? only.has(m.id) : m.builtIn) || (!strict && wanted.has(m.id)));
   // A short list also sets the download order (what is needed first comes down first).
   const rank = (m) => (only?.has(m.id) ? [...only].indexOf(m.id) : Infinity);
   const kept = () => (only ? MAKERS.filter(keeps).sort((a, b) => rank(a) - rank(b)) : MAKERS.filter(keeps));

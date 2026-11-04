@@ -5,6 +5,7 @@ import { fileURLToPath } from 'node:url';
 import { createGate } from './gate.js';
 import { createModelKeeper, ollamaJson } from './machine.js';
 import { AUTO_OFF, clampAutoOffMinutes, createAutoOff, runpodStopSelf } from '../../../shared/autooff.js';
+import { askSiteToTurnOff, createAnnounce } from './announce.js';
 import { installStudioFunction } from './openwebui.js';
 import { createModelStore } from './store.js';
 import { createPush } from './push.js';
@@ -67,6 +68,14 @@ if (kept.all && !r2) console.warn('[gate] STORAGE=r2 but the R2 keys are missing
 // GALLERY=r2 on a volume: R2 for the gallery only (everything else stays on the volume).
 const galleryR2 = r2 || (kept.gallery && r2conf ? createR2(r2conf) : null);
 if (kept.gallery && !galleryR2) console.warn('[gate] GALLERY=r2 but the R2 keys are missing: the gallery stays on this machine');
+// An AI machine on GPU.ai (ai/serverless/machine.sh): its address comes from a tunnel it opens itself
+// and is published in R2 for the site (announce.js); it asks the site to turn it off when idle.
+const MACHINE_NAME = env.MACHINE_NAME || 'orbit-ai';
+const announce = env.MACHINE_URL_FILE && r2 ? createAnnounce({ file: env.MACHINE_URL_FILE, name: MACHINE_NAME, r2, log: console }) : null;
+announce?.start();
+// ONLY_MAKERS (comma-separated maker ids): this machine keeps just these, in this order, whatever was
+// added on another machine (an AI machine told to load only Qwen Image and H3 Max).
+const ONLY_MAKERS = (env.ONLY_MAKERS || '').split(',').map((s) => s.trim()).filter(Boolean);
 const ollamaSync = r2 && !NO_CHAT && env.OLLAMA_MODELS ? createOllamaSync({ r2, dir: env.OLLAMA_MODELS, log: console }) : null;
 const webuiBackup = r2 && !NO_CHAT && env.WEBUI_DIR ? createWebuiBackup({ r2, dir: env.WEBUI_DIR, log: console }) : null;
 
@@ -111,7 +120,8 @@ const studio = env.STUDIO_DIR
       gallery: galleryR2,
       // STORAGE=global (the drawing machine): files come down onto the pod's disk, then go to the drive.
       stageDir: env.MODEL_STAGE_DIR || null,
-      makers: CANVAS ? CANVAS_MAKERS : null,
+      makers: CANVAS ? CANVAS_MAKERS : ONLY_MAKERS.length ? ONLY_MAKERS : null,
+      strictMakers: !CANVAS && ONLY_MAKERS.length > 0,
       inUseElsewhere: (id) => movies?.usedElsewhere(id),
       // A video needs the whole graphics card: Live draw lets go of it first.
       makeWayForVideo: async () => {
@@ -299,6 +309,11 @@ const idle = createAutoOff({
   warnMinutes: AUTO_OFF.warnMinutes,
   warn: push ? async () => void (await push.send()) : null,
   stop: async () => {
+    // On GPU.ai the machine holds no key of its own: the site terminates the instance for it.
+    if (announce) {
+      await askSiteToTurnOff({ siteUrl: env.SITE_URL, secret: env.GATEWAY_SECRET, name: MACHINE_NAME, log: console });
+      return;
+    }
     // The serverless AI machine (ai/serverless) has no pod of its own: Runpod stops its worker itself.
     if (!env.RUNPOD_POD_ID) return;
     // Last chats first: the disk is wiped when the machine stops.
@@ -459,7 +474,9 @@ async function status() {
       defaultModels: [],
       uptimeMinutes: Math.round((Date.now() - startedAt) / 60000),
       idle: idle.state(),
-      canStopSelf: Boolean(env.RUNPOD_POD_ID && env.RUNPOD_API_KEY),
+      canStopSelf: Boolean(env.RUNPOD_POD_ID && env.RUNPOD_API_KEY) || Boolean(announce),
+      // Where this machine can be reached (an AI machine on GPU.ai: its tunnel), once known.
+      ...(announce ? { address: announce.url() } : {}),
       studio: studioState,
       // Live Draw's engines: off | loading | ready | error each (the site shows "warming up").
       ...(canvas ? { canvas: canvas.engines() } : {}),
