@@ -153,6 +153,13 @@ export function blockedReplace(target, prompt) {
 }
 export const PHOTO_MESSAGE = "Photos you upload can't be made sexual or have clothes removed: they may show real people. Pictures made here from a description can.";
 /** The same rule, inherited: the gallery picture or video it starts from was itself made from an uploaded photo. */
+/**
+ * Animating an uploaded drawing: a cartoon, anime or illustration you upload may be made adult in a video,
+ * once the machine has looked and found it is a drawing, not a photo. A photo keeps the photo rule.
+ */
+export const DRAWING_NOTE = 'Treated as a drawing, not a photo: never use this with photos of real people.';
+export const DRAWING_REFUSED = "This upload looks like a photo, not a drawing, so it keeps the photo rule: nothing sexual, no clothes removed. Cartoons, anime and illustrations can be animated freely.";
+export const DRAWING_UNCHECKED = "The machine couldn't check whether this upload is a drawing, so it keeps the photo rule for now. Try again in a minute.";
 export const PHOTO_SOURCE_MESSAGE = "This one was made from a photo you uploaded (or a video that had one in it), so it keeps the photo rule: nothing sexual, no clothes removed. Start from a picture made here from a description instead.";
 /**
  * Swap a person puts a real person's photo into a video: only adults, never into a video marked NSFW,
@@ -1073,6 +1080,31 @@ export function createStudio(o) {
     await fsp.writeFile(path.join(dir, 'input', name), buf);
     return name;
   }
+  /**
+   * Whether every uploaded picture (data URLs) is a drawing, not a photo: { ok, score } (the least drawn-looking
+   * one's score), or null when the checker could not look.
+   */
+  async function uploadsAreDrawings(dataUrls) {
+    if (!o.nsfw?.drawing) return null;
+    const tmp = await fsp.mkdtemp(path.join(dir, 'drawing-'));
+    try {
+      let worst = 1;
+      for (const [i, u] of dataUrls.entries()) {
+        const m = /^data:image\/(png|jpe?g|webp);base64,([A-Za-z0-9+/=\s]+)$/.exec(String(u || ''));
+        if (!m) return { ok: false, score: 0 };
+        const p = path.join(tmp, `${i}.${m[1] === 'jpg' ? 'jpeg' : m[1]}`);
+        await fsp.writeFile(p, Buffer.from(m[2], 'base64'));
+        const r = await o.nsfw.drawing(p);
+        if (!r) return null;
+        worst = Math.min(worst, r.score);
+        if (!r.drawing) return { ok: false, score: worst };
+      }
+      return { ok: true, score: worst };
+    } finally {
+      await fsp.rm(tmp, { recursive: true, force: true });
+    }
+  }
+
   async function saveUpload(dataUrl) {
     const m = /^data:image\/(png|jpe?g|webp);base64,([A-Za-z0-9+/=\s]+)$/.exec(String(dataUrl || ''));
     if (!m) throw Object.assign(new Error('The starting picture must be a PNG, JPEG or WebP image.'), { status: 400 });
@@ -1286,7 +1318,7 @@ export function createStudio(o) {
     // Brought in now (an upload), or inherited from a gallery picture or video that has a photo behind it.
     const photoNow = (mode !== 'sketch' && uploads.length > 0) || Boolean(endUpload) || (withVideo && Boolean(videoUpload));
     const photoBefore = Boolean(source?.photo) || Boolean(toSource?.photo) || itemSources.some((it) => it.photo) || (withVideo && Boolean(videoSource?.photo));
-    const photo = photoNow || photoBefore;
+    let photo = photoNow || photoBefore;
     // Made from an NSFW picture or video: NSFW too, before anyone has looked.
     const nsfwSource = Boolean(source?.nsfw) || Boolean(toSource?.nsfw) || itemSources.some((it) => it.nsfw) || (withVideo && Boolean(videoSource?.nsfw));
     // A character is the other way to name a person for Swap a person: never mixed with a photo (a character is made-up, a photo may not be).
@@ -1303,10 +1335,22 @@ export function createStudio(o) {
         throw Object.assign(new Error(character || wantsAdult ? ADULT_SWAP_MESSAGE : SWAP_NSFW_MESSAGE), { status: 422, blocked: true });
       }
     }
+    // Animating uploaded drawings: the photo rule's words are lifted for a video made from pictures you just
+    // uploaded (no gallery picture with a photo behind it, no uploaded video, no one swapped in, nothing about
+    // minors), once every one of them is found to be a drawing. Everything else stays.
+    let drawingUpload = false;
+    const stills = [...uploads, ...(endUpload ? [endUpload] : [])];
+    const animatesDrawings = photoNow && !photoBefore && mode === 'video' && !swap && !videoUpload && !character && !target && stills.length > 0;
     if (photo) {
       const refused =
         blockedForPhoto(prompt) || (task === 'erase' ? blockedTarget(target) : task === 'replace' ? blockedReplace(target, prompt) : target ? blockedForPhoto(target) : false);
-      if (refused) throw Object.assign(new Error(photoNow ? PHOTO_MESSAGE : PHOTO_SOURCE_MESSAGE), { status: 422, blocked: true });
+      if (refused && animatesDrawings && o.nsfw?.drawing && !mentionsMinor(prompt)) {
+        const drawn = await uploadsAreDrawings(stills);
+        if (!drawn) throw Object.assign(new Error(DRAWING_UNCHECKED), { status: 503, blocked: true });
+        if (!drawn.ok) throw Object.assign(new Error(DRAWING_REFUSED), { status: 422, blocked: true });
+        drawingUpload = true;
+        photo = false;
+      } else if (refused) throw Object.assign(new Error(photoNow ? PHOTO_MESSAGE : PHOTO_SOURCE_MESSAGE), { status: 422, blocked: true });
     }
     if (needs.has('video') && !withVideo) throw bad('Add the video to work on.');
     if (needs.has('audio') && !audioUpload) throw bad('Add a voice recording or a song.');
@@ -1514,7 +1558,9 @@ export function createStudio(o) {
       status: 'queued',
       progress: 0,
       attempts: 1,
-      notes: [],
+      notes: drawingUpload ? [DRAWING_NOTE] : [],
+      // Animated from an uploaded drawing (the photo rule's words lifted, see uploadsAreDrawings).
+      drawingUpload: drawingUpload || undefined,
       // Drawings about children: a result the NSFW check flags is thrown away, not just blurred.
       minorGuard: mode === 'sketch' && mentionsMinor(`${prompt} ${target}`),
       // Swap a person: looked at before anyone sees it; an NSFW one (or one the check missed) is never kept.

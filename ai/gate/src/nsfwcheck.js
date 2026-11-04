@@ -14,6 +14,11 @@ import readline from 'node:readline';
 
 /** At or above this the picture is NSFW. Low on purpose: a picture blurred by mistake costs a hold, one missed costs more. */
 export const NSFW_THRESHOLD = 0.35;
+/**
+ * At or above this an upload counts as a drawing (cartoon, anime, illustration), not a photo of a real
+ * person. High on purpose: it is what lets an upload be made adult, so a photo must never pass.
+ */
+export const DRAWING_THRESHOLD = 0.9;
 
 /** Seconds into a clip to look at: the start, quarters and the end, so a short NSFW moment isn't missed. */
 export function frameTimes(seconds) {
@@ -78,7 +83,7 @@ export function createNsfwCheck(o) {
     return w;
   }
 
-  async function score(paths) {
+  async function score(paths, op) {
     const w = start();
     if (!w || !(await w.ready)) return null;
     const id = `c${++seq}`;
@@ -88,7 +93,7 @@ export function createNsfwCheck(o) {
         if (w.pending.delete(id)) resolve({ error: 'timed out' });
       }, timeoutMs).unref?.();
     });
-    w.child.stdin.write(`${JSON.stringify({ id, paths })}\n`);
+    w.child.stdin.write(`${JSON.stringify(op ? { id, op, paths } : { id, paths })}\n`);
     const msg = await answer;
     return typeof msg.score === 'number' ? msg.score : null;
   }
@@ -127,6 +132,19 @@ export function createNsfwCheck(o) {
         }
       } catch (err) {
         log.warn?.(`[nsfw] could not check ${path.basename(file)}: ${err.message}`);
+        return null;
+      }
+    },
+    /**
+     * { drawing, score } for a picture on disk: whether it is a drawing (cartoon, anime, illustration)
+     * rather than a photo of a real person; null when it couldn't be checked.
+     */
+    async drawing(file) {
+      try {
+        const s = await score([file], 'drawing');
+        return s == null ? null : { drawing: s >= DRAWING_THRESHOLD, score: Math.round(s * 1000) / 1000 };
+      } catch (err) {
+        log.warn?.(`[nsfw] could not tell whether ${path.basename(file)} is a drawing: ${err.message}`);
         return null;
       }
     },
