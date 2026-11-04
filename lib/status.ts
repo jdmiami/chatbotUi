@@ -1,6 +1,7 @@
 import 'server-only';
 import { SignJWT, jwtVerify } from 'jose';
-import { aiBase, aiConsole, aiStatus, aiTiers, aiToken, findAiPod } from './ai';
+import { aiBase, aiConsole, aiProvider, aiStatus, aiTiers, aiToken, findAiPod } from './ai';
+import { gpuaiBalance } from './gpuaiMachine';
 import { linuxIdle, linuxKeepAwake, linuxSaveHome, podHttpBase, podId, runpod } from './runpod';
 import { autoOffInfo, autoOffMinutes, keepOnMinutes } from './autoOff';
 import { canvasKeepOn, canvasStatus } from './canvas';
@@ -127,9 +128,17 @@ async function myself(key: string): Promise<Myself | null> {
 let moneyCache: { at: number; value: Money } | null = null;
 
 export async function money(): Promise<Money | null> {
+  if (moneyCache && Date.now() - moneyCache.at < 30_000) return moneyCache.value;
+  // The AI machine on GPU.ai: its balance and burn rate (GPU.ai keeps no daily total to show).
+  if (aiProvider() === 'gpuai' && process.env.GPUAI_API_KEY) {
+    const b = await gpuaiBalance().catch(() => null);
+    if (!b) return null;
+    const value: Money = { balance: b.balance, spendPerHour: b.spendPerHour, today: null, spendLimit: null };
+    moneyCache = { at: Date.now(), value };
+    return value;
+  }
   const key = process.env.RUNPOD_API_KEY;
   if (!key) return null;
-  if (moneyCache && Date.now() - moneyCache.at < 30_000) return moneyCache.value;
   const [me, bill] = await Promise.all([
     myself(key),
     runpod('/billing?bucketSize=day&lastN=1').catch(() => null) as Promise<{ records?: { totalAmount?: number }[]; metadata?: { totals?: { totalAmount?: number } } } | null>,
@@ -233,8 +242,10 @@ async function linuxCard(user: string, detail: boolean): Promise<MachineCard | n
 async function aiCard(user: string, detail: boolean): Promise<MachineCard | null> {
   const s = await aiStatus(user).catch(() => null);
   if (!s || s.state === 'unconfigured') return null;
-  const pod = s.podId && process.env.RUNPOD_API_KEY ? ((await runpod(`/pods/${encodeURIComponent(s.podId)}`).catch(() => null)) as RunpodPod | null) : null;
+  const pod = s.podId && process.env.RUNPOD_API_KEY && aiProvider() === 'runpod' ? ((await runpod(`/pods/${encodeURIComponent(s.podId)}`).catch(() => null)) as RunpodPod | null) : null;
   const on = s.state === 'on' || s.state === 'downloading';
+  const since = s.startedAt ? Date.parse(s.startedAt) : NaN;
+  const upSince = Number.isFinite(since) ? Math.max(0, Math.round((Date.now() - since) / 1000)) : null;
   const stats = detail && on && s.podId ? ((await getJson(`${aiBase(s.podId)}/_orbit/stats`, await aiToken(user, 'orbit-ai'))) as { idle?: { offAt?: string; heldUntil?: string | null } } | null) : null;
   const tier = aiTiers().find((t) => t.id === s.tier);
   return {
@@ -243,7 +254,7 @@ async function aiCard(user: string, detail: boolean): Promise<MachineCard | null
     state: s.state,
     detail: s.detail,
     costPerHour: s.costPerHour,
-    uptimeSeconds: on || s.state === 'starting' ? (pod?.runtime?.uptime ?? null) : null,
+    uptimeSeconds: on || s.state === 'starting' ? (pod?.runtime?.uptime ?? upSince) : null,
     offAt: on ? (stats?.idle?.offAt ?? s.idle?.offAt ?? (s.idle ? new Date(Date.now() + (s.idle.limitMinutes - s.idle.idleMinutes) * 60_000).toISOString() : null)) : null,
     heldUntil: on ? (stats?.idle?.heldUntil ?? s.idle?.heldUntil ?? null) : null,
     autoOff: true,

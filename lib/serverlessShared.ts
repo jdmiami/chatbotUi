@@ -28,6 +28,24 @@ export interface ServerlessJob {
 export const WORKER_IMAGE = 'ghcr.io/jdmiami/orbit-ai-worker';
 export const imageFor = (sha: string | undefined, built: boolean) => `${WORKER_IMAGE}:${sha && built ? sha : 'main'}`;
 
+/** Is this deployment's worker image published yet (the registry answers without a key: the package is public)? */
+export async function imageBuilt(sha: string, fetchImpl: typeof fetch = fetch): Promise<boolean> {
+  try {
+    const repo = WORKER_IMAGE.replace(/^ghcr\.io\//, '');
+    const t = (await (await fetchImpl(`https://ghcr.io/token?scope=repository:${repo}:pull&service=ghcr.io`, { cache: 'no-store', signal: AbortSignal.timeout(5000) })).json()) as { token?: string };
+    if (!t.token) return false;
+    const res = await fetchImpl(`https://ghcr.io/v2/${repo}/manifests/${sha}`, {
+      method: 'HEAD',
+      headers: { authorization: `Bearer ${t.token}`, accept: 'application/vnd.oci.image.index.v1+json, application/vnd.oci.image.manifest.v1+json, application/vnd.docker.distribution.manifest.list.v2+json, application/vnd.docker.distribution.manifest.v2+json' },
+      cache: 'no-store',
+      signal: AbortSignal.timeout(5000),
+    });
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
+
 /**
  * The image the endpoint should run next, given what it runs now. Changing the image makes a release
  * (every worker is replaced, a picture being made on one is lost), so it only changes for this
