@@ -100,6 +100,68 @@ test('Make in the cloud: a picture straight away, a video after a wait; both mov
   expect(errors).toEqual([]);
 });
 
+test('Make in the cloud: a MiniMax H3 video with a length and its price, made with progress, saved straight into the stored gallery', async ({ page }) => {
+  await mockAi(page, 'off');
+  const sent: Record<string, unknown>[] = [];
+  const imported: Record<string, unknown>[] = [];
+  let polls = 0;
+  const CLIP = 'https://api.gpu.ai/v1/videos/1c5cfb89-a829-431d-9ddb-4329aafa2971/content';
+  await page.route(/\/api\/make(\?.*)?$/, async (route) => {
+    const req = route.request();
+    const id = new URL(req.url()).searchParams.get('id');
+    if (req.method() === 'POST') {
+      sent.push(req.postDataJSON() as Record<string, unknown>);
+      return route.fulfill({ json: { id: 'h3job', status: 'queued', provider: 'gpuai', kind: 'video', progress: 0 } });
+    }
+    if (id) {
+      polls++;
+      return route.fulfill({ json: polls < 2 ? { id, status: 'running', provider: 'gpuai', kind: 'video', progress: 40 } : { id, status: 'done', url: CLIP, provider: 'gpuai', kind: 'video', progress: 100, costCents: 140 } });
+    }
+    return route.fulfill({
+      json: {
+        configured: true,
+        image: [],
+        video: [{ id: 'gpuai', name: 'MiniMax H3', price: 'about $0.70 for 5 seconds (14¢ a second)', perSecondCents: 14, seconds: { min: 1, max: 10, default: 5 } }],
+      },
+    });
+  });
+  // The stored gallery is set up: a finished clip is saved there by the site (it fetches it with the key).
+  await page.route('**/api/gallery', async (route) => {
+    if (route.request().method() === 'POST') {
+      const body = route.request().postDataJSON() as Record<string, unknown>;
+      imported.push(body);
+      return route.fulfill({ json: { ok: true, id: 'kept01', url: 'https://files.example/kept01.mp4' } });
+    }
+    return route.fulfill({ json: { configured: true, items: [] } });
+  });
+  await page.route('https://files.example/**', (route) => route.fulfill({ status: 200, contentType: 'video/mp4', body: '' }));
+
+  const errors = await openOrbit(page);
+  const win = await openMakeApp(page);
+  await win.getByRole('button', { name: 'Cloud', exact: true }).click();
+  const cloud = win.getByRole('region', { name: 'Make it in the cloud' });
+  await expect(cloud).toBeVisible();
+  await cloud.getByRole('radio', { name: 'A video' }).click();
+  await expect(cloud).toContainText('MiniMax H3: about $0.70 for 5 seconds');
+  // The lengths H3 takes, each with its price; 5 seconds to start with.
+  const lengths = cloud.getByRole('radiogroup', { name: 'Cloud: how long' });
+  await expect(lengths.getByRole('radio', { name: /^5 seconds/ })).toHaveAttribute('aria-checked', 'true');
+  await expect(lengths.getByRole('radio', { name: /^10 seconds/ })).toContainText('$1.40');
+  await lengths.getByRole('radio', { name: /^10 seconds/ }).click();
+  await cloud.getByRole('textbox', { name: 'Describe it for the cloud' }).fill('a lighthouse at dawn');
+  await cloud.getByRole('button', { name: 'Make the video in the cloud · $1.40' }).click();
+  expect(sent[0]).toEqual({ kind: 'video', prompt: 'a lighthouse at dawn', size: 'landscape', seconds: 10 });
+  await expect(cloud.getByRole('list', { name: 'Cloud jobs' })).toContainText(/In line|Making… 40%/);
+  // Done: saved into the stored gallery straight from GPU.ai, shown here from its saved link.
+  const made = cloud.getByRole('list', { name: 'Made in the cloud' });
+  await expect(made.getByRole('button', { name: 'Video: a lighthouse at dawn' })).toBeVisible({ timeout: 15_000 });
+  await expect.poll(() => imported.length).toBe(1);
+  expect(imported[0]).toEqual({ action: 'import', url: CLIP, kind: 'video', prompt: 'a lighthouse at dawn', maker: 'cloud:gpuai', seconds: 10 });
+  await expect(cloud).toContainText('saved in your gallery');
+  await expectNoHorizontalOverflow(page);
+  expect(errors).toEqual([]);
+});
+
 test('Make: a bar at the top shows what is still loading, and a stopped download resumes', async ({ page }) => {
   await mockAi(page, 'on');
   let resumed = false;

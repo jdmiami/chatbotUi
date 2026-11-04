@@ -52,9 +52,11 @@ export function CloudMake({
   const [info, setInfo] = useState<CloudMakeInfo | null | undefined>(undefined);
   const [kind, setKind] = useState<CloudKind>('image');
   const [size, setSize] = useState<CloudSize>('square');
+  // A video's length in seconds (the maker's default until you pick one).
+  const [seconds, setSeconds] = useState<number | null>(null);
   const [prompt, setPrompt] = useState('');
   const [busy, setBusy] = useState(false);
-  const [jobs, setJobs] = useState<(CloudJob & { prompt: string })[]>([]);
+  const [jobs, setJobs] = useState<(CloudJob & { prompt: string; seconds?: number })[]>([]);
   const [made, setMade] = useState<CloudMade[]>([]);
   const [viewing, setViewing] = useState<CloudMade | null>(null);
   const from = useRef<DOMRect | null>(null);
@@ -108,8 +110,8 @@ export function CloudMake({
       for (const j of waiting) {
         try {
           const next = await cloudMakeStatus(j.id);
-          if (next.status === 'done' && next.url) await keep({ ...next, prompt: j.prompt });
-          setJobs((list) => list.map((x) => (x.id === j.id ? { ...next, prompt: j.prompt } : x)).filter((x) => x.status !== 'done'));
+          if (next.status === 'done' && next.url) await keep({ ...next, prompt: j.prompt, seconds: j.seconds });
+          setJobs((list) => list.map((x) => (x.id === j.id ? { ...next, prompt: j.prompt, seconds: j.seconds } : x)).filter((x) => x.status !== 'done'));
         } catch (err) {
           setJobs((list) => list.map((x) => (x.id === j.id ? { ...x, status: 'error', error: (err as Error).message } : x)));
         }
@@ -118,15 +120,23 @@ export function CloudMake({
     return () => clearInterval(t);
   }, [waiting.map((j) => j.id).join(',')]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const keep = async (j: CloudJob & { prompt: string }) => {
+  const videoMaker = info?.video?.[0];
+  const clipSeconds = seconds ?? videoMaker?.seconds?.default ?? 5;
+  /** The lengths on offer for a video: a few that the maker takes, with what each costs. */
+  const lengths = videoMaker?.seconds ? [3, 5, 6, 8, 10].filter((s) => s >= videoMaker.seconds!.min && s <= videoMaker.seconds!.max) : [];
+  const priceOf = (s: number) => (videoMaker?.perSecondCents ? `$${((s * videoMaker.perSecondCents) / 100).toFixed(2)}` : '');
+
+  const keep = async (j: CloudJob & { prompt: string; seconds?: number }) => {
     const item: CloudMade = { id: j.id.slice(-24) + Date.now().toString(36), kind: j.kind, prompt: j.prompt, url: j.url!, provider: j.provider, createdAt: new Date().toISOString() };
-    // Straight into the gallery kept in cloud storage (machine off), else it waits on this device.
+    // Straight into the gallery kept in cloud storage (machine off), else it waits on this device. A
+    // video from GPU.ai can only be fetched by the site: what shows here is the saved copy's link.
     if (!machineOn && storage) {
       try {
-        await saveCloudToStorage({ url: item.url, kind: item.kind, prompt: item.prompt, maker: `cloud:${item.provider}` });
-        setSaved((list) => [item, ...list]);
+        const kept = await saveCloudToStorage({ url: item.url, kind: item.kind, prompt: item.prompt, maker: `cloud:${item.provider}`, ...(j.seconds ? { seconds: j.seconds } : {}) });
+        setSaved((list) => [{ ...item, id: kept.id || item.id, url: kept.url || item.url }, ...list]);
         return;
-      } catch {
+      } catch (err) {
+        if (j.provider === 'gpuai') return toast((err as Error).message || 'Could not save the video into your gallery.', 'error');
         setStorage(false);
       }
     }
@@ -140,9 +150,11 @@ export function CloudMake({
     if (isNsfw(text)) return toast("Cloud makers don't allow adult content. Make this one on your own AI machine.", 'info');
     setBusy(true);
     try {
-      const job = await cloudMakeStart({ kind, prompt: text, size });
-      if (job.status === 'done' && job.url) await keep({ ...job, prompt: text });
-      else setJobs((list) => [...list, { ...job, prompt: text }]);
+      // Only a maker that says which lengths it takes gets one.
+      const want = kind === 'video' && videoMaker?.seconds ? clipSeconds : undefined;
+      const job = await cloudMakeStart({ kind, prompt: text, size, ...(want ? { seconds: want } : {}) });
+      if (job.status === 'done' && job.url) await keep({ ...job, prompt: text, seconds: want });
+      else setJobs((list) => [...list, { ...job, prompt: text, seconds: want }]);
       setPrompt('');
     } catch (err) {
       toast((err as Error).message, 'error');
@@ -180,14 +192,15 @@ export function CloudMake({
       </h3>
       {!info?.configured ? (
         <p className="ai-muted">
-          Cloud making isn't set up yet. It uses Runpod Serverless (RUNPOD_API_KEY, paid from your Runpod balance), a Cloudflare Workers AI token (CLOUDFLARE_ACCOUNT_ID and
-          CLOUDFLARE_AI_TOKEN: about 230 free pictures a day) or a fal.ai key (FAL_KEY) in Vercel.
+          Cloud making isn't set up yet. Videos need a GPU.ai key (GPUAI_API_KEY) in Vercel: MiniMax H3, paid per second of video. Pictures need a Cloudflare Workers AI token
+          (CLOUDFLARE_ACCOUNT_ID and CLOUDFLARE_AI_TOKEN: about 230 free a day) or a fal.ai key (FAL_KEY).
         </p>
       ) : (
         <>
           <p className="ai-muted">
-            Ready in seconds, while your AI machine rests. {makers[0] ? `${makers[0].name}: ${makers[0].price}.` : ''} Not for NSFW: that stays on your own machine.
-            {!machineOn ? ' What you make here moves into your gallery the next time the AI machine is on.' : ''}
+            {kind === 'video' ? 'A few minutes a clip, while your AI machine rests.' : 'Ready in seconds, while your AI machine rests.'} {makers[0] ? `${makers[0].name}: ${makers[0].price}.` : ''} Not for
+            NSFW: that stays on your own machine.
+            {!machineOn && !storage ? ' What you make here moves into your gallery the next time the AI machine is on.' : ' Saved straight into your gallery.'}
           </p>
           <div className="ai-maker-picks" role="radiogroup" aria-label="Cloud: what to make">
             {(
@@ -226,6 +239,15 @@ export function CloudMake({
               </button>
             ))}
           </div>
+          {kind === 'video' && lengths.length > 0 && (
+            <div className="ai-maker-picks" role="radiogroup" aria-label="Cloud: how long">
+              {lengths.map((s) => (
+                <button key={s} type="button" role="radio" aria-checked={clipSeconds === s} className="ai-maker-chip" onClick={() => setSeconds(s)}>
+                  {s} seconds{priceOf(s) ? <span className="ai-muted"> · {priceOf(s)}</span> : null}
+                </button>
+              ))}
+            </div>
+          )}
           <form
             className="cloud-make-form"
             onSubmit={(e) => {
@@ -235,7 +257,7 @@ export function CloudMake({
           >
             <TextArea value={prompt} onChange={(e) => setPrompt(e.target.value)} rows={2} placeholder="A lighthouse at dawn, mist over the sea" aria-label="Describe it for the cloud" />
             <button type="submit" className="btn primary" disabled={!prompt.trim() || busy || !makers.length}>
-              <Icon name="sparkle" size={16} /> {busy ? 'Sending…' : kind === 'video' ? 'Make the video in the cloud' : 'Make the picture in the cloud'}
+              <Icon name="sparkle" size={16} /> {busy ? 'Sending…' : kind === 'video' ? `Make the video in the cloud${priceOf(clipSeconds) ? ` · ${priceOf(clipSeconds)}` : ''}` : 'Make the picture in the cloud'}
             </button>
           </form>
           {jobs.length > 0 && (
@@ -244,7 +266,7 @@ export function CloudMake({
                 <li key={j.id} data-status={j.status}>
                   <span className="cloud-make-job-text">{j.prompt}</span>
                   <span className="ai-muted">
-                    {j.status === 'error' ? j.error : j.status === 'queued' ? (j.position ? `In line, ${j.position} ahead` : 'In line') : 'Making…'}
+                    {j.status === 'error' ? j.error : j.status === 'queued' ? (j.position ? `In line, ${j.position} ahead` : 'In line') : j.progress ? `Making… ${j.progress}%` : 'Making…'}
                   </span>
                   {j.status === 'error' && (
                     <button type="button" className="btn small ghost" onClick={() => setJobs((list) => list.filter((x) => x.id !== j.id))}>

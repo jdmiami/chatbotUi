@@ -1,6 +1,6 @@
 import { currentUser } from '@/lib/auth';
 import { sameOrigin } from '@/lib/request';
-import { CloudMakeError, cloudMakeInfo, cloudMakeStart, cloudMakeStatus, cloudRefusal, type CloudKind, type CloudSize } from '@/lib/cloudMake';
+import { CLOUD_PROVIDERS, CloudMakeError, cloudMakeInfo, cloudMakeStart, cloudMakeStatus, cloudRefusal, type CloudKind, type CloudProvider, type CloudSize } from '@/lib/cloudMake';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
@@ -34,7 +34,8 @@ export async function POST(request: Request) {
   const size = (['square', 'landscape', 'portrait'] as const).includes(input?.size as CloudSize) ? (input!.size as CloudSize) : kind === 'video' ? 'landscape' : 'square';
   const seconds = Math.min(Math.max(Number(input?.seconds) || 0, 0), 10) || undefined;
   try {
-    const job = await cloudMakeStart({ kind, prompt, size, seconds, provider: input?.provider === 'fal' || input?.provider === 'cloudflare' || input?.provider === 'runpod' ? input.provider : undefined });
+    const provider = CLOUD_PROVIDERS.find((p) => p === input?.provider) as CloudProvider | undefined;
+    const job = await cloudMakeStart({ kind, prompt, size, seconds, provider });
     return Response.json(job, { headers: noStore });
   } catch (err) {
     const e = err as CloudMakeError;
