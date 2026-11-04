@@ -385,3 +385,47 @@ test('the photo rule follows the picture, not the way it is picked: gallery pict
   await assert.rejects(studio.createJob({ kind: 'image', maker: 'outfit', prompt: 'make her topless', fromItem: 'words01', imageItems: ['photo01'] }), refused(PHOTO_SOURCE_MESSAGE));
   await assert.rejects(studio.createJob(edit({ fromItem: 'words01', imageItems: ['gone99'] })), (e) => e.status === 404);
 });
+
+test('animating an uploaded drawing: the photo rule lifts once the machine sees it is a drawing; photos, minors and everything else stay blocked', async () => {
+  const { DRAWING_NOTE, DRAWING_REFUSED, DRAWING_UNCHECKED } = await import('../src/studio.js');
+  const looked = [];
+  const nsfwWith = (answer) => ({ check: async () => null, drawing: async (p) => (looked.push(path.extname(p)), typeof answer === 'function' ? answer() : answer) });
+  const spicy = { kind: 'video', prompt: 'she dances, sexy and seductive', image: PNG };
+
+  // A cartoon: made, with the warning on the job, and not counted as a photo.
+  const drawn = await setup({ nsfw: nsfwWith({ drawing: true, score: 0.97 }) });
+  const job = await drawn.studio.createJob(spicy);
+  assert.deepEqual(job.notes, [DRAWING_NOTE]);
+  assert.equal(DRAWING_NOTE, 'Treated as a drawing, not a photo: never use this with photos of real people.');
+  assert.ok(!drawn.studio.job(job.id).photo);
+  assert.deepEqual(looked, ['.png']);
+
+  // A photo: the photo rule, with a plain reason.
+  const photo = await setup({ nsfw: nsfwWith({ drawing: false, score: 0.12 }) });
+  await assert.rejects(photo.studio.createJob(spicy), refused(DRAWING_REFUSED));
+  // The checker could not look: the photo rule stays, try again.
+  const blind = await setup({ nsfw: nsfwWith(null) });
+  await assert.rejects(blind.studio.createJob(spicy), (e) => e.status === 503 && e.message === DRAWING_UNCHECKED);
+  // A machine with no drawing check at all: the plain photo rule.
+  const none = await setup({ nsfw: { check: async () => null } });
+  await assert.rejects(none.studio.createJob(spicy), refused(PHOTO_MESSAGE));
+
+  // Everything else stays, even for a drawing.
+  // Anything about minors: refused before any look.
+  const before = looked.length;
+  await assert.rejects(drawn.studio.createJob({ ...spicy, prompt: 'a sexy schoolgirl dancing' }), (e) => e.status === 422);
+  await assert.rejects(drawn.studio.createJob({ ...spicy, prompt: 'a sexy teen dancing' }), refused(PHOTO_MESSAGE));
+  // A picture edit (not an animation) of an upload: the photo rule.
+  await assert.rejects(drawn.studio.createJob({ maker: 'edit', prompt: 'make her topless', image: PNG }), refused(PHOTO_MESSAGE));
+  // Swap a person keeps all its rules.
+  await assert.rejects(drawn.studio.createJob({ maker: 'person-swap', target: 'the man', image: PNG, prompt: 'sexy' }), (e) => e.status === 422);
+  // A gallery picture made from an uploaded photo: its own rule, not lifted.
+  await galleryPicture(drawn.dir, 'phot01', { photo: true });
+  await assert.rejects(drawn.studio.createJob({ kind: 'video', prompt: 'sexy dance', fromItem: 'phot01' }), refused(PHOTO_SOURCE_MESSAGE));
+  assert.equal(looked.length, before, 'none of these was even looked at');
+
+  // An animation that breaks no rule needs no look at all.
+  const plain = await drawn.studio.createJob({ kind: 'video', prompt: 'the cat waves hello', image: PNG });
+  assert.deepEqual(plain.notes, []);
+  assert.equal(looked.length, before);
+});
