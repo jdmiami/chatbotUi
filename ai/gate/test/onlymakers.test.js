@@ -42,3 +42,34 @@ test('a strict short list ignores what was added elsewhere; a plain short list s
   await settle();
   assert.deepEqual((await wantedOf(loose)).sort(), ['anime', 'h3-max', 'qwen']);
 });
+
+test('the AI machine on GPU.ai starts from its short list, and makers added in the store are added and kept in its own list', async () => {
+  const { r2, objects } = memoryR2();
+  // The old main machine's list: not this machine's.
+  await r2.putJson('state/makers.json', { wanted: ['anime', 'qwen-real'] });
+  const opts = { files: FILES, role: 'helper', r2, makers: ['qwen', 'h3-max', 'edit'], ownMakers: true, makersKey: 'state/makers-gpuai.json', fetchImpl: noNet, WebSocketImpl: null, log: quiet, statfs: bigDisk, nsfwDelayMs: 1e9 };
+  const wantedOf = async (studio) => (await studio.makers()).filter((m) => m.wanted).map((m) => m.id).sort();
+  const settle = (ms = 1500) => new Promise((r) => setTimeout(r, ms));
+
+  const first = createStudio({ dir: await fs.mkdtemp(path.join(os.tmpdir(), 'gpuai-')), ...opts });
+  first.start();
+  await settle();
+  assert.deepEqual(await wantedOf(first), ['edit', 'h3-max', 'qwen'], 'the old list is not brought along');
+  // Added from the store: allowed here although it is the helper role.
+  await first.installMaker('anime');
+  assert.deepEqual(await wantedOf(first), ['anime', 'edit', 'h3-max', 'qwen']);
+  assert.deepEqual(JSON.parse(objects.get('state/makers-gpuai.json').toString()).wanted, ['anime']);
+  assert.deepEqual(JSON.parse(objects.get('state/makers.json').toString()).wanted, ['anime', 'qwen-real'], 'the old list is left alone');
+
+  // The next start (a fresh disk) brings back what was added.
+  const next = createStudio({ dir: await fs.mkdtemp(path.join(os.tmpdir(), 'gpuai-')), ...opts });
+  next.start();
+  await settle();
+  assert.deepEqual(await wantedOf(next), ['anime', 'edit', 'h3-max', 'qwen']);
+  await next.removeMaker('anime');
+  assert.deepEqual(await wantedOf(next), ['edit', 'h3-max', 'qwen']);
+
+  // A helper that does not own its makers still refuses (the old helper next to a main machine).
+  const plain = createStudio({ dir: await fs.mkdtemp(path.join(os.tmpdir(), 'helper-')), files: FILES, role: 'helper', r2, fetchImpl: noNet, WebSocketImpl: null, log: quiet, statfs: bigDisk, nsfwDelayMs: 1e9 });
+  await assert.rejects(plain.installMaker('anime'), /main AI machine/);
+});
