@@ -122,7 +122,11 @@ const studio = env.STUDIO_DIR
       // STORAGE=global (the drawing machine): files come down onto the pod's disk, then go to the drive.
       stageDir: env.MODEL_STAGE_DIR || null,
       makers: CANVAS ? CANVAS_MAKERS : ONLY_MAKERS.length ? ONLY_MAKERS : null,
-      strictMakers: !CANVAS && ONLY_MAKERS.length > 0,
+      // The AI machine on GPU.ai (announce) is the only machine: ONLY_MAKERS is where it starts, and
+      // what you add in the store is added there too, kept in its own list. Elsewhere the list is strict.
+      strictMakers: !CANVAS && ONLY_MAKERS.length > 0 && !announce,
+      ownMakers: Boolean(announce),
+      makersKey: announce ? 'state/makers-gpuai.json' : undefined,
       inUseElsewhere: (id) => movies?.usedElsewhere(id),
       // A video needs the whole graphics card: Live draw lets go of it first.
       makeWayForVideo: async () => {

@@ -280,6 +280,11 @@ export function createStudio(o) {
   // just Qwen Image and H3 Max never brings down the rest).
   const only = Array.isArray(o.makers) ? new Set(o.makers) : null;
   const strict = Boolean(only && o.strictMakers);
+  // `ownMakers`: this machine manages its own makers even in the helper role (the AI machine on GPU.ai is
+  // the only machine there is): makers are added and removed here, and the list is kept in R2 under
+  // `makersKey`, apart from the old main machine's list (so it starts from its short list, not from everything ever added).
+  const ownMakers = Boolean(o.ownMakers);
+  const makersKey = o.makersKey || 'state/makers.json';
   const modelKey = (file) => `models/${file.dir}/${file.name}`;
   const ffmpeg = o.ffmpeg || runFfmpeg;
   const probe = o.probe || probeMedia;
@@ -735,11 +740,11 @@ export function createStudio(o) {
 
   async function saveWanted() {
     await fsp.writeFile(wantedPath, JSON.stringify({ wanted: [...wanted] }));
-    if (r2) await r2.putJson('state/makers.json', { wanted: [...wanted] }).catch((err) => log.warn?.(`[studio] could not save makers in R2: ${err.message}`));
+    if (r2) await r2.putJson(makersKey, { wanted: [...wanted] }).catch((err) => log.warn?.(`[studio] could not save makers in R2: ${err.message}`));
   }
 
   async function installMaker(id) {
-    if (helper) throw Object.assign(new Error('Add makers from your main AI machine.'), { status: 409 });
+    if (helper && !ownMakers) throw Object.assign(new Error('Add makers from your main AI machine.'), { status: 409 });
     const m = makerById(id);
     if (!m) throw Object.assign(new Error('No such maker.'), { status: 404 });
     if (drawingOnly(m)) throw Object.assign(new Error(`${m.name} runs on the drawing machine. Open Live Draw to use it.`), { status: 409 });
@@ -779,7 +784,7 @@ export function createStudio(o) {
   }
 
   async function removeMaker(id) {
-    if (helper) throw Object.assign(new Error('Remove makers from your main AI machine.'), { status: 409 });
+    if (helper && !ownMakers) throw Object.assign(new Error('Remove makers from your main AI machine.'), { status: 409 });
     const m = makerById(id);
     if (!m) throw Object.assign(new Error('No such maker.'), { status: 404 });
     if (m.builtIn) throw Object.assign(new Error('This maker comes with the machine and stays.'), { status: 400 });
@@ -2270,7 +2275,7 @@ export function createStudio(o) {
   /** Settings kept in R2 (which makers are added, learned timings), read at start. */
   async function loadSaved() {
     try {
-      const saved = await r2.getJson('state/makers.json');
+      const saved = await r2.getJson(makersKey);
       if (saved?.wanted) {
         wanted = new Set(saved.wanted);
         await fsp.writeFile(wantedPath, JSON.stringify({ wanted: [...wanted] })).catch(() => {});
