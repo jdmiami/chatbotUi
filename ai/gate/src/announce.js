@@ -36,7 +36,8 @@ export function createAnnounce({ file, name, r2, log = console, now = Date.now, 
   async function publish() {
     if (!url) url = await readUrl();
     if (!url) return false;
-    await r2.putJson(MACHINE_KEY, { name, url, startedAt: new Date(startedAt).toISOString(), at: new Date(now()).toISOString() });
+    // Without R2 (a trial machine) the address is only known here (the status says it).
+    if (r2) await r2.putJson(MACHINE_KEY, { name, url, startedAt: new Date(startedAt).toISOString(), at: new Date(now()).toISOString() });
     return true;
   }
 

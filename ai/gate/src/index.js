@@ -71,7 +71,8 @@ if (kept.gallery && !galleryR2) console.warn('[gate] GALLERY=r2 but the R2 keys 
 // An AI machine on GPU.ai (ai/serverless/machine.sh): its address comes from a tunnel it opens itself
 // and is published in R2 for the site (announce.js); it asks the site to turn it off when idle.
 const MACHINE_NAME = env.MACHINE_NAME || 'orbit-ai';
-const announce = env.MACHINE_URL_FILE && r2 ? createAnnounce({ file: env.MACHINE_URL_FILE, name: MACHINE_NAME, r2, log: console }) : null;
+const announce = env.MACHINE_URL_FILE ? createAnnounce({ file: env.MACHINE_URL_FILE, name: MACHINE_NAME, r2, log: console }) : null;
+if (announce && !r2) console.warn('[machine] no R2 keys: the address will not reach the site (only this machine\'s own status says it)');
 announce?.start();
 // ONLY_MAKERS (comma-separated maker ids): this machine keeps just these, in this order, whatever was
 // added on another machine (an AI machine told to load only Qwen Image and H3 Max).
