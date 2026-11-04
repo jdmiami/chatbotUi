@@ -2,7 +2,7 @@
 // when the address it published is the one to use. Run with: npm run test:site.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { AUTO_TERMINATE_HOURS, DISK_GB, ONLY_MAKERS, STANDARD_GPUS, TURBO_GPUS, isLive, liveAddress, machineState, nextGpu, pickMachine } from '../../lib/gpuaiShared.ts';
+import { AUTO_TERMINATE_HOURS, DISK_GB, ONLY_MAKERS, STANDARD_GPUS, TURBO_GPUS, isLive, liveAddress, machineState, nextGpu, nextGpuAfterFailedOperation, pickMachine, pickOffering } from '../../lib/gpuaiShared.ts';
 
 const inst = (o) => ({ id: 'gpu-1', name: 'orbit-ai', status: 'running', created_at: '2026-11-04T10:00:00Z', ...o });
 
@@ -45,6 +45,25 @@ test('the published address counts only when it is this instance’s own, a tunn
   assert.equal(liveAddress({ ...good, url: 'https://evil.example' }, i, now), null);
   assert.equal(liveAddress({ ...good, url: 'http://wise-fox-tunnel.trycloudflare.com' }, i, now), null);
   assert.equal(liveAddress(null, i, now), null);
+});
+
+test('the machine picked: cheapest free one with room for the makers; a size is asked only where the disk can change', () => {
+  const row = (o) => ({ gpu_type: 'rtx_a6000', gpu_count: 1, tier: 'on_demand', available: 5, disk_configurable: false, region: 'x', ...o });
+  // As GPU.ai listed them on 2026-11-04: the cheapest A6000 has a fixed 100 GB disk (too small), the next 256 GB.
+  const list = [
+    row({ offering_id: 'ca', price_per_hour: 0.4, instance_disk_gb: 100 }),
+    row({ offering_id: 'us', price_per_hour: 0.45, instance_disk_gb: 256 }),
+    row({ offering_id: 'gone', price_per_hour: 0.3, instance_disk_gb: 500, available: 0 }),
+    row({ offering_id: 'two', price_per_hour: 0.2, instance_disk_gb: 500, gpu_count: 2 }),
+    row({ gpu_type: 'rtx_pro_6000', offering_id: 'flex', price_per_hour: 2.49, instance_disk_gb: 100, disk_configurable: true }),
+  ];
+  assert.deepEqual(pickOffering(list, 'rtx_a6000'), { offering: list[1], diskGb: null });
+  assert.deepEqual(pickOffering(list, 'rtx_pro_6000'), { offering: list[4], diskGb: DISK_GB });
+  assert.equal(pickOffering(list, 'l40'), null);
+  assert.equal(pickOffering([row({ offering_id: 'small', price_per_hour: 0.4, instance_disk_gb: 100 })], 'rtx_a6000'), null);
+  // GPU.ai's own words for the refusal seen that day: try the next GPU.
+  assert.ok(nextGpuAfterFailedOperation('The selected machine cannot be configured with a custom disk size — pick another machine or launch with the default disk.'));
+  assert.ok(!nextGpuAfterFailedOperation('env key GPUAI_X is reserved'));
 });
 
 test('a GPU type GPU.ai cannot place our image on is skipped; anything else is a real error', () => {

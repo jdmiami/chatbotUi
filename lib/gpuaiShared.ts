@@ -91,6 +91,37 @@ export function machineState(i: GpuaiInstance | null): 'off' | 'starting' | 'run
   return 'error';
 }
 
+/** One row of GPU.ai's price list (GET /v1/pricing), the fields the site reads. */
+export interface Offering {
+  gpu_type: string;
+  gpu_count: number;
+  tier: string;
+  price_per_hour: number;
+  available: number;
+  instance_disk_gb: number;
+  disk_configurable: boolean;
+  offering_id: string;
+  region?: string;
+}
+
+/**
+ * The machine to start for one GPU type: the cheapest free single-GPU offering that has room for the
+ * makers. A fixed disk must already be big enough (most machines: GPU.ai refuses a size there); a
+ * configurable one is asked for DISK_GB. Null when no offering of that type fits.
+ */
+export function pickOffering(list: Offering[], gpu: string, diskGb = DISK_GB): { offering: Offering; diskGb: number | null } | null {
+  const fits = list
+    .filter((o) => o.gpu_type === gpu && o.gpu_count === 1 && o.tier === 'on_demand' && o.available > 0)
+    .filter((o) => o.disk_configurable || o.instance_disk_gb >= diskGb)
+    .sort((a, b) => a.price_per_hour - b.price_per_hour);
+  const o = fits[0];
+  if (!o) return null;
+  return { offering: o, diskGb: o.disk_configurable && o.instance_disk_gb < diskGb ? diskGb : null };
+}
+
 /** GPU.ai's refusal of one GPU type (no capacity, image can't run there): try the next one. */
 export const nextGpu = (status: number, body: string) =>
-  status === 422 && /image_unavailable|no_capacity|capacity|unavailable|offering|disk_unavailable|environment_unavailable/i.test(body);
+  status === 422 && /image_unavailable|no_capacity|capacity|unavailable|offering|disk_unavailable|disk_exceeds|environment_unavailable|price_changed/i.test(body);
+
+/** An operation GPU.ai failed at once for a reason another machine may not have: try the next GPU. */
+export const nextGpuAfterFailedOperation = (detail: string) => /disk|capacity|unavailable|offering|cannot be configured|no longer|sold out|price/i.test(detail);

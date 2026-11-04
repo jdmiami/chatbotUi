@@ -1,7 +1,7 @@
 import 'server-only';
 import { randomUUID } from 'node:crypto';
 import { GPUAI_API } from './gpuai';
-import { AUTO_TERMINATE_HOURS, DISK_GB, ONLY_MAKERS, STANDARD_GPUS, TURBO_GPUS, liveAddress, machineState, nextGpu, pickMachine, type GpuChoice, type GpuaiInstance, type MachineNote } from './gpuaiShared';
+import { AUTO_TERMINATE_HOURS, ONLY_MAKERS, STANDARD_GPUS, TURBO_GPUS, liveAddress, machineState, nextGpu, nextGpuAfterFailedOperation, pickMachine, pickOffering, type GpuChoice, type GpuaiInstance, type MachineNote, type Offering } from './gpuaiShared';
 import { imageBuilt, imageFor } from './serverlessShared';
 import { createR2, r2Config } from './r2';
 import { autoOffMinutes } from './autoOff';
@@ -85,19 +85,42 @@ function machineEnv(): Record<string, string> {
 /** The GPUs a speed tries, cheapest first. */
 export const gpusFor = (tier: 'standard' | 'turbo'): GpuChoice[] => (tier === 'turbo' ? TURBO_GPUS : STANDARD_GPUS);
 
+type Operation = { operation_id?: string; state?: string; resource_id?: string | null; error?: { code?: string; detail?: string } | null };
+
+/** GPU.ai's live price list (public, no key needed). */
+async function priceList(): Promise<Offering[]> {
+  const res = await fetch(`${GPUAI_API}/pricing`, { cache: 'no-store', signal: AbortSignal.timeout(15_000) });
+  if (!res.ok) throw new Error(`GPU.ai's price list answered ${res.status}`);
+  return ((await res.json()) as { data?: Offering[] }).data ?? [];
+}
+
+/** Watch an operation for a few seconds: GPU.ai refuses some launches at once (a fixed disk, gone capacity). */
+async function settle(op: Operation, ms = 8_000): Promise<Operation> {
+  const until = Date.now() + ms;
+  let cur = op;
+  while (cur.operation_id && (cur.state === 'pending' || cur.state === 'in_progress') && Date.now() < until) {
+    await new Promise((r) => setTimeout(r, 1_500));
+    cur = ((await gpuai(`/operations/${encodeURIComponent(cur.operation_id)}`).catch(() => cur)) as Operation) ?? cur;
+  }
+  return cur;
+}
+
 /**
- * Start a machine: the first GPU of the speed that GPU.ai can place our image on. Returns the
- * operation's instance id once GPU.ai has accepted the request (the machine then takes minutes to
- * boot, bring the models down and open its tunnel).
+ * Start a machine: for each GPU of the speed, cheapest first, the cheapest free machine with room for
+ * the makers (pickOffering), pinned so GPU.ai never places a dearer one. Returns the instance id once
+ * GPU.ai has accepted it (the machine then takes minutes to boot, bring the models down and open its tunnel).
  */
-export async function createMachine(tier: 'standard' | 'turbo' = 'standard'): Promise<{ id: string | null; gpu: GpuChoice }> {
+export async function createMachine(tier: 'standard' | 'turbo' = 'standard'): Promise<{ id: string | null; gpu: GpuChoice; pricePerHour: number }> {
   const image = await machineImage();
   const env = machineEnv();
   if (!env.R2_ACCOUNT_ID) throw new Error('The site needs the R2 keys (R2_ACCOUNT_ID, R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY) to start the AI machine.');
-  let last: Error | null = null;
+  const prices = await priceList();
+  let lastWhy = '';
   const started = Date.now();
   for (const gpu of gpusFor(tier)) {
     if (Date.now() - started > 40_000) break;
+    const pick = pickOffering(prices, gpu.gpu);
+    if (!pick) continue;
     try {
       const op = (await gpuai('/instances', {
         method: 'POST',
@@ -107,25 +130,33 @@ export async function createMachine(tier: 'standard' | 'turbo' = 'standard'): Pr
           gpu_type: gpu.gpu,
           gpu_count: 1,
           tier: 'on_demand',
+          offering_id: pick.offering.offering_id,
           image,
           cmd: ['bash', '/opt/serverless/machine.sh'],
           env,
           // The gate on :8080, also at GPU.ai's own app address (a login page in front: a fallback for a person).
           ports: [{ port: 8080, protocol: 'http', primary: true }],
-          disk_gb: DISK_GB,
+          ...(pick.diskGb ? { disk_gb: pick.diskGb } : {}),
           auto_terminate_hours: AUTO_TERMINATE_HOURS,
-          // Never dearer than the catalog price shown (plus the disk beyond the included 100 GB).
-          max_price_per_hour: Math.round((gpu.pricePerHour + 0.02) * 100) / 100,
+          // Refused, not charged more, if the price moved since the list was read.
+          viewed_price_per_hour: pick.offering.price_per_hour,
+          max_price_per_hour: Math.round((pick.offering.price_per_hour + 0.05) * 100) / 100,
         }),
-      })) as { operation_id?: string; resource_id?: string | null };
-      return { id: op.resource_id ?? null, gpu };
+      })) as Operation;
+      const done = await settle(op);
+      if (done.state === 'failed' || done.state === 'cancelled') {
+        lastWhy = done.error?.detail || done.error?.code || 'refused';
+        if (nextGpuAfterFailedOperation(lastWhy)) continue;
+        throw new Error(`GPU.ai could not start the AI machine: ${lastWhy}`);
+      }
+      return { id: done.resource_id ?? op.resource_id ?? null, gpu, pricePerHour: pick.offering.price_per_hour };
     } catch (err) {
-      last = err as Error;
       const e = err as { status?: number; body?: string };
-      if (!nextGpu(e.status ?? 0, e.body ?? '')) throw err;
+      if (!e.status || !nextGpu(e.status, e.body ?? '')) throw err;
+      lastWhy = (e.body ?? '').slice(0, 160);
     }
   }
-  throw new Error(`No ${tier === 'turbo' ? 'Turbo' : 'Standard'} GPU is free on GPU.ai right now (${gpusFor(tier).map((g) => g.gpuName).join(', ')}). Try again in a few minutes.${last ? '' : ''}`);
+  throw new Error(`No ${tier === 'turbo' ? 'Turbo' : 'Standard'} GPU is free on GPU.ai right now (${gpusFor(tier).map((g) => g.gpuName).join(', ')}). Try again in a few minutes.${lastWhy ? ` (${lastWhy})` : ''}`);
 }
 
 export async function terminateMachine(id: string): Promise<void> {
