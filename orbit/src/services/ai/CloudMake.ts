@@ -1,18 +1,28 @@
 import { AiError, type LocalAi } from './LocalAi';
 
 /**
- * Pictures and videos made in the cloud (the site's /api/make: Cloudflare or fal.ai), for when the
- * AI machine is off. What comes back waits on this device (IndexedDB) and moves into the gallery
- * the next time the AI machine is on, so everything ends up in one place on every device.
+ * Pictures and videos made in the cloud (the site's /api/make: MiniMax H3 on GPU.ai for videos,
+ * Cloudflare or fal.ai for pictures), for when the AI machine is off. What comes back is saved into
+ * the gallery kept in cloud storage when the site has it; otherwise it waits on this device
+ * (IndexedDB) and moves into the gallery the next time the AI machine is on.
  */
 
 export type CloudKind = 'image' | 'video';
 export type CloudSize = 'square' | 'landscape' | 'portrait';
 
+export interface CloudMaker {
+  id: string;
+  name: string;
+  price: string;
+  /** Videos: cents for each second of finished clip, and the lengths the maker takes. */
+  perSecondCents?: number;
+  seconds?: { min: number; max: number; default: number };
+}
+
 export interface CloudMakeInfo {
   configured: boolean;
-  image: { id: string; name: string; price: string }[];
-  video: { id: string; name: string; price: string }[];
+  image: CloudMaker[];
+  video: CloudMaker[];
 }
 
 export interface CloudJob {
@@ -23,6 +33,10 @@ export interface CloudJob {
   error?: string;
   provider: string;
   kind: CloudKind;
+  /** 0–100 while it is being made, when the maker says. */
+  progress?: number;
+  /** What it cost, once the maker says (cents). */
+  costCents?: number;
 }
 
 /** Waiting on this device to move into the gallery. */
@@ -53,7 +67,7 @@ export async function cloudMakeInfo(): Promise<CloudMakeInfo | null> {
   }
 }
 
-export function cloudMakeStart(req: { kind: CloudKind; prompt: string; size: CloudSize }): Promise<CloudJob> {
+export function cloudMakeStart(req: { kind: CloudKind; prompt: string; size: CloudSize; seconds?: number }): Promise<CloudJob> {
   return call<CloudJob>({ method: 'POST', body: JSON.stringify(req) });
 }
 
@@ -122,7 +136,7 @@ let storing: Promise<number> | null = null;
  * With the AI machine off but cloud storage set up on the site: save what waits here straight into
  * the stored gallery (the machine picks it up from there). Resolves with how many were saved.
  */
-export function moveCloudMadeToStorage(save: (body: { url: string; kind: CloudKind; prompt: string; maker: string }) => Promise<unknown>): Promise<number> {
+export function moveCloudMadeToStorage(save: (body: { url: string; kind: CloudKind; prompt: string; maker: string; seconds?: number }) => Promise<unknown>): Promise<number> {
   storing ||= (async () => {
     let moved = 0;
     for (const it of await cloudMadeList()) {

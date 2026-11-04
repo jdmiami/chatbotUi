@@ -151,3 +151,27 @@ test('a cloud creation is saved into the gallery, only from the cloud makers', a
   assert.deepEqual(fetched, ['https://v3.fal.media/files/x.mp4']);
   assert.match(v.file, /\.mp4$/);
 });
+
+test('a finished clip on GPU.ai is fetched with the site’s key (never the browser’s), and only from its own content link', async () => {
+  forgetNotes();
+  const { r2, store } = fakeR2();
+  const calls = [];
+  const fetchImpl = async (u, init) => {
+    calls.push({ url: String(u), auth: init?.headers?.authorization, redirect: init?.redirect });
+    return new Response(Buffer.from('MP4'), { headers: { 'content-type': 'video/mp4' } });
+  };
+  const link = 'https://api.gpu.ai/v1/videos/1c5cfb89-a829-431d-9ddb-4329aafa2971/content';
+  const v = await importCloudItem(r2, { url: link, kind: 'video', prompt: 'a lighthouse at dawn', maker: 'cloud:gpuai', seconds: 5 }, { fetchImpl, gpuaiKey: 'k-test' });
+  assert.deepEqual(calls, [{ url: link, auth: 'Bearer k-test', redirect: 'follow' }]);
+  const note = JSON.parse(store.get(`gallery/orbit/${v.id}.json`));
+  assert.equal(note.seconds, 5);
+  assert.equal(note.maker, 'cloud:gpuai');
+  assert.equal(sourceOf(note), 'cloud');
+  // No key on the site: said plainly, nothing fetched. Another path on GPU.ai: not a clip, refused.
+  await assert.rejects(importCloudItem(r2, { url: link, kind: 'video' }, { fetchImpl, gpuaiKey: '' }), /GPUAI_API_KEY/);
+  await assert.rejects(importCloudItem(r2, { url: 'https://api.gpu.ai/v1/models', kind: 'video' }, { fetchImpl, gpuaiKey: 'k-test' }), /Only files from the cloud makers/);
+  // A clip that expired at GPU.ai (410): the words say to make it again.
+  const gone = async () => new Response('', { status: 410 });
+  await assert.rejects(importCloudItem(r2, { url: link, kind: 'video' }, { fetchImpl: gone, gpuaiKey: 'k-test' }), (err) => err.status === 410 && /Make it again/.test(err.message));
+  assert.equal(calls.length, 1);
+});

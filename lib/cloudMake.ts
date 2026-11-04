@@ -1,9 +1,14 @@
 import 'server-only';
+import crypto from 'node:crypto';
+import { GPUAI_API, GPUAI_VIDEO_MODEL, GPUAI_VIDEO_NAME, H3_CENTS_PER_SECOND, H3_SECONDS, gpuaiContentUrl, gpuaiJobId, h3Price, h3Seconds, mapVideoJob } from './gpuai';
 
 /**
  * Serverless pictures and videos, for when the AI machine is off (or busy): the site sends the job
  * to a cloud maker and hands back the result. Keys stay here on the server.
  *
+ *  - GPU.ai (GPUAI_API_KEY): videos with MiniMax H3 (lib/gpuai.ts), 14¢ a second of finished video,
+ *    charged only when it finishes. Queued: the browser asks again until it is done, and the site
+ *    fetches the clip into the stored gallery with the key (the browser never sees it).
  *  - Cloudflare Workers AI (CLOUDFLARE_ACCOUNT_ID + CLOUDFLARE_AI_TOKEN): pictures with FLUX.1
  *    schnell, about 230 a day free, then about $0.0005 each. Answers straight away.
  *  - fal.ai (FAL_KEY): pictures (FLUX.1 schnell, about $0.003) and videos (LTX Video by default,
@@ -19,12 +24,14 @@ import 'server-only';
 
 export type CloudKind = 'image' | 'video';
 export type CloudSize = 'square' | 'landscape' | 'portrait';
-export type CloudProvider = 'cloudflare' | 'fal' | 'runpod';
+export type CloudProvider = 'gpuai' | 'cloudflare' | 'fal' | 'runpod';
+export const CLOUD_PROVIDERS: readonly CloudProvider[] = ['gpuai', 'cloudflare', 'fal', 'runpod'];
 
 const FAL_IMAGE = () => process.env.FAL_IMAGE_MODEL || 'fal-ai/flux/schnell';
 const FAL_VIDEO = () => process.env.FAL_VIDEO_MODEL || 'fal-ai/ltx-video';
 const CF_IMAGE = '@cf/black-forest-labs/flux-1-schnell';
 
+const gpuaiOk = () => Boolean(process.env.GPUAI_API_KEY) && process.env.GPUAI_VIDEO !== 'off';
 const cloudflareOk = () => Boolean(process.env.CLOUDFLARE_ACCOUNT_ID && process.env.CLOUDFLARE_AI_TOKEN);
 const falOk = () => Boolean(process.env.FAL_KEY);
 const runpodOk = () => Boolean(process.env.RUNPOD_API_KEY) && process.env.RUNPOD_SERVERLESS !== 'off';
@@ -38,13 +45,23 @@ const RP_API = 'https://api.runpod.ai/v2/';
 /** Runpod's endpoint ids: letters, digits, dashes (never a URL someone else wrote). */
 const rpId = (s: string) => /^[A-Za-z0-9-]{3,80}$/.test(s);
 
-/** Which providers make what, best first (Cloudflare's free pictures before fal's paid ones). */
+export interface CloudMaker {
+  id: CloudProvider;
+  name: string;
+  price: string;
+  /** Videos: the price per second of finished clip, and the lengths the maker takes (whole seconds). */
+  perSecondCents?: number;
+  seconds?: { min: number; max: number; default: number };
+}
+
+/** Which providers make what, best first (MiniMax H3 for videos; Cloudflare's free pictures before fal's paid ones). */
 export function cloudMakeInfo() {
-  const image: { id: CloudProvider; name: string; price: string }[] = [];
+  const image: CloudMaker[] = [];
   if (cloudflareOk()) image.push({ id: 'cloudflare', name: 'Cloudflare', price: 'about 230 a day free, then $0.0005 each' });
   if (runpodOk()) image.push({ id: 'runpod', name: 'Runpod', price: 'about $0.003 each, from your Runpod balance' });
   if (falOk()) image.push({ id: 'fal', name: 'fal.ai', price: 'about $0.003 each' });
-  const video: { id: CloudProvider; name: string; price: string }[] = [];
+  const video: CloudMaker[] = [];
+  if (gpuaiOk()) video.push({ id: 'gpuai', name: GPUAI_VIDEO_NAME, price: h3Price(), perSecondCents: H3_CENTS_PER_SECOND, seconds: { ...H3_SECONDS } });
   if (runpodOk()) video.push({ id: 'runpod', name: 'Runpod', price: 'about $0.10 for 5 seconds, from your Runpod balance' });
   if (falOk()) video.push({ id: 'fal', name: 'fal.ai', price: 'a few cents a clip' });
   return { configured: image.length + video.length > 0, image, video };
@@ -82,6 +99,10 @@ export interface CloudJob {
   error?: string;
   provider: CloudProvider;
   kind: CloudKind;
+  /** 0–100 while it is being made, when the maker says. */
+  progress?: number;
+  /** What it cost, once the maker says (cents). */
+  costCents?: number;
 }
 
 const FAL_QUEUE = 'https://queue.fal.run/';
@@ -95,6 +116,8 @@ const enc = (o: object) => Buffer.from(JSON.stringify(o)).toString('base64url');
 function dec(id: string): { p: CloudProvider; k: CloudKind; s: string; r: string } | null {
   try {
     const o = JSON.parse(Buffer.from(id, 'base64url').toString('utf8'));
+    // GPU.ai: the job id (r), checked, so only GPU.ai's own API is asked about it.
+    if (o?.p === 'gpuai') return o.k === 'video' && gpuaiJobId(o.r) ? { p: 'gpuai', k: 'video', s: '', r: o.r } : null;
     // Runpod: the endpoint id and the job id (s, r), both checked, so only Runpod's API is asked.
     if (o?.p === 'runpod') return typeof o.s === 'string' && typeof o.r === 'string' && rpId(o.s) && /^[A-Za-z0-9-]{8,120}$/.test(o.r) ? o : null;
     // Only ever ask fal's own queue about a job (never a URL someone else wrote).
@@ -137,6 +160,26 @@ async function runpodFetch(path: string, init: RequestInit = {}) {
   return body;
 }
 
+async function gpuaiFetch(path: string, init: RequestInit = {}) {
+  const res = await fetch(GPUAI_API + path, {
+    ...init,
+    headers: { authorization: `Bearer ${process.env.GPUAI_API_KEY}`, 'content-type': 'application/json', ...(init.headers ?? {}) },
+    cache: 'no-store',
+    signal: AbortSignal.timeout(20_000),
+  });
+  const body = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+  if (!res.ok) {
+    const e = body.error as { message?: unknown; code?: unknown } | string | undefined;
+    const msg = String((typeof e === 'string' ? e : e?.message) ?? body.message ?? `GPU.ai answered ${res.status}`).slice(0, 200);
+    const code = typeof e === 'object' && e ? String(e.code ?? '') : '';
+    if (res.status === 402 || /balance|insufficient|deposit/i.test(msg + code)) throw new CloudMakeError('Video maker: your GPU.ai balance is too low. Add funds on gpu.ai.', 402);
+    if (res.status === 404 && /model/i.test(msg + code)) throw new CloudMakeError('Video maker: MiniMax H3 is not being served right now. Try again in a little while.', 503);
+    if (res.status === 429) throw new CloudMakeError('Video maker: too many at once. Try again in a moment.', 429);
+    throw new CloudMakeError(`Video maker: ${msg}`, res.status === 401 || res.status === 403 ? 502 : res.status);
+  }
+  return body;
+}
+
 async function cloudflareImage(prompt: string): Promise<string> {
   const res = await fetch(`https://api.cloudflare.com/client/v4/accounts/${encodeURIComponent(process.env.CLOUDFLARE_ACCOUNT_ID!)}/ai/run/${CF_IMAGE}`, {
     method: 'POST',
@@ -162,6 +205,17 @@ export async function cloudMakeStart(req: { kind: CloudKind; prompt: string; siz
   let last: unknown = null;
   for (const p of order) {
     try {
+      if (p.id === 'gpuai') {
+        const seconds = h3Seconds(req.seconds);
+        // The same job sent twice (a retried request) is made and charged once.
+        const body = await gpuaiFetch('/videos', {
+          method: 'POST',
+          headers: { 'idempotency-key': crypto.randomUUID() },
+          body: JSON.stringify({ model: GPUAI_VIDEO_MODEL, prompt: req.prompt, seconds }),
+        });
+        if (!gpuaiJobId(body.id)) throw new CloudMakeError('Video maker: unexpected answer from GPU.ai');
+        return { id: enc({ p: 'gpuai', k: 'video', r: body.id }), status: 'queued', provider: 'gpuai', kind: 'video', progress: 0 };
+      }
       if (p.id === 'cloudflare') {
         const url = await cloudflareImage(req.prompt);
         return { id: `cf:${Date.now().toString(36)}`, status: 'done', url, provider: 'cloudflare', kind: 'image' };
@@ -204,6 +258,13 @@ export async function cloudMakeStart(req: { kind: CloudKind; prompt: string; siz
 export async function cloudMakeStatus(id: string): Promise<CloudJob> {
   const job = dec(id);
   if (!job) throw new CloudMakeError('Unknown job', 404);
+  if (job.p === 'gpuai') {
+    const st = mapVideoJob(await gpuaiFetch(`/videos/${encodeURIComponent(job.r)}`));
+    const base = { id, provider: 'gpuai' as const, kind: 'video' as const, progress: st.progress, costCents: st.costCents };
+    if (st.status === 'done') return { ...base, status: 'done', url: gpuaiContentUrl(job.r) };
+    if (st.status === 'error') return { ...base, status: 'error', error: st.error };
+    return { ...base, status: st.status };
+  }
   if (job.p === 'runpod') {
     const st = await runpodFetch(`${job.s}/status/${job.r}`);
     const status = String(st.status ?? '');

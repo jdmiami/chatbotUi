@@ -307,17 +307,26 @@ export async function deleteItem(r2: R2, id: string) {
   return { ok: true };
 }
 
-/** fal.ai's file hosts and Runpod Serverless results: the only places a cloud creation is fetched from. */
+/** fal.ai's file hosts and Runpod Serverless results: the only places a cloud creation is fetched from (and GPU.ai's finished clips, below). */
 const CLOUD_HOST = (h: string) => /(^|\.)fal\.(media|run|ai)$/.test(h) || h === 'image.runpod.ai';
+/** A finished clip on GPU.ai (the same rule as lib/gpuai.ts isGpuaiContent, kept here so this file loads without it). */
+const isGpuaiContent = (u: URL) => u.protocol === 'https:' && u.hostname === 'api.gpu.ai' && /^\/v1\/videos\/[A-Za-z0-9_-]{6,120}\/content$/.test(u.pathname);
+
+/** A link to show a gallery item for the next two hours (the same link all half hour). */
+export function viewLink(r2: R2, note: Pick<GalleryNote, 'file' | 'kind'>, now: () => number = Date.now): string {
+  const at = new Date(Math.floor(now() / WINDOW_MS) * WINDOW_MS);
+  return r2.presign(`gallery/${note.file}`, LINK_SECONDS, { type: typeOf(note.file) ?? (note.kind === 'video' ? 'video/mp4' : 'image/png'), at });
+}
 
 /**
  * A picture or video made in the cloud (a data: URL, or a link on the cloud makers' file servers)
- * saved straight into the gallery, the way the AI machine's import does it.
+ * saved straight into the gallery, the way the AI machine's import does it. A finished clip on GPU.ai
+ * is fetched with the site's key (`gpuaiKey`): the browser never has it.
  */
 export async function importCloudItem(
   r2: R2,
-  input: { url?: unknown; kind?: unknown; prompt?: unknown; maker?: unknown },
-  { fetchImpl = fetch, now = Date.now }: { fetchImpl?: typeof fetch; now?: () => number } = {},
+  input: { url?: unknown; kind?: unknown; prompt?: unknown; maker?: unknown; seconds?: unknown },
+  { fetchImpl = fetch, now = Date.now, gpuaiKey = process.env.GPUAI_API_KEY }: { fetchImpl?: typeof fetch; now?: () => number; gpuaiKey?: string } = {},
 ): Promise<GalleryNote> {
   const kind = input.kind;
   if (kind !== 'image' && kind !== 'video') throw new GalleryError('kind must be image or video');
@@ -335,8 +344,13 @@ export async function importCloudItem(
     } catch {
       throw new GalleryError('Not a link');
     }
-    if (u.protocol !== 'https:' || !CLOUD_HOST(u.hostname)) throw new GalleryError('Only files from the cloud makers can be added');
-    const res = await fetchImpl(u, { signal: AbortSignal.timeout(45_000), redirect: 'error' });
+    const gpuai = isGpuaiContent(u);
+    if (gpuai && !gpuaiKey) throw new GalleryError('The video maker is not set up on the site (GPUAI_API_KEY).', 503);
+    if (!gpuai && (u.protocol !== 'https:' || !CLOUD_HOST(u.hostname))) throw new GalleryError('Only files from the cloud makers can be added');
+    // GPU.ai keeps a clip for a couple of hours and may hand the download over to a file server; the
+    // key is dropped on the way there (fetch never carries it to another origin).
+    const res = await fetchImpl(u, gpuai ? { signal: AbortSignal.timeout(60_000), redirect: 'follow', headers: { authorization: `Bearer ${gpuaiKey}` } } : { signal: AbortSignal.timeout(45_000), redirect: 'error' });
+    if (res.status === 410) throw new GalleryError('That video was not fetched in time and is gone. Make it again.', 410);
     if (!res.ok) throw new GalleryError(`Could not fetch it (${res.status})`, 502);
     if (Number(res.headers.get('content-length')) > max) throw new GalleryError('That file is too large', 413);
     type = (res.headers.get('content-type') || '').split(';')[0];
@@ -347,11 +361,13 @@ export async function importCloudItem(
   const id = crypto.randomBytes(9).toString('base64url');
   const file = `cloud/${crypto.randomBytes(9).toString('base64url')}${ext}`;
   await r2.put(`gallery/${file}`, buf, TYPES[ext.slice(1)]);
+  const seconds = Number(input.seconds);
   const note: GalleryNote = {
     id,
     kind,
     maker: String(input.maker || 'cloud').slice(0, 40),
     prompt: String(input.prompt || '').slice(0, 2000),
+    ...(kind === 'video' && Number.isFinite(seconds) && seconds > 0 && seconds <= 600 ? { seconds: Math.round(seconds) } : {}),
     file,
     createdAt: new Date(now()).toISOString(),
   };

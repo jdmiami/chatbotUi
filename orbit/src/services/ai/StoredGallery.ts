@@ -84,9 +84,9 @@ export function makeStoredThumbs(ids: string[]): Promise<{ made: { id: string; t
   return call<{ made: { id: string; thumbUrl: string }[]; left: number }>({ method: 'POST', body: JSON.stringify({ action: 'thumbs', ids: ids.slice(0, 100) }) });
 }
 
-/** A cloud creation saved straight into the stored gallery (the machine can stay off). */
-export function saveCloudToStorage(body: { url: string; kind: 'image' | 'video'; prompt: string; maker: string }): Promise<{ ok: true; id: string }> {
-  return call<{ ok: true; id: string }>({ method: 'POST', body: JSON.stringify({ action: 'import', ...body }) });
+/** A cloud creation saved straight into the stored gallery (the machine can stay off): its id, and a link to show it for the next hours. */
+export function saveCloudToStorage(body: { url: string; kind: 'image' | 'video'; prompt: string; maker: string; seconds?: number }): Promise<{ ok: true; id: string; url?: string }> {
+  return call<{ ok: true; id: string; url?: string }>({ method: 'POST', body: JSON.stringify({ action: 'import', ...body }) });
 }
 
 /** Where a creation came from, from its maker (the same rule as the site's lib/gallery.ts). */
