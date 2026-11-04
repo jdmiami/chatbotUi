@@ -847,6 +847,12 @@ export function createGate(cfg, log = console) {
         else return send(res, 400, { error: 'action must be pause or resume' });
         return send(res, 200, await studio.downloads());
       }
+      // On demand (the AI machine on GPU.ai): load one of your makers, at the end of the line or first.
+      if (path === '/_orbit/studio/makers/load' && req.method === 'POST' && studio.loadMaker) {
+        const { id, first } = JSON.parse((await readBody(req, 4096)) || '{}');
+        activity();
+        return send(res, 200, { makers: await studio.loadMaker(String(id || ''), { first: Boolean(first) }) });
+      }
       if ((path === '/_orbit/studio/makers/install' || path === '/_orbit/studio/makers/remove') && req.method === 'POST') {
         const { id } = JSON.parse((await readBody(req, 4096)) || '{}');
         const list = path.endsWith('/install') ? await studio.installMaker(String(id || '')) : await studio.removeMaker(String(id || ''));

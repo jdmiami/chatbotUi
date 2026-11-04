@@ -179,7 +179,7 @@ export default function StoreApp({ isActive }: AppProps) {
       } else {
         const again = canResume(item.maker, machineOn);
         setMakers(await ai.installStudioMaker(item.maker.id));
-        toast(again ? `Resuming ${item.maker.name}.` : `Adding ${item.maker.name}.`, 'info');
+        toast(again ? `Resuming ${item.maker.name}.` : item.maker.loadable ? `Loading ${item.maker.name}.` : `Adding ${item.maker.name}.`, 'info');
       }
     } catch (err) {
       toast((err as Error).message, 'error');
@@ -226,6 +226,8 @@ export default function StoreApp({ isActive }: AppProps) {
     if (m.wanted && !m.installed && !machineOn) return { label: progressText(m, false), state: 'later' };
     if (m.wanted && !m.installed) return { label: progressText(m, machineOn), state: 'progress', percent: m.percent };
     if (m.installed) return { label: 'Open', state: 'have' };
+    // Yours already, on a machine that loads only what you pick (GPU.ai): load it here.
+    if (m.loadable && machineOn) return { label: `Load${m.size ? ` · ${formatSize(m.size)}` : ''}`, state: 'get' };
     return { label: machineOn ? `Get${m.size ? ` · ${formatSize(m.size)}` : ''}` : 'Get', state: machineOn ? 'get' : 'wait' };
   }
 

@@ -127,6 +127,9 @@ const studio = env.STUDIO_DIR
       strictMakers: !CANVAS && ONLY_MAKERS.length > 0 && !announce,
       ownMakers: Boolean(announce),
       makersKey: announce ? 'state/makers-gpuai.json' : undefined,
+      // There it loads nothing until you pick (LOAD_ON_PICK=0 brings back loading the whole list at start).
+      onDemand: Boolean(announce) && env.LOAD_ON_PICK !== '0',
+      firstKey: announce ? 'state/makers-gpuai-first.json' : undefined,
       inUseElsewhere: (id) => movies?.usedElsewhere(id),
       // A video needs the whole graphics card: Live draw lets go of it first.
       makeWayForVideo: async () => {

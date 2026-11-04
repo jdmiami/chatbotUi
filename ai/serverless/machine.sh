@@ -12,7 +12,8 @@
 #               also terminates it after AUTO_TERMINATE hours whatever happens (the money fail-safe).
 #
 # Required env: GATEWAY_SECRET, R2_ACCOUNT_ID, R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY, SITE_URL, MACHINE_NAME.
-# Optional: ONLY_MAKERS (comma-separated maker ids: just these come down), ALLOWED_ORIGINS, IDLE_MINUTES, HF_TOKEN.
+# Optional: ONLY_MAKERS (comma-separated maker ids: the makers you start with; nothing comes down until you
+# pick one in Orbit, LOAD_ON_PICK=0 loads them all at start instead), ALLOWED_ORIGINS, IDLE_MINUTES, HF_TOKEN.
 set -euo pipefail
 
 : "${GATEWAY_SECRET:?GATEWAY_SECRET is required}"

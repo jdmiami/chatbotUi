@@ -21,8 +21,27 @@ export const TURBO_GPUS: GpuChoice[] = [
   { gpu: 'rtx_pro_6000', gpuName: 'RTX PRO 6000 96 GB', pricePerHour: 1.99 },
   { gpu: 'h100_pcie', gpuName: 'H100 80 GB', pricePerHour: 2.48 },
 ];
-/** The makers this machine loads, in download order: Qwen Image (and its edit), then H3 Max (turbo). */
+/** The makers this machine starts with (yours to pick from; nothing loads until you pick): Qwen Image, its edit, H3 Max. */
 export const ONLY_MAKERS = 'qwen,edit,h3-max';
+/** Your makers on this machine (the gate's own list in R2): what you added in the store. */
+export const LIBRARY_KEY = 'state/makers-gpuai.json';
+/** What you picked to load first while the machine was starting (the gate reads it when it comes up). */
+export const FIRST_KEY = 'state/makers-gpuai-first.json';
+
+/** Picks from Orbit, cleaned: maker ids only, no repeats, at most 20, in the order given. */
+export function cleanPicks(ids: unknown): string[] {
+  if (!Array.isArray(ids)) return [];
+  const out: string[] = [];
+  for (const id of ids) if (typeof id === 'string' && /^[a-z0-9][a-z0-9-]{0,39}$/.test(id) && !out.includes(id)) out.push(id);
+  return out.slice(0, 20);
+}
+
+/** Your makers: the starting list, then what you added in the store (no repeats). */
+export function libraryOf(only: string, saved: unknown): string[] {
+  const added = saved && typeof saved === 'object' && Array.isArray((saved as { wanted?: unknown }).wanted) ? (saved as { wanted: unknown[] }).wanted : [];
+  return cleanPicks([...only.split(',').map((s) => s.trim()), ...added]);
+}
+
 /** GPU.ai terminates the instance after this many hours whatever happens: the money fail-safe. */
 export const AUTO_TERMINATE_HOURS = 8;
 /** The instance's filesystem: Qwen Image (about 25 GB), H3 Max (about 52 GB), the maker's own files, room to work. */

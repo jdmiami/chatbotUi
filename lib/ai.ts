@@ -4,7 +4,7 @@ import { SignJWT } from 'jose';
 import { runpod, type PodStatus } from './runpod';
 import { autoOffMinutes } from './autoOff';
 import { r2Config } from './r2';
-import { createMachine, findMachine, machineAddress, terminateMachine } from './gpuaiMachine';
+import { createMachine, findMachine, machineAddress, machinePicks, terminateMachine } from './gpuaiMachine';
 import { STANDARD_GPUS, TURBO_GPUS, machineState, type GpuaiInstance } from './gpuaiShared';
 
 /**
@@ -46,6 +46,8 @@ export interface AiStatus {
   /** Speed the machine is on (or was last on), and the speeds to choose from. */
   tier?: string | null;
   tiers?: AiTier[];
+  /** GPU.ai, while the machine starts: your makers, and what you picked to load first (in order). */
+  picks?: { library: string[]; first: string[] };
 }
 
 /** The machine's own auto-off timer (shared/autooff.js), as its gate reports it. */
@@ -611,12 +613,14 @@ export async function aiStatus(user: string): Promise<AiStatus & { podId?: strin
   const backup = !gpuaiMachine && pod.status !== 'EXITED' && t && onBackup(pod, t) ? backupNote(pod, t) : undefined;
   const cost = typeof pod.cost === 'number' && pod.cost > 0 ? pod.cost : null;
   const where = gpuaiMachine ? { url: addresses.get(pod.id), consoleUrl: GPUAI_CONSOLE, startedAt: instance?.ready_at ?? null } : {};
+  // While it starts: what you can pick to load first (Orbit shows it on the starting screen).
+  const picking = async () => (gpuaiMachine ? { picks: await machinePicks().catch(() => undefined) } : {});
   switch (pod.status) {
     case 'EXITED':
       return { state: 'off', costPerHour: null, podId: pod.id, ...speeds };
     case 'PROVISIONING':
     case 'STARTING':
-      return { state: 'starting', costPerHour: cost, podId: pod.id, detail: backup, ...speeds, ...where };
+      return { state: 'starting', costPerHour: cost, podId: pod.id, detail: backup, ...speeds, ...where, ...(await picking()) };
     case 'RUNNING':
       break;
     default:
@@ -628,7 +632,7 @@ export async function aiStatus(user: string): Promise<AiStatus & { podId?: strin
       cache: 'no-store',
       signal: AbortSignal.timeout(5000),
     });
-    if (!res.ok) return { state: 'starting', costPerHour: cost, podId: pod.id, detail: backup, ...speeds, ...where };
+    if (!res.ok) return { state: 'starting', costPerHour: cost, podId: pod.id, detail: backup, ...speeds, ...where, ...(await picking()) };
     const g = (await res.json()) as GateStatus;
     // Usable as soon as one model is there; later downloads show as progress. A machine with no chat
     // (GPU.ai: pictures and videos only) is on as soon as its maker runs.
@@ -645,7 +649,7 @@ export async function aiStatus(user: string): Promise<AiStatus & { podId?: strin
       ...where,
     };
   } catch {
-    return { state: 'starting', costPerHour: cost, podId: pod.id, detail: backup, ...speeds, ...where };
+    return { state: 'starting', costPerHour: cost, podId: pod.id, detail: backup, ...speeds, ...where, ...(await picking()) };
   }
 }
 

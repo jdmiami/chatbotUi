@@ -1,7 +1,7 @@
 import 'server-only';
 import { randomUUID } from 'node:crypto';
 import { GPUAI_API } from './gpuai';
-import { AUTO_TERMINATE_HOURS, ONLY_MAKERS, STANDARD_GPUS, TURBO_GPUS, liveAddress, machineState, nextGpu, nextGpuAfterFailedOperation, pickMachine, pickOffering, type GpuChoice, type GpuaiInstance, type MachineNote, type Offering } from './gpuaiShared';
+import { AUTO_TERMINATE_HOURS, FIRST_KEY, LIBRARY_KEY, ONLY_MAKERS, cleanPicks, libraryOf, STANDARD_GPUS, TURBO_GPUS, liveAddress, machineState, nextGpu, nextGpuAfterFailedOperation, pickMachine, pickOffering, type GpuChoice, type GpuaiInstance, type MachineNote, type Offering } from './gpuaiShared';
 import { imageBuilt, imageFor } from './serverlessShared';
 import { createR2, r2Config } from './r2';
 import { autoOffMinutes } from './autoOff';
@@ -9,8 +9,8 @@ import { autoOffMinutes } from './autoOff';
 /**
  * The AI machine on GPU.ai (AI_PROVIDER=gpuai): an instance started from our own container image
  * (ghcr.io/jdmiami/orbit-ai-worker, the serverless worker's image) running ai/serverless/machine.sh:
- * ComfyUI and the gate in its helper role, making pictures and videos only, with just the makers in
- * ONLY_MAKERS (Qwen Image and H3 Max). Nothing is kept on the instance: models come down from R2 at
+ * ComfyUI and the gate in its helper role, making pictures and videos only. It loads nothing until you
+ * pick (your makers: ONLY_MAKERS and what you added in the store); picks come down in order. Nothing is kept on the instance: models come down from R2 at
  * every start and the gallery goes to R2, so a terminated machine loses nothing.
  *
  * Its address is a tunnel the machine opens itself (a trycloudflare.com name that changes every
@@ -57,6 +57,27 @@ export async function machineAddress(instance: GpuaiInstance): Promise<string | 
   if (!conf) return null;
   const note = await createR2(conf).getJson<MachineNote>(MACHINE_KEY).catch(() => null);
   return liveAddress(note, instance);
+}
+
+/** Your makers on the machine, and what you picked to load first while it starts. */
+export async function machinePicks(): Promise<{ library: string[]; first: string[] }> {
+  const conf = r2Config();
+  const only = process.env.AI_ONLY_MAKERS || ONLY_MAKERS;
+  if (!conf) return { library: libraryOf(only, null), first: [] };
+  const r2 = createR2(conf);
+  const [saved, note] = await Promise.all([r2.getJson<unknown>(LIBRARY_KEY).catch(() => null), r2.getJson<{ ids?: unknown }>(FIRST_KEY).catch(() => null)]);
+  const library = libraryOf(only, saved);
+  return { library, first: cleanPicks(note?.ids).filter((id) => library.includes(id)) };
+}
+
+/** Save what to load first (in order); the machine reads it when it comes up. */
+export async function setFirstPicks(ids: unknown): Promise<string[]> {
+  const conf = r2Config();
+  if (!conf) throw new Error('The site needs the R2 keys to remember what to load first.');
+  const { library } = await machinePicks();
+  const first = cleanPicks(ids).filter((id) => library.includes(id));
+  await createR2(conf).putJson(FIRST_KEY, { ids: first, at: new Date().toISOString() });
+  return first;
 }
 
 /** The worker image this deployment built (lib/serverlessMake.ts), else the newest. */
@@ -115,6 +136,8 @@ export async function createMachine(tier: 'standard' | 'turbo' = 'standard'): Pr
   const env = machineEnv();
   if (!env.R2_ACCOUNT_ID) throw new Error('The site needs the R2 keys (R2_ACCOUNT_ID, R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY) to start the AI machine.');
   const prices = await priceList();
+  // A new machine starts with nothing picked: picks from an earlier start don't carry over.
+  await createR2(r2Config()!).putJson(FIRST_KEY, { ids: [], at: new Date().toISOString() }).catch(() => {});
   let lastWhy = '';
   const started = Date.now();
   for (const gpu of gpusFor(tier)) {
