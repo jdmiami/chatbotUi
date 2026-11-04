@@ -292,6 +292,12 @@ export function createStudio(o) {
   // `makersKey`, apart from the old main machine's list (so it starts from its short list, not from everything ever added).
   const ownMakers = Boolean(o.ownMakers);
   const makersKey = o.makersKey || 'state/makers.json';
+  // `onDemand` (the AI machine on GPU.ai): nothing comes down until you pick it. Your makers (the short
+  // list and what you added in the store) wait; each one you pick joins a line and downloads in that
+  // order, the first pick first. Picks made in Orbit while the machine was still starting are in R2
+  // under `firstKey` (the site writes them; lib/gpuaiMachine.ts).
+  const onDemand = Boolean(o.onDemand);
+  const firstKey = o.firstKey || null;
   const modelKey = (file) => `models/${file.dir}/${file.name}`;
   const ffmpeg = o.ffmpeg || runFfmpeg;
   const probe = o.probe || probeMedia;
@@ -380,6 +386,17 @@ export function createStudio(o) {
     /* none yet */
   }
   const makerById = (id) => MAKERS.find((m) => m.id === id) || null;
+  // The line of picked makers (onDemand), in download order. Kept on this machine's disk too, so a
+  // restarted gate carries on with the same line.
+  const pickedPath = path.join(dir, perRole('picked', '.json'));
+  let picked = [];
+  if (onDemand) {
+    try {
+      picked = JSON.parse(fs.readFileSync(pickedPath, 'utf8')).picked || [];
+    } catch {
+      /* nothing picked yet */
+    }
+  }
   // The built-in makers use the studio's own files (tests pass small fake ones).
   const QWEN_KEYS = { qwenUnet: 0, qwenTe: 1, qwenVae: 2 };
   function makerFiles(m) {
@@ -389,14 +406,16 @@ export function createStudio(o) {
   // Live Draw and live video run only on the drawing machine (role 'canvas'): any other machine
   // never keeps, lists or downloads them, even if an older version of it was asked to.
   const drawingOnly = (m) => role !== 'canvas' && (m.kind === 'live' || m.kind === 'sketch');
-  const keeps = (m) => !drawingOnly(m) && ((only ? only.has(m.id) : m.builtIn) || (!strict && wanted.has(m.id)));
-  // A short list also sets the download order (what is needed first comes down first).
-  const rank = (m) => (only?.has(m.id) ? [...only].indexOf(m.id) : Infinity);
-  const kept = () => (only ? MAKERS.filter(keeps).sort((a, b) => rank(a) - rank(b)) : MAKERS.filter(keeps));
+  // Yours: on the short list (else built in), or added in the store.
+  const inLibrary = (m) => !drawingOnly(m) && ((only ? only.has(m.id) : m.builtIn) || (!strict && wanted.has(m.id)));
+  const keeps = (m) => (onDemand ? !drawingOnly(m) && picked.includes(m.id) : inLibrary(m));
+  // A short list also sets the download order (what is needed first comes down first); picks set it on demand.
+  const rank = (m) => (onDemand ? picked.indexOf(m.id) : only?.has(m.id) ? [...only].indexOf(m.id) : Infinity);
+  const kept = () => (only || onDemand ? MAKERS.filter(keeps).sort((a, b) => rank(a) - rank(b)) : MAKERS.filter(keeps));
   /** Every file to keep on the machine, in download order: the built-in image and video makers first. */
   function neededFiles() {
     const seen = new Map();
-    if (!only) for (const kind of ['image', 'video']) for (const file of files[kind]) seen.set(fid(file), file);
+    if (!only && !onDemand) for (const kind of ['image', 'video']) for (const file of files[kind]) seen.set(fid(file), file);
     for (const m of kept()) for (const file of makerFiles(m)) if (!seen.has(fid(file))) seen.set(fid(file), file);
     return [...seen.values()];
   }
@@ -740,9 +759,51 @@ export function createStudio(o) {
                     ? 'waiting'
                     : 'paused',
         waitingFor: !installed && !why && download.current && !mine ? download.current.name : undefined,
+        // On demand: yours, not picked on this machine yet (pick it to load it).
+        loadable: onDemand && !installed && !keeps(m) && inLibrary(m) ? true : undefined,
       });
     }
+    // On demand: each picked maker's place in the download line (1 = coming down now or next).
+    if (onDemand) {
+      let n = 0;
+      for (const id of picked) {
+        const row = out.find((x) => x.id === id);
+        if (row && row.wanted && !row.installed) row.line = ++n;
+      }
+    }
     return out;
+  }
+
+  async function savePicked() {
+    await fsp.writeFile(pickedPath, JSON.stringify({ picked })).catch(() => {});
+  }
+
+  /** Put a maker in the line: at the end, or first (it comes down right after the file under way). */
+  function addToLine(m, first = false) {
+    const ids = [m.kind === 'style' && m.for ? m.for : null, m.id].filter(Boolean);
+    for (const id of ids) {
+      const at = picked.indexOf(id);
+      if (at >= 0 && !first) continue;
+      if (at >= 0) picked.splice(at, 1);
+      if (first) picked.splice(ids.indexOf(id), 0, id);
+      else picked.push(id);
+    }
+    for (const id of ids) for (const file of makerFiles(makerById(id))) {
+      blocked.delete(fid(file));
+      download.done.delete(fid(file));
+    }
+  }
+
+  /** On demand: load one of your makers on this machine, at the end of the line or first. */
+  async function loadMaker(id, { first = false } = {}) {
+    if (!onDemand) throw Object.assign(new Error('This machine loads every maker you added by itself.'), { status: 409 });
+    const m = makerById(id);
+    if (!m || drawingOnly(m)) throw Object.assign(new Error('No such maker.'), { status: 404 });
+    if (!inLibrary(m)) throw Object.assign(new Error(`Add ${m.name} in the store first.`), { status: 409 });
+    addToLine(m, first);
+    await savePicked();
+    void downloadAll();
+    return makers();
   }
 
   async function saveWanted() {
@@ -780,6 +841,11 @@ export function createStudio(o) {
     }
     wanted.add(id);
     await saveWanted();
+    // On demand: adding it (or tapping it again) also puts it in this machine's line.
+    if (onDemand) {
+      addToLine(m);
+      await savePicked();
+    }
     // Adding one already wanted resumes it: its files get another try (a file the download gave up
     // on, or one that was counted as done and then went missing).
     for (const file of makerFiles(m)) {
@@ -799,6 +865,10 @@ export function createStudio(o) {
     // Both machines use the same model files: keep them while the helper is making a movie with it.
     if (await o.inUseElsewhere?.(id)) throw Object.assign(new Error('Your helper machine is making a movie with it. Try again when that is done.'), { status: 409 });
     wanted.delete(id);
+    if (onDemand) {
+      picked = picked.filter((x) => x !== id && makerById(x)?.for !== id);
+      await savePicked();
+    }
     // Space was freed: files that were waiting for it can try again.
     for (const [k, why] of blocked) if (/disk space/.test(why)) blocked.delete(k);
     // Styles go with their maker.
@@ -1356,8 +1426,15 @@ export function createStudio(o) {
     if (needs.has('audio') && !audioUpload) throw bad('Add a voice recording or a song.');
     if (needs.has('photo') && !uploads.length && !req.fromItem && !itemIds.length && !character) throw bad(task === 'motion' ? 'Add a photo of who should move.' : swap ? 'Add a photo of the new person.' : 'Add a photo of the person.');
     if (!(await makerReady(maker))) {
+      // On demand: one of yours that isn't loaded here yet goes first in line now.
+      if (onDemand && inLibrary(maker) && !keeps(maker)) {
+        addToLine(maker, true);
+        await savePicked();
+        void downloadAll();
+        throw Object.assign(new Error(`${maker.name} wasn't loaded on this machine yet. It is loading first now. Try again when it's done.`), { status: 503, loading: true });
+      }
       const pct = (await makers()).find((m) => m.id === maker.id)?.percent ?? 0;
-      const what = maker.builtIn ? `The ${maker.name} maker is still downloading (${pct}%)` : `${maker.name} is ${wanted.has(maker.id) ? `still downloading (${pct}%)` : 'not installed'}`;
+      const what = maker.builtIn && !onDemand ? `The ${maker.name} maker is still downloading (${pct}%)` : `${maker.name} is ${keeps(maker) ? `still downloading (${pct}%)` : 'not installed'}`;
       throw Object.assign(new Error(`${what}. Try again when it's done.`), { status: 503 });
     }
     let style = null;
@@ -2318,6 +2395,26 @@ export function createStudio(o) {
     return { path: p, size: st.size, type: MIME[ext] || 'application/octet-stream', name: `${it.kind}-${id}${ext}` };
   }
 
+  /** On demand: what you picked in Orbit while this machine was still starting (the site keeps it in R2). */
+  async function readFirstPicks() {
+    if (!firstKey || !r2) return false;
+    const note = await r2.getJson(firstKey).catch(() => null);
+    const ids = Array.isArray(note?.ids) ? note.ids.map(String) : [];
+    let added = false;
+    for (const id of ids) {
+      const m = makerById(id);
+      if (m && inLibrary(m) && !picked.includes(id)) {
+        addToLine(m);
+        added = true;
+      }
+    }
+    if (added) {
+      logDownload('picked', `Loading what you picked first: ${picked.map((id) => makerById(id)?.name || id).join(', ')}`);
+      await savePicked();
+    }
+    return added;
+  }
+
   /** Settings kept in R2 (which makers are added, learned timings), read at start. */
   async function loadSaved() {
     try {
@@ -2326,6 +2423,7 @@ export function createStudio(o) {
         wanted = new Set(saved.wanted);
         await fsp.writeFile(wantedPath, JSON.stringify({ wanted: [...wanted] })).catch(() => {});
       }
+      if (onDemand && !picked.length) await readFirstPicks();
       const t = await r2.getJson(`state/${path.basename(timingsPath)}`);
       if (t && typeof t === 'object') timings = { ...t, ...timings };
     } catch (err) {
@@ -2352,6 +2450,16 @@ export function createStudio(o) {
         if (r2) await loadSaved();
         if (!helper || r2) await downloadAll();
       })();
+      // On demand: a pick made in Orbit just as the machine came up may reach R2 after the first read.
+      // Looked for again every 15 s for the first 20 minutes, until something is picked.
+      if (onDemand && firstKey && r2) {
+        const until = Date.now() + 20 * 60_000;
+        const again = setInterval(() => {
+          if (picked.length || Date.now() > until) return clearInterval(again);
+          void readFirstPicks().then((added) => added && downloadAll(), () => {});
+        }, o.firstPollMs ?? 15_000);
+        again.unref?.();
+      }
       // Look over the gallery for NSFW a little after start, then every half hour for anything missed.
       const look = () => void rateAll().catch((err) => log.warn?.(`[nsfw] ${err.message}`));
       setTimeout(look, o.nsfwDelayMs ?? 60_000).unref?.();
@@ -2405,6 +2513,7 @@ export function createStudio(o) {
     state,
     makers,
     installMaker,
+    loadMaker,
     downloads,
     pauseDownloads,
     resumeDownloads,

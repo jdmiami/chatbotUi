@@ -73,3 +73,53 @@ test('the AI machine on GPU.ai starts from its short list, and makers added in t
   const plain = createStudio({ dir: await fs.mkdtemp(path.join(os.tmpdir(), 'helper-')), files: FILES, role: 'helper', r2, fetchImpl: noNet, WebSocketImpl: null, log: quiet, statfs: bigDisk, nsfwDelayMs: 1e9 });
   await assert.rejects(plain.installMaker('anime'), /main AI machine/);
 });
+
+test('on demand, the AI machine loads nothing until you pick, then downloads in the order picked', async () => {
+  const { r2 } = memoryR2();
+  await r2.putJson('state/makers-gpuai.json', { wanted: ['anime'] });
+  // Picked in Orbit while the machine was still starting.
+  await r2.putJson('state/makers-gpuai-first.json', { ids: ['h3-max', 'not-a-maker'], at: new Date().toISOString() });
+  const studio = createStudio({
+    dir: await fs.mkdtemp(path.join(os.tmpdir(), 'pick-')),
+    files: FILES,
+    role: 'helper',
+    r2,
+    makers: ['qwen', 'edit', 'h3-max'],
+    ownMakers: true,
+    makersKey: 'state/makers-gpuai.json',
+    onDemand: true,
+    firstKey: 'state/makers-gpuai-first.json',
+    fetchImpl: noNet,
+    WebSocketImpl: null,
+    log: quiet,
+    statfs: bigDisk,
+    nsfwDelayMs: 1e9,
+    firstPollMs: 1e9,
+  });
+  // Nothing actually downloads in this test: the line is what is checked.
+  studio.pauseDownloads();
+  studio.start();
+  await new Promise((r) => setTimeout(r, 1500));
+  const rows = async () => Object.fromEntries((await studio.makers()).map((m) => [m.id, m]));
+  let m = await rows();
+  assert.equal(m['h3-max'].wanted, true, 'what you picked while starting is loading');
+  assert.equal(m['h3-max'].line, 1);
+  for (const id of ['qwen', 'edit', 'anime']) assert.equal(m[id].loadable, true, `${id} waits to be picked`);
+  assert.equal(m.ltx.loadable, undefined, 'not yours: not offered');
+
+  // Picked next, then moved first.
+  await studio.loadMaker('qwen');
+  m = await rows();
+  assert.deepEqual([m['h3-max'].line, m.qwen.line], [1, 2]);
+  await studio.loadMaker('qwen', { first: true });
+  m = await rows();
+  assert.deepEqual([m.qwen.line, m['h3-max'].line], [1, 2]);
+  assert.equal(m.qwen.loadable, undefined);
+
+  // Only your makers: one never added is added in the store first (which also puts it in line).
+  await assert.rejects(studio.loadMaker('krea-real'), /store first/);
+  // Asking for one of yours that isn't loaded puts it first and says so.
+  await assert.rejects(studio.createJob({ maker: 'anime', prompt: 'a castle' }), (err) => err.status === 503 && /loading first now/.test(err.message));
+  m = await rows();
+  assert.deepEqual([m.anime.line, m.qwen.line, m['h3-max'].line], [1, 2, 3]);
+});

@@ -53,6 +53,26 @@
 .make-loading-all { appearance: none; border: 0; background: none; padding: 6px 0; min-height: 44px; color: var(--accent, #8b9cff); font: 600 var(--fs-sm, 14px) / 1 var(--font-ui); cursor: pointer; }
 .make-loading-head > .icon-btn { align-self: center; }
 .make-loading-acts { display: inline-flex; align-items: center; gap: 8px; margin-left: auto; }
+/* GPU.ai: pick what loads (first, next). Chips wrap; each is a full 44 px touch target. */
+.make-pick-head { margin: 8px auto 4px; color: var(--text-2); font: 500 var(--fs-sm, 14px) / 1.3 var(--font-ui); }
+.make-pick { display: flex; flex-wrap: wrap; gap: 8px; margin-block: 0 4px; }
+.make-pick-chip {
+  appearance: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 44px;
+  padding: 0 14px;
+  border: 1px solid var(--o5-hair, var(--border));
+  border-radius: 999px;
+  background: transparent;
+  color: var(--text-1, inherit);
+  font: 600 var(--fs-sm, 14px) / 1 var(--font-ui);
+  cursor: pointer;
+}
+.make-pick-chip[aria-pressed='true'] { border-color: var(--accent, #8b9cff); background: color-mix(in srgb, var(--accent, #8b9cff) 16%, transparent); }
+.make-pick-chip:disabled { opacity: 0.6; cursor: progress; }
+.make-pick-n { font-variant-numeric: tabular-nums; color: var(--accent, #8b9cff); }
 
 /* ---------------------------------------------------------------- the frame: top bar, steps, buttons */
 :root[data-skin='o5'] .ai-create.mk,

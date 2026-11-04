@@ -1,6 +1,7 @@
 import { currentUser } from '@/lib/auth';
 import { sameOrigin } from '@/lib/request';
-import { aiBase, aiConfigured, aiConsole, aiStatus, startAi, stopAi } from '@/lib/ai';
+import { aiBase, aiConfigured, aiConsole, aiProvider, aiStatus, startAi, stopAi } from '@/lib/ai';
+import { setFirstPicks } from '@/lib/gpuaiMachine';
 
 export const dynamic = 'force-dynamic';
 // Finding a free GPU can take several tries (see lib/ai.ts).
@@ -22,16 +23,28 @@ export async function GET() {
   return Response.json(await statusWithLinks(user), { headers: noStore });
 }
 
-/** Turn the AI machine on or off: { "action": "start" | "stop", "tier"?: "standard" | "turbo" }. */
+/**
+ * Turn the AI machine on or off: { "action": "start" | "stop", "tier"?: "standard" | "turbo" }.
+ * On GPU.ai, { "action": "first", "makers": [ids] } saves what to load first while it starts.
+ */
 export async function POST(request: Request) {
   const user = await currentUser();
   if (!user) return Response.json({ error: 'Unauthorized' }, { status: 401 });
   if (!sameOrigin(request)) return Response.json({ error: 'Forbidden' }, { status: 403 });
-  const { action, tier } = (await request.json().catch(() => ({}))) as { action?: string; tier?: string };
-  if (action !== 'start' && action !== 'stop') {
-    return Response.json({ error: 'action must be "start" or "stop"' }, { status: 400 });
+  const { action, tier, makers } = (await request.json().catch(() => ({}))) as { action?: string; tier?: string; makers?: unknown };
+  if (action !== 'start' && action !== 'stop' && action !== 'first') {
+    return Response.json({ error: 'action must be "start", "stop" or "first"' }, { status: 400 });
   }
   if (!aiConfigured()) return Response.json({ error: 'The AI machine is not set up in Vercel yet.' }, { status: 501 });
+  if (action === 'first') {
+    if (aiProvider() !== 'gpuai') return Response.json({ error: 'Only the AI machine on GPU.ai loads makers when you pick them.' }, { status: 409 });
+    try {
+      await setFirstPicks(makers);
+    } catch (err) {
+      return Response.json({ error: (err as Error).message }, { status: 502 });
+    }
+    return Response.json(await statusWithLinks(user), { headers: noStore });
+  }
   try {
     await (action === 'start' ? startAi(typeof tier === 'string' ? tier : undefined) : stopAi());
   } catch (err) {

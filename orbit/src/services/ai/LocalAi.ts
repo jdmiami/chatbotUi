@@ -20,6 +20,8 @@ export interface AiMachineStatus {
   autoOffMinutes?: number;
   tier?: string | null;
   tiers?: AiTier[];
+  /** The AI machine on GPU.ai, while it starts: your makers, and what you picked to load first (in order). */
+  picks?: { library: string[]; first: string[] };
 }
 
 /** The machine's own auto-off timer. */
@@ -255,6 +257,10 @@ export interface StudioMakerInfo {
    */
   status?: 'downloading' | 'saving' | 'waiting' | 'setup' | 'paused' | 'disk' | 'blocked';
   waitingFor?: string;
+  /** The AI machine on GPU.ai loads only what you pick: one of yours that isn't picked yet. */
+  loadable?: boolean;
+  /** Its place in the download line there (1 = coming down now or next). */
+  line?: number;
 }
 
 /** The download manager (the AI machine's /_orbit/studio/downloads). */
@@ -629,6 +635,11 @@ export class LocalAi {
     return machineStatus(await siteJson<AiMachineStatus>('/api/ai', { method: 'POST', body: JSON.stringify({ action, tier }) }));
   }
 
+  /** While the machine on GPU.ai starts: what to load first, in order (it reads this when it comes up). */
+  async setFirstMakers(ids: string[]): Promise<AiMachineStatus> {
+    return machineStatus(await siteJson<AiMachineStatus>('/api/ai', { method: 'POST', body: JSON.stringify({ action: 'first', makers: ids }) }));
+  }
+
   /** Address + token of the AI machine; null while it isn't ready. */
   private async access(force = false): Promise<Grant | null> {
     if (!force && this.grant && this.grant.expires - Date.now() > 120_000) return this.grant;
@@ -806,6 +817,11 @@ export class LocalAi {
 
   async installStudioMaker(id: string): Promise<StudioMakerInfo[]> {
     return (await this.studioCall<{ makers: StudioMakerInfo[] }>('/_orbit/studio/makers/install', { method: 'POST', body: JSON.stringify({ id }) })).makers;
+  }
+
+  /** The machine on GPU.ai: load one of your makers, at the end of the line or first. */
+  async loadStudioMaker(id: string, first = false): Promise<StudioMakerInfo[]> {
+    return (await this.studioCall<{ makers: StudioMakerInfo[] }>('/_orbit/studio/makers/load', { method: 'POST', body: JSON.stringify({ id, first }) })).makers;
   }
 
   async removeStudioMaker(id: string): Promise<StudioMakerInfo[]> {

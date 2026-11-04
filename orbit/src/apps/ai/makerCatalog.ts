@@ -43,6 +43,18 @@ const ALL: StudioMakerInfo[] = [
   ...CATALOG_MAKERS.filter((m) => !MAKER_CATALOG.some((b) => b.id === m.id)).map((m) => ({ ...m, builtIn: false, wanted: false, installed: false, percent: 0 })),
 ].filter(forAiMachine);
 
+/** A maker's name (and what Orbit knows of it) by id, for lists the site sends as ids only. */
+export function catalogMaker(id: string): StudioMakerInfo | null {
+  return ALL.find((m) => m.id === id) ?? null;
+}
+
+/** 1st, 2nd, 3rd, 4th… */
+export function ordinal(n: number): string {
+  const t = n % 100;
+  const s = t >= 11 && t <= 13 ? 'th' : ['th', 'st', 'nd', 'rd'][n % 10] ?? 'th';
+  return `${n}${s}`;
+}
+
 /**
  * The machine's list, plus every maker in the catalog it doesn't know yet (it runs older code):
  * those show as `pending`, "Arrives when your AI machine restarts", and can't be added until then.
@@ -94,7 +106,7 @@ export function progressText(m: StudioMakerInfo, machineOn = true): string {
     case 'saving':
       return `${p} · saving`;
     case 'waiting':
-      return `${p} · in line`;
+      return m.line ? `${p} · ${ordinal(m.line)} in line` : `${p} · in line`;
     case 'setup':
       return m.setup || 'Setting up';
     case 'paused':

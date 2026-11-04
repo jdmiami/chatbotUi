@@ -204,6 +204,86 @@ test('Make: a bar at the top shows what is still loading, and a stopped download
   expect(errors).toEqual([]);
 });
 
+test('Make on GPU.ai: nothing loads until you pick; picks come down in order and one can go next', async ({ page }, info) => {
+  await mockAi(page, 'on');
+  const loads: { id: string; first: boolean }[] = [];
+  const line: string[] = [];
+  const row = (id: string, name: string, size: number) => {
+    const at = line.indexOf(id);
+    return at < 0
+      ? { id, kind: id === 'h3-max' ? 'video' : 'image', name, installed: false, wanted: false, percent: 0, size, loadable: true }
+      : { id, kind: id === 'h3-max' ? 'video' : 'image', name, installed: false, wanted: true, percent: at ? 0 : 12, size, status: at ? 'waiting' : 'downloading', line: at + 1, waitingFor: at ? 'x' : undefined };
+  };
+  const makers = () => [row('qwen', 'Qwen Uncensored', 25e9), row('h3-max', 'H3 Max', 52e9), row('anime', 'Anime', 20e9)];
+  await page.route('**/fake-ai/_orbit/studio', (r) => r.fulfill({ json: { setup: 'running', running: true, image: READY, video: READY, downloading: null, downloadError: null, jobs: [] } }));
+  await page.route('**/fake-ai/_orbit/studio/makers', (r) => r.fulfill({ json: { makers: makers() } }));
+  await page.route('**/fake-ai/_orbit/studio/makers/load', (r) => {
+    const body = r.request().postDataJSON() as { id: string; first: boolean };
+    loads.push(body);
+    const at = line.indexOf(body.id);
+    if (at >= 0) line.splice(at, 1);
+    if (body.first) line.splice(Math.min(1, line.length), 0, body.id);
+    else line.push(body.id);
+    return r.fulfill({ json: { makers: makers() } });
+  });
+  await page.route('**/fake-ai/_orbit/studio/items', (r) => r.fulfill({ json: { items: [] } }));
+
+  const errors = await openOrbit(page);
+  const win = await openMakeApp(page);
+  const pickBar = win.getByRole('region', { name: 'Pick what to load' });
+  await expect(pickBar).toContainText('Nothing is loaded yet');
+  await page.screenshot({ path: info.outputPath('make-pick-first.png') });
+  await pickBar.getByRole('button', { name: /H3 Max/ }).click();
+  const bar = win.getByRole('region', { name: 'Makers loading' });
+  await expect(bar).toContainText('Loading H3 Max');
+  await bar.getByRole('group', { name: 'Load next' }).getByRole('button', { name: /Anime/ }).click();
+  await bar.getByRole('group', { name: 'Load next' }).getByRole('button', { name: /Qwen/ }).click();
+  await expect(bar).toContainText('3rd in line');
+  // Qwen moves up to come next.
+  await bar.getByRole('button', { name: 'Load Qwen Uncensored next' }).click();
+  await expect.poll(() => loads).toEqual([
+    { id: 'h3-max', first: false },
+    { id: 'anime', first: false },
+    { id: 'qwen', first: false },
+    { id: 'qwen', first: true },
+  ]);
+  await expect(bar).toContainText(/Qwen Uncensored\s*0% · 2nd in line/);
+  await expectNoHorizontalOverflow(page);
+  await page.screenshot({ path: info.outputPath('make-pick-line.png') });
+  expect(errors).toEqual([]);
+});
+
+test('Make on GPU.ai: while the machine starts, tap what loads first; the order is saved for it', async ({ page }, info) => {
+  await mockAi(page, 'off');
+  const posts: Record<string, unknown>[] = [];
+  let first: string[] = [];
+  await page.route('**/api/ai', async (route) => {
+    if (route.request().method() === 'POST') {
+      const body = route.request().postDataJSON() as { makers?: string[] };
+      posts.push(body);
+      first = body.makers ?? first;
+    }
+    await route.fulfill({ json: { state: 'starting', costPerHour: 0.45, autoOffMinutes: 60, tier: 'standard', tiers: [], picks: { library: ['qwen', 'edit', 'h3-max'], first } } });
+  });
+  await page.route(/\/api\/make(\?.*)?$/, (r) => r.fulfill({ json: { configured: false } }));
+  await openOrbit(page);
+  const win = await openMakeApp(page);
+  const group = win.getByRole('group', { name: 'Pick what loads first' });
+  await expect(group).toBeVisible();
+  await expect(win.getByText('Nothing loads until you pick')).toBeVisible();
+  await group.getByRole('button', { name: /H3 Max/ }).click();
+  await group.getByRole('button', { name: /Qwen Uncensored/ }).click();
+  await expect(group.getByRole('button', { name: /H3 Max/ })).toContainText('1st');
+  await expect(group.getByRole('button', { name: /Qwen Uncensored/ })).toContainText('2nd');
+  await expect.poll(() => posts.at(-1)).toEqual({ action: 'first', makers: ['h3-max', 'qwen'] });
+  // Tapped again: out of the order.
+  await group.getByRole('button', { name: /H3 Max/ }).click();
+  await expect.poll(() => posts.at(-1)).toEqual({ action: 'first', makers: ['qwen'] });
+  await expect(group.getByRole('button', { name: /Qwen Uncensored/ })).toContainText('1st');
+  await expectNoHorizontalOverflow(page);
+  await page.screenshot({ path: info.outputPath('make-pick-starting.png') });
+});
+
 test('Make: the "turn the AI machine on" message hides into a pill, comes back, and stays hidden after a reload', async ({ page }, info) => {
   await mockAi(page, 'off');
   await page.route(/\/api\/make(\?.*)?$/, (r) => r.fulfill({ json: { configured: false } }));

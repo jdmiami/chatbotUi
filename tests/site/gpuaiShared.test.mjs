@@ -2,7 +2,7 @@
 // when the address it published is the one to use. Run with: npm run test:site.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { AUTO_TERMINATE_HOURS, DISK_GB, ONLY_MAKERS, STANDARD_GPUS, TURBO_GPUS, isLive, liveAddress, machineState, nextGpu, nextGpuAfterFailedOperation, pickMachine, pickOffering } from '../../lib/gpuaiShared.ts';
+import { AUTO_TERMINATE_HOURS, DISK_GB, ONLY_MAKERS, cleanPicks, libraryOf, STANDARD_GPUS, TURBO_GPUS, isLive, liveAddress, machineState, nextGpu, nextGpuAfterFailedOperation, pickMachine, pickOffering } from '../../lib/gpuaiShared.ts';
 
 const inst = (o) => ({ id: 'gpu-1', name: 'orbit-ai', status: 'running', created_at: '2026-11-04T10:00:00Z', ...o });
 
@@ -80,4 +80,12 @@ test('the machine loads only Qwen Image (with its edit) and H3 Max, on a 48 GB G
   assert.ok(TURBO_GPUS[0].pricePerHour > STANDARD_GPUS[STANDARD_GPUS.length - 1].pricePerHour);
   assert.ok(AUTO_TERMINATE_HOURS >= 2 && AUTO_TERMINATE_HOURS <= 24);
   assert.ok(DISK_GB >= 120);
+});
+
+test('what to load first: maker ids only, in the order picked, no repeats; your makers are the starting list and what you added', () => {
+  assert.deepEqual(cleanPicks(['h3-max', 'qwen', 'h3-max', 'Bad Id', 7, '../x', 'anime']), ['h3-max', 'qwen', 'anime']);
+  assert.deepEqual(cleanPicks('qwen'), []);
+  assert.equal(cleanPicks(Array.from({ length: 30 }, (_, i) => `m${i}`)).length, 20);
+  assert.deepEqual(libraryOf(ONLY_MAKERS, { wanted: ['anime', 'qwen'] }), ['qwen', 'edit', 'h3-max', 'anime']);
+  assert.deepEqual(libraryOf(ONLY_MAKERS, null), ['qwen', 'edit', 'h3-max']);
 });
