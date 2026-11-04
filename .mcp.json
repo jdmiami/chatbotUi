@@ -1,0 +1,10 @@
+{
+  "mcpServers": {
+    "gpuai": {
+      "type": "stdio",
+      "command": "npx",
+      "args": ["-y", "@gpuai/mcp@latest"],
+      "env": { "GPUAI_API_KEY": "${GPUAI_API_KEY}" }
+    }
+  }
+}
