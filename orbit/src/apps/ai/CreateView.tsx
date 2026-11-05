@@ -26,7 +26,7 @@ import { GalleryPick } from '../make/GalleryPick';
 
 /** vedit: change, erase or sharpen a video you have. (Drawing lives in its own app: Live Draw.) */
 type Mode = StudioKind | 'edit' | 'vedit';
-const DEFAULT_PICK: Record<Mode, string> = { image: 'qwen', video: 'ltx', edit: 'edit', vedit: 'vace' };
+const DEFAULT_PICK: Record<Mode, string> = { image: 'qwen', video: 'ltx', edit: 'edit', vedit: 'vace', model3d: 'trellis2' };
 const TASKS: Record<VideoTask, { label: string; placeholder: string }> = {
   replace: { label: 'Replace', placeholder: 'What goes there instead? e.g. a white horse' },
   restyle: { label: 'Restyle', placeholder: 'The new look, e.g. a watercolour painting' },
@@ -50,13 +50,16 @@ export const VIDEO_WORK: { maker: string; label: string; icon: 'pencil' | 'close
 /** A video maker that puts someone from a photo in place of a person named in words. */
 const isSwap = (m: StudioMakerInfo | null | undefined) => m?.kind === 'videoedit' && Boolean(m.needs?.includes('target')) && Boolean(m.needs?.includes('photo'));
 
-const KINDS: { id: Mode; label: string; hint: string; icon: 'image' | 'film' | 'pencil' | 'brush' }[] = [
+const KINDS: { id: Mode; label: string; hint: string; icon: 'image' | 'film' | 'pencil' | 'brush' | 'layers' }[] = [
   { id: 'image', label: 'A picture', hint: 'From a description', icon: 'image' },
   { id: 'video', label: 'A video', hint: 'With sound, from words or a photo', icon: 'film' },
   { id: 'edit', label: 'An edit', hint: 'Change a photo with words', icon: 'pencil' },
   { id: 'vedit', label: 'Edit a video', hint: 'Change, erase or sharpen one you have', icon: 'film' },
+  { id: 'model3d', label: 'A 3D object', hint: 'From one picture of a thing', icon: 'layers' },
 ];
-const KIND_NOUN: Record<Mode, string> = { image: 'picture', video: 'video', edit: 'picture edit', vedit: 'video edit' };
+const KIND_NOUN: Record<Mode, string> = { image: 'picture', video: 'video', edit: 'picture edit', vedit: 'video edit', model3d: '3D object' };
+/** Modes that work on pictures you add: an edit, and a 3D object (made from one picture, no words). */
+const picturesIn = (m: Mode) => m === 'edit' || m === 'model3d';
 
 const DRAFT_KEY = 'orbit:make:draft';
 /** The words from this visit (sessionStorage: gone when the tab closes). */
@@ -88,6 +91,7 @@ const SIZES: Record<StudioKind, { value: string; label: string }[]> = {
     { value: 'portrait', label: 'Portrait' },
     { value: 'square', label: 'Square' },
   ],
+  model3d: [],
 };
 const LENGTHS = [
   { value: '3', label: '3 s' },
@@ -132,6 +136,7 @@ const active = (j: StudioJob) => j.status === 'queued' || j.status === 'running'
 
 /** A maker that works without words: sharpening a picture, or a video maker with nothing to describe. */
 function wordless(kind: Mode, maker: StudioMakerInfo | null) {
+  if (kind === 'model3d') return true;
   if (kind === 'edit') return maker?.kind === 'upscale';
   if (kind === 'vedit') return !(maker?.tasks?.length) && !(maker?.needs ?? []).includes('target');
   return false;
@@ -197,7 +202,7 @@ export function CreateView({
   const [kind, setKind] = useState<Mode>('image');
   // The words you typed are kept for this visit (a step change, an app switch or a page reload never drops them).
   const [prompt, setPrompt] = useState(() => readDraft().prompt);
-  const [size, setSize] = useState<Record<StudioKind, string>>({ image: 'square', video: 'landscape' });
+  const [size, setSize] = useState<Record<StudioKind, string>>({ image: 'square', video: 'landscape', model3d: '' });
   const [seconds, setSeconds] = useState('5');
   const [startImage, setStartImage] = useState<string | null>(null);
   /** When the starting picture comes from the gallery: its id (the machine already has the file). */
@@ -365,8 +370,9 @@ export function CreateView({
   const chosenId = chosen?.id ?? DEFAULT_PICK[kind];
   const stylesFor = (id: string) => known.filter((m) => m.kind === 'style' && m.for === id && m.installed);
   const styles = stylesFor(chosenId);
-  const sharpen = chosen?.kind === 'upscale';
-  const needImages = kind === 'edit' ? (chosen?.twoImages ? 2 : 1) : 0;
+  // Picture-only, no words: sharpening, and making a 3D object.
+  const sharpen = chosen?.kind === 'upscale' || kind === 'model3d';
+  const needImages = kind === 'edit' ? (chosen?.twoImages ? 2 : 1) : kind === 'model3d' ? 1 : 0;
   // What the chosen maker works from (video makers): the machine says; older ones don't.
   const needs = chosen?.needs ?? [];
   const accepts = chosen?.accepts ?? [];
@@ -464,11 +470,11 @@ export function CreateView({
     if (!canMake) return false;
     setSubmitting(true);
     try {
-      const fromGallery = kind === 'edit' ? editImages.find((p, i) => i === 0 && p.item)?.item : undefined;
+      const fromGallery = picturesIn(kind) ? editImages.find((p, i) => i === 0 && p.item)?.item : undefined;
       const videoRef = video ? (video.item ? { videoItem: video.item } : { videoUpload: video.upload }) : {};
       const sendChar = Boolean(charForJob) && (kind !== 'edit' || charAsPicture);
       const req: StudioRequest = {
-        kind: kind === 'video' || kind === 'vedit' ? 'video' : 'image',
+        kind: kind === 'video' || kind === 'vedit' ? 'video' : kind === 'model3d' ? 'model3d' : 'image',
         maker: chosenId,
         prompt: noWords ? '' : prompt.trim(),
         ...(sendChar && charForJob ? { character: charForJob.id } : {}),
@@ -494,7 +500,7 @@ export function CreateView({
               ...(swapping && facePhoto && !charForJob ? (faceItem ? { imageItems: [faceItem] } : { images: [facePhoto] }) : {}),
             }
           : {}),
-        ...(kind === 'edit'
+        ...(picturesIn(kind)
           ? {
               ...(fromGallery ? { fromItem: fromGallery } : {}),
               // Gallery pictures go by id (they keep their own photo rule); only files you add are uploads.
@@ -648,6 +654,7 @@ export function CreateView({
       if (!chosen && !builtInMaker?.downloaded) return `The maker is downloading (first start only): ${builtInMaker?.percent ?? 0}%.`;
       if (!studio.running) return studio.setup.startsWith('error') ? `The maker had a problem: ${studio.setup.slice(6).trim()}` : 'The image and video maker is starting…';
     }
+    if (kind === 'model3d') return editImages.length ? (chosenId === 'hy3d' ? 'The shape only, in a minute or two.' : 'With its colours, in a few minutes.') : 'Add a picture of one thing, best on a plain background.';
     if (kind === 'edit') return needImages === 2 && editImages.length < 2 ? 'Add the person first, then the outfit.' : sharpen ? 'Makes the picture four times larger and crisper.' : 'Edits take under a minute.';
     if (kind === 'vedit') {
       if (!video) return 'Add the video to work on.';
@@ -676,9 +683,11 @@ export function CreateView({
               : vTask === 'swap'
                 ? 'Swap the person'
                 : 'Edit video'
-          : sharpen
-            ? 'Sharpen'
-            : 'Edit';
+          : kind === 'model3d'
+            ? 'Make 3D object'
+            : sharpen
+              ? 'Sharpen'
+              : 'Edit';
 
   /* ---------------------------------------------------------------- words for the orb and the summary */
   const styleName = styles.find((s) => s.id === style)?.name;
@@ -778,7 +787,7 @@ export function CreateView({
               type="button"
               role="radio"
               aria-checked={kind === k.id}
-              className="mk-kind"
+              className={`mk-kind mk-kind-${k.id}`}
               style={{ '--i': i } as React.CSSProperties}
               data-assist-option={k.id}
               onClick={(e) => chooseKind(k.id, e.currentTarget)}
@@ -1044,7 +1053,9 @@ export function CreateView({
     id: 'extras',
     name: stepName('extras'),
     title:
-      kind === 'edit'
+      kind === 'model3d'
+        ? 'The picture of the thing'
+        : kind === 'edit'
         ? needImages === 2
           ? 'The person, then the outfit'
           : 'The picture'
@@ -1185,7 +1196,7 @@ export function CreateView({
             />
           </>
         )}
-        {kind === 'edit' && (
+        {picturesIn(kind) && (
           <div className="ai-edit-photos">
             {charAsPicture && charForJob && (
               <div className="ai-edit-photo">
@@ -1195,7 +1206,7 @@ export function CreateView({
             )}
             {editImages.map((p, i) => (
               <div key={i} className="ai-edit-photo">
-                <img src={p.src} alt={needImages === 2 ? (i === 0 ? 'The person' : 'The outfit') : 'Picture to edit'} />
+                <img src={p.src} alt={needImages === 2 ? (i === 0 ? 'The person' : 'The outfit') : kind === 'model3d' ? 'Picture to make 3D' : 'Picture to edit'} />
                 <IconButton icon="close" label="Remove this picture" onClick={() => setEditImages((prev) => prev.filter((_, k) => k !== i))} />
               </div>
             ))}
@@ -1207,7 +1218,7 @@ export function CreateView({
                 {galleryButton('edit')}
               </>
             )}
-            {!charForJob && editImages.length === 0 && (
+            {kind === 'edit' && !charForJob && editImages.length === 0 && (
               <button type="button" className="btn ghost" aria-expanded={charSlot === 'edit'} onClick={() => setCharSlot((v) => (v === 'edit' ? null : 'edit'))}>
                 <Icon name="user" size={18} /> Use a character
               </button>
@@ -1224,7 +1235,7 @@ export function CreateView({
             />
           </div>
         )}
-        {kind === 'edit' &&
+        {picturesIn(kind) &&
           editImages.length + (charAsPicture ? 1 : 0) < Math.max(1, needImages) &&
           galleryFill('edit', (m) => {
             // Every gallery picture goes by its id: the machine has the file, and it keeps its own photo rule.
@@ -1333,11 +1344,11 @@ export function CreateView({
       if (talking) return `${startImage ? 'Photo added' : 'No photo yet'} · ${audio ? 'sound added' : 'no sound yet'}`;
       return [shape, `${seconds} s`, startImage ? 'starts from your photo' : '', endImage ? 'ends on a photo' : ''].filter(Boolean).join(' · ');
     }
-    if (kind === 'edit') return editImages.length >= Math.max(1, needImages) ? (needImages === 2 ? 'The person and the outfit' : 'Your picture') : needImages === 2 ? `${editImages.length} of 2 pictures` : 'No picture yet';
+    if (picturesIn(kind)) return editImages.length >= Math.max(1, needImages) ? (needImages === 2 ? 'The person and the outfit' : 'Your picture') : needImages === 2 ? `${editImages.length} of 2 pictures` : 'No picture yet';
     if (swapping) return charForJob ? `${charForJob.name}, a character` : [refPhoto ? 'A photo of them' : 'No photo yet', facePhoto ? 'a face close-up' : ''].filter(Boolean).join(' · ');
     return [video ? 'Your video' : 'No video yet', wantsRef ? (refPhoto ? 'a photo' : vTask === 'motion' ? 'no photo yet' : '') : ''].filter(Boolean).join(' · ');
   })();
-  const thumbs = [charForJob ? thumbOf(charForJob) : null, startImage && kind === 'video' && !restyling ? startImage : null, endImage && kind === 'video' && !restyling ? endImage : null, ...(kind === 'edit' ? editImages.map((p) => p.src) : []), kind === 'vedit' && refPhoto ? refPhoto.src : null, swapping ? facePhoto : null].filter(Boolean) as string[];
+  const thumbs = [charForJob ? thumbOf(charForJob) : null, startImage && kind === 'video' && !restyling ? startImage : null, endImage && kind === 'video' && !restyling ? endImage : null, ...(picturesIn(kind) ? editImages.map((p) => p.src) : []), kind === 'vedit' && refPhoto ? refPhoto.src : null, swapping ? facePhoto : null].filter(Boolean) as string[];
   const rows: { id: StepId; key: string; value: ReactNode; missing?: boolean }[] = [
     { id: 'what', key: 'What', value: kindLabel },
     { id: 'maker', key: 'Maker', value: `${makerName}${styleName ? ` · ${styleName}` : ''}${kind === 'vedit' && tasks.length && vTask ? ` · ${TASKS[vTask as VideoTask].label}` : ''}`, missing: Boolean(makerNote) },
@@ -1486,7 +1497,7 @@ export function CreateView({
       {viewing && (
         <GalleryViewer
           media={asMedia(viewing)}
-          title={viewing.kind === 'image' ? 'Image' : 'Video'}
+          title={viewing.kind === 'image' ? 'Image' : viewing.kind === 'model3d' ? '3D object' : 'Video'}
           origin={viewFrom.current}
           onClose={() => setViewing(null)}
           onPrev={stepper.prev ? () => setViewing(items.find((x) => x.id === stepper.prev!.id) ?? null) : null}
@@ -1499,9 +1510,11 @@ export function CreateView({
             <a className="btn" href={withParam(viewing.url, 'download=1')} download>
               <Icon name="download" size={16} /> Save
             </a>
-            <button type="button" className="btn" onClick={() => usePrompt(viewing)}>
-              <Icon name="refresh" size={16} /> Use prompt
-            </button>
+            {viewing.kind !== 'model3d' && (
+              <button type="button" className="btn" onClick={() => usePrompt(viewing)}>
+                <Icon name="refresh" size={16} /> Use prompt
+              </button>
+            )}
             {viewing.kind === 'image' && (
               <>
                 <button type="button" className="btn" onClick={() => animate(viewing)}>

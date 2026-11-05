@@ -20,7 +20,8 @@ export type GallerySource = 'make' | 'cloud' | 'lab' | 'soreal' | 'livedraw';
 /** A gallery item's note, as the AI machine writes it. */
 export interface GalleryNote {
   id: string;
-  kind: 'image' | 'video';
+  /** model3d: a 3D object (.glb); its thumbnail is made from `poster`, the picture it came from. */
+  kind: 'image' | 'video' | 'model3d';
   maker?: string;
   prompt?: string;
   width?: number;
@@ -40,7 +41,7 @@ export interface GalleryNote {
 /** One item as the Gallery app shows it. */
 export interface GalleryEntry {
   id: string;
-  kind: 'image' | 'video';
+  kind: 'image' | 'video' | 'model3d';
   source: GallerySource;
   maker?: string;
   prompt: string;
@@ -84,7 +85,7 @@ const ID = /^[A-Za-z0-9_-]{6,40}$/;
 const LAB_KEY = 'state/meme-lab.json';
 /** The words the Lab adds to spicy prompts for the maker (memes.js ADULT_NOTE): never shown. */
 const ADULT_NOTE = ' The person is a fictional adult over 25, not a real or famous person. Flirty and confident but tasteful: clothed or in swimwear, no nudity, nothing explicit.';
-const TYPES: Record<string, string> = { png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', webp: 'image/webp', mp4: 'video/mp4', webm: 'video/webm' };
+const TYPES: Record<string, string> = { png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', webp: 'image/webp', mp4: 'video/mp4', webm: 'video/webm', glb: 'model/gltf-binary' };
 /** Links are signed for this half hour and last two hours: the same link all half hour, so nothing reloads. */
 const WINDOW_MS = 30 * 60_000;
 const LINK_SECONDS = 2 * 3600;
@@ -147,7 +148,7 @@ async function scanGallery(r2: R2, { withLab = true }: { withLab?: boolean } = {
   for (const o of wanted) {
     const n = read.get(o.key);
     const id = NOTE.exec(o.key)![1];
-    if (!n || n.id !== id || (n.kind !== 'image' && n.kind !== 'video') || !safeFile(n.file)) continue;
+    if (!n || n.id !== id || (n.kind !== 'image' && n.kind !== 'video' && n.kind !== 'model3d') || !safeFile(n.file)) continue;
     // A drawing about children is looked at before anyone sees it: not until the check said it is fine.
     if (n.minorGuard && n.nsfw !== false) continue;
     // Still on its way up (or lost): nothing to show yet.

@@ -187,6 +187,14 @@ export const FILES = {
   h3Vae: hf('vae', 'minimax_h3_video_vae_int8_convrot.safetensors', 'Comfy-Org/MiniMax-H3', 'vae/minimax_h3_video_vae_int8_convrot.safetensors', 2811065184),
   h3AudioVae: hf('vae', 'minimax_h3_audio_vae_fp32.safetensors', 'Comfy-Org/MiniMax-H3', 'vae/minimax_h3_audio_vae_fp32.safetensors', 605254808),
   esrgan: hf('upscale_models', 'RealESRGAN_x4plus.safetensors', 'Comfy-Org/Real-ESRGAN_repackaged', 'RealESRGAN_x4plus.safetensors', 66857836),
+  // 3D objects from one picture: Hunyuan3D 2.1 (the shape, Tencent Hunyuan community licence: not for the EU,
+  // UK or South Korea) and TRELLIS.2 (shape and colours, MIT), both repackaged by Comfy-Org for core nodes.
+  hy3d21: hf('checkpoints', 'hunyuan_3d_v2.1.safetensors', 'Comfy-Org/Hunyuan-3D-2.1', 'hunyuan_3d_v2.1.safetensors', 7365943290),
+  trellisUnet: hf('diffusion_models', 'trellis_2_int8_convrot.safetensors', 'Comfy-Org/TRELLIS.2', 'diffusion_models/trellis_2_int8_convrot.safetensors', 5253048192),
+  trellisShapeVae: hf('vae', 'trellis_2_shape_vae_bf16.safetensors', 'Comfy-Org/TRELLIS.2', 'vae/trellis_2_shape_vae_bf16.safetensors', 1095844024),
+  trellisTexVae: hf('vae', 'trellis_2_texture_vae_bf16.safetensors', 'Comfy-Org/TRELLIS.2', 'vae/trellis_2_texture_vae_bf16.safetensors', 948461364),
+  dinoNaf: hf('clip_vision', 'dino_v3_L_naf_fp32.safetensors', 'Comfy-Org/Pixal3D', 'clip_vision/dino_v3_L_naf_fp32.safetensors', 1215214176),
+  birefnet: hf('background_removal', 'birefnet.safetensors', 'Comfy-Org/BiRefNet', 'background_removal/birefnet.safetensors', 444473596),
   outfitLora: hf('loras', 'qwen-image-2.1-outfit-swap.safetensors', 'ausboss/Qwen-Image-2.1-Outfit-Swap-Consistency-LoRA', 'qwen-image-2.1-outfit-swap.safetensors', 159436488),
   anglesLora: hf('loras', 'multiple_angles_step1000.safetensors', 'akhaliq/Qwen-Image-2.1-Multiple-Angles-LoRA', 'multiple_angles_step1000.safetensors', 159435968),
 };
@@ -210,6 +218,9 @@ export const MAKERS = [
   { id: 'outfit', kind: 'edit', name: 'Outfit swap', blurb: 'Dress the person in picture 1 in the outfit from picture 2.', files: ['outfitLora', 'qwenUnet', 'qwenTe', 'qwenVae'], lora: 'outfitLora', twoImages: true },
   { id: 'angles', kind: 'edit', name: 'New angle', blurb: 'The same subject from another camera angle.', files: ['anglesLora', 'qwenUnet', 'qwenTe', 'qwenVae'], lora: 'anglesLora', trigger: '<mva>' },
   { id: 'sharpen', kind: 'upscale', name: 'Sharpen 4×', blurb: 'Makes a picture four times larger and crisper.', files: ['esrgan'] },
+  // 3D objects (gallery kind 'model3d', a .glb file): one picture in, no words needed.
+  { id: 'trellis2', kind: 'model3d', name: '3D object', blurb: 'A 3D object with its colours from one picture (TRELLIS.2). Best with one thing on a plain background.', files: ['trellisUnet', 'trellisShapeVae', 'trellisTexVae', 'dinoNaf', 'birefnet'], workflow: 'trellis2' },
+  { id: 'hy3d', kind: 'model3d', name: '3D shape', blurb: 'The shape of a thing from one picture, no colours (Hunyuan3D 2.1). Quicker; good for printing or painting yourself.', files: ['hy3d21'], workflow: 'hy3d' },
   ...[
     ['softwatercolor', 'Soft watercolor'],
     ['retroanime', 'Retro anime'],
@@ -367,6 +378,89 @@ export function upscaleWorkflow({ image, prefix = 'orbit/image', model = FILES.e
     2: { class_type: 'UpscaleModelLoader', inputs: { model_name: model } },
     3: { class_type: 'ImageUpscaleWithModel', inputs: { upscale_model: ['2', 0], image: ['1', 0] } },
     4: { class_type: 'SaveImage', inputs: { images: ['3', 0], filename_prefix: prefix } },
+  };
+}
+
+/**
+ * A 3D shape from one picture: Hunyuan3D 2.1, ComfyUI's own template at the pinned version
+ * (3d_hunyuan3d-v2.1.json): the checkpoint's own picture reader, 30 steps, a surface-net mesh, saved as .glb.
+ */
+export function hy3dWorkflow({ image, prefix = 'orbit/3d', seed = randomSeed(), ckpt = FILES.hy3d21.name }) {
+  return {
+    1: { class_type: 'ImageOnlyCheckpointLoader', inputs: { ckpt_name: ckpt } },
+    2: { class_type: 'LoadImage', inputs: { image } },
+    3: { class_type: 'ModelSamplingAuraFlow', inputs: { model: ['1', 0], shift: 1 } },
+    13: { class_type: 'CLIPVisionEncode', inputs: { clip_vision: ['1', 1], image: ['2', 0], crop: 'center' } },
+    6: { class_type: 'Hunyuan3Dv2Conditioning', inputs: { clip_vision_output: ['13', 0] } },
+    4: { class_type: 'EmptyLatentHunyuan3Dv2', inputs: { resolution: 4096, batch_size: 1 } },
+    7: { class_type: 'KSampler', inputs: { model: ['3', 0], positive: ['6', 0], negative: ['6', 1], latent_image: ['4', 0], seed, steps: 30, cfg: 5, sampler_name: 'euler', scheduler: 'normal', denoise: 1 } },
+    8: { class_type: 'VAEDecodeHunyuan3D', inputs: { samples: ['7', 0], vae: ['1', 2], num_chunks: 8000, octree_resolution: 256 } },
+    9: { class_type: 'VoxelToMesh', inputs: { voxel: ['8', 0], algorithm: 'surface net', threshold: 0.6 } },
+    10: { class_type: 'SaveGLB', inputs: { mesh: ['9', 0], filename_prefix: prefix } },
+  };
+}
+
+/**
+ * A 3D object with its colours from one picture: TRELLIS.2, the TRELLIS.2 branch of ComfyUI's own template at
+ * the pinned version (3d_pixal3d_trellis2_image_to_model.json, switch set to TRELLIS.2). The background comes
+ * off (BiRefNet), the thing is cropped to the middle, then structure, shape (512, then 1536) and colour are
+ * made in turn; the mesh is cleaned (remesh, about 700,000 faces, smooth normals) and painted with the
+ * colours, saved as .glb. The template's slower texture baking (UV unwrap, normal and AO maps) is left out.
+ */
+export function trellis2Workflow({ image, prefix = 'orbit/3d', seed = randomSeed() }) {
+  // Guidance drops to 1 for the last part of a stage (as the original pipeline does).
+  const cfgFrom = (start) => ({ class_type: 'CFGOverride', inputs: { model: ['40', 0], cfg: 1, start_percent: start, end_percent: 1 } });
+  return {
+    40: { class_type: 'UNETLoader', inputs: { unet_name: FILES.trellisUnet.name, weight_dtype: 'default' } },
+    15: { class_type: 'CLIPVisionLoader', inputs: { clip_name: FILES.dinoNaf.name } },
+    117: { class_type: 'VAELoader', inputs: { vae_name: FILES.trellisShapeVae.name } },
+    118: { class_type: 'VAELoader', inputs: { vae_name: FILES.trellisTexVae.name } },
+    193: { class_type: 'LoadBackgroundRemovalModel', inputs: { bg_removal_name: FILES.birefnet.name } },
+    122: { class_type: 'LoadImage', inputs: { image } },
+    192: { class_type: 'RemoveBackground', inputs: { bg_removal_model: ['193', 0], image: ['122', 0] } },
+    312: { class_type: 'ImageCropToMask', inputs: { images: ['122', 0], masks: ['192', 0], width: 1024, height: 1024, pad_factor: 1.1, grow_mask: 0, background: '#000000' } },
+    299: { class_type: 'Trellis2Conditioning', inputs: { clip_vision_model: ['15', 0], image: ['312', 0] } },
+    // Structure: guidance 7.5 for the first two thirds (CFGOverride sets 1 after), rescaled, shift 5.
+    199: cfgFrom(0.667),
+    125: { class_type: 'RescaleCFG', inputs: { model: ['199', 0], multiplier: 0.7 } },
+    108: { class_type: 'ModelSamplingSD3', inputs: { model: ['125', 0], shift: 5 } },
+    87: { class_type: 'EmptyTrellis2LatentStructure', inputs: { batch_size: 1 } },
+    3: { class_type: 'KSampler', inputs: { model: ['108', 0], positive: ['299', 0], negative: ['299', 1], latent_image: ['87', 0], seed, steps: 12, cfg: 7.5, sampler_name: 'euler', scheduler: 'normal', denoise: 1 } },
+    119: { class_type: 'VaeDecodeStructureTrellis2', inputs: { samples: ['3', 0], vae: ['117', 0], resolution: '32' } },
+    // Shape at 512, then upsampled to 1536.
+    279: cfgFrom(0.769),
+    126: { class_type: 'RescaleCFG', inputs: { model: ['279', 0], multiplier: 0.5 } },
+    91: { class_type: 'Trellis2ShapeStage', inputs: { positive: ['299', 0], negative: ['299', 1], voxel: ['119', 0] } },
+    18: { class_type: 'KSampler', inputs: { model: ['126', 0], positive: ['91', 0], negative: ['91', 1], latent_image: ['91', 2], seed: seed + 1, steps: 20, cfg: 7.5, sampler_name: 'euler', scheduler: 'normal', denoise: 1 } },
+    94: { class_type: 'Trellis2UpsampleStage', inputs: { positive: ['91', 0], negative: ['91', 1], shape_latent: ['18', 0], vae: ['117', 0], target_resolution: 1536 } },
+    23: { class_type: 'KSampler', inputs: { model: ['126', 0], positive: ['94', 0], negative: ['94', 1], latent_image: ['94', 2], seed: seed + 2, steps: 12, cfg: 7.5, sampler_name: 'euler', scheduler: 'simple', denoise: 1 } },
+    92: { class_type: 'VaeDecodeShapeTrellis', inputs: { samples: ['23', 0], vae: ['117', 0] } },
+    // Colour, on the finished shape.
+    98: { class_type: 'Trellis2TextureStage', inputs: { positive: ['94', 0], negative: ['94', 1], shape_latent: ['23', 0] } },
+    12: { class_type: 'KSampler', inputs: { model: ['40', 0], positive: ['98', 0], negative: ['98', 1], latent_image: ['98', 2], seed: seed + 3, steps: 12, cfg: 1, sampler_name: 'euler', scheduler: 'normal', denoise: 1 } },
+    93: { class_type: 'VaeDecodeTextureTrellis', inputs: { samples: ['12', 0], vae: ['118', 0], shape_subdivides: ['92', 1] } },
+    // A clean, lighter mesh, painted with the colours.
+    241: {
+      class_type: 'RemeshMesh',
+      inputs: {
+        mesh: ['92', 0],
+        resolution: 768,
+        sign_mode: 'udf',
+        'sign_mode.qef': false,
+        'sign_mode.drop_inverted_components': false,
+        'sign_mode.drop_enclosed_components': false,
+        band: 1,
+        project_back: 0,
+        fix_poles: false,
+        smooth_iters: 20,
+        drop_small_components: 0.01,
+        precluster_max_verts: 20000000,
+      },
+    },
+    186: { class_type: 'DecimateMesh', inputs: { mesh: ['241', 0], target_face_count: 700000, placement_mode: 'midpoint' } },
+    238: { class_type: 'MeshSmoothNormals', inputs: { mesh: ['186', 0], crease_angle: 180 } },
+    252: { class_type: 'PaintMesh', inputs: { mesh: ['238', 0], voxel_colors: ['93', 0] } },
+    300: { class_type: 'SaveGLB', inputs: { mesh: ['252', 0], filename_prefix: prefix } },
   };
 }
 

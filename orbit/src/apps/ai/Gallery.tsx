@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
+import { ModelView } from '../../ui/ModelView';
 import { Icon } from '../../ui/Icon';
 import { Sheet, Toggle } from '../../ui/components';
 import { Censor, shows, useNsfwView } from '../../ui/Censor';
@@ -17,7 +18,8 @@ import { nsfwFor, setMark, useNsfwFlags } from '../../ui/nsfwFlags';
  */
 export interface GalleryMedia {
   id: string;
-  kind: 'image' | 'video';
+  /** model3d: a 3D object (.glb), its thumbnail made from the picture it came from. */
+  kind: 'image' | 'video' | 'model3d';
   /** Absolute link to the file. */
   url: string;
   /** What it shows (the prompt or the title): read out for the tile, and checked by the blur. */
@@ -67,9 +69,10 @@ export function GalleryGrid<T extends GalleryMedia>({
               type="button"
               className="ai-tile"
               onClick={(e) => onOpen(it, (e.currentTarget.querySelector('img, video') ?? e.currentTarget).getBoundingClientRect())}
-              aria-label={`${it.kind === 'video' ? 'Video' : 'Image'}: ${it.label}`}
+              aria-label={`${it.kind === 'video' ? 'Video' : it.kind === 'model3d' ? '3D object' : 'Image'}: ${it.label}`}
             >
               <TileMedia item={it} first={n < FIRST_SCREEN} thumb={it.thumbUrl && !broken.has(it.id) ? it.thumbUrl : undefined} onThumbError={() => thumbBroke(it.id)} />
+              {it.kind === 'model3d' && <span className="ai-tile-badge">3D</span>}
               {it.kind === 'video' && (
                 <span className="ai-tile-badge">
                   <Icon name="play" size={14} /> {it.seconds ? `${Math.round(it.seconds)}s` : ''}
@@ -226,7 +229,9 @@ export function GalleryViewer({
           onPointerCancel={() => (swipe.current = null)}
         >
           <Censor key={media.id} as="div" className="ai-viewer-media" markId={lockNsfw ? undefined : media.id} nsfw={lockNsfw ? true : media.nsfw}>
-            {media.kind === 'image' ? (
+            {media.kind === 'model3d' ? (
+              <ModelView key={media.url} src={media.url} poster={media.thumbUrl} label={media.label} onReady={shown} />
+            ) : media.kind === 'image' ? (
               <DevelopImg key={media.url} src={media.url} alt={media.label} draggable={false} decoding="async" onLoad={shown} onError={shown} {...(media.width && media.height ? { width: media.width, height: media.height } : {})} />
             ) : (
               <ViewerVideo key={media.url} media={media} hidden={nsfw} onReady={shown} />

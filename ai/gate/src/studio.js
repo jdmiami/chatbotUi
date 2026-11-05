@@ -36,6 +36,8 @@ import {
   SWAP_MAX_FRAMES,
   swapWorkflow,
   upscaleWorkflow,
+  hy3dWorkflow,
+  trellis2Workflow,
   VACE_EXTEND_KEEP,
   VACE_FPS,
   VACE_MAX_FRAMES,
@@ -60,6 +62,9 @@ const BASE_MS = {
   outfit: 60_000,
   angles: 60_000,
   sharpen: 15_000,
+  // 3D objects, per object (estimates until the machine has made some).
+  hy3d: 90_000,
+  trellis2: 240_000,
   ltx: 40_000,
   'h3-max': 90_000,
   // Not measured yet (no GPU here when they were added): estimates from the models' sizes and step
@@ -200,7 +205,9 @@ const SIZES = {
 };
 /** The longest videos and sounds the video makers take (seconds). */
 const MAX_SECONDS = { vace: VACE_MAX_FRAMES / VACE_FPS, extend: 10, ltx25: 10, seedvr2: 10, s2v: (4 * S2V_CHUNK) / S2V_FPS, swap: SWAP_MAX_FRAMES / SWAP_FPS };
-const MIME = { '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.webp': 'image/webp', '.mp4': 'video/mp4', '.webm': 'video/webm' };
+/** The file a thumbnail is made from: a 3D object's poster (the picture it came from), else the item's own file. */
+const stillOf = (it) => (it?.kind === 'model3d' ? it.poster : it?.file);
+const MIME = { '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.webp': 'image/webp', '.mp4': 'video/mp4', '.webm': 'video/webm', '.glb': 'model/gltf-binary' };
 /** A model download that sends nothing for this long is cut and resumed. */
 const STALL_DOWNLOAD_MS = 60_000;
 const newId = () => crypto.randomBytes(9).toString('base64url');
@@ -969,6 +976,9 @@ export function createStudio(o) {
     video: { 38: [5, 70], 47: [70, 92], 50: [92, 99] },
     h3: { 10: [5, 90], 11: [90, 99] },
     upscale: { 3: [0, 95] },
+    // 3D objects: Hunyuan3D 2.1 (one pass, then the mesh), TRELLIS.2 (structure, shape, finer shape, colour, then the clean-up).
+    hy3d: { 7: [3, 85], 8: [85, 97] },
+    trellis2: { 3: [2, 12], 18: [12, 35], 23: [35, 55], 12: [55, 75], 241: [75, 90], 252: [90, 98] },
     // LTX-2.5 first/last frame and video to video: one pass.
     onePass: { 38: [5, 90], 50: [90, 99] },
     vace: { 32: [2, 8], 21: [8, 92], 23: [92, 99] },
@@ -1336,11 +1346,12 @@ export function createStudio(o) {
     const maker = req.maker ? makerById(String(req.maker)) : makerById(req.kind === 'video' ? 'ltx' : 'qwen');
     // Live makers (live.js) answer on their own connection, not as jobs.
     if (!maker || maker.kind === 'style' || maker.kind === 'live') throw Object.assign(new Error('No such maker.'), { status: 400 });
-    const mode = maker.kind; // image | video | edit | upscale | videoedit | sketch
+    const mode = maker.kind; // image | video | edit | upscale | videoedit | sketch | model3d
     // Which recipe: krea (Krea 2 family), qwen (Qwen Image family), ltx, ltx25, h3 or s2v (video),
     // vace or seedvr2 (video edits).
     const flow = maker.workflow || (maker.id === 'krea-real' ? 'krea' : maker.id === 'h3-max' ? 'h3' : mode === 'video' ? 'ltx' : 'qwen');
-    const kind = mode === 'video' || mode === 'videoedit' ? 'video' : 'image';
+    // A 3D object (model3d) is its own kind in the gallery: a .glb file, with the picture it came from as its poster.
+    const kind = mode === 'video' || mode === 'videoedit' ? 'video' : mode === 'model3d' ? 'model3d' : 'image';
     // Wan VACE: what to do with the video (Erase from video always erases).
     const task = flow === 'vace' ? maker.task || (maker.tasks?.includes(String(req.task)) ? String(req.task) : maker.tasks?.[0] || 'replace') : null;
     const swap = flow === 'swap';
@@ -1355,7 +1366,7 @@ export function createStudio(o) {
     if (character && (mode === 'image' || mode === 'video')) prompt = injectCharacter(prompt, character).slice(0, 4000);
     const target = String(req.target || '').trim().slice(0, 200);
     // Sharpening and erasing need no description; a talking photo has a default one.
-    const promptOptional = mode === 'upscale' || flow === 'seedvr2' || task === 'erase' || flow === 's2v' || swap;
+    const promptOptional = mode === 'upscale' || mode === 'model3d' || flow === 'seedvr2' || task === 'erase' || flow === 's2v' || swap;
     if (!prompt && !promptOptional) throw bad(mode === 'edit' || mode === 'videoedit' ? 'Describe the change.' : mode === 'sketch' ? 'Say what your drawing is.' : 'Describe what to make.');
     if (needs.has('target') && !target) {
       throw bad(swap ? 'Say who to replace, e.g. “the man in the red jacket”.' : task === 'erase' ? 'Say what to erase, e.g. “the man in the red shirt”.' : 'Say what to replace, e.g. “the red car”.');
@@ -1478,7 +1489,7 @@ export function createStudio(o) {
       for (const entry of character.sheet.slice(0, swap ? 2 : 1)) pics.push(await copyFromSheet(entry));
       inputs.unshift(...pics);
     }
-    const need = mode === 'edit' ? (maker.twoImages ? 2 : 1) : mode === 'upscale' || mode === 'sketch' ? 1 : 0;
+    const need = mode === 'edit' ? (maker.twoImages ? 2 : 1) : mode === 'upscale' || mode === 'sketch' || mode === 'model3d' ? 1 : 0;
     if (inputs.length < need) {
       throw Object.assign(new Error(maker.twoImages ? 'Add two pictures: the person first, then the outfit.' : mode === 'sketch' ? 'Draw something first.' : 'Add the picture to start from.'), { status: 400 });
     }
@@ -1570,6 +1581,11 @@ export function createStudio(o) {
         start: inputs[1] || null,
         denoise: req.startStrength,
       });
+    } else if (mode === 'model3d') {
+      // One picture in, a .glb out (no words needed); the picture is kept as the object's poster.
+      prompt = prompt || '3D object';
+      workflow = flow === 'hy3d' ? hy3dWorkflow({ image: inputs[0], prefix, seed }) : trellis2Workflow({ image: inputs[0], prefix, seed });
+      stages = flow === 'hy3d' ? 'hy3d' : 'trellis2';
     } else if (mode === 'upscale') {
       prompt = prompt || 'Sharpened 4×';
       workflow = upscaleWorkflow({ image: inputs[0], prefix, model: FILES[maker.files[0]].name });
@@ -1605,6 +1621,8 @@ export function createStudio(o) {
       height,
       seconds,
       fromImage: inputs.length > 0,
+      // A 3D object: the picture it is made from (in input/), kept as its poster when it is done.
+      posterFrom: kind === 'model3d' ? inputs[0] : undefined,
       // The style picked on top of the maker, so the Lab can remix it the same way (remix.js).
       style: style ? String(req.style) : undefined,
       background: Boolean(req.background),
@@ -1744,6 +1762,12 @@ export function createStudio(o) {
       const file = path.posix.join(out.subfolder || '', out.filename);
       // Edits and sharpening make whatever size the picture leads to: read it from the file.
       if (job.kind === 'image' && !(job.width && job.height)) Object.assign(job, (await pngSize(path.join(dir, 'output', file))) || {});
+      // A 3D object keeps the picture it came from next to it: its thumbnail and what the safety check looks at.
+      let poster;
+      if (job.kind === 'model3d' && job.posterFrom) {
+        poster = path.posix.join(path.posix.dirname(file), `${job.id}-poster${path.extname(job.posterFrom) || '.png'}`);
+        await fsp.copyFile(path.join(dir, 'input', path.basename(job.posterFrom)), path.join(dir, 'output', poster)).catch(() => (poster = undefined));
+      }
       const item = {
         id: job.id,
         kind: job.kind,
@@ -1766,6 +1790,7 @@ export function createStudio(o) {
         photoGuard: job.photoGuard || undefined,
         owner: job.owner || undefined,
         file,
+        poster,
         createdAt: job.createdAt,
       };
       await fsp.mkdir(metaDir, { recursive: true });
@@ -2025,8 +2050,10 @@ export function createStudio(o) {
   async function keep(item) {
     await thumbFor(item);
     if (!mirror) return;
-    const p = path.resolve(path.join(dir, 'output'), item.file);
-    if (p.startsWith(path.join(dir, 'output') + path.sep)) await mirror.save(p, { unlessThere: true });
+    for (const f of [item.file, item.poster].filter(Boolean)) {
+      const p = path.resolve(path.join(dir, 'output'), f);
+      if (p.startsWith(path.join(dir, 'output') + path.sep)) await mirror.save(p, { unlessThere: true });
+    }
     await mirror.save(path.join(metaDir, `${item.id}.json`));
   }
 
@@ -2036,7 +2063,7 @@ export function createStudio(o) {
     await thumbs.scan();
     if (thumbs.has(item.id)) return;
     const outRoot = path.join(dir, 'output');
-    const p = path.resolve(outRoot, String(item.file || ''));
+    const p = path.resolve(outRoot, String(stillOf(item) || ''));
     if (!p.startsWith(outRoot + path.sep) || !(await fsp.stat(p).catch(() => null))) return;
     await thumbs.make(item, p).catch((err) => log.warn?.(`[thumbs] ${item.id}: ${err.message}`));
   }
@@ -2052,7 +2079,7 @@ export function createStudio(o) {
       list: async () => [...(await items(100_000)), ...(await items(100_000, true))],
       // The file here, else a short-lived link to it in R2 (ffmpeg reads only the part it needs).
       source: async (it) => {
-        const p = path.resolve(outRoot, String(it.file || ''));
+        const p = path.resolve(outRoot, String(stillOf(it) || ''));
         if (!p.startsWith(outRoot + path.sep)) return null;
         if (await fsp.stat(p).catch(() => null)) return p;
         return mirror ? mirror.url(p, 900) : null;
@@ -2165,12 +2192,14 @@ export function createStudio(o) {
   async function remove(id) {
     const it = await readItem(id);
     if (!it) return false;
-    await fsp.rm(path.join(dir, 'output', it.file), { force: true });
+    for (const f of [it.file, it.poster].filter(Boolean)) await fsp.rm(path.join(dir, 'output', f), { force: true });
     await fsp.rm(path.join(metaDir, `${id}.json`), { force: true });
     if (mirror) {
       await mirror.drop(path.join(metaDir, `${id}.json`));
-      const p = path.resolve(path.join(dir, 'output'), it.file);
-      if (p.startsWith(path.join(dir, 'output') + path.sep)) await mirror.drop(p);
+      for (const f of [it.file, it.poster].filter(Boolean)) {
+        const p = path.resolve(path.join(dir, 'output'), f);
+        if (p.startsWith(path.join(dir, 'output') + path.sep)) await mirror.drop(p);
+      }
     }
     // Its thumbnail too (here and in R2).
     await thumbs.drop(id);
@@ -2317,9 +2346,10 @@ export function createStudio(o) {
     if (!o.nsfw || rating.has(item.id)) return null;
     rating.add(item.id);
     try {
-      const p = await localFile(item);
+      // A 3D object is checked by the picture it came from (a .glb is not something the check can look at).
+      const p = await localFile(item.kind === 'model3d' ? { ...item, file: item.poster || '' } : item);
       if (!p) return null;
-      const r = await o.nsfw.check(p, { kind: item.kind, seconds: item.seconds });
+      const r = await o.nsfw.check(p, { kind: item.kind === 'model3d' ? 'image' : item.kind, seconds: item.seconds });
       if (!r) return null;
       // A result that could show someone under 18, or a drawing about children that came out NSFW, is never
       // kept (the one thing that is not held for review: keeping it would be unlawful).

@@ -44,7 +44,8 @@ export interface AiTier {
   speed: string;
 }
 
-export type StudioKind = 'image' | 'video';
+/** What the AI machine makes: a picture, a video, or a 3D object (.glb, from one picture). */
+export type StudioKind = 'image' | 'video' | 'model3d';
 
 export interface StudioItem {
   id: string;
@@ -225,7 +226,7 @@ export type VideoTask = 'replace' | 'restyle' | 'extend' | 'motion';
 export interface StudioMakerInfo {
   id: string;
   /** live: answers while you draw (Live draw); sketch: finishes a drawing (Sketch finish). */
-  kind: 'image' | 'video' | 'edit' | 'upscale' | 'style' | 'videoedit' | 'live' | 'sketch';
+  kind: 'image' | 'video' | 'edit' | 'upscale' | 'style' | 'videoedit' | 'live' | 'sketch' | 'model3d';
   name: string;
   blurb: string;
   /** For a style: the maker it belongs to. */
