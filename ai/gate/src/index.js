@@ -15,6 +15,7 @@ import { createMovies, runFfmpeg } from './movies.js';
 import { createNsfwCheck } from './nsfwcheck.js';
 import { createCharacters } from './characters.js';
 import { ADULT_NOTE, createMemeLab } from './memes.js';
+import { createCloudChat } from './cloudchat.js';
 import { createStyleProfile } from './style.js';
 import { createSysStats } from './sysstats.js';
 import { createGpuStats } from './gpustats.js';
@@ -335,7 +336,8 @@ const idle = createAutoOff({
 });
 
 // The meme lab (memes.js): makes 30-second meme movies while nobody is using the machine, and has a chat
-// model on this machine score how viral each could go. Only on the main machine.
+// model on this machine score how viral each could go. On the main machine, and on the AI machine on
+// GPU.ai with the site's cloud AI as its chat model.
 const LAB_KEY = 'state/meme-lab.json';
 const labFile = path.join(env.PERSIST_DIR || '/workspace', '.orbit-meme-lab.json');
 async function labChatModel() {
@@ -347,7 +349,18 @@ async function labChatModel() {
   const small = names.find((n) => !/embed/i.test(n));
   return small ? { name: small, vision: false } : null;
 }
+// The AI machine on GPU.ai (a helper with no chat model of its own) writes with the site's cloud AI
+// instead, so the Lab, "Your style" and soReal's stories work there too. CLOUD_LAB=0 turns that off.
+const cloudChat =
+  NO_CHAT && !CANVAS && studio && /^https:\/\//.test(env.SITE_URL || '') && env.CLOUD_LAB !== '0'
+    ? createCloudChat({ siteUrl: env.SITE_URL, secret: env.GATEWAY_SECRET })
+    : null;
+const canChat = !NO_CHAT || Boolean(cloudChat);
 async function labChat({ system, user, images, temperature = 0.9 }) {
+  if (NO_CHAT) {
+    if (!cloudChat) throw new Error('No chat model is installed on the AI machine.');
+    return cloudChat({ system, user, temperature });
+  }
   const m = await labChatModel();
   if (!m) throw new Error('No chat model is installed on the AI machine.');
   const ask = async (withImages) => {
@@ -376,7 +389,7 @@ async function labChat({ system, user, images, temperature = 0.9 }) {
 const STYLE_KEY = 'state/your-style.json';
 const styleFile = path.join(env.PERSIST_DIR || '/workspace', '.orbit-your-style.json');
 const yourStyle =
-  studio && movies && !NO_CHAT
+  studio && movies && canChat
     ? createStyleProfile({
         sources: async () => ({
           items: (await studio.items(1000)).map((it) => ({ ...it, prompt: String(it.prompt || '').replace(ADULT_NOTE, '') })),
@@ -391,7 +404,7 @@ const yourStyle =
       })
     : null;
 const lab =
-  studio && !NO_CHAT
+  studio && canChat
     ? createMemeLab({
         studio,
         // Every Lab style makes 30-second movies through soReal's auto flow (chained from each last

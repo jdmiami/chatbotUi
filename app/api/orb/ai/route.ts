@@ -1,5 +1,6 @@
 import { currentUser } from '@/lib/auth';
 import { fromMachine, sameOrigin } from '@/lib/request';
+import { islandUser } from '@/lib/status';
 import { ORB_TASKS, attempts, callProvider, cleanMessages, orbAiConfigured, orbAiInfo, retryable, type OrbTask } from '@/lib/orbAi';
 import { askedText, looksRefused, replyText, withFreeRule } from '@/lib/freeWrite';
 
@@ -20,10 +21,11 @@ export async function GET(request: Request) {
  * Tries each provider's models for the task in order (`prefer` names the provider to try first),
  * moving on to the next model, then the next provider, when one is missing, busy or failing. The
  * reply (or stream) is passed through, with what answered in the x-orb-model and x-orb-provider headers. `model` (one from the lists) pins a
- * single model, for comparing them. The Linux machine may call this too, with its machine token.
+ * single model, for comparing them. The Linux machine may call this too, with its machine token, and
+ * the AI machine on GPU.ai (no chat model of its own: the Lab writes with this), signed as ai-machine.
  */
 export async function POST(request: Request) {
-  const machine = await fromMachine(request);
+  const machine = (await fromMachine(request)) || (await islandUser(request)) === 'ai-machine';
   if (!machine) {
     if (!(await currentUser())) return Response.json({ error: 'Unauthorized' }, { status: 401 });
     if (!sameOrigin(request)) return Response.json({ error: 'Forbidden' }, { status: 403 });
