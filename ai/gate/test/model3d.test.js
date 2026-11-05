@@ -1,3 +1,4 @@
+import { EventEmitter } from 'node:events';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
@@ -118,12 +119,21 @@ test('the rigger: a gallery 3D object in, a rigged one out with the same poster;
   const state = { prompts: [], done: {} };
   const runs = [];
   // The rigger's Python, faked: writes the rigged .glb where it is told.
+  let failNext = false;
   const runRig = (args, opts) => {
     runs.push({ args, cwd: opts.cwd, secret: opts.env.GATEWAY_SECRET });
     const out = args[args.indexOf('--output') + 1];
     const listeners = {};
-    const child = { stdout: null, stderr: null, kill() {}, on: (ev, fn) => (listeners[ev] = fn) };
+    const err = new EventEmitter();
+    const child = { stdout: null, stderr: err, kill() {}, on: (ev, fn) => (listeners[ev] = fn) };
+    const fail = failNext;
+    failNext = false;
     setTimeout(async () => {
+      if (fail) {
+        err.emit('data', Buffer.from("[Main] bpy_server.py started (pid=42)\nModuleNotFoundError: No module named 'scipy'\n"));
+        err.emit('data', Buffer.from('RuntimeError: bpy_server failed to start\n'));
+        return listeners.close?.(1, null);
+      }
       await fs.writeFile(out, 'glTF-rigged');
       listeners.close?.(0, null);
     }, 30);
@@ -160,5 +170,14 @@ test('the rigger: a gallery 3D object in, a rigged one out with the same poster;
   assert.match(done.item.prompt, /^Rigged: /);
   assert.equal(await fs.readFile(path.join(dir, 'output', done.item.file), 'utf8'), 'glTF-rigged');
   assert.ok(await fs.stat(path.join(dir, 'output', done.item.poster)), 'the same poster comes along');
+
+  // When it can't: the plain reason for Orbit, its own last lines as the job's detail (seen on a real
+  // machine: its Blender helper died at start for want of scipy, and nothing said why).
+  failNext = true;
+  const bad = await studio.createJob({ maker: 'rig', fromItem: obj.id });
+  const failed = await until(async () => (studio.job(bad.id)?.status === 'error' ? studio.job(bad.id) : null));
+  assert.equal(failed.error, 'The rigger could not rig this object.');
+  assert.match(failed.detail, /No module named 'scipy'/);
+  assert.match(failed.detail, /bpy_server failed to start/);
   delete process.env.GATEWAY_SECRET;
 });

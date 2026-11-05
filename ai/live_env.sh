@@ -12,7 +12,8 @@
 #                      plus the SageAttention wheel it ships for H100
 #   live_env.sh rig    SkinTokens / TokenRig (MIT, VAST): the rigger (bones and skin weights for a 3D
 #                      object). Python 3.11, PyTorch 2.7 for CUDA 12.8, its requirements with Blender's
-#                      bpy 5.0.1, a prebuilt flash-attn, and its two checkpoints (about 1.6 GB)
+#                      bpy 5.0.1, scipy (its code needs it; its list leaves it out), a prebuilt
+#                      flash-attn, and its two checkpoints (about 1.6 GB)
 #
 # Writes $STUDIO_DIR/live-env/<name>/.installed when done (and prints its progress for the gate).
 set -uo pipefail
@@ -30,11 +31,14 @@ TORCH_INDEX=https://download.pytorch.org/whl/cu128
 RIG_TORCH="torch==2.7.0 torchvision==0.22.0 torchaudio==2.7.0"
 RIG_BPY="bpy==5.0.1"
 RIG_FLASH=2.8.3
+# Its code imports scipy (src/rig_package/info/asset.py) but its requirements.txt leaves it out: without
+# it the rigger's Blender helper dies at start and every rig fails after 30 s ("bpy_server failed to start").
+RIG_SCIPY="scipy==1.17.1"
 EXTRA=""
 case "$name" in
   sdv2) REPO=https://github.com/chenfengxu714/StreamDiffusionV2 COMMIT=6961a5cf2045d1dda05a04ef229698bdc04e873a EXTRA="$SDV2_TORCH cu128" ;;
   krea) REPO=https://github.com/krea-ai/realtime-video COMMIT=acf4b7b4e1a3049a0e04782e751d12203334038d ;;
-  rig) REPO=https://github.com/VAST-AI-Research/SkinTokens COMMIT=273b691d35989d71cd17ff2895fdc735097b92d1 EXTRA="$RIG_TORCH $RIG_BPY flash-attn $RIG_FLASH" ;;
+  rig) REPO=https://github.com/VAST-AI-Research/SkinTokens COMMIT=273b691d35989d71cd17ff2895fdc735097b92d1 EXTRA="$RIG_TORCH $RIG_BPY $RIG_SCIPY flash-attn $RIG_FLASH" ;;
   *) echo "unknown live maker: $name" >&2; exit 2 ;;
 esac
 # A new PyTorch changes the stamp, so a Python set up with the old one is set up again.
@@ -83,11 +87,13 @@ if [ "$name" = rig ]; then
   # Its requirements ask for bpy>=4.2 and any PyTorch: keep these exact ones.
   # shellcheck disable=SC2086
   printf '%s\n' $RIG_TORCH "$RIG_BPY" > "$D/pins.txt"
-  "$UV" pip install -q --python "$PY" --override "$D/pins.txt" -r "$D/src/requirements.txt" "$RIG_BPY" || exit 1
+  "$UV" pip install -q --python "$PY" --override "$D/pins.txt" -r "$D/src/requirements.txt" "$RIG_BPY" "$RIG_SCIPY" || exit 1
   # flash-attn from its own release: the wheel built for this PyTorch's C++ ABI.
   ABI=$("$PY" -c 'import torch; print("TRUE" if torch._C._GLIBCXX_USE_CXX11_ABI else "FALSE")') || exit 1
   WHEEL="flash_attn-$RIG_FLASH+cu12torch2.7cxx11abi$ABI-cp311-cp311-linux_x86_64.whl"
   "$UV" pip install -q --python "$PY" "https://github.com/Dao-AILab/flash-attention/releases/download/v$RIG_FLASH/$WHEEL" || exit 1
+  # Everything its two programs need at start is there (a missing one fails every rig, not the set-up).
+  "$PY" -c 'import bpy, scipy, open3d, trimesh, lightning, transformers' || exit 1
   log "downloading its checkpoints (about 1.6 GB)"
   (cd "$D/src" && "$PY" download.py --model) || exit 1
 elif [ "$name" = sdv2 ]; then
