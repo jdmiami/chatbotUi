@@ -22,7 +22,7 @@ const PNG = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR
 async function standIns(page: Page, opts: { on?: boolean } = {}) {
   const calls: { path: string; body?: unknown }[] = [];
   let state = opts.on ? 'on' : 'off';
-  let loaded = ['h3-max', 'qwen'];
+  let loaded = ['h3-max', 'qwen', 'edit', 'trellis2', 'style-ink'];
   const line: string[] = [];
   const makers = () =>
     [
@@ -30,6 +30,9 @@ async function standIns(page: Page, opts: { on?: boolean } = {}) {
       { id: 'anime', kind: 'image', name: 'Anime' },
       { id: 'h3-max', kind: 'video', name: 'H3 Max' },
       { id: 'ltx', kind: 'video', name: 'LTX 10Eros' },
+      { id: 'edit', kind: 'edit', name: 'Edit with words' },
+      { id: 'trellis2', kind: 'model3d', name: '3D object' },
+      { id: 'style-ink', kind: 'style', name: 'Ink', for: 'qwen' },
     ].map((m) =>
       loaded.includes(m.id)
         ? { ...m, installed: true, wanted: true, percent: 100 }
@@ -100,6 +103,8 @@ async function standIns(page: Page, opts: { on?: boolean } = {}) {
       jobs += 1;
       return route.fulfill({ headers: cors, json: { ...job, id: `j${jobs}` } });
     }
+    if (url.pathname === '/_orbit/studio/items') return route.fulfill({ headers: cors, json: { items: [{ id: 'pic9', kind: 'image', prompt: 'a red fox', url: '/_orbit/studio/file/pic9?t=x' }] } });
+    if (url.pathname.endsWith('/cancel')) return route.fulfill({ headers: cors, json: { ok: true } });
     if (url.pathname.startsWith('/_orbit/studio/jobs/')) {
       job = { ...job, status: 'done', progress: 100, position: 0, item: { id: 'v1', kind: 'video', url: '/_orbit/studio/file/v1?t=x' } };
       return route.fulfill({ headers: cors, json: job });
@@ -201,4 +206,58 @@ test('fast Make: every Eros scene goes in the queue at once', async ({ page }) =
   const sent = calls.filter((c) => c.path === 'machine:/_orbit/studio/jobs').map((c) => (c.body as { prompt: string; kind: string }).prompt);
   expect(sent).toEqual(['scene 1 prompt: Mara and Theo in a dark lift', 'scene 2 prompt: Mara and Theo in a dark lift', 'scene 3 prompt: Mara and Theo in a dark lift']);
   await noSideScroll(page);
+});
+
+test('fast Make: an edit from your own photo, a 3D object from a gallery picture, a style, and a job stopped', async ({ page }) => {
+  const { calls } = await standIns(page, { on: true });
+  await page.goto(`${SITE}/lite`);
+  await expect(page.getByRole('radiogroup', { name: 'What to make' }).getByRole('radio')).toHaveCount(4);
+
+  // An edit: your own photo (shrunk on the phone), then words.
+  await page.getByRole('radio', { name: /An edit/ }).click();
+  await expect(page.getByRole('radiogroup', { name: 'Maker' }).getByRole('radio', { name: /Edit with words/ })).toBeVisible();
+  await page.getByRole('button', { name: 'Describe it →' }).click();
+  await page.locator('#photo').setInputFiles({ name: 'me.png', mimeType: 'image/png', buffer: PNG });
+  await expect(page.getByRole('img', { name: 'Your photo 1' })).toBeVisible();
+  await page.getByRole('textbox', { name: 'Describe it' }).fill('make it night');
+  await page.getByRole('button', { name: 'Extras →' }).click();
+  await expect(page.getByText('Nothing to set for an edit')).toBeVisible();
+  await page.getByRole('button', { name: 'Make it →' }).click();
+  await page.locator('.pane').getByRole('button', { name: 'Make it', exact: true }).click();
+  await expect.poll(() => calls.find((c) => c.path === 'machine:/_orbit/studio/jobs')?.body).toMatchObject({ kind: 'image', maker: 'edit', prompt: 'make it night' });
+  const sent = calls.find((c) => c.path === 'machine:/_orbit/studio/jobs')!.body as { images: string[] };
+  expect(sent.images[0]).toMatch(/^data:image\/jpeg;base64,/);
+  // It can be stopped while it waits.
+  await page.getByRole('button', { name: 'Stop' }).click();
+  await expect(page.getByText('Stopped.')).toBeVisible();
+
+  // A 3D object: a picture from the gallery, no words.
+  await page.getByRole('button', { name: 'Step 1 of 5: What' }).click();
+  await page.getByRole('radio', { name: /A 3D object/ }).click();
+  await page.getByRole('button', { name: 'Describe it →' }).click();
+  await expect(page.getByRole('textbox', { name: 'Describe it' })).toHaveCount(0);
+  await page.getByRole('button', { name: 'From your gallery' }).click();
+  await page.getByRole('button', { name: 'a red fox' }).click();
+  await page.getByRole('button', { name: 'Use as my photo' }).click();
+  await expect(page.getByRole('img', { name: 'Your photo 1' })).toBeVisible();
+  await page.getByRole('button', { name: 'Extras →' }).click();
+  await page.getByRole('button', { name: 'Make it →' }).click();
+  await page.locator('.pane').getByRole('button', { name: 'Make it', exact: true }).click();
+  await expect
+    .poll(() => calls.filter((c) => c.path === 'machine:/_orbit/studio/jobs').at(-1)?.body)
+    .toMatchObject({ kind: 'model3d', maker: 'trellis2', prompt: '', fromItem: 'pic9' });
+  await noSideScroll(page);
+});
+
+test('fast Make: a style for a picture is sent with it', async ({ page }) => {
+  const { calls } = await standIns(page, { on: true });
+  await page.goto(`${SITE}/lite`);
+  await page.getByRole('radio', { name: /A picture/ }).click();
+  await page.getByRole('button', { name: 'Describe it →' }).click();
+  await page.getByRole('textbox', { name: 'Describe it' }).fill('a fox');
+  await page.getByRole('button', { name: 'Extras →' }).click();
+  await page.getByRole('group', { name: 'Style' }).getByRole('button', { name: 'Ink' }).click();
+  await page.getByRole('button', { name: 'Make it →' }).click();
+  await page.locator('.pane').getByRole('button', { name: 'Make it', exact: true }).click();
+  await expect.poll(() => calls.find((c) => c.path === 'machine:/_orbit/studio/jobs')?.body).toMatchObject({ kind: 'image', maker: 'qwen', style: 'style-ink' });
 });
