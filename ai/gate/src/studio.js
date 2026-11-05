@@ -1373,6 +1373,9 @@ export function createStudio(o) {
     const character = req.character != null && req.character !== '' ? await characterFor(req) : null;
     let prompt = String(req.prompt || '').trim().slice(0, 4000);
     if (character && (mode === 'image' || mode === 'video')) prompt = injectCharacter(prompt, character).slice(0, 4000);
+    // A 3D object and a sharpen are made from the picture alone: words left in the box (from an earlier
+    // picture) are ignored, so they can't trip the photo or minors checks for something they don't change.
+    if (mode === 'model3d' || mode === 'upscale') prompt = '';
     const target = String(req.target || '').trim().slice(0, 200);
     // Sharpening and erasing need no description; a talking photo has a default one.
     const promptOptional = mode === 'upscale' || mode === 'model3d' || flow === 'seedvr2' || task === 'erase' || flow === 's2v' || swap;

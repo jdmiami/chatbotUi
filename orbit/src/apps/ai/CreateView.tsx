@@ -57,6 +57,8 @@ const KINDS: { id: Mode; label: string; hint: string; icon: 'image' | 'film' | '
   { id: 'vedit', label: 'Edit a video', hint: 'Change, erase or sharpen one you have', icon: 'film' },
   { id: 'model3d', label: 'A 3D object', hint: 'From one picture of a thing', icon: 'layers' },
 ];
+/** Shown wherever photos are added. */
+const PHOTO_WARNING = 'Only use photos you have the right to use. Anything involving minors, or making sexual pictures of a real person, is a crime and may be prosecuted.';
 const KIND_NOUN: Record<Mode, string> = { image: 'picture', video: 'video', edit: 'picture edit', vedit: 'video edit', model3d: '3D object' };
 /** Modes that work on pictures you add: an edit, and a 3D object (made from one picture, no words). */
 const picturesIn = (m: Mode) => m === 'edit' || m === 'model3d';
@@ -1125,6 +1127,7 @@ export function CreateView({
     dek: 'The person to replace should be in its first frame. It works on the first 5 seconds.',
     body: (
       <div className="mk-extras" data-assist-target>
+        {(picturesIn(kind) || kind === 'vedit' || kind === 'video') && <p className="ai-muted mk-note">{PHOTO_WARNING}</p>}
         <VideoSource ai={ai} value={video} onChange={setVideo} onError={(m) => toast(m, 'error')} gallery={items.map(asMedia)} />
       </div>
     ),

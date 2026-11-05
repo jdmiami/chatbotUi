@@ -191,3 +191,16 @@ test('the rigger: a gallery 3D object in, a rigged one out with the same poster;
   assert.match(noBones.error, /couldn't find a full set of bones.*people, animals and creatures/);
   delete process.env.GATEWAY_SECRET;
 });
+
+test('a 3D object and a sharpen ignore words left in the box: they use only the picture', async () => {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'm3d-words-'));
+  const state = { prompts: [] };
+  const studio = createStudio({ dir, files: FILES, fetchImpl: fakeComfy(dir, state), WebSocketImpl: null, log: { warn() {}, info() {} }, pollMs: 50, statfs: async () => ({ bavail: 1e7, bsize: 1024 ** 2 }), nsfwDelayMs: 1e9 });
+  studio.start();
+  await studio.installMaker('trellis2');
+  for (const k of MAKERS.find((m) => m.id === 'trellis2').files) await place(dir, REAL[k]);
+  // Words that would trip the photo rule for a picture edit are not read for a 3D object.
+  const job = await studio.createJob({ maker: 'trellis2', image: PNG, prompt: 'a sexy bikini model, naked' });
+  assert.ok(job.id, 'the job is accepted');
+  assert.equal(job.prompt, '3D object');
+});
