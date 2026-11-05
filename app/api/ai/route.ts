@@ -2,6 +2,7 @@ import { currentUser } from '@/lib/auth';
 import { sameOrigin } from '@/lib/request';
 import { aiBase, aiConfigured, aiConsole, aiProvider, aiStatus, startAi, stopAi } from '@/lib/ai';
 import { setFirstPicks } from '@/lib/gpuaiMachine';
+import { cleanGpu } from '@/lib/gpuaiShared';
 
 export const dynamic = 'force-dynamic';
 // Finding a free GPU can take several tries (see lib/ai.ts).
@@ -24,14 +25,14 @@ export async function GET() {
 }
 
 /**
- * Turn the AI machine on or off: { "action": "start" | "stop", "tier"?: "standard" | "turbo" }.
+ * Turn the AI machine on or off: { "action": "start" | "stop", "tier"?: "standard" | "turbo", "gpu"?: GPU.ai type }.
  * On GPU.ai, { "action": "first", "makers": [ids] } saves what to load first while it starts.
  */
 export async function POST(request: Request) {
   const user = await currentUser();
   if (!user) return Response.json({ error: 'Unauthorized' }, { status: 401 });
   if (!sameOrigin(request)) return Response.json({ error: 'Forbidden' }, { status: 403 });
-  const { action, tier, makers } = (await request.json().catch(() => ({}))) as { action?: string; tier?: string; makers?: unknown };
+  const { action, tier, makers, gpu } = (await request.json().catch(() => ({}))) as { action?: string; tier?: string; makers?: unknown; gpu?: unknown };
   if (action !== 'start' && action !== 'stop' && action !== 'first') {
     return Response.json({ error: 'action must be "start", "stop" or "first"' }, { status: 400 });
   }
@@ -46,7 +47,7 @@ export async function POST(request: Request) {
     return Response.json(await statusWithLinks(user), { headers: noStore });
   }
   try {
-    await (action === 'start' ? startAi(typeof tier === 'string' ? tier : undefined) : stopAi());
+    await (action === 'start' ? startAi(typeof tier === 'string' ? tier : undefined, cleanGpu(gpu)) : stopAi());
   } catch (err) {
     return Response.json({ error: (err as Error).message }, { status: 502 });
   }

@@ -6,6 +6,7 @@
  * The token lives only in memory.
  */
 import type { HeldItem } from './HeldReview';
+import { chooseGpu } from '../../ui/GpuChooser';
 
 export type AiMachineState = 'unconfigured' | 'off' | 'starting' | 'downloading' | 'on' | 'error';
 
@@ -20,6 +21,8 @@ export interface AiMachineStatus {
   autoOffMinutes?: number;
   tier?: string | null;
   tiers?: AiTier[];
+  /** On GPU.ai every Turn on shows every GPU to pick from, so the two speeds are not shown. */
+  pickGpu?: boolean;
   /** The AI machine on GPU.ai, while it starts: your makers, and what you picked to load first (in order). */
   picks?: { library: string[]; first: string[] };
 }
@@ -631,8 +634,18 @@ export class LocalAi {
     return machineStatus(await siteJson<AiMachineStatus>('/api/ai'));
   }
 
+  /**
+   * Turn the AI machine on or off. On GPU.ai every Turn on first shows every GPU to pick from
+   * (ui/GpuChooser); cancelling leaves it off and returns the status as it is.
+   */
   async power(action: 'start' | 'stop', tier?: string): Promise<AiMachineStatus> {
-    return machineStatus(await siteJson<AiMachineStatus>('/api/ai', { method: 'POST', body: JSON.stringify({ action, tier }) }));
+    let gpu: string | undefined;
+    if (action === 'start') {
+      const pick = await chooseGpu('ai');
+      if (pick === null) return this.status();
+      gpu = pick;
+    }
+    return machineStatus(await siteJson<AiMachineStatus>('/api/ai', { method: 'POST', body: JSON.stringify({ action, tier, gpu }) }));
   }
 
   /** While the machine on GPU.ai starts: what to load first, in order (it reads this when it comes up). */

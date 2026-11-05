@@ -132,6 +132,39 @@ const strokes = (paper: Locator) => paper.getAttribute('data-strokes').then(Numb
 test.describe('Live Draw', () => {
   // The GPU engine runs in software here (no graphics chip): give the long walks room.
   test.describe.configure({ timeout: 120_000 });
+  test('on GPU.ai, Start first shows every GPU for the drawing machine; the one picked is the one turned on', async ({ page }, info) => {
+    await setUp(page);
+    const starts: Record<string, unknown>[] = [];
+    page.on('request', (r) => {
+      if (r.url().endsWith('/api/canvas') && r.method() === 'POST') starts.push(r.postDataJSON());
+    });
+    await page.route('**/api/ai/gpus?machine=canvas', (r) =>
+      r.fulfill({
+        json: {
+          recommended: 'h200_nvl',
+          options: [
+            { gpu: 'l40s', name: 'L40S', memoryGb: 48, pricePerHour: 0.8, region: 'us-central', free: 58, fits: 'some', note: 'Live drawing; Bring to life runs slow', videoMinutes: 4 },
+            { gpu: 'h100_pcie', name: 'H100 PCIe', memoryGb: 80, pricePerHour: 2.48, region: 'us-central', free: 3, fits: 'yes', note: 'Live drawing and Bring to life', videoMinutes: 2 },
+            { gpu: 'h200_nvl', name: 'H200 NVL', memoryGb: 141, pricePerHour: 3.29, region: 'us-east', free: 1, fits: 'yes', note: 'Live drawing and Bring to life', videoMinutes: 2 },
+          ],
+        },
+      }),
+    );
+    const win = await openLiveDraw(page);
+    const card = win.getByRole('dialog', { name: /become a picture/ });
+    await card.getByRole('button', { name: 'Start', exact: true }).click();
+    const sheet = page.getByRole('dialog', { name: 'Pick a GPU for the drawing machine' });
+    await expect(sheet).toBeVisible();
+    const rows = sheet.getByRole('radio');
+    await expect(rows).toHaveCount(3);
+    await expect(sheet.getByRole('radio', { name: /H200 NVL/ })).toHaveAttribute('aria-checked', 'true');
+    await expect(sheet.getByRole('radio', { name: /H200 NVL/ })).toContainText('Suggested');
+    await sheet.getByRole('radio', { name: /H100 PCIe/ }).click();
+    await page.screenshot({ path: info.outputPath('gpu-canvas.png') });
+    await sheet.getByRole('button', { name: 'Turn on · H100 PCIe · $2.48/h' }).click();
+    await expect.poll(() => starts).toEqual([{ action: 'start', gpu: 'h100_pcie' }]);
+  });
+
   test('start the drawing machine, draw, and the picture appears under the strokes', async ({ page }) => {
     const { errors, frames, life } = await setUp(page);
     const win = await openLiveDraw(page);

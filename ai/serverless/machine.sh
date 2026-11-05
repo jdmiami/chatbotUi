@@ -12,12 +12,15 @@
 #               also terminates it after AUTO_TERMINATE hours whatever happens (the money fail-safe).
 #
 # Required env: GATEWAY_SECRET, R2_ACCOUNT_ID, R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY, SITE_URL, MACHINE_NAME.
+# MACHINE_ROLE=canvas: the drawing machine (Live Draw) instead, the gate's canvas role, its engines from R2.
 # Optional: ONLY_MAKERS (comma-separated maker ids: the makers you start with; nothing comes down until you
 # pick one in Orbit, LOAD_ON_PICK=0 loads them all at start instead), ALLOWED_ORIGINS, IDLE_MINUTES, HF_TOKEN.
 set -euo pipefail
 
 : "${GATEWAY_SECRET:?GATEWAY_SECRET is required}"
 S="${STUDIO_DIR:-/opt/studio}"
+ROLE="${MACHINE_ROLE:-helper}"
+case "$ROLE" in helper | canvas) ;; *) echo "[machine] MACHINE_ROLE must be helper or canvas" >&2; exit 1 ;; esac
 NODE=/opt/node/bin/node
 URL_FILE=/opt/machine-url
 log() { echo "[machine] $*"; }
@@ -40,15 +43,15 @@ log "opening the tunnel"
 
 # ComfyUI, already installed in the image (ENV_BAKED: never packed to or from R2).
 (env -u GATEWAY_SECRET -u HF_TOKEN \
-   ENV_BAKED=1 STORAGE=r2 AI_ROLE=helper STUDIO_DIR="$S" PERSIST_DIR=/opt NODE="$NODE" \
+   ENV_BAKED=1 STORAGE=r2 AI_ROLE="$ROLE" STUDIO_DIR="$S" PERSIST_DIR=/opt NODE="$NODE" \
    bash /opt/gate/studio.sh) 2>&1 | sed -u 's/^/[studio] /' &
 
-# The gate: helper role, everything in R2, makers kept loaded between jobs (no chat to make room for).
+# The gate: helper role (or canvas), everything in R2, makers kept loaded between jobs (no chat to make room for).
 log "starting the gate on :8080"
 cd /opt/gate
 exec env PORT=8080 \
   SITE_URL="${SITE_URL:-}" ALLOWED_ORIGINS="${ALLOWED_ORIGINS:-}" IDLE_MINUTES="${IDLE_MINUTES:-60}" \
   AI_USER_EMAIL="${AI_USER_EMAIL:-owner@orbit.local}" \
-  STUDIO_DIR="$S" AI_ROLE=helper PERSIST_DIR=/opt STORAGE=r2 KEEP_MODELS_LOADED=1 \
+  STUDIO_DIR="$S" AI_ROLE="$ROLE" PERSIST_DIR=/opt STORAGE=r2 KEEP_MODELS_LOADED=1 \
   MACHINE_URL_FILE="$URL_FILE" MACHINE_NAME="${MACHINE_NAME:-orbit-ai}" ONLY_MAKERS="${ONLY_MAKERS:-}" \
   "$NODE" src/index.js

@@ -19,7 +19,8 @@ function remembered(): string | null {
 /** The tiers the site offers and the one picked (remembered, else the machine's own, else the first). */
 export function useSpeed(status: AiMachineStatus | null): { tiers: AiTier[]; chosen: AiTier | undefined; pick: (id: string) => void } {
   const [picked, setPicked] = useState<string | null>(remembered);
-  const tiers = status?.tiers ?? [];
+  // On GPU.ai the GPU is picked from the full list at Turn on (ui/GpuChooser): no speeds here.
+  const tiers = status?.pickGpu ? [] : (status?.tiers ?? []);
   const chosen = tiers.find((t) => t.id === picked) ?? tiers.find((t) => t.id === status?.tier) ?? tiers[0];
   const pick = (id: string) => {
     setPicked(id);

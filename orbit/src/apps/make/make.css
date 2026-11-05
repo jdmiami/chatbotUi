@@ -716,3 +716,22 @@
 .mk-screen-acts { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; }
 /* Adding a photo, a video or a sound reads as a button: a hairline round it, flush with the column. */
 :root[data-skin='o5'] .mk-extras .btn.ghost { border-color: var(--o5-hair); }
+
+/* Batch making (BatchMake.tsx): one idea, many prompts, all made. */
+.mk-batch { display: flex; flex-direction: column; gap: 12px; padding-bottom: 12px; }
+.mk-batch .o5-kicker, .mk-batch .o5-step-title { margin-block: 0; }
+.mk-batch-lead { margin: 0; color: var(--text-2); font: 500 var(--fs-sm, 14px) / 1.4 var(--font-ui); }
+.mk-batch-opts { display: flex; flex-wrap: wrap; gap: 8px 16px; }
+.mk-batch-group { display: flex; flex-wrap: wrap; gap: 8px; }
+.mk-batch-acts { display: flex; flex-wrap: wrap; gap: 8px; }
+.mk-batch-acts .btn, .mk-batch-go .btn { min-height: 44px; }
+.mk-batch-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.mk-batch-list li { display: grid; grid-template-columns: 24px 1fr 44px; align-items: start; gap: 6px 8px; }
+.mk-batch-list li > :is(textarea, [contenteditable]) { min-width: 0; }
+.mk-batch-n { padding-top: 10px; color: var(--text-2); font-variant-numeric: tabular-nums; text-align: right; }
+.mk-batch-sent { grid-column: 2 / 3; margin: 0; font: 500 13px / 1.3 var(--font-ui); color: var(--text-2); }
+.mk-batch-list li.is-queued .mk-batch-sent { color: var(--success, #6cc28a); }
+.mk-batch-list li.is-refused .mk-batch-sent { color: var(--warning, #e0a050); }
+.mk-batch-go { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px; padding-top: 6px; border-top: 1px solid var(--o5-hair, var(--border)); }
+.mk-batch-maker { display: inline-flex; align-items: center; gap: 8px; font: 600 var(--fs-sm, 14px) / 1 var(--font-ui); }
+.mk-batch-maker select { min-height: 44px; padding: 0 10px; border-radius: 12px; border: 1px solid var(--o5-hair, var(--border)); background: transparent; color: inherit; font: inherit; max-width: 60vw; }

@@ -66,38 +66,41 @@ export function decide(
 /** The AI machine on GPU.ai: the same rule, read through its tunnel address; a stop is a terminate there. */
 async function gpuaiWatchdog(): Promise<WatchdogResult> {
   const result: WatchdogResult = { at: new Date().toISOString(), machines: [] };
-  const m = await findMachine();
-  const state = machineState(m);
-  if (!m || state === 'off') {
-    result.machines.push({ name: 'AI machine', status: m?.status ?? 'off', idleMinutes: null, action: 'kept', why: 'off' });
-    return result;
-  }
-  const url = state === 'running' ? await machineAddress(m) : null;
-  let idle: number | null = null;
-  let heldUntil: string | null | undefined;
-  if (url) {
-    try {
-      const res = await fetch(`${url}/_orbit/idle`, { cache: 'no-store', signal: AbortSignal.timeout(6000) });
-      const body = res.ok ? ((await res.json()) as { idleMinutes?: number; heldUntil?: string | null }) : null;
-      if (typeof body?.idleMinutes === 'number') ({ idleMinutes: idle, heldUntil } = body as { idleMinutes: number; heldUntil?: string | null });
-    } catch {
-      /* not answering: the blind limit below applies */
+  // Both machines on GPU.ai: the AI machine and the drawing machine (Live Draw), each by the same rule.
+  for (const [kind, label] of [['ai', 'AI machine'], ['canvas', 'Drawing machine']] as const) {
+    const m = await findMachine(kind);
+    const state = machineState(m);
+    if (!m || state === 'off') {
+      result.machines.push({ name: label, status: m?.status ?? 'off', idleMinutes: null, action: 'kept', why: 'off' });
+      continue;
     }
-  }
-  const since = Date.parse(String(m.ready_at ?? m.created_at ?? ''));
-  const onFor = Number.isFinite(since) ? Math.floor((Date.now() - since) / 60_000) : null;
-  const d = decide(idle, heldUntil, onFor);
-  if (!d.stop) {
-    result.machines.push({ name: 'AI machine', status: m.status, idleMinutes: idle, action: 'kept', why: d.why });
-    return result;
-  }
-  try {
-    await terminateMachine(m.id);
-    console.warn(`[watchdog] stopped the AI machine on GPU.ai: ${d.why}`);
-    result.machines.push({ name: 'AI machine', status: m.status, idleMinutes: idle, action: 'stopped', why: d.why });
-  } catch (err) {
-    console.error(`[watchdog] could not stop the AI machine on GPU.ai: ${(err as Error).message}`);
-    result.machines.push({ name: 'AI machine', status: m.status, idleMinutes: idle, action: 'stop failed', why: d.why });
+    const url = state === 'running' ? await machineAddress(m, kind) : null;
+    let idle: number | null = null;
+    let heldUntil: string | null | undefined;
+    if (url) {
+      try {
+        const res = await fetch(`${url}/_orbit/idle`, { cache: 'no-store', signal: AbortSignal.timeout(6000) });
+        const body = res.ok ? ((await res.json()) as { idleMinutes?: number; heldUntil?: string | null }) : null;
+        if (typeof body?.idleMinutes === 'number') ({ idleMinutes: idle, heldUntil } = body as { idleMinutes: number; heldUntil?: string | null });
+      } catch {
+        /* not answering: the blind limit below applies */
+      }
+    }
+    const since = Date.parse(String(m.ready_at ?? m.created_at ?? ''));
+    const onFor = Number.isFinite(since) ? Math.floor((Date.now() - since) / 60_000) : null;
+    const d = decide(idle, heldUntil, onFor);
+    if (!d.stop) {
+      result.machines.push({ name: label, status: m.status, idleMinutes: idle, action: 'kept', why: d.why });
+      continue;
+    }
+    try {
+      await terminateMachine(m.id);
+      console.warn(`[watchdog] stopped the ${label} on GPU.ai: ${d.why}`);
+      result.machines.push({ name: label, status: m.status, idleMinutes: idle, action: 'stopped', why: d.why });
+    } catch (err) {
+      console.error(`[watchdog] could not stop the ${label} on GPU.ai: ${(err as Error).message}`);
+      result.machines.push({ name: label, status: m.status, idleMinutes: idle, action: 'stop failed', why: d.why });
+    }
   }
   return result;
 }

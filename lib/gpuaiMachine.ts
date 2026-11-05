@@ -1,7 +1,7 @@
 import 'server-only';
 import { randomUUID } from 'node:crypto';
 import { GPUAI_API } from './gpuai';
-import { AUTO_TERMINATE_HOURS, FIRST_KEY, LIBRARY_KEY, ONLY_MAKERS, cleanPicks, libraryOf, STANDARD_GPUS, TURBO_GPUS, liveAddress, machineState, nextGpu, nextGpuAfterFailedOperation, pickMachine, pickOffering, type GpuChoice, type GpuaiInstance, type MachineNote, type Offering } from './gpuaiShared';
+import { AUTO_TERMINATE_HOURS, DISK_FOR, FIRST_KEY, GPU_INFO, LIBRARY_KEY, NOTE_KEYS, ONLY_MAKERS, cleanPicks, gpuOptions, libraryOf, type MachineKind, STANDARD_GPUS, TURBO_GPUS, liveAddress, machineState, nextGpu, nextGpuAfterFailedOperation, pickMachine, pickOffering, type GpuChoice, type GpuaiInstance, type MachineNote, type Offering } from './gpuaiShared';
 import { imageBuilt, imageFor } from './serverlessShared';
 import { createR2, r2Config } from './r2';
 import { autoOffMinutes } from './autoOff';
@@ -19,8 +19,9 @@ import { autoOffMinutes } from './autoOff';
  * whatever happens. The key (GPUAI_API_KEY) stays on the server.
  */
 
-export const MACHINE_KEY = 'state/ai-machine.json';
-const name = () => process.env.AI_POD_NAME || 'orbit-ai';
+export const MACHINE_KEY = NOTE_KEYS.ai;
+/** The AI machine is `orbit-ai`; the drawing machine (Live Draw) is `orbit-ai-canvas`. */
+const name = (kind: MachineKind = 'ai') => `${process.env.AI_POD_NAME || 'orbit-ai'}${kind === 'canvas' ? '-canvas' : ''}`;
 
 export async function gpuai(path: string, init: RequestInit = {}) {
   const key = process.env.GPUAI_API_KEY;
@@ -37,9 +38,9 @@ export async function gpuai(path: string, init: RequestInit = {}) {
 }
 
 /** The newest live instance named like the AI machine, or null. */
-export async function findMachine(): Promise<GpuaiInstance | null> {
+export async function findMachine(kind: MachineKind = 'ai'): Promise<GpuaiInstance | null> {
   const body = (await gpuai('/instances?limit=50')) as { data?: GpuaiInstance[] };
-  return pickMachine(body.data ?? [], name());
+  return pickMachine(body.data ?? [], name(kind));
 }
 
 export async function getMachine(id: string): Promise<GpuaiInstance | null> {
@@ -52,10 +53,10 @@ export async function getMachine(id: string): Promise<GpuaiInstance | null> {
 }
 
 /** The address the machine published, when it is the running instance's own and fresh. */
-export async function machineAddress(instance: GpuaiInstance): Promise<string | null> {
+export async function machineAddress(instance: GpuaiInstance, kind: MachineKind = 'ai'): Promise<string | null> {
   const conf = r2Config();
   if (!conf) return null;
-  const note = await createR2(conf).getJson<MachineNote>(MACHINE_KEY).catch(() => null);
+  const note = await createR2(conf).getJson<MachineNote>(NOTE_KEYS[kind]).catch(() => null);
   return liveAddress(note, instance);
 }
 
@@ -88,7 +89,7 @@ async function machineImage() {
 }
 
 /** What the instance runs with: the same secrets and settings as the AI machine on Runpod had, as plain values. */
-function machineEnv(): Record<string, string> {
+function machineEnv(kind: MachineKind = 'ai'): Record<string, string> {
   const r2 = r2Config();
   const site = process.env.VERCEL_PROJECT_PRODUCTION_URL ? `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}` : '';
   return {
@@ -96,17 +97,26 @@ function machineEnv(): Record<string, string> {
     SITE_URL: site,
     ALLOWED_ORIGINS: process.env.LINUX_ALLOWED_ORIGINS || [site, 'https://chatbot-ui-62nj-*-jdmiamis-projects.vercel.app'].filter(Boolean).join(','),
     IDLE_MINUTES: String(autoOffMinutes()),
-    MACHINE_NAME: name(),
-    ONLY_MAKERS: process.env.AI_ONLY_MAKERS || ONLY_MAKERS,
+    MACHINE_NAME: name(kind),
+    // The drawing machine runs the gate's canvas role (Live Draw's engines); the AI machine its helper role.
+    ...(kind === 'canvas' ? { MACHINE_ROLE: 'canvas' } : { ONLY_MAKERS: process.env.AI_ONLY_MAKERS || ONLY_MAKERS }),
     ...(r2 ? { R2_ACCOUNT_ID: r2.accountId, R2_ACCESS_KEY_ID: r2.accessKeyId, R2_SECRET_ACCESS_KEY: r2.secretAccessKey, R2_BUCKET: r2.bucket } : {}),
     ...(process.env.HF_TOKEN ? { HF_TOKEN: process.env.HF_TOKEN } : {}),
   };
 }
 
+/** The drawing machine's GPUs when none is picked: H100-class first (Bring to life needs it), cheapest first. */
+const CANVAS_GPUS: GpuChoice[] = ['h200_nvl', 'h100_pcie', 'rtx_pro_6000', 'h100_sxm', 'h200_sxm'].map((gpu) => ({ gpu, gpuName: GPU_INFO[gpu]?.name ?? gpu, pricePerHour: 0 }));
+
 /** The GPUs a speed tries, cheapest first. */
 export const gpusFor = (tier: 'standard' | 'turbo'): GpuChoice[] => (tier === 'turbo' ? TURBO_GPUS : STANDARD_GPUS);
 
 type Operation = { operation_id?: string; state?: string; resource_id?: string | null; error?: { code?: string; detail?: string } | null };
+
+/** Every GPU to choose from right now for this machine (GPU.ai's live list), and the one to suggest. */
+export async function machineGpuOptions(kind: MachineKind = 'ai') {
+  return gpuOptions(await priceList(), kind);
+}
 
 /** GPU.ai's live price list (public, no key needed). */
 async function priceList(): Promise<Offering[]> {
@@ -131,25 +141,34 @@ async function settle(op: Operation, ms = 8_000): Promise<Operation> {
  * the makers (pickOffering), pinned so GPU.ai never places a dearer one. Returns the instance id once
  * GPU.ai has accepted it (the machine then takes minutes to boot, bring the models down and open its tunnel).
  */
-export async function createMachine(tier: 'standard' | 'turbo' = 'standard'): Promise<{ id: string | null; gpu: GpuChoice; pricePerHour: number }> {
+export async function createMachine(
+  tier: 'standard' | 'turbo' = 'standard',
+  { kind = 'ai', gpu: only }: { kind?: MachineKind; gpu?: string | null } = {},
+): Promise<{ id: string | null; gpu: GpuChoice; pricePerHour: number }> {
   const image = await machineImage();
-  const env = machineEnv();
-  if (!env.R2_ACCOUNT_ID) throw new Error('The site needs the R2 keys (R2_ACCOUNT_ID, R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY) to start the AI machine.');
+  const env = machineEnv(kind);
+  const what = kind === 'canvas' ? 'the drawing machine' : 'the AI machine';
+  if (!env.R2_ACCOUNT_ID) throw new Error(`The site needs the R2 keys (R2_ACCOUNT_ID, R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY) to start ${what}.`);
   const prices = await priceList();
   // A new machine starts with nothing picked: picks from an earlier start don't carry over.
-  await createR2(r2Config()!).putJson(FIRST_KEY, { ids: [], at: new Date().toISOString() }).catch(() => {});
+  if (kind === 'ai') await createR2(r2Config()!).putJson(FIRST_KEY, { ids: [], at: new Date().toISOString() }).catch(() => {});
+  // The GPU you chose (only that one), else the speed's list, cheapest first.
+  const choices: GpuChoice[] = only ? [{ gpu: only, gpuName: GPU_INFO[only]?.name ?? only, pricePerHour: 0 }] : kind === 'canvas' ? CANVAS_GPUS : gpusFor(tier);
   let lastWhy = '';
   const started = Date.now();
-  for (const gpu of gpusFor(tier)) {
+  for (const gpu of choices) {
     if (Date.now() - started > 40_000) break;
-    const pick = pickOffering(prices, gpu.gpu);
-    if (!pick) continue;
+    const pick = pickOffering(prices, gpu.gpu, DISK_FOR[kind]);
+    if (!pick) {
+      if (only) throw new Error(`No ${gpu.gpuName} is free on GPU.ai right now. Pick another GPU.`);
+      continue;
+    }
     try {
       const op = (await gpuai('/instances', {
         method: 'POST',
         headers: { 'idempotency-key': randomUUID() },
         body: JSON.stringify({
-          name: name(),
+          name: name(kind),
           gpu_type: gpu.gpu,
           gpu_count: 1,
           tier: 'on_demand',
@@ -169,17 +188,17 @@ export async function createMachine(tier: 'standard' | 'turbo' = 'standard'): Pr
       const done = await settle(op);
       if (done.state === 'failed' || done.state === 'cancelled') {
         lastWhy = done.error?.detail || done.error?.code || 'refused';
-        if (nextGpuAfterFailedOperation(lastWhy)) continue;
-        throw new Error(`GPU.ai could not start the AI machine: ${lastWhy}`);
+        if (!only && nextGpuAfterFailedOperation(lastWhy)) continue;
+        throw new Error(`GPU.ai could not start ${what}${only ? ` on the ${gpu.gpuName}` : ''}: ${lastWhy}`);
       }
       return { id: done.resource_id ?? op.resource_id ?? null, gpu, pricePerHour: pick.offering.price_per_hour };
     } catch (err) {
       const e = err as { status?: number; body?: string };
-      if (!e.status || !nextGpu(e.status, e.body ?? '')) throw err;
+      if (only || !e.status || !nextGpu(e.status, e.body ?? '')) throw err;
       lastWhy = (e.body ?? '').slice(0, 160);
     }
   }
-  throw new Error(`No ${tier === 'turbo' ? 'Turbo' : 'Standard'} GPU is free on GPU.ai right now (${gpusFor(tier).map((g) => g.gpuName).join(', ')}). Try again in a few minutes.${lastWhy ? ` (${lastWhy})` : ''}`);
+  throw new Error(`No ${kind === 'canvas' ? 'drawing machine' : tier === 'turbo' ? 'Turbo' : 'Standard'} GPU is free on GPU.ai right now (${choices.map((g) => g.gpuName).join(', ')}). Try again in a few minutes, or pick another GPU.${lastWhy ? ` (${lastWhy})` : ''}`);
 }
 
 export async function terminateMachine(id: string): Promise<void> {
@@ -200,9 +219,9 @@ export async function gpuaiBalance(): Promise<{ balance: number | null; spendPer
 }
 
 /** The machine's state from GPU.ai alone, with its address once the machine has published one. */
-export async function machineView(): Promise<{ instance: GpuaiInstance | null; state: ReturnType<typeof machineState>; url: string | null }> {
-  const instance = await findMachine();
+export async function machineView(kind: MachineKind = 'ai'): Promise<{ instance: GpuaiInstance | null; state: ReturnType<typeof machineState>; url: string | null }> {
+  const instance = await findMachine(kind);
   const state = machineState(instance);
-  const url = instance && state === 'running' ? await machineAddress(instance) : null;
+  const url = instance && state === 'running' ? await machineAddress(instance, kind) : null;
   return { instance, state, url };
 }

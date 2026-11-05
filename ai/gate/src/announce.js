@@ -19,7 +19,7 @@ const URL_RE = /^https:\/\/[a-z0-9-]+(\.[a-z0-9-]+)+$/i;
  * state/ai-machine.json fresh in R2 every `intervalMs` (a minute). `name` is the instance's name on
  * GPU.ai, so the site can match the note to the machine it started.
  */
-export function createAnnounce({ file, name, r2, log = console, now = Date.now, intervalMs = 60_000, startedAt = now() }) {
+export function createAnnounce({ file, name, r2, key = MACHINE_KEY, log = console, now = Date.now, intervalMs = 60_000, startedAt = now() }) {
   let url = null;
   let timer = null;
   let stopped = false;
@@ -37,7 +37,7 @@ export function createAnnounce({ file, name, r2, log = console, now = Date.now, 
     if (!url) url = await readUrl();
     if (!url) return false;
     // Without R2 (a trial machine) the address is only known here (the status says it).
-    if (r2) await r2.putJson(MACHINE_KEY, { name, url, startedAt: new Date(startedAt).toISOString(), at: new Date(now()).toISOString() });
+    if (r2) await r2.putJson(key, { name, url, startedAt: new Date(startedAt).toISOString(), at: new Date(now()).toISOString() });
     return true;
   }
 
@@ -80,9 +80,10 @@ export function createAnnounce({ file, name, r2, log = console, now = Date.now, 
  * Ask the site to terminate this machine: POST `${siteUrl}/api/ai/off` with a token the site checks
  * against the shared secret (audience site-island, like the status pill's). Throws when the site says no.
  */
-export async function askSiteToTurnOff({ siteUrl, secret, name, fetchImpl = fetch, log = console }) {
+export async function askSiteToTurnOff({ siteUrl, secret, name, fetchImpl = fetch, log = console, sub = 'ai-machine' }) {
   if (!siteUrl) throw new Error('SITE_URL is not set');
-  const token = signJwt({ sub: 'ai-machine', aud: 'site-island', name }, secret, { expiresIn: 120 });
+  // The AI machine signs as ai-machine, the drawing machine as canvas-machine (the site turns off only that one).
+  const token = signJwt({ sub, aud: 'site-island', name }, secret, { expiresIn: 120 });
   const res = await fetchImpl(`${siteUrl.replace(/\/$/, '')}/api/ai/off`, {
     method: 'POST',
     headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },

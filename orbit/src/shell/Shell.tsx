@@ -1,4 +1,5 @@
 import { useEffect } from 'react';
+import { GpuChooserHost } from '../ui/GpuChooser';
 import { useShell, type AppId } from '../state/shell';
 import { useLayout } from '../state/viewport';
 import { useVisualViewport } from '../hooks/useVisualViewport';
@@ -52,6 +53,7 @@ export function Shell() {
       {overlay === 'control-center' && <ControlCenter />}
       {!settings.introSeen && <IntroSheet />}
       <Toasts />
+      <GpuChooserHost />
       <AiOffWarning />
       <OrbCursor />
       <WriteHelp />

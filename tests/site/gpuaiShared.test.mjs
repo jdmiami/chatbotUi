@@ -89,3 +89,37 @@ test('what to load first: maker ids only, in the order picked, no repeats; your 
   assert.deepEqual(libraryOf(ONLY_MAKERS, { wanted: ['anime', 'qwen'] }), ['qwen', 'edit', 'h3-max', 'anime']);
   assert.deepEqual(libraryOf(ONLY_MAKERS, null), ['qwen', 'edit', 'h3-max']);
 });
+
+test('every GPU to choose from: the cheapest machine of each type with room, what it can do, cheapest first', async () => {
+  const { gpuOptions, cleanGpu } = await import('../../lib/gpuaiShared.ts');
+  const o = (gpu_type, price_per_hour, extra = {}) => ({ gpu_type, gpu_count: 1, tier: 'on_demand', price_per_hour, available: 3, instance_disk_gb: 625, disk_configurable: false, offering_id: `${gpu_type}-${price_per_hour}`, region: 'us-central', ...extra });
+  const list = [
+    o('l40s', 0.8),
+    o('a100_80gb', 1.07, { instance_disk_gb: 100 }), // fixed 100 GB: too small, the next one is picked
+    o('a100_80gb', 1.23, { instance_disk_gb: 768 }),
+    o('h200_nvl', 3.29, { instance_disk_gb: 750, region: 'us-east' }),
+    o('h100_sxm', 3.99, { instance_disk_gb: 100, disk_configurable: true }),
+    o('rtx_4000_ada', 0.28, { instance_disk_gb: 100, disk_configurable: true }),
+    o('mi300x', 1.5),
+    o('h100_pcie', 2.48, { available: 0 }),
+    { ...o('l40', 1.56), gpu_count: 2 },
+  ];
+  const ai = gpuOptions(list, 'ai');
+  assert.deepEqual(ai.options.map((x) => [x.gpu, x.pricePerHour, x.fits]), [
+    ['rtx_4000_ada', 0.28, 'no'],
+    ['l40s', 0.8, 'yes'],
+    ['a100_80gb', 1.23, 'yes'],
+    ['h200_nvl', 3.29, 'yes'],
+    ['h100_sxm', 3.99, 'yes'],
+  ]);
+  assert.equal(ai.recommended, 'l40s', 'the cheapest that does everything');
+  assert.equal(ai.options[1].name, 'L40S');
+  assert.equal(ai.options[1].memoryGb, 48);
+  assert.ok(ai.options[3].videoMinutes < ai.options[1].videoMinutes, 'faster GPUs make a video sooner');
+  // The drawing machine needs H100-class for Bring to life: the cheapest such one is suggested.
+  const draw = gpuOptions(list, 'canvas');
+  assert.equal(draw.recommended, 'h200_nvl');
+  assert.equal(draw.options.find((x) => x.gpu === 'l40s').fits, 'some');
+  assert.equal(cleanGpu('h200_nvl'), 'h200_nvl');
+  assert.equal(cleanGpu('H200; rm'), null);
+});
