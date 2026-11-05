@@ -144,7 +144,13 @@ export const LITE_JS = String.raw`
   var WRITER_NAMES = {
     'nv-mistralai/mistral-nemo-12b-instruct': 'Mistral NeMo 12B \u00b7 quick, loose',
     'mistralai/mistral-large-2-instruct': 'Mistral Large 2 \u00b7 best writing, slower',
-    'mistralai/mistral-7b-instruct-v0.3': 'Mistral 7B \u00b7 quickest, simplest'
+    'mistralai/mistral-7b-instruct-v0.3': 'Mistral 7B \u00b7 quickest, simplest',
+    'mistralai/mistral-large-4-1t-a52b': 'Mistral Large 4 \u00b7 newest, biggest',
+    'writer/palmyra-creative-122b': 'Palmyra Creative \u00b7 made for stories',
+    'nvidia/mistral-nemo-minitron-8b-8k-instruct': 'Minitron 8B \u00b7 small, quick',
+    'deepseek-ai/deepseek-v4.1-flash': 'DeepSeek V4.1 Flash \u00b7 sharp, may say no',
+    'z-ai/glm-5.3-flash': 'GLM 5.3 Flash \u00b7 quick, may say no',
+    'moonshotai/kimi-k2.6': 'Kimi K2.6 \u00b7 rich writing, may say no'
   };
   function loadWriters() {
     return api('/api/orb/ai').then(function (r) {
@@ -159,7 +165,8 @@ export const LITE_JS = String.raw`
     var ask = { task: 'free', messages: [{ role: 'system', content: system + ' ' + ADULTS }, { role: 'user', content: user }], max_tokens: maxTokens || 900, temperature: 0.9 };
     if (S.writer) { ask.model = S.writer; ask.prefer = 'nvidia'; }
     return api('/api/orb/ai', { method: 'POST', body: ask }).catch(function (err) {
-      throw S.writer ? new Error(writerName(S.writer) + ' did not answer (' + err.message + '). Pick another writer, or Automatic.') : err;
+      if (!S.writer) throw err;
+      throw new Error(/turned this one down/.test(err.message) ? writerName(S.writer).split(' \u00b7')[0] + ' turned this one down. Pick another writer, or Automatic.' : writerName(S.writer).split(' \u00b7')[0] + ' did not answer (' + err.message + '). Pick another writer, or Automatic.');
     }).then(function (j) {
       var t = (j.choices && j.choices[0] && j.choices[0].message && j.choices[0].message.content) || '';
       t = t.replace(/<think>[\s\S]*?<\/think>/g, '').trim();
