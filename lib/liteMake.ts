@@ -465,6 +465,7 @@ export const LITE_JS = String.raw`
         '<option value=""' + (S.writer ? '' : ' selected') + '>Automatic \u00b7 the best one answering</option>' +
         S.writers.map(function (id) { return '<option value="' + esc(id) + '"' + (S.writer === id ? ' selected' : '') + '>' + esc(writerName(id)) + '</option>'; }).join('') + '</select>' : '';
       var photos = photoMode() ? '<label class="f">' + (S.kind === 'model3d' ? 'One picture of the thing' : 'Your photo (add a second to combine)') + '</label><div class="row">' + S.photos.map(function (p, i) { return '<span class="thumb"><img src="' + esc(p.src) + '" alt="Your photo ' + (i + 1) + '"><button class="x" data-rmphoto="' + i + '" aria-label="Remove photo ' + (i + 1) + '">×</button></span>'; }).join('') +
+        '</div><p class="note">Only use photos you have the right to use. Anything involving minors, or making sexual pictures of a real person, is a crime and may be prosecuted.</p><div class="row">' +
         (S.photos.length < (S.kind === 'model3d' ? 1 : 2) ? '<label class="btn s a pick">Add a photo<input type="file" accept="image/*" id="photo" class="hide"></label><button class="btn s" data-do="gal">From your gallery</button>' : '') + '</div>' : '';
       if (S.kind === 'model3d') return photos + '<p class="note">No words needed: it makes the 3D object from the picture. Best with one thing on a plain background.</p>';
       return photos + writers + '<textarea id="prompt" aria-label="Describe it" placeholder="Who, what, where, the light, the mood…">' + esc(S.prompt) + '</textarea>' +
