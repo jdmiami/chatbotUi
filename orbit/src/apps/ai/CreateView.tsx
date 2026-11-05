@@ -93,6 +93,7 @@ const LENGTHS = [
   { value: '3', label: '3 s' },
   { value: '5', label: '5 s' },
   { value: '8', label: '8 s' },
+  { value: '10', label: '10 s' },
 ];
 
 /** Shrink a picture (any format the browser reads, HEIC included on iPhone) to a JPEG data URL. */
