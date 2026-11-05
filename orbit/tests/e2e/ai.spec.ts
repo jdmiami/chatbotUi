@@ -283,6 +283,7 @@ async function mockStudio(page: Page) {
     { id: 'person-swap', kind: 'videoedit', name: 'Swap a person', blurb: 'Put someone from your photo in place of a person in your video.', for: null, twoImages: false, needs: ['video', 'target', 'photo'], accepts: ['facePhoto'], builtIn: false, wanted: true, installed: true, size: 23.7e9, percent: 100 },
     { id: 'video-sharpen', kind: 'videoedit', name: 'Sharpen video', blurb: 'Twice as large.', for: null, twoImages: false, needs: ['video'], builtIn: false, wanted: true, installed: true, size: 4e9, percent: 100 },
     { id: 'trellis2', kind: 'model3d', name: '3D object', blurb: 'A 3D object with its colours from one picture.', for: null, twoImages: false, needs: ['photo'], builtIn: false, wanted: true, installed: true, size: 8.9e9, percent: 100 },
+    { id: 'rig', kind: 'rig', name: 'Rig it', blurb: 'Bones and skin weights.', for: null, twoImages: false, builtIn: false, wanted: true, installed: true, size: 0, percent: 100 },
   ];
   const makerCalls: string[] = [];
   // Videos and sounds sent for the video makers (the raw file, its type as content-type).
@@ -949,7 +950,8 @@ test.describe('AI app: maker store', () => {
     const video = store.getByRole('region', { name: 'Video', exact: true });
     await expect(video).toContainText('H3 Max');
     await video.getByRole('button', { name: 'Get H3 Max', exact: true }).click();
-    expect(studio.makerCalls).toEqual(['install h3-max']);
+    // The tap's request is on its way: wait for it rather than read the list at once.
+    await expect.poll(() => studio.makerCalls).toEqual(['install h3-max']);
     await expect(video.getByText('40%')).toBeVisible();
     await expectNoHorizontalOverflow(page);
     await openMakeApp(page);
@@ -1092,6 +1094,11 @@ test.describe('AI app: video makers', () => {
     await expect(page.getByRole('button', { name: 'Use prompt' })).toHaveCount(0);
     await expectNoHorizontalOverflow(page);
     await page.screenshot({ path: info.outputPath('model3d-viewer.png') });
+    // Rig it: a job for the rigger, on this object.
+    await page.getByRole('dialog', { name: '3D object' }).getByRole('button', { name: 'Rig it' }).click();
+    await expect.poll(() => studio.requests.length).toBe(2);
+    expect(studio.requests[1]).toMatchObject({ kind: 'model3d', maker: 'rig' });
+    expect(String(studio.requests[1].fromItem)).toMatch(/^new/);
   });
 
   test('erase from an uploaded video, and sharpen a gallery video', async ({ page }) => {

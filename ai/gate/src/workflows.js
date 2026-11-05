@@ -220,6 +220,9 @@ export const MAKERS = [
   { id: 'sharpen', kind: 'upscale', name: 'Sharpen 4×', blurb: 'Makes a picture four times larger and crisper.', files: ['esrgan'] },
   // 3D objects (gallery kind 'model3d', a .glb file): one picture in, no words needed.
   { id: 'trellis2', kind: 'model3d', name: '3D object', blurb: 'A 3D object with its colours from one picture (TRELLIS.2). Best with one thing on a plain background.', files: ['trellisUnet', 'trellisShapeVae', 'trellisTexVae', 'dinoNaf', 'birefnet'], workflow: 'trellis2' },
+  // The rigger: bones and skin weights for a 3D object in the gallery (SkinTokens, MIT), in its own Python
+  // (live_env.sh rig: PyTorch 2.7, Blender's bpy, its 1.6 GB of checkpoints). A job takes a gallery 3D object.
+  { id: 'rig', kind: 'rig', name: 'Rig it', blurb: 'Adds bones and skin weights to a 3D object so it can be posed and animated (SkinTokens). People, animals and things.', env: 'rig', files: [], needs: ['model3d'] },
   { id: 'hy3d', kind: 'model3d', name: '3D shape', blurb: 'The shape of a thing from one picture, no colours (Hunyuan3D 2.1). Quicker; good for printing or painting yourself.', files: ['hy3d21'], workflow: 'hy3d' },
   ...[
     ['softwatercolor', 'Soft watercolor'],

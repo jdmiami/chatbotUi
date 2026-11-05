@@ -593,6 +593,17 @@ export function CreateView({
     leaveGallery('describe');
   };
   const installed = (id: string) => known.some((m) => m.id === id && m.installed);
+  /** Rig a 3D object (bones and skin weights): the job joins the queue like any other; the result lands in the gallery. */
+  const rigItem = async (item: StudioItem) => {
+    try {
+      const job = await ai.createStudioJob({ kind: 'model3d', maker: 'rig', prompt: '', fromItem: item.id });
+      setJobs((prev) => [...prev, job]);
+      setViewing(null);
+      toast('Rigging it: the rigged object lands in your gallery in a few minutes.', 'info');
+    } catch (err) {
+      toast((err as Error).message, 'error');
+    }
+  };
 
   // Carry on from a creation opened in the Gallery app: it hands the item over and opens Make.
   const intent = useWorkspace((s) => s.intent);
@@ -1529,6 +1540,11 @@ export function CreateView({
                   </button>
                 )}
               </>
+            )}
+            {viewing.kind === 'model3d' && !viewing.rigged && known.some((m) => m.id === 'rig' && (m.installed || m.wanted || m.loadable)) && (
+              <button type="button" className="btn" onClick={() => void rigItem(viewing)}>
+                <Icon name="person" size={16} /> Rig it
+              </button>
             )}
             {viewing.kind === 'video' &&
               VIDEO_WORK.filter((w) => installed(w.maker)).map((w) => (

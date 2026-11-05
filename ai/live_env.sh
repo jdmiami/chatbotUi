@@ -10,11 +10,14 @@
 #                      PyTorch 2.11 for CUDA 12.8 (Blackwell GPUs: the drawing machine's RTX PRO 6000)
 #   live_env.sh krea   Krea Realtime 14B (code CC BY-NC-SA 4.0): uv sync of its lockfile, Python 3.11,
 #                      plus the SageAttention wheel it ships for H100
+#   live_env.sh rig    SkinTokens / TokenRig (MIT, VAST): the rigger (bones and skin weights for a 3D
+#                      object). Python 3.11, PyTorch 2.7 for CUDA 12.8, its requirements with Blender's
+#                      bpy 5.0.1, a prebuilt flash-attn, and its two checkpoints (about 1.6 GB)
 #
 # Writes $STUDIO_DIR/live-env/<name>/.installed when done (and prints its progress for the gate).
 set -uo pipefail
 
-name="${1:?which maker: sdv2 | krea}"
+name="${1:?which maker: sdv2 | krea | rig}"
 S="${STUDIO_DIR:?STUDIO_DIR is required}"
 UV_VERSION=0.12.24
 # StreamDiffusionV2 pins PyTorch 2.6, which has no kernels for Blackwell GPUs. Its README (Blackwell
@@ -22,10 +25,16 @@ UV_VERSION=0.12.24
 # torchvision 0.26 there; they run on the older GPUs too, so every machine gets them.
 SDV2_TORCH="torch==2.11.0 torchvision==0.26.0 torchaudio==2.11.0"
 TORCH_INDEX=https://download.pytorch.org/whl/cu128
+# The rigger: the PyTorch its README names, Blender's bpy (5.0.1 is the newest built for Python 3.11) and
+# flash-attn (its model asks for flash_attention_2), a release wheel for that PyTorch and CUDA 12.
+RIG_TORCH="torch==2.7.0 torchvision==0.22.0 torchaudio==2.7.0"
+RIG_BPY="bpy==5.0.1"
+RIG_FLASH=2.8.3
 EXTRA=""
 case "$name" in
   sdv2) REPO=https://github.com/chenfengxu714/StreamDiffusionV2 COMMIT=6961a5cf2045d1dda05a04ef229698bdc04e873a EXTRA="$SDV2_TORCH cu128" ;;
   krea) REPO=https://github.com/krea-ai/realtime-video COMMIT=acf4b7b4e1a3049a0e04782e751d12203334038d ;;
+  rig) REPO=https://github.com/VAST-AI-Research/SkinTokens COMMIT=273b691d35989d71cd17ff2895fdc735097b92d1 EXTRA="$RIG_TORCH $RIG_BPY flash-attn $RIG_FLASH" ;;
   *) echo "unknown live maker: $name" >&2; exit 2 ;;
 esac
 # A new PyTorch changes the stamp, so a Python set up with the old one is set up again.
@@ -65,7 +74,23 @@ rm -rf "$D" && mkdir -p "$D"
 log "downloading its code ($COMMIT)"
 git clone -q "$REPO" "$D/src" && git -C "$D/src" checkout -q "$COMMIT" || exit 1
 
-if [ "$name" = sdv2 ]; then
+if [ "$name" = rig ]; then
+  log "installing its packages (PyTorch 2.7, Blender's bpy and friends: a few minutes)"
+  PY="$D/src/.venv/bin/python"
+  "$UV" venv -q --python 3.11 "$D/src/.venv" || exit 1
+  # shellcheck disable=SC2086
+  "$UV" pip install -q --python "$PY" --index-url "$TORCH_INDEX" $RIG_TORCH || exit 1
+  # Its requirements ask for bpy>=4.2 and any PyTorch: keep these exact ones.
+  # shellcheck disable=SC2086
+  printf '%s\n' $RIG_TORCH "$RIG_BPY" > "$D/pins.txt"
+  "$UV" pip install -q --python "$PY" --override "$D/pins.txt" -r "$D/src/requirements.txt" "$RIG_BPY" || exit 1
+  # flash-attn from its own release: the wheel built for this PyTorch's C++ ABI.
+  ABI=$("$PY" -c 'import torch; print("TRUE" if torch._C._GLIBCXX_USE_CXX11_ABI else "FALSE")') || exit 1
+  WHEEL="flash_attn-$RIG_FLASH+cu12torch2.7cxx11abi$ABI-cp311-cp311-linux_x86_64.whl"
+  "$UV" pip install -q --python "$PY" "https://github.com/Dao-AILab/flash-attention/releases/download/v$RIG_FLASH/$WHEEL" || exit 1
+  log "downloading its checkpoints (about 1.6 GB)"
+  (cd "$D/src" && "$PY" download.py --model) || exit 1
+elif [ "$name" = sdv2 ]; then
   log "installing its packages (PyTorch 2.11 for CUDA 12.8 and friends: a few minutes)"
   PY="$D/src/.venv/bin/python"
   "$UV" venv -q --python 3.11 "$D/src/.venv" || exit 1
