@@ -111,3 +111,54 @@ test('3D object: one picture in, a .glb in the gallery with its picture as the p
   await studio.remove(job.id);
   assert.equal(await fs.stat(path.join(dir, 'output', done.item.poster)).catch(() => null), null);
 });
+
+test('the rigger: a gallery 3D object in, a rigged one out with the same poster; it runs as its own program', async () => {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'rig-'));
+  for (const f of [...FILES.image, ...FILES.video]) await place(dir, f);
+  const state = { prompts: [], done: {} };
+  const runs = [];
+  // The rigger's Python, faked: writes the rigged .glb where it is told.
+  const runRig = (args, opts) => {
+    runs.push({ args, cwd: opts.cwd, secret: opts.env.GATEWAY_SECRET });
+    const out = args[args.indexOf('--output') + 1];
+    const listeners = {};
+    const child = { stdout: null, stderr: null, kill() {}, on: (ev, fn) => (listeners[ev] = fn) };
+    setTimeout(async () => {
+      await fs.writeFile(out, 'glTF-rigged');
+      listeners.close?.(0, null);
+    }, 30);
+    return child;
+  };
+  let envReady = false;
+  const liveEnvs = { root: path.join(dir, 'live-env'), ready: () => envReady, state: () => ({ ready: envReady }), ensure() {}, busy: () => false };
+  process.env.GATEWAY_SECRET = 'not-for-the-rigger';
+  const studio = createStudio({ dir, files: FILES, fetchImpl: fakeComfy(dir, state), WebSocketImpl: null, log: { warn() {}, info() {} }, pollMs: 50, statfs: async () => ({ bavail: 1e7, bsize: 1024 ** 2 }), nsfwDelayMs: 1e9, liveEnvs, runRig });
+  studio.start();
+  await studio.installMaker('trellis2');
+  for (const k of MAKERS.find((m) => m.id === 'trellis2').files) await place(dir, REAL[k]);
+  const made = await studio.createJob({ maker: 'trellis2', image: PNG });
+  const obj = await until(async () => (studio.job(made.id)?.status === 'done' ? studio.job(made.id).item : null));
+
+  await studio.installMaker('rig');
+  await assert.rejects(studio.createJob({ maker: 'rig', fromItem: obj.id }), /being set up/, 'not until its Python is ready');
+  envReady = true;
+  await assert.rejects(studio.createJob({ maker: 'rig', fromItem: 'nosuchitem1' }), /3D object/);
+
+  const job = await studio.createJob({ maker: 'rig', fromItem: obj.id });
+  assert.equal(job.kind, 'model3d');
+  const done = await until(async () => {
+    const j = studio.job(job.id);
+    return j?.status === 'done' || j?.status === 'error' ? j : null;
+  });
+  assert.equal(done.status, 'done', done.error);
+  assert.equal(runs.length, 1);
+  assert.equal(runs[0].cwd, path.join(dir, 'live-env', 'rig', 'src'));
+  assert.ok(runs[0].args.includes('--use_transfer'), 'keeps its textures and scale');
+  assert.equal(runs[0].secret, undefined, 'the gate’s secrets never reach it');
+  assert.equal(state.prompts.length, 1, 'nothing went to ComfyUI for the rig');
+  assert.equal(done.item.rigged, true);
+  assert.match(done.item.prompt, /^Rigged: /);
+  assert.equal(await fs.readFile(path.join(dir, 'output', done.item.file), 'utf8'), 'glTF-rigged');
+  assert.ok(await fs.stat(path.join(dir, 'output', done.item.poster)), 'the same poster comes along');
+  delete process.env.GATEWAY_SECRET;
+});

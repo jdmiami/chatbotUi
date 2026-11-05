@@ -8,8 +8,10 @@
 FROM ubuntu:24.04
 
 ENV DEBIAN_FRONTEND=noninteractive PIP_NO_CACHE_DIR=1 PYTHONUNBUFFERED=1
+# The X and GL libraries are for the rigger's Blender (bpy), which loads them even with no screen.
 RUN apt-get update -qq && apt-get install -y -qq --no-install-recommends \
       ca-certificates curl git python3 python3-venv python3-pip ffmpeg xz-utils \
+      libx11-6 libxrender1 libxxf86vm1 libxfixes3 libxi6 libxkbcommon0 libsm6 libice6 libgl1 libegl1 libgomp1 \
     && rm -rf /var/lib/apt/lists/*
 
 # cloudflared: the AI machine on GPU.ai opens its own tunnel (ai/serverless/machine.sh) so Orbit reaches

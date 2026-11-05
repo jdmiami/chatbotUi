@@ -2,6 +2,7 @@
 // local ComfyUI (127.0.0.1:8188, never exposed), tracks their progress, keeps a gallery on the
 // network volume and serves the results. Everything that creates something goes through
 // createJob(), which applies the one content rule (no sexual content involving minors).
+import { spawn as nodeSpawn } from 'node:child_process';
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import fsp from 'node:fs/promises';
@@ -901,7 +902,8 @@ export function createStudio(o) {
 
   /** Live video makers whose files are here: set up their Python (once; live_env.sh). */
   async function setUpEnvs() {
-    if (!o.liveEnvs || helper) return;
+    // A helper sets them up too when it manages its own makers (the AI machine on GPU.ai: the rigger).
+    if (!o.liveEnvs || (helper && !ownMakers)) return;
     for (const m of kept()) if (m.env && !o.liveEnvs.ready(m.env) && (await makerReady(m))) o.liveEnvs.ensure(m.env);
   }
 
@@ -1346,6 +1348,8 @@ export function createStudio(o) {
     const maker = req.maker ? makerById(String(req.maker)) : makerById(req.kind === 'video' ? 'ltx' : 'qwen');
     // Live makers (live.js) answer on their own connection, not as jobs.
     if (!maker || maker.kind === 'style' || maker.kind === 'live') throw Object.assign(new Error('No such maker.'), { status: 400 });
+    // The rigger works on a 3D object in the gallery, in its own Python, not in ComfyUI.
+    if (maker.kind === 'rig') return createRigJob(req, maker);
     const mode = maker.kind; // image | video | edit | upscale | videoedit | sketch | model3d
     // Which recipe: krea (Krea 2 family), qwen (Qwen Image family), ltx, ltx25, h3 or s2v (video),
     // vace or seedvr2 (video edits).
@@ -1678,6 +1682,123 @@ export function createStudio(o) {
     return publicJob(job);
   }
 
+  /**
+   * Rig a 3D object from the gallery (SkinTokens): its .glb and its poster are copied in, the rigger runs as
+   * its own program (runRigProcess) when the job's turn comes, and the rigged .glb lands in the gallery as a
+   * new 3D object with the same poster. { maker: 'rig', fromItem }.
+   */
+  async function createRigJob(req, maker) {
+    if (!(await makerReady(maker)) || (maker.env && o.liveEnvs && !o.liveEnvs.ready(maker.env))) {
+      const env = maker.env && o.liveEnvs ? o.liveEnvs.state(maker.env) : null;
+      // On demand: one of yours that isn't set up here yet goes first in line now.
+      if (onDemand && inLibrary(maker) && !keeps(maker)) {
+        addToLine(maker, true);
+        await savePicked();
+        void downloadAll();
+      }
+      const why = env?.installing ? `${maker.name} is being set up (${env.step || 'a few minutes'}).` : keeps(maker) ? `${maker.name} is being set up.` : `Add ${maker.name} in the store first.`;
+      throw Object.assign(new Error(`${why} Try again when it's ready.`), { status: 503 });
+    }
+    const source = req.fromItem ? await readItem(String(req.fromItem)) : null;
+    if (!source || source.kind !== 'model3d') throw Object.assign(new Error('Pick a 3D object from your gallery to rig.'), { status: 400 });
+    const src = await localFile(source);
+    if (!src) throw Object.assign(new Error('That 3D object is no longer in your gallery.'), { status: 404 });
+    const id = newId();
+    await fsp.mkdir(path.join(dir, 'input'), { recursive: true });
+    const rigInput = `rig-${id}.glb`;
+    await fsp.copyFile(src, path.join(dir, 'input', rigInput));
+    let posterFrom;
+    const posterSrc = source.poster ? await localFile({ ...source, file: source.poster }) : null;
+    if (posterSrc) {
+      posterFrom = `rig-${id}-poster${path.extname(posterSrc) || '.png'}`;
+      await fsp.copyFile(posterSrc, path.join(dir, 'input', posterFrom));
+    }
+    const job = {
+      id,
+      kind: 'model3d',
+      maker: maker.id,
+      mode: 'rig',
+      runner: 'rig',
+      rigInput,
+      posterFrom,
+      prompt: `Rigged: ${String(source.prompt || '3D object').replace(/^Rigged: /, '')}`.slice(0, 500),
+      fromImage: false,
+      rigged: true,
+      sources: [String(source.id)],
+      nsfwSource: source.nsfw || undefined,
+      owner: typeof req.owner === 'string' && req.owner ? req.owner.slice(0, 120) : undefined,
+      status: 'queued',
+      progress: 0,
+      attempts: 1,
+      notes: [],
+      seq: ++seq,
+      queuedAt: now(),
+      createdAt: new Date(now()).toISOString(),
+    };
+    jobs.set(id, job);
+    await dispatch();
+    return publicJob(job);
+  }
+
+  /** Rigging, at most this long (the model loads, then Blender writes the rig). */
+  const RIG_MS = o.rigMs ?? 20 * 60_000;
+  /**
+   * Run the rigger on one job: SkinTokens' demo.py in its own Python, its .glb in, a rigged .glb out under
+   * output/. Resolves with the output's path relative to output/, or rejects with the reason.
+   */
+  function runRigProcess(job) {
+    const root = o.liveEnvs?.root || path.join(dir, 'live-env');
+    const cwd = path.join(root, 'rig', 'src');
+    const outRel = `orbit/model3d-${job.id}.glb`;
+    const out = path.join(dir, 'output', outRel);
+    const args = ['demo.py', '--input', path.join(dir, 'input', job.rigInput), '--output', out, '--use_transfer'];
+    const run = o.runRig || ((a, opts) => nodeSpawn(path.join(cwd, '.venv', 'bin', 'python'), a, opts));
+    return new Promise((resolve, reject) => {
+      fs.mkdirSync(path.dirname(out), { recursive: true });
+      // Never the gate's secrets.
+      const env = { ...process.env, PYTHONUNBUFFERED: '1' };
+      for (const k of ['GATEWAY_SECRET', 'R2_ACCESS_KEY_ID', 'R2_SECRET_ACCESS_KEY', 'HF_TOKEN', 'RUNPOD_API_KEY', 'GPUAI_API_KEY', 'STUDIO_KEY']) delete env[k];
+      let child;
+      try {
+        child = run(args, { cwd, env, stdio: ['ignore', 'pipe', 'pipe'] });
+      } catch (err) {
+        reject(err);
+        return;
+      }
+      job.child = child;
+      let tail = '';
+      // Its own words for where it is, as the job's progress (it loads, rigs, then exports).
+      const keep = (b) => {
+        const t = b.toString();
+        tail = (tail + t).slice(-2000);
+        if (/ready|load/i.test(t)) job.progress = Math.max(job.progress, 10);
+        if (/generat|predict|token/i.test(t)) job.progress = Math.max(job.progress, 40);
+        if (/export|transfer|sav/i.test(t)) job.progress = Math.max(job.progress, 85);
+      };
+      child.stdout?.on('data', keep);
+      child.stderr?.on('data', keep);
+      let timedOut = false;
+      const timer = setTimeout(() => {
+        timedOut = true;
+        child.kill('SIGKILL');
+      }, RIG_MS);
+      timer.unref?.();
+      child.on('error', (err) => {
+        clearTimeout(timer);
+        job.child = null;
+        reject(err);
+      });
+      child.on('close', async (code, signal) => {
+        clearTimeout(timer);
+        job.child = null;
+        const st = await fsp.stat(out).catch(() => null);
+        if (code === 0 && st && st.size > 0) return resolve(outRel);
+        log.warn?.(`[rig] job ${job.id} ended (${code ?? signal}): ${tail.split('\n').slice(-6).join(' | ')}`);
+        reject(new Error(timedOut ? 'Rigging took too long.' : 'The rigger could not rig this object.'));
+      });
+    });
+  }
+
   /** Hand the next waiting job to ComfyUI when it is free. Calls made meanwhile share the one run. */
   let dispatching = null;
   let dispatchAgain = false;
@@ -1702,6 +1823,24 @@ export function createStudio(o) {
 
   /** Send one job to ComfyUI. False when ComfyUI can't take it right now (the job keeps its place). */
   async function submit(job) {
+    if (job.runner === 'rig') {
+      // The rigger needs the graphics card: ComfyUI lets go of what it holds first.
+      await comfyJson('/free', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ unload_models: true, free_memory: true }) }).catch(() => {});
+      comfyHoldsGpu = false;
+      loadedMaker = null;
+      job.promptId = `proc:${job.id}`;
+      job.status = 'running';
+      job.startedAt = now();
+      job.progress = 3;
+      runRigProcess(job).then(
+        (file) => {
+          job.resultFile = file;
+          return finish(job);
+        },
+        (err) => finish(job, job.status === 'stopped' ? 'Stopped.' : err.message),
+      );
+      return true;
+    }
     try {
       await unloadChatModels();
       // Others using the graphics card (Live draw) make way for a video, which needs all of it.
@@ -1756,10 +1895,13 @@ export function createStudio(o) {
       return;
     }
     try {
-      const hist = await comfyJson(`/history/${encodeURIComponent(job.promptId)}`);
-      const out = outputFiles(hist[job.promptId]?.outputs)[0];
-      if (!out) throw new Error('The job finished without a result.');
-      const file = path.posix.join(out.subfolder || '', out.filename);
+      let file = job.resultFile;
+      if (!file) {
+        const hist = await comfyJson(`/history/${encodeURIComponent(job.promptId)}`);
+        const out = outputFiles(hist[job.promptId]?.outputs)[0];
+        if (!out) throw new Error('The job finished without a result.');
+        file = path.posix.join(out.subfolder || '', out.filename);
+      }
       // Edits and sharpening make whatever size the picture leads to: read it from the file.
       if (job.kind === 'image' && !(job.width && job.height)) Object.assign(job, (await pngSize(path.join(dir, 'output', file))) || {});
       // A 3D object keeps the picture it came from next to it: its thumbnail and what the safety check looks at.
@@ -1791,6 +1933,8 @@ export function createStudio(o) {
         owner: job.owner || undefined,
         file,
         poster,
+        // Rigged by the rigger: it has bones and skin weights (it can be posed and animated).
+        rigged: job.rigged || undefined,
         createdAt: job.createdAt,
       };
       await fsp.mkdir(metaDir, { recursive: true });
@@ -1940,7 +2084,8 @@ export function createStudio(o) {
   async function poll() {
     if (active().length) connectWs();
     const job = inFlight();
-    if (job && !job.fixing) {
+    // A job run as its own program (the rigger) reports back by itself, not through ComfyUI.
+    if (job && !job.fixing && !job.runner) {
       const up = await comfyUp();
       if (!up) {
         job.downSince ??= now();
@@ -2001,7 +2146,10 @@ export function createStudio(o) {
     if (!job) return null;
     if (job.status === 'queued' || job.status === 'running') {
       const pid = job.promptId;
-      if (pid) {
+      if (job.runner) {
+        // Its own program: stopped where it is.
+        job.child?.kill('SIGKILL');
+      } else if (pid) {
         byPrompt.delete(pid);
         await comfyJson('/queue', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ delete: [pid] }) }).catch(() => {});
         // Sent to ComfyUI means it may already be running there, before its first progress event.

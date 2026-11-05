@@ -38,6 +38,8 @@ import './gallery.css';
 type Origin = 'machine' | 'storage' | 'device';
 export interface Creation extends GalleryMedia {
   source: CreationSource;
+  /** A rigged 3D object (it has bones). */
+  rigged?: boolean;
   origin: Origin;
   prompt: string;
   title?: string;
@@ -94,6 +96,7 @@ function machineCreations(raw: MachineRaw | null, cached: boolean): Creation[] {
     prompt: it.prompt,
     lab: false,
     movie: it.movie,
+    rigged: it.rigged,
     createdAt: it.createdAt,
     downloadUrl: it.url ? withParam(it.url, 'download=1') : '',
   }));
@@ -422,6 +425,16 @@ export default function GalleryApp({ isActive }: AppProps) {
     });
     launch('make');
   };
+  /** Rig a 3D object on the AI machine (bones and skin weights): the rigged one lands in the gallery. */
+  const rig = async (c: Creation) => {
+    try {
+      await ai.createStudioJob({ kind: 'model3d', maker: 'rig', prompt: '', fromItem: c.id });
+      setViewing(null);
+      toast('Rigging it: the rigged object lands in your gallery in a few minutes.', 'info');
+    } catch (err) {
+      toast((err as Error).message, 'error');
+    }
+  };
   // Video makers the AI machine has (as Make last saw them): the buttons Make's own gallery shows.
   const [videoMakers] = useState(() => new Set(offlineMakers().filter((m) => m.installed).map((m) => m.id)));
   const makerHere = (id: string) => videoMakers.has(id);
@@ -597,6 +610,11 @@ export default function GalleryApp({ isActive }: AppProps) {
                       <Icon name="pencil" size={16} /> Edit
                     </button>
                   </>
+                )}
+                {open.kind === 'model3d' && !open.rigged && machineOn && open.origin === 'machine' && makerHere('rig') && (
+                  <button type="button" className="btn" onClick={() => void rig(open)}>
+                    <Icon name="person" size={16} /> Rig it
+                  </button>
                 )}
                 {open.kind === 'video' &&
                   VIDEO_WORK.filter((w) => makerHere(w.maker)).map((w) => (

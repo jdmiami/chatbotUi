@@ -18,6 +18,7 @@ const ENTRIES: Entry[] = [
   ['angles', 'edit', 'New angle', 'The same subject from another camera angle.'],
   ['sharpen', 'upscale', 'Sharpen 4×', 'Makes a picture four times larger and crisper.'],
   ['trellis2', 'model3d', '3D object', 'A 3D object with its colours from one picture (TRELLIS.2). Best with one thing on a plain background.', { needs: ['photo'] }],
+  ['rig', 'rig', 'Rig it', 'Adds bones and skin weights to a 3D object so it can be posed and animated (SkinTokens). People, animals and things.'],
   ['hy3d', 'model3d', '3D shape', 'The shape of a thing from one picture, no colours (Hunyuan3D 2.1). Quicker; good for printing or painting yourself.', { needs: ['photo'] }],
   // Video makers that take a video, a voice or song, or words naming a thing (ai/gate/catalog.json).
   ['ltx-25', 'video', 'LTX-2.5', 'Lightricks’ newest: video with sound, first and last frame, and video to video. Needs a Hugging Face token.', { accepts: ['photo', 'endPhoto', 'video'], gated: true }],
