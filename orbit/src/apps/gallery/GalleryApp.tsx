@@ -50,7 +50,7 @@ export interface Creation extends GalleryMedia {
   downloadUrl: string;
 }
 
-type Kind = 'all' | 'image' | 'video';
+type Kind = 'all' | 'image' | 'video' | 'model3d';
 type Source = 'all' | CreationSource;
 const SOURCES: { value: Source; label: string }[] = [
   { value: 'all', label: 'Everything' },
@@ -125,7 +125,7 @@ function machineCreations(raw: MachineRaw | null, cached: boolean): Creation[] {
 function loadPick(): { kind: Kind; source: Source } {
   try {
     const v = JSON.parse(localStorage.getItem(PICK_KEY) || '{}') as { kind?: Kind; source?: Source };
-    return { kind: v.kind === 'image' || v.kind === 'video' ? v.kind : 'all', source: SOURCES.some((s) => s.value === v.source) ? v.source! : 'all' };
+    return { kind: v.kind === 'image' || v.kind === 'video' || v.kind === 'model3d' ? v.kind : 'all', source: SOURCES.some((s) => s.value === v.source) ? v.source! : 'all' };
   } catch {
     return { kind: 'all', source: 'all' };
   }
@@ -460,12 +460,13 @@ export default function GalleryApp({ isActive }: AppProps) {
           <div className="gallery-filters">
             {!reviewing && (
             <Segmented<Kind>
-              label="Pictures or videos"
+              label="Pictures, videos or 3D"
               value={pick.kind}
               options={[
                 { value: 'all', label: 'All' },
                 { value: 'image', label: 'Pictures' },
                 { value: 'video', label: 'Videos' },
+                { value: 'model3d', label: '3D' },
               ]}
               onChange={(kind) => setPick({ kind })}
             />
@@ -547,7 +548,7 @@ export default function GalleryApp({ isActive }: AppProps) {
       {open && (
         <GalleryViewer
           media={open}
-          title={open.lab ? (open.kind === 'image' ? 'Lab picture' : 'Lab video') : open.kind === 'image' ? 'Picture' : 'Video'}
+          title={open.lab ? (open.kind === 'image' ? 'Lab picture' : 'Lab video') : open.kind === 'image' ? 'Picture' : open.kind === 'model3d' ? '3D object' : 'Video'}
           origin={viewFrom.current}
           onClose={() => setViewing(null)}
           onPrev={step.prev ? () => setViewing(step.prev!.id) : null}
@@ -582,7 +583,7 @@ export default function GalleryApp({ isActive }: AppProps) {
             {/* Carry on in Make, as from Make's own gallery (not for what still waits on this device: Make has no file for it). */}
             {open.origin !== 'device' && (
               <>
-                {open.prompt && (
+                {open.prompt && open.kind !== 'model3d' && (
                   <button type="button" className="btn" onClick={() => carryOn(open, 'prompt')}>
                     <Icon name="refresh" size={16} /> Use prompt
                   </button>

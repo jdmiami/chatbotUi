@@ -9,7 +9,8 @@ export type CreationSource = 'make' | 'cloud' | 'lab' | 'soreal' | 'livedraw';
 
 export interface StoredItem {
   id: string;
-  kind: 'image' | 'video';
+  /** model3d: a 3D object (.glb). */
+  kind: 'image' | 'video' | 'model3d';
   source: CreationSource;
   maker?: string;
   prompt: string;

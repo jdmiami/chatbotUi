@@ -292,13 +292,15 @@
 
 /* ---------------------------------------------------------------- 1 · what */
 .mk-kinds { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 4px clamp(14px, 3vw, 32px); }
-/* A phone stacks the four kinds; "A character" and "Draw it" share the last row so step 1 still fits. */
+/* A phone stacks the first three kinds; "Edit a video" and "A 3D object", then "A character" and "Draw it",
+   share a row each so step 1 still fits. */
 @media (max-width: 560px) {
   .mk-kinds { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .mk-kinds > [role='radio'], .mk-kinds > .mk-kind-draw:not(.mk-kind-character + .mk-kind-draw) { grid-column: 1 / -1; }
-  .mk-kind:is(.mk-kind-character, .mk-kind-draw) { column-gap: 10px; padding-inline: 2px; }
-  .mk-kind:is(.mk-kind-character, .mk-kind-draw) .mk-kind-art { width: 36px; height: 36px; }
-  .mk-kind:is(.mk-kind-character, .mk-kind-draw) .mk-kind-hint { font-size: 12px; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+  .mk-kinds > .mk-kind { padding-block: 8px; }
+  .mk-kinds > [role='radio']:not(.mk-kind-vedit, .mk-kind-model3d), .mk-kinds > .mk-kind-draw:not(.mk-kind-character + .mk-kind-draw) { grid-column: 1 / -1; }
+  .mk-kind:is(.mk-kind-character, .mk-kind-draw, .mk-kind-vedit, .mk-kind-model3d) { column-gap: 10px; padding-inline: 2px; }
+  .mk-kind:is(.mk-kind-character, .mk-kind-draw, .mk-kind-vedit, .mk-kind-model3d) .mk-kind-art { width: 36px; height: 36px; }
+  .mk-kind:is(.mk-kind-character, .mk-kind-draw, .mk-kind-vedit, .mk-kind-model3d) .mk-kind-hint { font-size: 12px; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
 }
 .mk-kind {
   position: relative;

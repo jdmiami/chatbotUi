@@ -65,11 +65,11 @@ export async function isWebp(file) {
 }
 
 /**
- * Whether an item may have a public thumbnail: a picture or video, and not one still waiting for its check
+ * Whether an item may have a public thumbnail: a picture, a video or a 3D object (from its poster), and not one still waiting for its check
  * (about children: only once the check found it fine; a real person's photo: only once the check has looked).
  */
 export const wantsThumb = (it) =>
-  Boolean(it && ID.test(String(it.id)) && (it.kind === 'image' || it.kind === 'video') && !(it.minorGuard && it.nsfw !== false) && !(it.photoGuard && typeof it.nsfw !== 'boolean'));
+  Boolean(it && ID.test(String(it.id)) && (it.kind === 'image' || it.kind === 'video' || (it.kind === 'model3d' && it.poster)) && !(it.minorGuard && it.nsfw !== false) && !(it.photoGuard && typeof it.nsfw !== 'boolean'));
 
 /**
  * root: the gallery's output/ folder. ffmpeg: (args, { nice, timeoutMs }) => Promise (movies.js runFfmpeg).
@@ -143,7 +143,7 @@ export function createThumbs({ root, ffmpeg, mirror = null, log = console, sleep
 
   /** A thumbnail made somewhere else (a held result's: held.js keeps it), never in this folder. Caller removes it. */
   async function makeTemp(it, src) {
-    if (!it || !ID.test(String(it.id)) || (it.kind !== 'image' && it.kind !== 'video')) return null;
+    if (!it || !ID.test(String(it.id)) || (it.kind !== 'image' && it.kind !== 'video' && it.kind !== 'model3d')) return null;
     const out = path.join(os.tmpdir(), `orbit-thumb-${it.id}-${process.pid}-${++seq}.webp`);
     return (await render(it, src, out)) ? out : null;
   }

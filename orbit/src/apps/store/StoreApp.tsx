@@ -45,8 +45,9 @@ const MAKER_SHELVES: { id: string; title: string; dek: string; kinds: StudioMake
   { id: 'store-video-edit', title: 'Video editing', dek: 'Change, erase or sharpen a video you have.', kinds: ['videoedit'] },
   { id: 'store-upscale', title: 'Sharpen & enlarge', dek: 'Make small pictures big and crisp.', kinds: ['upscale'] },
   { id: 'store-styles', title: 'Styles', dek: 'Looks to lay over a picture maker.', kinds: ['style'] },
+  { id: 'store-3d', title: '3D objects', dek: 'Turn a picture of a thing into a 3D object you can turn, save and print.', kinds: ['model3d'] },
 ];
-const KIND_NAME: Record<StudioMakerInfo['kind'], string> = { image: 'Picture maker', video: 'Video maker', edit: 'Picture editor', upscale: 'Upscaler', style: 'Style', videoedit: 'Video editor', live: 'Live maker', sketch: 'Sketch finisher' };
+const KIND_NAME: Record<StudioMakerInfo['kind'], string> = { image: 'Picture maker', video: 'Video maker', edit: 'Picture editor', upscale: 'Upscaler', style: 'Style', videoedit: 'Video editor', live: 'Live maker', sketch: 'Sketch finisher', model3d: '3D maker' };
 const NEED_WORDS: Record<string, string> = { video: 'a video', audio: 'a voice or song', photo: 'a photo', target: 'words naming what to change' };
 /** "A video and a voice or song" */
 function needsText(m: StudioMakerInfo): string | null {

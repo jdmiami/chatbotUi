@@ -155,7 +155,7 @@ test.describe('AI app', () => {
 // ---- Create: image and video maker
 
 /** "What will it be?" in Make: a picture, a video, an edit, or a video edit. */
-const KINDS = { image: /^A picture/, video: /^A video/, edit: /^An edit/, vedit: /^Edit a video/ } as const;
+const KINDS = { image: /^A picture/, video: /^A video/, edit: /^An edit/, vedit: /^Edit a video/, model3d: /^A 3D object/ } as const;
 const kindRadio = (page: Page, kind: keyof typeof KINDS) =>
   page.locator('.app-window[data-app="make"]').getByRole('radiogroup', { name: 'What to make' }).getByRole('radio', { name: KINDS[kind] });
 /** Make is a walk-through: "What" is its first step; picking one moves on to the maker. */
@@ -189,6 +189,35 @@ async function makeButton(page: Page, name: string | RegExp) {
 const PNG = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==', 'base64');
 const READY = { ready: true, downloaded: true, percent: 100 };
 
+/** The smallest real 3D object: one triangle, as a binary glTF (.glb). */
+const TRIANGLE_GLB = (() => {
+  const pos = Buffer.alloc(36);
+  [0, 0, 0, 1, 0, 0, 0, 1, 0].forEach((v, i) => pos.writeFloatLE(v, i * 4));
+  const json = JSON.stringify({
+    asset: { version: '2.0' },
+    scene: 0,
+    scenes: [{ nodes: [0] }],
+    nodes: [{ mesh: 0 }],
+    meshes: [{ primitives: [{ attributes: { POSITION: 0 } }] }],
+    buffers: [{ byteLength: 36 }],
+    bufferViews: [{ buffer: 0, byteOffset: 0, byteLength: 36 }],
+    accessors: [{ bufferView: 0, componentType: 5126, count: 3, type: 'VEC3', min: [0, 0, 0], max: [1, 1, 0] }],
+  });
+  const jsonBuf = Buffer.from(json.padEnd(Math.ceil(json.length / 4) * 4, ' '));
+  const header = Buffer.alloc(12);
+  const total = 12 + 8 + jsonBuf.length + 8 + pos.length;
+  header.writeUInt32LE(0x46546c67, 0);
+  header.writeUInt32LE(2, 4);
+  header.writeUInt32LE(total, 8);
+  const chunk = (type: number, data: Buffer) => {
+    const h = Buffer.alloc(8);
+    h.writeUInt32LE(data.length, 0);
+    h.writeUInt32LE(type, 4);
+    return Buffer.concat([h, data]);
+  };
+  return Buffer.concat([header, chunk(0x4e4f534a, jsonBuf), chunk(0x004e4942, pos)]);
+})();
+
 async function mockStudio(page: Page) {
   const items = [
     { id: 'img1', kind: 'image', prompt: 'a red fox in snow', width: 1328, height: 1328, createdAt: '2026-10-16T10:00:00Z', url: '/_orbit/studio/file/img1?t=tok' },
@@ -205,7 +234,11 @@ async function mockStudio(page: Page) {
     items.splice(items.findIndex((i) => i.id === id), 1);
     return route.fulfill({ json: { ok: true } });
   });
-  await page.route('**/fake-ai/_orbit/studio/file/**', (route) => route.fulfill({ status: 200, headers: { 'content-type': 'image/png' }, body: PNG }));
+  await page.route('**/fake-ai/_orbit/studio/file/**', (route) =>
+    /\/new\w+\?/.test(route.request().url()) && items.find((i) => route.request().url().includes(`/${i.id}?`))?.kind === 'model3d'
+      ? route.fulfill({ status: 200, headers: { 'content-type': 'model/gltf-binary' }, body: TRIANGLE_GLB })
+      : route.fulfill({ status: 200, headers: { 'content-type': 'image/png' }, body: PNG }),
+  );
   // An AI machine without the meme lab (tests that want it add their own route).
   await page.route('**/fake-ai/_orbit/studio/lab**', (route) => route.fulfill({ status: 404, json: { error: 'Not found' } }));
   await page.route('**/fake-ai/_orbit/studio/jobs', async (route) => {
@@ -249,6 +282,7 @@ async function mockStudio(page: Page) {
     { id: 'video-erase', kind: 'videoedit', name: 'Erase from video', blurb: 'Remove a thing.', for: null, twoImages: false, needs: ['video', 'target'], builtIn: false, wanted: true, installed: true, size: 43.7e9, percent: 100 },
     { id: 'person-swap', kind: 'videoedit', name: 'Swap a person', blurb: 'Put someone from your photo in place of a person in your video.', for: null, twoImages: false, needs: ['video', 'target', 'photo'], accepts: ['facePhoto'], builtIn: false, wanted: true, installed: true, size: 23.7e9, percent: 100 },
     { id: 'video-sharpen', kind: 'videoedit', name: 'Sharpen video', blurb: 'Twice as large.', for: null, twoImages: false, needs: ['video'], builtIn: false, wanted: true, installed: true, size: 4e9, percent: 100 },
+    { id: 'trellis2', kind: 'model3d', name: '3D object', blurb: 'A 3D object with its colours from one picture.', for: null, twoImages: false, needs: ['photo'], builtIn: false, wanted: true, installed: true, size: 8.9e9, percent: 100 },
   ];
   const makerCalls: string[] = [];
   // Videos and sounds sent for the video makers (the raw file, its type as content-type).
@@ -1028,6 +1062,36 @@ test.describe('AI app: video makers', () => {
     expect(studio.requests[2]).toMatchObject({ maker: 'vace', task: 'motion' });
     expect(String(studio.requests[2].image)).toMatch(/^data:image\/jpeg;base64,/);
     expect(errors).toEqual([]);
+  });
+
+  test('a 3D object from one picture: no words needed, made on the machine, turned in the gallery', async ({ page }, info) => {
+    await mockAi(page, 'on');
+    const studio = await mockStudio(page);
+    await openOrbit(page);
+    await openCreate(page);
+    await pickKind(page, 'model3d');
+    await pickMaker(page, /^3D object/);
+    await makeStep(page, 'Extras');
+    await expect(page.getByText('The picture of the thing')).toBeVisible();
+    await page.locator('.ai-create input[type="file"]').setInputFiles({ name: 'mug.png', mimeType: 'image/png', buffer: PNG });
+    await expect(page.getByRole('img', { name: 'Picture to make 3D' })).toBeVisible();
+    await (await makeButton(page, 'Make 3D object')).click();
+    await expect.poll(() => studio.requests.length).toBe(1);
+    expect(studio.requests[0]).toMatchObject({ kind: 'model3d', maker: 'trellis2', prompt: '' });
+    expect(String((studio.requests[0].images as string[])[0])).toMatch(/^data:image\/(png|jpeg);base64,/);
+    // Done: it shows in the gallery as a 3D object, and opens in the 3D viewer.
+    const tile = page.locator('.app-window[data-app="make"]').getByRole('button', { name: /^3D object/ }).first();
+    await openMakeGallery(page);
+    await expect(tile).toBeVisible({ timeout: 15_000 });
+    await expect(tile).toContainText('3D');
+    await tile.click();
+    const viewer = page.locator('model-viewer');
+    await expect(viewer).toHaveCount(1, { timeout: 15_000 });
+    await expect.poll(() => viewer.evaluate((el) => (el as unknown as { loaded?: boolean }).loaded === true), { timeout: 20_000 }).toBe(true);
+    await expect(page.getByRole('dialog', { name: '3D object' })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Use prompt' })).toHaveCount(0);
+    await expectNoHorizontalOverflow(page);
+    await page.screenshot({ path: info.outputPath('model3d-viewer.png') });
   });
 
   test('erase from an uploaded video, and sharpen a gallery video', async ({ page }) => {

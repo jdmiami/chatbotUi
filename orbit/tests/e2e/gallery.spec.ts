@@ -110,9 +110,9 @@ test('Gallery with the AI machine off: everything from cloud storage, tabs, the 
   await sources.getByRole('radio', { name: /^Lab/ }).click();
   await expect(win.getByRole('list', { name: 'From Lab' }).getByRole('listitem')).toHaveCount(1);
   await sources.getByRole('radio', { name: /^Everything/ }).click();
-  await win.getByRole('group', { name: 'Pictures or videos' }).getByRole('button', { name: 'Videos' }).click();
+  await win.getByRole('group', { name: 'Pictures, videos or 3D' }).getByRole('button', { name: 'Videos' }).click();
   await expect(grid.getByRole('listitem')).toHaveCount(2);
-  await win.getByRole('group', { name: 'Pictures or videos' }).getByRole('button', { name: 'All' }).click();
+  await win.getByRole('group', { name: 'Pictures, videos or 3D' }).getByRole('button', { name: 'All' }).click();
   for (const b of await win.locator('.gallery-filters button').all()) {
     const bb = (await b.boundingBox())!;
     expect(Math.min(bb.width, bb.height), `${await b.textContent()} is a 44 px target`).toBeGreaterThanOrEqual(44);
