@@ -50,3 +50,21 @@ test('asking the site to turn the machine off: a short-lived token the site can 
   await assert.rejects(askSiteToTurnOff({ siteUrl: 'https://site.example', secret: 'x', name: 'orbit-ai', fetchImpl: async () => new Response('', { status: 403 }), log: {} }), /403/);
   await assert.rejects(askSiteToTurnOff({ siteUrl: '', secret: 'x', name: 'orbit-ai', fetchImpl, log: {} }), /SITE_URL/);
 });
+
+test('the drawing machine keeps its own note and asks to turn off only itself', async () => {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'canvas-note-'));
+  const file = path.join(dir, 'url');
+  await fs.writeFile(file, 'https://draw-me.trycloudflare.com\n');
+  const { r2, objects } = memoryR2();
+  const a = createAnnounce({ file, name: 'orbit-ai-canvas', r2, key: 'state/canvas-machine.json', log: {} });
+  await a.publishNow();
+  assert.equal(JSON.parse(objects.get('state/canvas-machine.json').toString()).url, 'https://draw-me.trycloudflare.com');
+  assert.equal(objects.has(MACHINE_KEY), false, "the AI machine's note is left alone");
+  let token = '';
+  const fetchImpl = async (_url, init) => {
+    token = init.headers.authorization.slice(7);
+    return new Response('{}');
+  };
+  await askSiteToTurnOff({ siteUrl: 'https://site.example', secret: 's3cret-s3cret-s3cret-s3cret-s3cret', name: 'orbit-ai-canvas', sub: 'canvas-machine', fetchImpl, log: {} });
+  assert.equal(verifyJwt(token, 's3cret-s3cret-s3cret-s3cret-s3cret', { audience: 'site-island' }).sub, 'canvas-machine');
+});

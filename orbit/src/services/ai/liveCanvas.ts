@@ -9,6 +9,7 @@
  * proxy in the way) or keeps dropping, each frame is POSTed to /_orbit/canvas/frame instead.
  */
 import type { StudioItem, StudioJob } from './LocalAi';
+import { chooseGpu } from '../../ui/GpuChooser';
 
 export type CanvasEngine = 'fast' | 'licensed';
 export type CanvasMachineState = 'unconfigured' | 'off' | 'starting' | 'downloading' | 'on' | 'error';
@@ -587,7 +588,14 @@ export class LiveCanvasApi {
   }
 
   async power(action: 'start' | 'stop'): Promise<CanvasStatus> {
-    const s = asStatus(await siteJson<CanvasStatus>(this.f, this.paths.status, { method: 'POST', body: JSON.stringify({ action }) }));
+    // The owner picks the drawing machine's GPU at every Turn on (GPU.ai); members never turn it on here.
+    let gpu: string | undefined;
+    if (action === 'start' && this.paths.status === '/api/canvas') {
+      const pick = await chooseGpu('canvas');
+      if (pick === null) return asStatus(await siteJson<CanvasStatus>(this.f, this.paths.status));
+      gpu = pick;
+    }
+    const s = asStatus(await siteJson<CanvasStatus>(this.f, this.paths.status, { method: 'POST', body: JSON.stringify({ action, gpu }) }));
     if (action === 'stop') this.access.forget();
     return s;
   }

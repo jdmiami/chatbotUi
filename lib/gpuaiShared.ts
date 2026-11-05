@@ -144,3 +144,96 @@ export const nextGpu = (status: number, body: string) =>
 
 /** An operation GPU.ai failed at once for a reason another machine may not have: try the next GPU. */
 export const nextGpuAfterFailedOperation = (detail: string) => /disk|capacity|unavailable|offering|cannot be configured|no longer|sold out|price/i.test(detail);
+
+/** The two machines on GPU.ai: the AI machine (Make, Gallery, the store) and the drawing machine (Live Draw). */
+export type MachineKind = 'ai' | 'canvas';
+/** Where each machine publishes its tunnel address in R2 (ai/gate/src/announce.js). */
+export const NOTE_KEYS: Record<MachineKind, string> = { ai: 'state/ai-machine.json', canvas: 'state/canvas-machine.json' };
+/** Room each machine needs on its disk: the drawing machine also unpacks three Python environments. */
+export const DISK_FOR: Record<MachineKind, number> = { ai: DISK_GB, canvas: 200 };
+
+/**
+ * What Orbit shows about each GPU: its name, memory and a rough speed (the RTX A6000 = 1). GPU.ai's
+ * price list names the type only. AMD and Arm machines are left out: the image is built for NVIDIA on x86.
+ */
+export const GPU_INFO: Record<string, { name: string; memoryGb: number; speed: number }> = {
+  rtx_2000_ada: { name: 'RTX 2000 Ada', memoryGb: 16, speed: 0.3 },
+  rtx_4000_ada: { name: 'RTX 4000 Ada', memoryGb: 20, speed: 0.5 },
+  rtx_a4500: { name: 'RTX A4500', memoryGb: 20, speed: 0.6 },
+  rtx_a5000: { name: 'RTX A5000', memoryGb: 24, speed: 0.7 },
+  l4: { name: 'L4', memoryGb: 24, speed: 0.5 },
+  rtx_3090: { name: 'RTX 3090', memoryGb: 24, speed: 0.9 },
+  rtx_4090: { name: 'RTX 4090', memoryGb: 24, speed: 1.6 },
+  rtx_5090: { name: 'RTX 5090', memoryGb: 32, speed: 2 },
+  a40: { name: 'A40', memoryGb: 48, speed: 0.9 },
+  rtx_a6000: { name: 'RTX A6000', memoryGb: 48, speed: 1 },
+  rtx_6000_ada: { name: 'RTX 6000 Ada', memoryGb: 48, speed: 1.8 },
+  l40: { name: 'L40', memoryGb: 48, speed: 1.8 },
+  l40s: { name: 'L40S', memoryGb: 48, speed: 1.9 },
+  a100_40gb: { name: 'A100', memoryGb: 40, speed: 2 },
+  a100_80gb: { name: 'A100', memoryGb: 80, speed: 2.2 },
+  rtx_pro_6000: { name: 'RTX PRO 6000', memoryGb: 96, speed: 2.8 },
+  h100_pcie: { name: 'H100 PCIe', memoryGb: 80, speed: 3.5 },
+  h100_nvl: { name: 'H100 NVL', memoryGb: 94, speed: 4.2 },
+  h100_sxm: { name: 'H100 SXM', memoryGb: 80, speed: 4.5 },
+  h200_nvl: { name: 'H200 NVL', memoryGb: 141, speed: 4.5 },
+  h200_sxm: { name: 'H200 SXM', memoryGb: 141, speed: 5 },
+  b200: { name: 'B200', memoryGb: 180, speed: 8 },
+  b300: { name: 'B300', memoryGb: 288, speed: 9 },
+};
+const NOT_NVIDIA_X86 = /^(mi\d|gh\d|gb\d)/i;
+
+/** One GPU to choose before turning a machine on: the cheapest machine of that type with room for it. */
+export interface GpuOption {
+  gpu: string;
+  name: string;
+  memoryGb: number | null;
+  pricePerHour: number;
+  region: string | null;
+  /** How many of these are free right now. */
+  free: number;
+  /** yes: does everything this machine does · some: part of it · no: too small (still allowed). */
+  fits: 'yes' | 'some' | 'no';
+  /** What it can do, in plain words. */
+  note: string;
+  /** A rough guide: minutes for a 5-second H3 Max video at 720p (the AI machine), from the speed above. */
+  videoMinutes: number | null;
+}
+
+/** Every GPU GPU.ai offers right now for this machine, cheapest first, and the one to suggest. */
+export function gpuOptions(list: Offering[], kind: MachineKind): { options: GpuOption[]; recommended: string | null } {
+  const types = [...new Set(list.map((o) => o.gpu_type))].filter((g) => !NOT_NVIDIA_X86.test(g));
+  const options: GpuOption[] = [];
+  for (const gpu of types) {
+    const pick = pickOffering(list, gpu, DISK_FOR[kind]);
+    if (!pick) continue;
+    const info = GPU_INFO[gpu];
+    const mem = info?.memoryGb ?? null;
+    const speed = info?.speed ?? null;
+    let fits: GpuOption['fits'];
+    let note: string;
+    if (kind === 'ai') {
+      fits = mem == null ? 'some' : mem >= 48 ? 'yes' : mem >= 24 ? 'some' : 'no';
+      note = fits === 'yes' ? 'Everything: pictures and H3 Max videos' : fits === 'some' ? 'Pictures; big video makers may not fit' : 'Too small for your makers';
+    } else {
+      fits = mem == null ? 'some' : mem >= 80 && (speed ?? 0) >= 3 ? 'yes' : mem >= 48 ? 'some' : 'no';
+      note = fits === 'yes' ? 'Live drawing and Bring to life' : fits === 'some' ? 'Live drawing; Bring to life runs slow' : 'Too small for Live Draw';
+    }
+    options.push({
+      gpu,
+      name: info?.name ?? gpu.replace(/_/g, ' ').toUpperCase(),
+      memoryGb: mem,
+      pricePerHour: pick.offering.price_per_hour,
+      region: pick.offering.region ?? null,
+      free: pick.offering.available,
+      fits,
+      note,
+      videoMinutes: speed ? Math.max(1, Math.round(7.5 / speed)) : null,
+    });
+  }
+  options.sort((a, b) => a.pricePerHour - b.pricePerHour || a.gpu.localeCompare(b.gpu));
+  return { options, recommended: options.find((o) => o.fits === 'yes')?.gpu ?? options[0]?.gpu ?? null };
+}
+
+/** A GPU id from Orbit: GPU.ai's form only (lowercase, digits, underscores). */
+export const cleanGpu = (v: unknown): string | null => (typeof v === 'string' && /^[a-z0-9_]{2,40}$/.test(v) ? v : null);

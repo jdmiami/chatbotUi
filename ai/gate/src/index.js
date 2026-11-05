@@ -71,7 +71,8 @@ if (kept.gallery && !galleryR2) console.warn('[gate] GALLERY=r2 but the R2 keys 
 // An AI machine on GPU.ai (ai/serverless/machine.sh): its address comes from a tunnel it opens itself
 // and is published in R2 for the site (announce.js); it asks the site to turn it off when idle.
 const MACHINE_NAME = env.MACHINE_NAME || 'orbit-ai';
-const announce = env.MACHINE_URL_FILE ? createAnnounce({ file: env.MACHINE_URL_FILE, name: MACHINE_NAME, r2, log: console }) : null;
+// Each machine has its own note: the AI machine state/ai-machine.json, the drawing machine state/canvas-machine.json.
+const announce = env.MACHINE_URL_FILE ? createAnnounce({ file: env.MACHINE_URL_FILE, name: MACHINE_NAME, r2, key: CANVAS ? 'state/canvas-machine.json' : 'state/ai-machine.json', log: console }) : null;
 if (announce && !r2) console.warn('[machine] no R2 keys: the address will not reach the site (only this machine\'s own status says it)');
 announce?.start();
 // ONLY_MAKERS (comma-separated maker ids): this machine keeps just these, in this order, whatever was
@@ -126,10 +127,11 @@ const studio = env.STUDIO_DIR
       // what you add in the store is added there too, kept in its own list. Elsewhere the list is strict.
       strictMakers: !CANVAS && ONLY_MAKERS.length > 0 && !announce,
       ownMakers: Boolean(announce),
-      makersKey: announce ? 'state/makers-gpuai.json' : undefined,
-      // There it loads nothing until you pick (LOAD_ON_PICK=0 brings back loading the whole list at start).
-      onDemand: Boolean(announce) && env.LOAD_ON_PICK !== '0',
-      firstKey: announce ? 'state/makers-gpuai-first.json' : undefined,
+      makersKey: announce ? (CANVAS ? 'state/makers-canvas-gpuai.json' : 'state/makers-gpuai.json') : undefined,
+      // The AI machine there loads nothing until you pick (LOAD_ON_PICK=0 brings back loading the whole
+      // list at start). The drawing machine loads its engines at start: Live Draw needs them all.
+      onDemand: Boolean(announce) && !CANVAS && env.LOAD_ON_PICK !== '0',
+      firstKey: announce && !CANVAS ? 'state/makers-gpuai-first.json' : undefined,
       inUseElsewhere: (id) => movies?.usedElsewhere(id),
       // A video needs the whole graphics card: Live draw lets go of it first.
       makeWayForVideo: async () => {
@@ -319,7 +321,7 @@ const idle = createAutoOff({
   stop: async () => {
     // On GPU.ai the machine holds no key of its own: the site terminates the instance for it.
     if (announce) {
-      await askSiteToTurnOff({ siteUrl: env.SITE_URL, secret: env.GATEWAY_SECRET, name: MACHINE_NAME, log: console });
+      await askSiteToTurnOff({ siteUrl: env.SITE_URL, secret: env.GATEWAY_SECRET, name: MACHINE_NAME, sub: CANVAS ? 'canvas-machine' : 'ai-machine', log: console });
       return;
     }
     // The serverless AI machine (ai/serverless) has no pod of its own: Runpod stops its worker itself.

@@ -1,8 +1,13 @@
 import 'server-only';
 import { runpod } from './runpod';
 import { autoOffMinutes } from './autoOff';
+import { createMachine, findMachine, machineGpuOptions, terminateMachine } from './gpuaiMachine';
+import { GPU_INFO, cleanGpu } from './gpuaiShared';
+import { r2Config } from './r2';
 import {
   aiBase,
+  aiProvider,
+  machineAsPod,
   aiToken,
   allowedOrigins,
   env as aiEnv,
@@ -72,11 +77,28 @@ const gpuName = (id: string | undefined) => (id ? (GPU_NAMES[id] ?? id.replace(/
 const ON = ['RUNNING', 'STARTING', 'PROVISIONING'];
 
 export const canvasName = () => canvasEnv().name;
-export const findCanvasPod = () => findPodNamed(canvasName());
+/**
+ * On GPU.ai (AI_PROVIDER=gpuai) the drawing machine is an instance from our own image running the
+ * gate's canvas role (ai/serverless/machine.sh, MACHINE_ROLE=canvas): no drive, its engines and
+ * their Python come from R2, its address is a tunnel it publishes in R2. On any GPU you pick.
+ */
+const onGpuai = () => aiProvider() === 'gpuai';
+export const findCanvasPod = async (): Promise<Pod | null> => (onGpuai() ? machineAsPod(await findMachine('canvas'), 'canvas') : findPodNamed(canvasName()));
 
-/** Set up when the site can manage it: a Runpod key, the gate secret and the drive. */
+/** Set up when the site can manage it: a Runpod key, the gate secret and the drive (GPU.ai: its key and R2). */
 export function canvasConfigured() {
+  if (onGpuai()) return Boolean(process.env.GPUAI_API_KEY && aiEnv().secret.length >= 32 && r2Config());
   return Boolean(process.env.RUNPOD_API_KEY && aiEnv().secret.length >= 32 && canvasEnv().volumeId);
+}
+
+// The suggested GPU on GPU.ai and its price, read at most every 10 minutes (shown while it is off).
+let suggestCache: { at: number; gpu: string; price: number } | null = null;
+async function gpuaiSuggestion(): Promise<{ gpu: string; price: number }> {
+  if (suggestCache && Date.now() - suggestCache.at < 600_000) return suggestCache;
+  const { options, recommended } = await machineGpuOptions('canvas').catch(() => ({ options: [], recommended: null }));
+  const o = options.find((x) => x.gpu === recommended);
+  suggestCache = { at: Date.now(), gpu: o?.gpu ?? 'h200_nvl', price: o?.pricePerHour ?? 3.29 };
+  return suggestCache;
 }
 
 // The price changes rarely: ask Runpod at most once an hour per server instance.
@@ -182,7 +204,13 @@ const removePod = (id: string) => runpod(`/pods/${encodeURIComponent(id)}`, { me
  * Turn the drawing machine on: create it the first time, start it (on this deployment's code and the
  * one auto-off rule), or replace it when its host has no free GPU. Safe because everything is on the drive.
  */
-export async function startCanvas(): Promise<void> {
+export async function startCanvas(gpu?: unknown): Promise<void> {
+  if (onGpuai()) {
+    const m = await findMachine('canvas');
+    if (m && !['stopping', 'stopped', 'terminated', 'error'].includes(m.status)) return;
+    await createMachine('standard', { kind: 'canvas', gpu: cleanGpu(gpu) });
+    return;
+  }
   if (!process.env.RUNPOD_API_KEY) throw new Error('Add RUNPOD_API_KEY in Vercel so the site can turn the drawing machine on.');
   if (!canvasEnv().volumeId) throw new Error("Add CANVAS_GLOBAL_VOLUME_ID in Vercel (the drawing machine's drive) so the site can turn it on.");
   const pod = await findCanvasPod();
@@ -216,6 +244,11 @@ export async function startCanvas(): Promise<void> {
 }
 
 export async function stopCanvas(): Promise<void> {
+  if (onGpuai()) {
+    const m = await findMachine('canvas');
+    if (m) await terminateMachine(m.id);
+    return;
+  }
   if (!process.env.RUNPOD_API_KEY) throw new Error('Add RUNPOD_API_KEY in Vercel so the site can turn the drawing machine off.');
   const pod = await findCanvasPod();
   if (pod && pod.status !== 'EXITED') {
@@ -229,6 +262,7 @@ type CanvasGateStatus = Partial<GateStatus> & { studio?: { downloading?: { name:
 export async function canvasStatus(user: string): Promise<CanvasStatus & { podId?: string }> {
   const c = canvasEnv();
   const minutes = autoOffMinutes();
+  if (onGpuai() && canvasConfigured()) return gpuaiCanvasStatus(user, minutes);
   if (!canvasConfigured()) {
     return {
       state: 'unconfigured',
@@ -270,6 +304,39 @@ export async function canvasStatus(user: string): Promise<CanvasStatus & { podId
     return { state, costPerHour: cost, idle: idleOf(g?.idle), ...base, detail };
   } catch {
     return { state: 'starting', costPerHour: cost, idle: null, ...base, detail: backup };
+  }
+}
+
+/** The drawing machine on GPU.ai: its instance, then the gate's own status through its tunnel. */
+async function gpuaiCanvasStatus(user: string, minutes: number): Promise<CanvasStatus & { podId?: string }> {
+  let pod: Pod | null;
+  try {
+    pod = await findCanvasPod();
+  } catch (err) {
+    const s = await gpuaiSuggestion();
+    return { state: 'error', pricePerHour: s.price, costPerHour: null, gpu: GPU_INFO[s.gpu]?.name ?? s.gpu, autoOffMinutes: minutes, idle: null, detail: (err as Error).message };
+  }
+  const live = pod && pod.status !== 'EXITED';
+  const s = live ? null : await gpuaiSuggestion();
+  const gpuId = live ? (pod!.gpu?.id ?? '') : s!.gpu;
+  const price = live && typeof pod!.cost === 'number' ? pod!.cost : (s?.price ?? 0);
+  const base = { pricePerHour: price, gpu: GPU_INFO[gpuId]?.name ?? gpuId, autoOffMinutes: minutes, podId: pod?.id };
+  if (!pod || !live) return { state: 'off', costPerHour: null, idle: null, ...base };
+  if (pod.status === 'ERROR') return { state: 'error', costPerHour: price, idle: null, ...base, detail: 'GPU.ai reports a problem with the drawing machine. Turn it off and on again.' };
+  if (pod.status !== 'RUNNING') return { state: 'starting', costPerHour: price, idle: null, ...base };
+  try {
+    const res = await fetch(`${aiBase(pod.id)}/_orbit/status`, {
+      headers: { authorization: `Bearer ${await aiToken(user, 'orbit-ai')}` },
+      cache: 'no-store',
+      signal: AbortSignal.timeout(5000),
+    });
+    const g = res.ok ? ((await res.json()) as CanvasGateStatus) : null;
+    const dl = g?.studio?.downloading;
+    const state: CanvasState = !g?.ready ? 'starting' : dl ? 'downloading' : 'on';
+    const detail = state === 'downloading' && dl ? `Downloading ${dl.name} (${dl.percent}%). The first start brings each engine down once; later starts get it from cloud storage.` : undefined;
+    return { state, costPerHour: price, idle: idleOf(g?.idle), ...base, detail };
+  } catch {
+    return { state: 'starting', costPerHour: price, idle: null, ...base };
   }
 }
 

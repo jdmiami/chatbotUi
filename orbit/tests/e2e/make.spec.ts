@@ -319,6 +319,45 @@ test('Make: pick Standard or Turbo before turning the AI machine on; the pick is
   expect(await page.evaluate(() => localStorage.getItem('orbit.speed'))).toBe('turbo');
 });
 
+test('Make on GPU.ai: Turn it on shows every GPU first; Cancel leaves it off, a pick turns it on and is remembered', async ({ page }, info) => {
+  const calls: Record<string, unknown>[] = [];
+  await mockAi(page, 'off', calls);
+  await page.route(/\/api\/make(\?.*)?$/, (r) => r.fulfill({ json: { configured: false } }));
+  await page.route('**/api/ai/gpus?machine=ai', (r) =>
+    r.fulfill({
+      json: {
+        recommended: 'l40s',
+        options: [
+          { gpu: 'rtx_4000_ada', name: 'RTX 4000 Ada', memoryGb: 20, pricePerHour: 0.28, region: 'eu-east', free: 4, fits: 'no', note: 'Too small for your makers', videoMinutes: 15 },
+          { gpu: 'l40s', name: 'L40S', memoryGb: 48, pricePerHour: 0.8, region: 'us-central', free: 58, fits: 'yes', note: 'Everything: pictures and H3 Max videos', videoMinutes: 4 },
+          { gpu: 'a100_80gb', name: 'A100 80 GB', memoryGb: 80, pricePerHour: 1.23, region: 'us-central', free: 15, fits: 'yes', note: 'Everything: pictures and H3 Max videos', videoMinutes: 3 },
+          { gpu: 'h100_sxm', name: 'H100 SXM', memoryGb: 80, pricePerHour: 3.99, region: 'us-east', free: 8, fits: 'yes', note: 'Everything: pictures and H3 Max videos', videoMinutes: 2 },
+        ],
+      },
+    }),
+  );
+  await openOrbit(page);
+  const win = await openMakeApp(page);
+  const banner = win.locator('.make-banner');
+  await banner.getByRole('button', { name: 'Turn it on' }).click();
+  const sheet = page.getByRole('dialog', { name: 'Pick a GPU for your AI machine' });
+  await expect(sheet.getByRole('radio')).toHaveCount(4);
+  await expect(sheet.getByRole('radio', { name: /L40S/ })).toHaveAttribute('aria-checked', 'true');
+  await expect(sheet.getByRole('radio', { name: /RTX 4000 Ada/ })).toContainText('Too small');
+  await expect(sheet.getByRole('radio', { name: /A100/ })).toContainText('5 s video about 3 min');
+  await expectNoHorizontalOverflow(page);
+  await page.screenshot({ path: info.outputPath('gpu-ai.png') });
+  await sheet.getByRole('button', { name: 'Cancel' }).click();
+  await expect(sheet).toHaveCount(0);
+  expect(calls.filter((c) => c.action === 'start')).toEqual([]);
+
+  await banner.getByRole('button', { name: 'Turn it on' }).click();
+  await sheet.getByRole('radio', { name: /H100 SXM/ }).click();
+  await sheet.getByRole('button', { name: 'Turn on · H100 SXM · $3.99/h' }).click();
+  await expect.poll(() => calls.find((c) => c.action === 'start')).toMatchObject({ action: 'start', gpu: 'h100_sxm' });
+  expect(await page.evaluate(() => localStorage.getItem('orbit.gpu.ai'))).toBe('h100_sxm');
+});
+
 test('Make: the × of the "turn the AI machine on" message never sits on its words, and the message keeps its margins', async ({ page }) => {
   await mockAi(page, 'off');
   await page.route(/\/api\/make(\?.*)?$/, (r) => r.fulfill({ json: { configured: false } }));

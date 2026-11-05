@@ -6,6 +6,7 @@ import { getLocalAi, type AiMachineStatus } from '../../services/ai/LocalAi';
 import type { CloudKind } from '../../services/ai/CloudMake';
 import { CreateView } from '../ai/CreateView';
 import { Icon } from '../../ui/Icon';
+import { BatchMake } from './BatchMake';
 import { CloudMake } from './CloudMake';
 import { CharactersScreen } from './CharactersScreen';
 import { MakeDownloads } from './MakeDownloads';
@@ -27,6 +28,7 @@ export default function MakeApp({ isActive }: AppProps) {
   const [status, setStatus] = useState<AiMachineStatus | null>(null);
   const [powering, setPowering] = useState(false);
   const [cloudOpen, setCloudOpen] = useState(false);
+  const [batchOpen, setBatchOpen] = useState(false);
   const [charsOpen, setCharsOpen] = useState(false);
   const [useCharacter, setUseCharacter] = useState<{ id: string; n: number } | null>(null);
   const [seed, setSeed] = useState<{ prompt: string; kind: CloudKind; n: number } | null>(null);
@@ -96,7 +98,7 @@ export default function MakeApp({ isActive }: AppProps) {
         ai={ai}
         machineOn={machineOn}
         isActive={isActive}
-        covered={cloudOpen || charsOpen}
+        covered={cloudOpen || charsOpen || batchOpen}
         useCharacter={useCharacter}
         onCharacters={() => setCharsOpen(true)}
         onOpenMakers={openMakers}
@@ -109,6 +111,10 @@ export default function MakeApp({ isActive }: AppProps) {
         }}
         actions={
           <>
+            <button type="button" className="mk-top-btn" aria-label="Batch" aria-expanded={batchOpen} onClick={() => setBatchOpen(true)}>
+              <Icon name="layers" size={18} />
+              <span>Batch</span>
+            </button>
             {status && (
               <button type="button" className="mk-top-btn" aria-label="Cloud" aria-expanded={cloudOpen} onClick={() => setCloudOpen(true)}>
                 <Icon name="sparkle" size={18} />
@@ -133,6 +139,18 @@ export default function MakeApp({ isActive }: AppProps) {
           </div>
         </section>
       )}
+      {/* Batch: many prompts written by a small cloud model from one idea, edited, then all made. */}
+      <section className="mk-screen mk-batch-screen" aria-label="Batch making" hidden={!batchOpen}>
+        <header className="mk-screen-head mk-screen-head-bare">
+          <button type="button" className="mk-top-btn" onClick={() => setBatchOpen(false)}>
+            <Icon name="back" size={18} />
+            <span>Back to making</span>
+          </button>
+        </header>
+        <div className="mk-screen-scroll">
+          <BatchMake ai={ai} machineOn={machineOn} isActive={isActive && batchOpen} />
+        </div>
+      </section>
       {/* Characters: made-up adults you create from words, to add to a prompt or swap in. Over the steps, like the gallery. */}
       <section className="mk-screen mk-characters" aria-label="Characters" hidden={!charsOpen}>
         <CharactersScreen

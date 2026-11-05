@@ -11,10 +11,11 @@ export const dynamic = 'force-dynamic';
  */
 export async function POST(request: Request) {
   const who = await islandUser(request);
-  if (who !== 'ai-machine') return Response.json({ error: 'Unauthorized' }, { status: 401 });
+  // The AI machine signs as ai-machine, the drawing machine as canvas-machine: each turns off only itself.
+  if (who !== 'ai-machine' && who !== 'canvas-machine') return Response.json({ error: 'Unauthorized' }, { status: 401 });
   if (aiProvider() !== 'gpuai') return Response.json({ error: 'The AI machine is not on GPU.ai' }, { status: 400 });
   try {
-    const m = await findMachine();
+    const m = await findMachine(who === 'canvas-machine' ? 'canvas' : 'ai');
     if (m) await terminateMachine(m.id);
     return Response.json({ ok: true, terminated: Boolean(m) }, { headers: { 'cache-control': 'no-store' } });
   } catch (err) {

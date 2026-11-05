@@ -5,7 +5,7 @@ import { runpod, type PodStatus } from './runpod';
 import { autoOffMinutes } from './autoOff';
 import { r2Config } from './r2';
 import { createMachine, findMachine, machineAddress, machinePicks, terminateMachine } from './gpuaiMachine';
-import { STANDARD_GPUS, TURBO_GPUS, machineState, type GpuaiInstance } from './gpuaiShared';
+import { STANDARD_GPUS, TURBO_GPUS, machineState, type GpuaiInstance, type MachineKind } from './gpuaiShared';
 
 /**
  * The AI machine: a Runpod GPU pod running Open WebUI + Ollama behind a small gate (ai/setup.sh).
@@ -46,6 +46,8 @@ export interface AiStatus {
   /** Speed the machine is on (or was last on), and the speeds to choose from. */
   tier?: string | null;
   tiers?: AiTier[];
+  /** GPU.ai: Orbit shows every GPU to pick from before each Turn on (instead of Standard and Turbo). */
+  pickGpu?: boolean;
   /** GPU.ai, while the machine starts: your makers, and what you picked to load first (in order). */
   picks?: { library: string[]; first: string[] };
 }
@@ -206,12 +208,12 @@ const addresses = new Map<string, string>();
 const GPUAI_CONSOLE = 'https://gpu.ai/dashboard';
 
 /** A GPU.ai instance as the rest of this file sees a machine (a Pod), with its address remembered. */
-async function machineAsPod(m: GpuaiInstance | null): Promise<Pod | null> {
+export async function machineAsPod(m: GpuaiInstance | null, kind: MachineKind = 'ai'): Promise<Pod | null> {
   if (!m) return null;
   const state = machineState(m);
   let status: PodStatus = state === 'off' ? 'EXITED' : state === 'error' ? 'ERROR' : state === 'starting' ? 'STARTING' : 'RUNNING';
   if (state === 'running') {
-    const url = await machineAddress(m).catch(() => null);
+    const url = await machineAddress(m, kind).catch(() => null);
     if (url) addresses.set(m.id, url);
     // Up, but its tunnel address is not published yet: not reachable, so still starting.
     else status = 'STARTING';
@@ -398,12 +400,13 @@ export async function waitStopped(podId: string, ms = 45_000) {
  * creates it, moves it to the other speed's GPU, or replaces it when its host has no free GPU.
  * Models, chats and creations are kept in R2 (or on the network volume), so a new pod picks up where the old left off.
  */
-export async function startAi(tierId?: string): Promise<void> {
+export async function startAi(tierId?: string, gpu?: string | null): Promise<void> {
   if (aiProvider() === 'gpuai') {
     if (!process.env.GPUAI_API_KEY) throw new Error('Add GPUAI_API_KEY in Vercel so the site can turn the AI machine on.');
     const m = await findMachine();
     if (m && machineState(m) !== 'off') return;
-    await createMachine(tierId === 'turbo' ? 'turbo' : 'standard');
+    // The GPU you picked in Orbit (any of GPU.ai's list), else the speed's GPUs.
+    await createMachine(tierId === 'turbo' ? 'turbo' : 'standard', { gpu });
     return;
   }
   if (!process.env.RUNPOD_API_KEY) throw new Error('Add RUNPOD_API_KEY in Vercel so the site can turn the AI machine on.');
@@ -607,7 +610,8 @@ export async function aiStatus(user: string): Promise<AiStatus & { podId?: strin
   } catch (err) {
     return { state: 'error', costPerHour: null, detail: (err as Error).message };
   }
-  const speeds = { tiers: aiTiers(), tier: tierOf(pod)?.id ?? null, autoOffMinutes: autoOffMinutes() };
+  // On GPU.ai Orbit shows every GPU before each Turn on (pickGpu), instead of the two speeds.
+  const speeds = { tiers: aiTiers(), tier: tierOf(pod)?.id ?? null, autoOffMinutes: autoOffMinutes(), ...(gpuaiMachine ? { pickGpu: true } : {}) };
   if (!pod) return { state: 'off', costPerHour: null, ...speeds };
   const t = tierOf(pod);
   const backup = !gpuaiMachine && pod.status !== 'EXITED' && t && onBackup(pod, t) ? backupNote(pod, t) : undefined;

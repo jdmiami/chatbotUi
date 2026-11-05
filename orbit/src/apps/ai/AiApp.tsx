@@ -622,7 +622,8 @@ export default function AiApp({ isActive, placement }: AppProps) {
   );
 
   const machine: AiMachineStatus = status ?? { state: 'off', costPerHour: null };
-  const tiers = machine.tiers ?? [];
+  // On GPU.ai the GPU is picked from the full list at Turn on (ui/GpuChooser): no speeds here.
+  const tiers = machine.pickGpu ? [] : (machine.tiers ?? []);
   const currentTier = tiers.find((t) => t.id === machine.tier) ?? tiers[0];
   const chosenTier = tiers.find((t) => t.id === speed) ?? currentTier;
   const cost = machine.costPerHour != null ? `$${machine.costPerHour.toFixed(2)}/h` : `$${(chosenTier?.pricePerHour ?? 0.59).toFixed(2)}/h`;

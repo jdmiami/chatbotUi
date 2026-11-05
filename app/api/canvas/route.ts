@@ -19,16 +19,16 @@ export async function GET() {
   return Response.json(await publicStatus(user), { headers: noStore });
 }
 
-/** Turn the drawing machine on or off: { "action": "start" | "stop" }. */
+/** Turn the drawing machine on or off: { "action": "start" | "stop", "gpu"?: GPU.ai type (on GPU.ai) }. */
 export async function POST(request: Request) {
   const user = await currentUser();
   if (!user) return Response.json({ error: 'Unauthorized' }, { status: 401 });
   if (!sameOrigin(request)) return Response.json({ error: 'Forbidden' }, { status: 403 });
-  const { action } = (await request.json().catch(() => ({}))) as { action?: string };
+  const { action, gpu } = (await request.json().catch(() => ({}))) as { action?: string; gpu?: unknown };
   if (action !== 'start' && action !== 'stop') return Response.json({ error: 'action must be "start" or "stop"' }, { status: 400 });
   if (!canvasConfigured()) return Response.json({ error: 'The drawing machine is not set up in Vercel yet.' }, { status: 501 });
   try {
-    await (action === 'start' ? startCanvas() : stopCanvas());
+    await (action === 'start' ? startCanvas(gpu) : stopCanvas());
   } catch (err) {
     return Response.json({ error: (err as Error).message }, { status: 502 });
   }
