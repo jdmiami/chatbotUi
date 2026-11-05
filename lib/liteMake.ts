@@ -78,6 +78,13 @@ label.f{display:block;color:var(--ink2);font-size:14px;margin:14px 0 6px}
 a{color:var(--accent)}
 a.btn{color:var(--ink);text-decoration:none;display:inline-flex;align-items:center}
 .hide{display:none!important}
+.pick{cursor:pointer;display:inline-flex;align-items:center}
+.thumb{position:relative;display:inline-block}.thumb img{width:96px;height:96px;object-fit:cover;border-radius:12px;display:block}
+.thumb .x{position:absolute;top:-6px;right:-6px;width:28px;height:28px;border-radius:50%;border:1px solid var(--line);background:#111;font-size:18px;line-height:1;padding:0}
+.grid{display:grid;grid-template-columns:repeat(3,1fr);gap:6px}
+.tile{position:relative;aspect-ratio:1;border:0;padding:0;border-radius:10px;overflow:hidden;background:var(--card)}
+.tile img{width:100%;height:100%;object-fit:cover;display:block}
+.tile i{position:absolute;right:4px;bottom:4px;font:600 11px/1 var(--ui);background:rgba(0,0,0,.6);padding:4px 6px;border-radius:8px;font-style:normal}
 @media (prefers-reduced-motion:no-preference){.pane{animation:in .18s ease-out}@keyframes in{from{opacity:.3;transform:translateX(8px)}to{opacity:1;transform:none}}}
 `;
 
@@ -89,9 +96,12 @@ export const LITE_JS = String.raw`
   var STEPS = ['what', 'maker', 'describe', 'extras', 'make'];
   var TITLE = { what: 'What will it be?', maker: 'Who makes it', describe: 'Describe it', extras: 'Extras', make: 'Make it' };
   var SHORT = { what: 'What', maker: 'Maker', describe: 'Describe it', extras: 'Extras', make: 'Make it' };
-  var DEFAULT = { image: 'qwen', video: 'h3-max' };
-  var NAME = { qwen: 'Qwen Uncensored', 'h3-max': 'H3 Max' };
-  var S = { step: 0, kind: 'image', maker: '', prompt: '', size: 'portrait', seconds: 5, makers: null, status: null, grant: null, busy: '', story: null, eros: { idea: '', who: '', heat: 'steamy', scenes: 5 }, job: null, note: '', writer: '', writers: null };
+  var DEFAULT = { image: 'qwen', video: 'h3-max', edit: 'edit', model3d: 'trellis2' };
+  var NAME = { qwen: 'Qwen Uncensored', 'h3-max': 'H3 Max', edit: 'Edit with words', trellis2: '3D object' };
+  var NOUN = { image: 'picture', video: 'video', edit: 'picture edit', model3d: '3D object' };
+  var KINDS = [['image', 'A picture', 'about a minute'], ['video', 'A video', 'a few minutes'], ['edit', 'An edit', 'change a photo with words'], ['model3d', 'A 3D object', 'from one picture']];
+  var photoMode = function () { return S.kind === 'edit' || S.kind === 'model3d'; };
+  var S = { step: 0, kind: 'image', maker: '', prompt: '', size: 'portrait', seconds: 5, makers: null, status: null, grant: null, busy: '', story: null, eros: { idea: '', who: '', heat: 'steamy', scenes: 5 }, job: null, jobs: [], photos: [], items: null, view: null, style: '', note: '', writer: '', writers: null };
   try {
     var saved = JSON.parse(localStorage.getItem('orbit.lite') || '{}');
     ['kind', 'maker', 'prompt', 'size', 'seconds'].forEach(function (k) { if (saved[k] != null) S[k] = saved[k]; });
@@ -175,7 +185,7 @@ export const LITE_JS = String.raw`
       return t;
     });
   }
-  var what = function () { return S.kind === 'video' ? 'video' : 'picture'; };
+  var what = function () { return S.kind === 'video' ? 'video' : S.kind === 'edit' ? 'picture edit (an instruction that changes a photo)' : 'picture'; };
   function promptSystem() {
     return 'You write one prompt for an AI ' + what() + ' maker. Describe who is in it (looks, hair, clothing or lack of it), what they do, the setting, light, camera and mood' +
       (S.kind === 'video' ? ', how they move and what we hear' : '') + '. One paragraph of 60 to 120 words, plain words, no title, no quotes, no lists. Reply with the prompt only.';
@@ -224,7 +234,8 @@ export const LITE_JS = String.raw`
     var st = s.state;
     var words = st === 'on' ? 'on' : st === 'starting' ? 'starting' : st === 'downloading' ? 'loading its models' : st === 'unconfigured' ? 'not set up' : st === 'error' ? 'not answering' : 'off';
     var price = s.costPerHour ? ' · $' + Number(s.costPerHour).toFixed(2) + '/h' : '';
-    var btn = st === 'on' ? '<button class="btn s" data-do="off">Turn off</button>' : st === 'off' ? '<button class="btn s a" data-do="power">Turn on</button>' : '';
+    var gal = st === 'on' ? '<button class="btn s" data-do="gal">Gallery</button>' : '';
+    var btn = gal + (st === 'on' ? '<button class="btn s" data-do="off">Turn off</button>' : st === 'off' ? '<button class="btn s a" data-do="power">Turn on</button>' : '');
     $('#bar').innerHTML = '<span class="st"><span class="dot ' + (st === 'on' ? 'on' : st === 'starting' || st === 'downloading' ? 'wait' : '') + '"></span>AI machine: <b>' + words + '</b>' + esc(price) + '</span>' + btn + '<a class="btn s" href="/">Orbit</a>';
   }
   function power() {
@@ -267,7 +278,8 @@ export const LITE_JS = String.raw`
   function makersFor() {
     var kind = S.kind;
     if (!S.makers) return [{ id: DEFAULT[kind], name: NAME[DEFAULT[kind]], installed: false, off: true }];
-    var list = S.makers.filter(function (m) { return m.kind === kind && (m.installed || m.wanted || m.loadable); });
+    var kinds = kind === 'edit' ? ['edit', 'upscale'] : [kind];
+    var list = S.makers.filter(function (m) { return kinds.indexOf(m.kind) >= 0 && (m.installed || m.wanted || m.loadable); });
     var at = function (m) { return m.installed ? 0 : m.line || (m.wanted ? 98 : 99); };
     return list.map(function (m, i) { return { m: m, i: i }; }).sort(function (a, b) { return at(a.m) - at(b.m) || a.i - b.i; }).map(function (x) { return x.m; });
   }
@@ -293,17 +305,34 @@ export const LITE_JS = String.raw`
   }
 
   // ---- making it
+  function stylesFor(m) { return m ? (S.makers || []).filter(function (x) { return x.kind === 'style' && x['for'] === m.id && x.installed; }) : []; }
   function make(prompt) {
     var m = chosenMaker();
-    var body = { kind: S.kind, maker: m ? m.id : DEFAULT[S.kind], prompt: (prompt || S.prompt).trim(), size: S.size };
-    if (S.kind === 'video') body.seconds = S.seconds;
+    var k = S.kind;
+    var body = { kind: k === 'video' ? 'video' : k === 'model3d' ? 'model3d' : 'image', maker: m ? m.id : DEFAULT[k], prompt: k === 'model3d' ? '' : (prompt || S.prompt).trim() };
+    if (k === 'image' || k === 'video') body.size = S.size;
+    if (k === 'video') body.seconds = S.seconds;
+    if (k === 'image' && S.style && stylesFor(m).some(function (x) { return x.id === S.style; })) body.style = S.style;
+    if (photoMode()) {
+      var first = S.photos[0];
+      if (first && first.item) body.fromItem = first.item;
+      var ups = S.photos.filter(function (x) { return !x.item; }).map(function (x) { return x.src; });
+      var more = S.photos.slice(1).filter(function (x) { return x.item; }).map(function (x) { return x.item; });
+      if (ups.length) body.images = ups.slice(0, 2);
+      if (more.length) body.imageItems = more;
+    }
     return machine('/_orbit/studio/jobs', { method: 'POST', body: body });
   }
+  function ready() {
+    if (!on()) { S.note = 'Turn the AI machine on first (the button at the top).'; return false; }
+    if (photoMode() && !S.photos.length) { S.note = 'Add a photo first (step 3).'; return false; }
+    if (S.kind !== 'model3d' && !S.prompt.trim()) { S.note = 'Describe it first (step 3), or tap Do it for me there.'; return false; }
+    return true;
+  }
   function makeOne() {
-    if (!on()) { S.note = 'Turn the AI machine on first (the button at the top).'; draw(); return; }
-    if (!S.prompt.trim()) { S.note = 'Describe it first (step 3), or tap Do it for me there.'; draw(); return; }
+    if (!ready()) { draw(); return; }
     S.busy = 'make'; S.note = ''; draw();
-    make().then(function (j) { S.job = j; poll(); }).catch(function (err) { S.note = err.message; }).then(function () { S.busy = ''; draw(); });
+    make().then(function (j) { S.jobs.unshift(j); poll(); }).catch(function (err) { S.note = err.message; }).then(function () { S.busy = ''; draw(); });
   }
   function makeAll() {
     if (!on()) { S.note = 'Turn the AI machine on first (the button at the top).'; draw(); return; }
@@ -311,28 +340,89 @@ export const LITE_JS = String.raw`
     var i = 0, ok = 0;
     S.busy = 'all'; S.note = ''; draw();
     (function next() {
-      if (i >= scenes.length) { S.busy = ''; S.note = ok + ' of ' + scenes.length + ' scenes are in the queue. They land in your gallery as they finish.'; draw(); return; }
-      make(scenes[i++].prompt).then(function () { ok++; }, function (err) { S.note = err.message; }).then(function () { S.note = 'Sending ' + i + ' of ' + scenes.length + '…'; draw(); next(); });
+      if (i >= scenes.length) { S.busy = ''; S.note = ok + ' of ' + scenes.length + ' scenes are in the queue. They land in your gallery as they finish.'; poll(); draw(); return; }
+      make(scenes[i++].prompt).then(function (j) { ok++; S.jobs.unshift(j); }, function (err) { S.note = err.message; }).then(function () { draw(); next(); });
     })();
   }
   var timer = null;
+  var final = function (j) { return j.status === 'done' || j.status === 'error' || j.status === 'stopped'; };
   function poll() {
     clearTimeout(timer);
-    if (!S.job || S.job.status === 'done' || S.job.status === 'error' || S.job.status === 'stopped') return;
+    var live = S.jobs.filter(function (j) { return !final(j); });
+    if (!live.length) return;
     timer = setTimeout(function () {
-      machine('/_orbit/studio/jobs/' + encodeURIComponent(S.job.id)).then(function (j) { S.job = j; draw(); poll(); }).catch(function () { poll(); });
+      Promise.all(live.map(function (j) { return machine('/_orbit/studio/jobs/' + encodeURIComponent(j.id)).then(function (n) { S.jobs = S.jobs.map(function (x) { return x.id === n.id ? n : x; }); }, function () {}); })).then(function () { draw(); poll(); });
     }, 3000);
   }
+  function stop(id) {
+    machine('/_orbit/studio/jobs/' + encodeURIComponent(id) + '/cancel', { method: 'POST', body: {} }).then(function () { S.jobs = S.jobs.map(function (x) { return x.id === id ? Object.assign({}, x, { status: 'stopped' }) : x; }); draw(); }).catch(function (err) { S.note = err.message; draw(); });
+  }
+  var abs = function (u) { return /^https?:/.test(u) ? u : (S.grant ? S.grant.url : '') + u; };
+  function media(it, big) {
+    if (!it) return '';
+    var url = abs(it.url);
+    if (it.kind === 'video') return '<video src="' + esc(url) + '" controls playsinline loop' + (big ? '' : ' preload="metadata"') + '></video>';
+    if (it.kind === 'model3d') return (it.poster ? '<img src="' + esc(abs(it.poster)) + '" alt="3D object">' : '') + '<p class="note"><a href="' + esc(url) + '" download>Download the 3D file (.glb)</a></p>';
+    return '<img src="' + esc(url) + '" alt="What was made">';
+  }
   function jobView() {
-    var j = S.job;
-    if (!j) return '';
-    if (j.status === 'done' && j.item) {
-      var url = /^https?:/.test(j.item.url) ? j.item.url : (S.grant ? S.grant.url : '') + j.item.url;
-      return '<div class="out">' + (j.item.kind === 'video' ? '<video src="' + esc(url) + '" controls playsinline loop></video>' : '<img src="' + esc(url) + '" alt="What was made">') + '<p class="note">In your gallery too.</p></div>';
+    if (!S.jobs.length) return '';
+    return S.jobs.slice(0, 8).map(function (j) {
+      if (j.status === 'done' && j.item) return '<div class="out">' + media(j.item, true) + '<p class="note">In your gallery too.</p></div>';
+      if (j.status === 'error') return '<p class="note bad">' + esc(j.error || 'It did not work.') + '</p>';
+      if (j.status === 'stopped') return '<p class="note">Stopped.</p>';
+      var where = j.position ? nth(j.position) + ' in line' : j.status === 'running' ? 'Making it…' : 'Waiting…';
+      return '<div class="scene"><p>' + esc((j.prompt || NOUN[S.kind] || 'It') .slice(0, 80)) + '</p><p class="note">' + esc(where) + (j.etaSeconds ? ' · about ' + Math.max(1, Math.round(j.etaSeconds / 60)) + ' min' : '') + '</p><div class="prog"><span style="width:' + (j.progress || 0) + '%"></span></div><div class="acts"><button class="btn s" data-stop="' + esc(j.id) + '">Stop</button></div></div>';
+    }).join('');
+  }
+
+  // ---- photos (your own, shrunk on the phone) and your gallery
+  function shrink(file, max) {
+    return new Promise(function (ok, bad) {
+      var img = new Image(), url = URL.createObjectURL(file);
+      img.onload = function () {
+        var k = Math.min(1, max / Math.max(img.width, img.height)), c = document.createElement('canvas');
+        c.width = Math.round(img.width * k); c.height = Math.round(img.height * k);
+        c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+        URL.revokeObjectURL(url); ok(c.toDataURL('image/jpeg', 0.88));
+      };
+      img.onerror = function () { URL.revokeObjectURL(url); bad(new Error('That picture could not be read.')); };
+      img.src = url;
+    });
+  }
+  function addFile(file) {
+    if (!file) return;
+    shrink(file, 1920).then(function (src) { S.photos = S.photos.concat([{ src: src }]).slice(0, 2); S.note = ''; draw(); }, function (err) { S.note = err.message; draw(); });
+  }
+  function loadItems() {
+    return machine('/_orbit/studio/items').then(function (r) { S.items = (r.items || []).slice(0, 60); draw(); sheetDraw(); }).catch(function (err) { S.note = err.message; draw(); });
+  }
+  function gallerySheet() {
+    if (!on()) { S.note = 'Turn the AI machine on to see your gallery (it holds your files).'; draw(); return; }
+    var box = document.createElement('div'); box.className = 'sheet'; box.id = 'gal';
+    box.innerHTML = '<div class="in" role="dialog" aria-label="Your gallery"><p class="kick">Gallery</p><h2>Your gallery</h2><div id="galbody"><p class="note">Loading…</p></div><div class="acts"><button class="btn" data-do="galclose">Close</button></div></div>';
+    document.body.appendChild(box);
+    S.view = null;
+    loadItems();
+  }
+  function sheetDraw() {
+    var b = $('#galbody'); if (!b) return;
+    if (S.view) {
+      var it = S.view;
+      b.innerHTML = '<div class="out">' + media(it, true) + '</div><p class="note">' + esc((it.prompt || '').slice(0, 200)) + '</p><div class="acts">' + (it.kind === 'image' ? '<button class="btn a" data-usepic="' + esc(it.id) + '">Use as my photo</button>' : '') + '<button class="btn" data-do="galback">Back</button></div>';
+      return;
     }
-    if (j.status === 'error') return '<p class="note bad">' + esc(j.error || 'It did not work.') + '</p>';
-    var where = j.position ? nth(j.position) + ' in line' : j.status === 'running' ? 'Making it…' : 'Waiting…';
-    return '<p class="note">' + esc(where) + (j.etaSeconds ? ' · about ' + Math.max(1, Math.round(j.etaSeconds / 60)) + ' min' : '') + '</p><div class="prog"><span style="width:' + (j.progress || 0) + '%"></span></div>';
+    b.innerHTML = !S.items ? '<p class="note">Loading…</p>' : !S.items.length ? '<p class="note">Nothing here yet.</p>' : '<div class="grid">' + S.items.map(function (it) {
+      var t = it.thumbUrl || (it.kind === 'image' ? it.url : it.poster || '');
+      return '<button class="tile" data-view="' + esc(it.id) + '" aria-label="' + esc((it.prompt || it.kind).slice(0, 60)) + '">' + (t ? '<img loading="lazy" src="' + esc(abs(t)) + '" alt="">' : '<span>' + esc(it.kind) + '</span>') + (it.kind !== 'image' ? '<i>' + (it.kind === 'video' ? '▶' : '3D') + '</i>' : '') + '</button>';
+    }).join('') + '</div>';
+  }
+  function usePic(id) {
+    var it = (S.items || []).filter(function (x) { return x.id === id; })[0];
+    if (!it) return;
+    S.photos = S.photos.concat([{ item: it.id, src: abs(it.thumbUrl || it.url) }]).slice(0, 2);
+    var g = $('#gal'); if (g) g.remove();
+    S.view = null; S.note = ''; draw();
   }
 
   // ---- "Do it for me" on every step
@@ -340,7 +430,7 @@ export const LITE_JS = String.raw`
     var step = STEPS[S.step];
     if (step === 'what') { S.kind = S.kind || 'image'; go(1); }
     else if (step === 'maker') { var m = chosenMaker(); if (m) S.maker = m.id; go(2); }
-    else if (step === 'describe') { busy('write', doPrompt()); }
+    else if (step === 'describe') { if (S.kind === 'model3d') go(3); else busy('write', doPrompt()); }
     else if (step === 'extras') { if (!S.size) S.size = 'portrait'; go(4); }
     else makeOne();
     save();
@@ -354,9 +444,9 @@ export const LITE_JS = String.raw`
   function chip(attr, val, cur, label) { return '<button class="chip" ' + attr + '="' + esc(val) + '" aria-pressed="' + (String(val) === String(cur)) + '">' + esc(label) + '</button>'; }
   function body(step) {
     if (step === 'what') {
-      return '<div class="choices" role="radiogroup" aria-label="What to make">' +
-        '<button class="ch" data-kind="image" role="radio" aria-checked="' + (S.kind === 'image') + '" aria-pressed="' + (S.kind === 'image') + '"><span class="n">A picture</span><span class="s">about a minute</span></button>' +
-        '<button class="ch" data-kind="video" role="radio" aria-checked="' + (S.kind === 'video') + '" aria-pressed="' + (S.kind === 'video') + '"><span class="n">A video</span><span class="s">a few minutes</span></button></div>';
+      return '<div class="choices" role="radiogroup" aria-label="What to make">' + KINDS.map(function (k) {
+        return '<button class="ch" data-kind="' + k[0] + '" role="radio" aria-checked="' + (S.kind === k[0]) + '" aria-pressed="' + (S.kind === k[0]) + '"><span class="n">' + k[1] + '</span><span class="s">' + k[2] + '</span></button>';
+      }).join('') + '</div>';
     }
     if (step === 'maker') {
       var c = chosenMaker();
@@ -374,7 +464,10 @@ export const LITE_JS = String.raw`
       var writers = S.writers && S.writers.length ? '<label class="f" for="writer">Writer (NVIDIA, unfiltered)</label><select id="writer" class="sel">' +
         '<option value=""' + (S.writer ? '' : ' selected') + '>Automatic \u00b7 the best one answering</option>' +
         S.writers.map(function (id) { return '<option value="' + esc(id) + '"' + (S.writer === id ? ' selected' : '') + '>' + esc(writerName(id)) + '</option>'; }).join('') + '</select>' : '';
-      return writers + '<textarea id="prompt" aria-label="Describe it" placeholder="Who, what, where, the light, the mood…">' + esc(S.prompt) + '</textarea>' +
+      var photos = photoMode() ? '<label class="f">' + (S.kind === 'model3d' ? 'One picture of the thing' : 'Your photo (add a second to combine)') + '</label><div class="row">' + S.photos.map(function (p, i) { return '<span class="thumb"><img src="' + esc(p.src) + '" alt="Your photo ' + (i + 1) + '"><button class="x" data-rmphoto="' + i + '" aria-label="Remove photo ' + (i + 1) + '">×</button></span>'; }).join('') +
+        (S.photos.length < (S.kind === 'model3d' ? 1 : 2) ? '<label class="btn s a pick">Add a photo<input type="file" accept="image/*" id="photo" class="hide"></label><button class="btn s" data-do="gal">From your gallery</button>' : '') + '</div>' : '';
+      if (S.kind === 'model3d') return photos + '<p class="note">No words needed: it makes the 3D object from the picture. Best with one thing on a plain background.</p>';
+      return photos + writers + '<textarea id="prompt" aria-label="Describe it" placeholder="Who, what, where, the light, the mood…">' + esc(S.prompt) + '</textarea>' +
         '<div class="acts"><button class="btn a" data-do="eros" aria-expanded="' + Boolean(S.erosOpen) + '">Eros story writer</button><button class="btn s" data-do="clear">Clear</button></div>' +
         (S.erosOpen ? '<div class="story" aria-label="Eros story writer"><p class="kick">Eros</p><p class="dek">An idea becomes a short adult story, and every scene a prompt. Made-up adults only.</p>' +
           '<label class="f" for="eidea">The idea</label><textarea id="eidea" style="min-height:90px" placeholder="Two strangers stuck in a lift during a blackout…">' + esc(e.idea) + '</textarea>' +
@@ -384,11 +477,14 @@ export const LITE_JS = String.raw`
           '<div class="acts"><button class="btn p" data-do="story"' + (S.busy ? ' disabled' : '') + '>' + (S.busy === 'story' ? 'Writing…' : 'Write the story') + '</button></div></div>' : '') + story;
     }
     if (step === 'extras') {
-      return '<label class="f">Shape</label><div class="row" role="group" aria-label="Shape">' + chip('data-size', 'portrait', S.size, 'Portrait') + chip('data-size', 'square', S.size, 'Square') + chip('data-size', 'landscape', S.size, 'Landscape') + '</div>' +
+      var cm = chosenMaker(), st = S.kind === 'image' ? stylesFor(cm) : [];
+      var styleRow = st.length ? '<label class="f">Style</label><div class="row" role="group" aria-label="Style">' + chip('data-style', '', S.style, 'No style') + st.map(function (x) { return chip('data-style', x.id, S.style, x.name); }).join('') + '</div>' : '';
+      if (S.kind === 'edit' || S.kind === 'model3d') return '<p class="note">Nothing to set for ' + (S.kind === 'edit' ? 'an edit' : 'a 3D object') + '. Go on to make it.</p>';
+      return styleRow + '<label class="f">Shape</label><div class="row" role="group" aria-label="Shape">' + chip('data-size', 'portrait', S.size, 'Portrait') + chip('data-size', 'square', S.size, 'Square') + chip('data-size', 'landscape', S.size, 'Landscape') + '</div>' +
         (S.kind === 'video' ? '<label class="f">Length</label><div class="row" role="group" aria-label="Length">' + chip('data-sec', 5, S.seconds, '5 seconds') + chip('data-sec', 10, S.seconds, '10 seconds') + '</div>' : '');
     }
     var m = chosenMaker();
-    return '<ul class="sum"><li><span>What</span><span>' + (S.kind === 'video' ? 'A video, ' + S.seconds + ' s' : 'A picture') + '</span></li><li><span>Maker</span><span>' + esc(m ? m.name : '') + '</span></li><li><span>Shape</span><span>' + esc(S.size) + '</span></li><li><span>Words</span><span>' + esc(S.prompt.trim() ? S.prompt.trim().slice(0, 140) + (S.prompt.length > 140 ? '…' : '') : 'none yet') + '</span></li></ul>' +
+    return '<ul class="sum"><li><span>What</span><span>' + (S.kind === 'video' ? 'A video, ' + S.seconds + ' s' : 'A ' + NOUN[S.kind]) + '</span></li><li><span>Maker</span><span>' + esc(m ? m.name : '') + '</span></li>' + (S.kind === 'image' || S.kind === 'video' ? '<li><span>Shape</span><span>' + esc(S.size) + '</span></li>' : '<li><span>Photos</span><span>' + S.photos.length + '</span></li>') + '' + (S.kind === 'model3d' ? '' : '<li><span>Words</span><span>' + esc(S.prompt.trim() ? S.prompt.trim().slice(0, 140) + (S.prompt.length > 140 ? '…' : '') : 'none yet') + '</span></li>') + '</ul>' +
       '<div class="acts"><button class="btn p" data-do="make"' + (S.busy ? ' disabled' : '') + '>' + (S.busy === 'make' ? 'Sending…' : 'Make it') + '</button></div>' + jobView();
   }
   function go(i) { S.step = Math.max(0, Math.min(STEPS.length - 1, i)); S.note = ''; draw(); window.scrollTo(0, 0); }
@@ -411,8 +507,13 @@ export const LITE_JS = String.raw`
     if (t.id === 'back') return go(S.step - 1);
     if (t.id === 'next') return go(S.step + 1);
     if (t.hasAttribute('data-go')) return go(Number(t.getAttribute('data-go')));
-    if (t.hasAttribute('data-kind')) { S.kind = t.getAttribute('data-kind'); S.maker = ''; save(); return go(1); }
+    if (t.hasAttribute('data-kind')) { if (S.kind !== t.getAttribute('data-kind')) { S.photos = []; S.style = ''; } S.kind = t.getAttribute('data-kind'); S.maker = ''; save(); return go(1); }
     if (t.hasAttribute('data-maker')) return pickMaker(t.getAttribute('data-maker'));
+    if (t.hasAttribute('data-stop')) return stop(t.getAttribute('data-stop'));
+    if (t.hasAttribute('data-style')) { S.style = t.getAttribute('data-style'); return draw(); }
+    if (t.hasAttribute('data-rmphoto')) { S.photos.splice(Number(t.getAttribute('data-rmphoto')), 1); return draw(); }
+    if (t.hasAttribute('data-view')) { S.view = (S.items || []).filter(function (x) { return x.id === t.getAttribute('data-view'); })[0] || null; return sheetDraw(); }
+    if (t.hasAttribute('data-usepic')) return usePic(t.getAttribute('data-usepic'));
     if (t.hasAttribute('data-size')) { S.size = t.getAttribute('data-size'); save(); return draw(); }
     if (t.hasAttribute('data-sec')) { S.seconds = Number(t.getAttribute('data-sec')); save(); return draw(); }
     if (t.hasAttribute('data-heat')) { S.eros.heat = t.getAttribute('data-heat'); save(); return draw(); }
@@ -420,6 +521,9 @@ export const LITE_JS = String.raw`
     if (t.hasAttribute('data-use')) { S.prompt = S.story.scenes[Number(t.getAttribute('data-use'))].prompt; save(); return go(STEPS.indexOf('describe')); }
     var d = t.getAttribute('data-do');
     if (d === 'doit') return doIt();
+    if (d === 'gal') return gallerySheet();
+    if (d === 'galclose') { var gg = $('#gal'); if (gg) gg.remove(); return; }
+    if (d === 'galback') { S.view = null; return sheetDraw(); }
     if (d === 'power') return power();
     if (d === 'off') return off();
     if (d === 'make') return makeOne();
@@ -429,6 +533,7 @@ export const LITE_JS = String.raw`
     if (d === 'clear') { S.prompt = ''; save(); return draw(); }
   });
   document.addEventListener('change', function (e) {
+    if (e.target.id === 'photo') { addFile(e.target.files && e.target.files[0]); e.target.value = ''; }
     if (e.target.id === 'writer') { S.writer = e.target.value; save(); }
   });
   document.addEventListener('input', function (e) {
