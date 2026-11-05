@@ -4,11 +4,12 @@ import { useActionState } from 'react';
 import { login, type LoginState } from './actions';
 import Masthead from '../Masthead';
 
-export default function LoginForm({ needsCode }: { needsCode: boolean }) {
+export default function LoginForm({ needsCode, next = '/' }: { needsCode: boolean; next?: string }) {
   const [state, action, pending] = useActionState<LoginState, FormData>(login, {});
 
   return (
     <form action={action} className="card login">
+      <input type="hidden" name="next" value={next} />
       <Masthead section="Sign in" title="Welcome back." standfirst="Your machines, your AI and your desktops, in one place." />
 
       <label>
@@ -49,6 +50,11 @@ export default function LoginForm({ needsCode }: { needsCode: boolean }) {
       <button type="submit" disabled={pending}>
         {pending ? 'Signing in…' : 'Sign in'}
       </button>
+      {next === '/' && (
+        <p className="login-alt">
+          <a href="/login?next=/lite">Or sign in to the fast Make page</a> (plain and quick on a phone).
+        </p>
+      )}
     </form>
   );
 }
