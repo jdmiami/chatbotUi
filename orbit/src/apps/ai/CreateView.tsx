@@ -9,7 +9,7 @@ import { connectMarks, nsfwFor, rememberItems, useNsfwFlags } from '../../ui/nsf
 import { GalleryGrid, GalleryViewer, useGalleryStepper, type GalleryMedia } from './Gallery';
 import { AiError, type LocalAi, type StudioItem, type StudioJob, type StudioKind, type StudioMakerInfo, type StudioRequest, type StudioState, type VideoTask } from '../../services/ai/LocalAi';
 import { isServerlessId, onServerless, serverlessCancel, serverlessInfo, serverlessJob, serverlessPriceWords, serverlessStart, type ServerlessInfo } from '../../services/ai/Serverless';
-import { PENDING_TEXT, offlineMakers, progressText, progressWhy, rememberMakers, withCatalog } from './makerCatalog';
+import { PENDING_TEXT, offlineMakers, ordinal as nth, progressText, progressWhy, rememberMakers, withCatalog } from './makerCatalog';
 import { AudioSource, VideoSource, type AudioPick, type VideoPick } from './VideoInputs';
 import { TextArea, TextField } from '../../ui/TextArea';
 import { useMotionLevel } from '../../motion/MotionProvider';
@@ -170,6 +170,8 @@ export function CreateView({
   covered = false,
   useCharacter = null,
   onCharacters,
+  picks = null,
+  onFirst,
 }: {
   ai: LocalAi;
   machineOn: boolean;
@@ -192,6 +194,12 @@ export function CreateView({
   useCharacter?: { id: string; n: number } | null;
   /** Opens Characters (to make the first one). */
   onCharacters?: () => void;
+  /**
+   * The AI machine on GPU.ai is starting: what loads first, in order (the makers menu adds to it and
+   * changes it, like the bar at the top of Make). Null otherwise.
+   */
+  picks?: string[] | null;
+  onFirst?: (ids: string[]) => void;
 }) {
   const toast = useShell((s) => s.toast);
   const launch = useShell((s) => s.launch);
@@ -364,8 +372,16 @@ export function CreateView({
 
   // Makers for this mode: the installed ones, plus the one picked (even while it downloads).
   const kindsFor = (m: Mode): StudioMakerInfo['kind'][] => (m === 'edit' ? ['edit', 'upscale'] : m === 'vedit' ? ['videoedit'] : [m]);
+  // The AI machine on GPU.ai loads only what you pick: every maker shows, and tapping one puts it in
+  // the line (while it starts, in the order to load first). Loaded ones first, then the line in order.
+  const onDemand = machineOn ? known.some((m) => m.loadable || m.line) : Boolean(picks);
+  const lineAt = (m: StudioMakerInfo) => (m.installed ? 0 : machineOn ? (m.line ?? (m.wanted ? 98 : 99)) : picks && picks.includes(m.id) ? picks.indexOf(m.id) + 1 : 99);
   // Video editing has no built-in maker: every one shows, so you can see what there is to add.
-  const choices = known.filter((m) => kindsFor(kind).includes(m.kind) && (m.installed || m.wanted || kind === 'vedit'));
+  const choices = known
+    .filter((m) => kindsFor(kind).includes(m.kind) && (m.installed || m.wanted || kind === 'vedit' || (onDemand && (!machineOn || m.loadable))))
+    .map((m, i) => ({ m, i }))
+    .sort((a, b) => (onDemand ? lineAt(a.m) - lineAt(b.m) : 0) || a.i - b.i)
+    .map(({ m }) => m);
   const chosen = known.find((m) => m.id === pick[kind]) ?? known.find((m) => m.id === DEFAULT_PICK[kind]) ?? null;
   const chosenId = chosen?.id ?? DEFAULT_PICK[kind];
   const stylesFor = (id: string) => known.filter((m) => m.kind === 'style' && m.for === id && m.installed);
@@ -454,7 +470,33 @@ export function CreateView({
   };
 
   const chooseKind = (v: Mode, el: HTMLElement | null) => choose(el, () => setKind(v), 'maker');
+  /** Put a maker in the line to load: at the end, or (next) right after what is coming down now. */
+  const loadInLine = async (m: StudioMakerInfo, next = false) => {
+    try {
+      // Its place in the line shows on it and under the list: no extra message.
+      setMakers(await ai.loadStudioMaker(m.id, next));
+      // The bar at the top of Make shows the line too: it looks again now.
+      window.dispatchEvent(new Event('orbit:makers-changed'));
+    } catch (err) {
+      toast((err as Error).message, 'error');
+    }
+  };
+  /** While the machine starts: add to, move in, or take out of what loads first. */
+  const firstOrder = (m: StudioMakerInfo, how: 'add' | 'first' | 'out') => {
+    if (!picks || !onFirst) return;
+    const rest = picks.filter((id) => id !== m.id);
+    const next = how === 'out' ? rest : how === 'first' ? [m.id, ...rest] : picks.includes(m.id) ? picks : [...picks, m.id];
+    onFirst(next);
+  };
   const chooseMaker = (m: StudioMakerInfo, el: HTMLElement | null) => {
+    // Not loaded on a machine that loads what you pick: it goes in the line, and you stay here to
+    // pick the next one in the order you want.
+    if (onDemand && !m.installed) {
+      if (!machineOn) firstOrder(m, 'add');
+      else if (!m.wanted) void loadInLine(m);
+      choose(el, () => setPick(kind, m.id), null);
+      return;
+    }
     const second = kind === 'vedit' ? (m.tasks?.length ?? 0) > 0 : stylesFor(m.id).length > 0;
     if (second) {
       // It has looks (or things to do) to pick too: point at them instead of moving on.
@@ -647,7 +689,7 @@ export function CreateView({
   const makerNote = (() => {
     if (!machineOn) return null;
     if (chosen?.pending) return `${chosen.name}: ${PENDING_TEXT.toLowerCase()}. Turn it off and on again to get it.`;
-    if (chosen && !chosen.installed) return chosen.wanted ? progressWhy(chosen, machineOn) : `${chosen.name} is not installed. Open Makers to add it.`;
+    if (chosen && !chosen.installed) return chosen.wanted ? progressWhy(chosen, machineOn) : onDemand ? `Tap ${chosen.name} to load it.` : `${chosen.name} is not installed. Open Makers to add it.`;
     return null;
   })();
 
@@ -730,6 +772,15 @@ export function CreateView({
 
   const kindOptions: AssistOption[] = KINDS.map((k) => ({ id: k.id, label: k.label }));
   const makerList = choices.length ? choices : chosen ? [chosen] : [];
+  /** A maker that isn't loaded: where it is in the line, or what tapping it does. */
+  const makerState = (m: StudioMakerInfo) => {
+    if (m.pending) return 'soon';
+    if (onDemand && !machineOn) return picks?.includes(m.id) ? `loads ${nth(picks.indexOf(m.id) + 1)}` : 'tap to load';
+    if (m.wanted) return progressText(m, machineOn);
+    return onDemand ? 'tap to load' : 'not added';
+  };
+  // The chosen maker's place in the line, and what can be done with it there.
+  const inLine = onDemand && chosen && !chosen.installed ? (machineOn ? (chosen.wanted ? (chosen.line ?? null) : null) : picks?.includes(chosen.id) ? picks.indexOf(chosen.id) + 1 : null) : null;
   const makerOptions: AssistOption[] = makerList.map((m) => ({ id: m.id, label: m.name }));
   const byOption = (id: string) => pane?.querySelector<HTMLElement>(`[data-assist-option="${CSS.escape(id)}"]`) ?? null;
 
@@ -859,7 +910,7 @@ export function CreateView({
               onClick={(e) => chooseMaker(m, e.currentTarget)}
             >
               <span className="mk-maker-name">{m.name}</span>
-              {!m.installed && <span className="ai-muted mk-maker-state"> {m.pending ? 'soon' : m.wanted ? progressText(m, machineOn) : 'not added'}</span>}
+              {!m.installed && <span className="ai-muted mk-maker-state"> {makerState(m)}</span>}
             </button>
           ))}
         </div>
@@ -894,6 +945,25 @@ export function CreateView({
           <p className="ai-muted mk-note" role="status">
             {makerNote}
           </p>
+        )}
+        {!makerNote && onDemand && !machineOn && chosen && !chosen.installed && (
+          <p className="ai-muted mk-note" role="status">
+            {inLine ? `${chosen.name} loads ${nth(inLine)} when your AI machine is up. Tap more makers to add them in order.` : `Tap ${chosen.name} to load it when your AI machine is up.`}
+          </p>
+        )}
+        {chosen && inLine && (
+          <div className="mk-line-acts" role="group" aria-label={`${chosen.name} in the line`}>
+            {inLine > 1 && (
+              <button type="button" className="btn small" onClick={() => (machineOn ? void loadInLine(chosen, true) : firstOrder(chosen, 'first'))}>
+                {machineOn ? 'Load it next' : 'Load it first'}
+              </button>
+            )}
+            {!machineOn && (
+              <button type="button" className="btn small ghost" onClick={() => firstOrder(chosen, 'out')}>
+                Take it out
+              </button>
+            )}
+          </div>
         )}
         <div className="mk-tools">
           <ChooseButton

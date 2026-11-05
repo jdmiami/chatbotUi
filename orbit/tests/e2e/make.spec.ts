@@ -232,10 +232,12 @@ test('Make on GPU.ai: nothing loads until you pick; picks come down in order and
   const win = await openMakeApp(page);
   const pickBar = win.getByRole('region', { name: 'Pick what to load' });
   await expect(pickBar).toContainText('Nothing is loaded yet');
+  await pickBar.getByRole('button', { name: 'All makers' }).click();
   await page.screenshot({ path: info.outputPath('make-pick-first.png') });
   await pickBar.getByRole('button', { name: /H3 Max/ }).click();
   const bar = win.getByRole('region', { name: 'Makers loading' });
   await expect(bar).toContainText('Loading H3 Max');
+  // Still open: the list stays as you left it.
   await bar.getByRole('group', { name: 'Load next' }).getByRole('button', { name: /Anime/ }).click();
   await bar.getByRole('group', { name: 'Load next' }).getByRole('button', { name: /Qwen/ }).click();
   await expect(bar).toContainText('3rd in line');
@@ -268,9 +270,12 @@ test('Make on GPU.ai: while the machine starts, tap what loads first; the order 
   await page.route(/\/api\/make(\?.*)?$/, (r) => r.fulfill({ json: { configured: false } }));
   await openOrbit(page);
   const win = await openMakeApp(page);
+  await expect(win.getByText('Nothing loads until you pick')).toBeVisible();
+  // Folded at first: the makers menu sets the order too, and the whole list would fill a phone.
+  await expect(win.getByRole('group', { name: 'Pick what loads first' })).toHaveCount(0);
+  await win.getByRole('button', { name: 'All makers' }).click();
   const group = win.getByRole('group', { name: 'Pick what loads first' });
   await expect(group).toBeVisible();
-  await expect(win.getByText('Nothing loads until you pick')).toBeVisible();
   // Every maker the AI machine can run, yours first, the rest by what they make.
   await expect(group.getByRole('group', { name: 'Yours', exact: true }).getByRole('button')).toHaveCount(3);
   for (const g of ['Pictures', 'Edit pictures', 'Videos', 'Edit videos', '3D objects', 'Rigging']) await expect(group.getByRole('group', { name: g, exact: true })).toBeVisible();
@@ -387,4 +392,90 @@ test('Make: the × of the "turn the AI machine on" message never sits on its wor
   expect(wrap!.x + wrap!.width).toBeLessThanOrEqual(vw - 8);
   await win.getByRole('button', { name: 'Hide this message' }).click();
   await expect(banner).toBeHidden();
+});
+
+test('Make on GPU.ai: the makers menu shows every maker; tapping ones not loaded lines them up in the order tapped', async ({ page }, info) => {
+  await mockAi(page, 'on');
+  const loads: { id: string; first: boolean }[] = [];
+  const line: string[] = [];
+  const row = (id: string, kind: string, name: string, installed = false) => {
+    if (installed) return { id, kind, name, installed: true, wanted: true, percent: 100, size: 1e9 };
+    const at = line.indexOf(id);
+    return at < 0
+      ? { id, kind, name, installed: false, wanted: false, percent: 0, size: 2e10, loadable: true }
+      : { id, kind, name, installed: false, wanted: true, percent: at ? 0 : 12, size: 2e10, status: at ? 'waiting' : 'downloading', line: at + 1 };
+  };
+  const makers = () => [row('qwen', 'image', 'Qwen Uncensored', true), row('krea-real', 'image', 'Krea Real'), row('anime', 'image', 'Anime'), row('h3-max', 'video', 'H3 Max')];
+  await page.route('**/fake-ai/_orbit/studio', (r) => r.fulfill({ json: { setup: 'running', running: true, image: READY, video: READY, downloading: null, downloadError: null, jobs: [] } }));
+  await page.route('**/fake-ai/_orbit/studio/makers', (r) => r.fulfill({ json: { makers: makers() } }));
+  await page.route('**/fake-ai/_orbit/studio/makers/load', (r) => {
+    const body = r.request().postDataJSON() as { id: string; first: boolean };
+    loads.push(body);
+    const at = line.indexOf(body.id);
+    if (at >= 0) line.splice(at, 1);
+    if (body.first) line.splice(Math.min(1, line.length), 0, body.id);
+    else line.push(body.id);
+    return r.fulfill({ json: { makers: makers() } });
+  });
+  await page.route('**/fake-ai/_orbit/studio/items', (r) => r.fulfill({ json: { items: [] } }));
+
+  const errors = await openOrbit(page);
+  const win = await openMakeApp(page);
+  await win.getByRole('button', { name: 'Next: Maker & style' }).click();
+  const menu = win.getByRole('radiogroup', { name: 'Maker' });
+  // The loaded one first, then the ones to load (pictures only: this is a picture).
+  await expect(menu.getByRole('radio')).toHaveCount(3);
+  await expect(menu.getByRole('radio').first()).toHaveAccessibleName(/^Qwen Uncensored/);
+  await expect(menu.getByRole('radio', { name: /^Krea Real/ })).toContainText('tap to load');
+  // Tapped in the order wanted; the menu stays put so the next can be tapped.
+  await menu.getByRole('radio', { name: /^Krea Real/ }).click();
+  await expect.poll(() => loads).toEqual([{ id: 'krea-real', first: false }]);
+  await menu.getByRole('radio', { name: /^Anime/ }).click();
+  await expect.poll(() => loads.length).toBe(2);
+  await expect(menu.getByRole('radio', { name: /^Anime/ })).toContainText('2nd in line');
+  await expect(win.getByRole('heading', { level: 3, name: 'Who makes it' })).toBeVisible();
+  // The bar at the top shows the line at once.
+  await expect(win.getByRole('region', { name: 'Makers loading' })).toContainText('Loading 2 makers');
+  // The chosen one moves up.
+  await win.getByRole('button', { name: 'Load it next' }).click();
+  await expect.poll(() => loads.at(-1)).toEqual({ id: 'anime', first: true });
+  await expectNoHorizontalOverflow(page);
+  await page.screenshot({ path: info.outputPath('make-menu-line.png') });
+  expect(errors).toEqual([]);
+});
+
+test('Make on GPU.ai: while the machine starts, the makers menu sets what loads first, and the bar shows the same order', async ({ page }, info) => {
+  await mockAi(page, 'off');
+  const posts: { action: string; makers: string[] }[] = [];
+  let first: string[] = [];
+  await page.route('**/api/ai', async (route) => {
+    if (route.request().method() === 'POST') {
+      const body = route.request().postDataJSON() as { action: string; makers: string[] };
+      posts.push(body);
+      first = body.makers ?? first;
+    }
+    await route.fulfill({ json: { state: 'starting', costPerHour: 0.45, autoOffMinutes: 60, tier: 'standard', tiers: [], picks: { library: ['qwen', 'edit', 'h3-max'], first } } });
+  });
+  await page.route(/\/api\/make(\?.*)?$/, (r) => r.fulfill({ json: { configured: false } }));
+  await openOrbit(page);
+  const win = await openMakeApp(page);
+  await win.getByRole('button', { name: 'Next: Maker & style' }).click();
+  const menu = win.getByRole('radiogroup', { name: 'Maker' });
+  await menu.getByRole('radio', { name: /^Anime/ }).click();
+  await expect.poll(() => posts.at(-1)).toEqual({ action: 'first', makers: ['anime'] });
+  await menu.getByRole('radio', { name: /^Krea Real/ }).click();
+  await expect.poll(() => posts.at(-1)).toEqual({ action: 'first', makers: ['anime', 'krea-real'] });
+  await expect(menu.getByRole('radio', { name: /^Krea Real/ })).toContainText('loads 2nd');
+  await expect(win.getByText('Krea Real loads 2nd when your AI machine is up')).toBeVisible();
+  // The bar at the top shows the same order, in one line.
+  await expect(win.getByText('Loads first: 1st Anime, 2nd Krea Real.')).toBeVisible();
+  // Moved to the front, then out.
+  await win.getByRole('button', { name: 'Load it first' }).click();
+  await expect.poll(() => posts.at(-1)).toEqual({ action: 'first', makers: ['krea-real', 'anime'] });
+  await expect(menu.getByRole('radio', { name: /^Krea Real/ })).toContainText('loads 1st');
+  await win.getByRole('button', { name: 'Take it out' }).click();
+  await expect.poll(() => posts.at(-1)).toEqual({ action: 'first', makers: ['anime'] });
+  await expect(menu.getByRole('radio', { name: /^Krea Real/ })).toContainText('tap to load');
+  await expectNoHorizontalOverflow(page);
+  await page.screenshot({ path: info.outputPath('make-menu-first.png') });
 });
