@@ -85,6 +85,7 @@ const APP_NAME: Record<AppId, string> = {
   ai: 'AI',
   make: 'Make',
   livedraw: 'Live Draw',
+  flipbook: 'Flipbook',
   store: 'Store',
   soreal: 'soReal',
   lab: 'Lab',

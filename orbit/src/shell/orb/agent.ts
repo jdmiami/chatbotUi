@@ -41,6 +41,7 @@ export const APP_WORDS: [RegExp, AppId][] = [
   [/\b(so ?real|movies?|films?)\b/, 'soreal'],
   [/\b(stats|statistics|storage|usage|cost|spending|ram|cpu|gpu)\b/, 'stats'],
   [/\b(settings?|preferences|options)\b/, 'settings'],
+  [/\b(flip ?book|stick ?(man|men|figures?)|animat(e|ion|ing) drawings?)\b/, 'flipbook'],
   [/\b(live ?draw|drawing|sketch(ing)?)\b/, 'livedraw'],
   [/\b(images?|pictures?|photos?|videos?|make|create|draw|gallery)\b/, 'make'],
   [/\b(ai|chat|talk|assistant)\b/, 'ai'],
