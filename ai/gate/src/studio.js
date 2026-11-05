@@ -1112,6 +1112,8 @@ export function createStudio(o) {
       status: j.status,
       progress: j.progress,
       error: j.error || null,
+      // What went wrong in the program's own words (the rigger's last lines), when it said any.
+      detail: j.detail || undefined,
       createdAt: j.createdAt,
       startedAt: j.startedAt ? new Date(j.startedAt).toISOString() : null,
       finishedAt: j.finishedAt || null,
@@ -1793,7 +1795,9 @@ export function createStudio(o) {
         job.child = null;
         const st = await fsp.stat(out).catch(() => null);
         if (code === 0 && st && st.size > 0) return resolve(outRel);
-        log.warn?.(`[rig] job ${job.id} ended (${code ?? signal}): ${tail.split('\n').slice(-6).join(' | ')}`);
+        // Its last words, for whoever looks into it (the job's detail; Orbit shows the plain error).
+        job.detail = tail.split('\n').map((l) => l.trim()).filter(Boolean).slice(-6).join('\n').slice(-1500) || undefined;
+        log.warn?.(`[rig] job ${job.id} ended (${code ?? signal}): ${(job.detail || '').split('\n').join(' | ')}`);
         reject(new Error(timedOut ? 'Rigging took too long.' : 'The rigger could not rig this object.'));
       });
     });
