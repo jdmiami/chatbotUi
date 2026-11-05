@@ -3,7 +3,7 @@ import { useShell } from '../../state/shell';
 import { useWorkspace } from '../../state/workspace';
 import type { AiMachineStatus, LocalAi, StudioMakerInfo } from '../../services/ai/LocalAi';
 import { IconButton } from '../../ui/components';
-import { canResume, catalogMaker, ordinal, progressText, progressWhy } from '../ai/makerCatalog';
+import { aiMakers, canResume, ordinal, pickGroups, progressText, progressWhy } from '../ai/makerCatalog';
 import { formatSize } from '../ai/models';
 
 /**
@@ -13,7 +13,8 @@ import { formatSize } from '../ai/models';
  * of downloads (remembered on this device); it comes back when something new starts loading.
  *
  * The AI machine on GPU.ai loads nothing until you pick: here you pick what loads first (even while
- * it is still starting), what comes next, and move one to the front of the line.
+ * it is still starting), what comes next, and move one to the front of the line. Every maker it can
+ * run is there to pick, yours first, the rest by what they make.
  */
 const HIDE_KEY = 'orbit:make:loading-hidden';
 
@@ -115,19 +116,26 @@ export function MakeDownloads({ ai, status, machineOn, isActive }: { ai: LocalAi
         <div className={`ai-bar${pull ? '' : ' make-bar-busy'}`} aria-hidden>
           <span style={{ width: `${pull ? pull.percent : 30}%` }} />
         </div>
-        {picks?.library.length ? (
+        {picks ? (
           <>
             <p className="make-pick-head">{firstNow.length ? 'Loads in this order when it is up. Tap to change.' : 'Nothing loads until you pick. Tap what you want first.'}</p>
-            <div className="make-pick" role="group" aria-label="Pick what loads first">
-              {picks.library.map((id) => {
-                const at = firstNow.indexOf(id);
-                return (
-                  <button key={id} type="button" className="make-pick-chip" aria-pressed={at >= 0} onClick={() => void pickEarly(id)}>
-                    {at >= 0 ? <span className="make-pick-n">{ordinal(at + 1)}</span> : null}
-                    {catalogMaker(id)?.name ?? id}
-                  </button>
-                );
-              })}
+            <div className="make-pick-groups" role="group" aria-label="Pick what loads first">
+              {pickGroups(aiMakers(), picks.library).map((g) => (
+                <div key={g.label} className="make-pick-group" role="group" aria-label={g.label}>
+                  <p className="make-pick-label">{g.label}</p>
+                  <div className="make-pick">
+                    {g.makers.map((m) => {
+                      const at = firstNow.indexOf(m.id);
+                      return (
+                        <button key={m.id} type="button" className="make-pick-chip" aria-pressed={at >= 0} onClick={() => void pickEarly(m.id)}>
+                          {at >= 0 ? <span className="make-pick-n">{ordinal(at + 1)}</span> : null}
+                          {m.name}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              ))}
             </div>
           </>
         ) : null}
@@ -136,12 +144,19 @@ export function MakeDownloads({ ai, status, machineOn, isActive }: { ai: LocalAi
   }
   if (!machineOn || (!loading.length && !loadable.length)) return null;
   const chips = loadable.length ? (
-    <div className="make-pick" role="group" aria-label={loading.length ? 'Load next' : 'Pick what to load'}>
-      {loadable.map((m) => (
-        <button key={m.id} type="button" className="make-pick-chip" disabled={busy === m.id} onClick={() => void pick(m)}>
-          {m.name}
-          {m.size ? <span className="ai-muted"> · {formatSize(m.size)}</span> : null}
-        </button>
+    <div className="make-pick-groups" role="group" aria-label={loading.length ? 'Load next' : 'Pick what to load'}>
+      {pickGroups(loadable, status?.picks?.library ?? []).map((g) => (
+        <div key={g.label} className="make-pick-group" role="group" aria-label={g.label}>
+          <p className="make-pick-label">{g.label}</p>
+          <div className="make-pick">
+            {g.makers.map((m) => (
+              <button key={m.id} type="button" className="make-pick-chip" disabled={busy === m.id} onClick={() => void pick(m)}>
+                {m.name}
+                {m.size ? <span className="ai-muted"> · {formatSize(m.size)}</span> : null}
+              </button>
+            ))}
+          </div>
+        </div>
       ))}
     </div>
   ) : null;

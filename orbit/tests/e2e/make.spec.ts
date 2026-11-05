@@ -271,15 +271,25 @@ test('Make on GPU.ai: while the machine starts, tap what loads first; the order 
   const group = win.getByRole('group', { name: 'Pick what loads first' });
   await expect(group).toBeVisible();
   await expect(win.getByText('Nothing loads until you pick')).toBeVisible();
-  await group.getByRole('button', { name: /H3 Max/ }).click();
-  await group.getByRole('button', { name: /Qwen Uncensored/ }).click();
-  await expect(group.getByRole('button', { name: /H3 Max/ })).toContainText('1st');
-  await expect(group.getByRole('button', { name: /Qwen Uncensored/ })).toContainText('2nd');
+  // Every maker the AI machine can run, yours first, the rest by what they make.
+  await expect(group.getByRole('group', { name: 'Yours', exact: true }).getByRole('button')).toHaveCount(3);
+  for (const g of ['Pictures', 'Edit pictures', 'Videos', 'Edit videos', '3D objects', 'Rigging']) await expect(group.getByRole('group', { name: g, exact: true })).toBeVisible();
+  await expect(group.getByRole('group', { name: '3D objects' }).getByRole('button', { name: '3D object' })).toBeVisible();
+  // One that isn't yours can go first too.
+  await group.getByRole('group', { name: '3D objects' }).getByRole('button', { name: '3D object' }).click();
+  await expect.poll(() => posts.at(-1)).toEqual({ action: 'first', makers: ['trellis2'] });
+  await group.getByRole('group', { name: '3D objects' }).getByRole('button', { name: /3D object/ }).first().click();
+  await expect.poll(() => posts.at(-1)).toEqual({ action: 'first', makers: [] });
+  const yours = group.getByRole('group', { name: 'Yours', exact: true });
+  await yours.getByRole('button', { name: /H3 Max/ }).click();
+  await yours.getByRole('button', { name: /Qwen Uncensored/ }).click();
+  await expect(yours.getByRole('button', { name: /H3 Max/ })).toContainText('1st');
+  await expect(yours.getByRole('button', { name: /Qwen Uncensored/ })).toContainText('2nd');
   await expect.poll(() => posts.at(-1)).toEqual({ action: 'first', makers: ['h3-max', 'qwen'] });
   // Tapped again: out of the order.
-  await group.getByRole('button', { name: /H3 Max/ }).click();
+  await yours.getByRole('button', { name: /H3 Max/ }).click();
   await expect.poll(() => posts.at(-1)).toEqual({ action: 'first', makers: ['qwen'] });
-  await expect(group.getByRole('button', { name: /Qwen Uncensored/ })).toContainText('1st');
+  await expect(yours.getByRole('button', { name: /Qwen Uncensored/ })).toContainText('1st');
   await expectNoHorizontalOverflow(page);
   await page.screenshot({ path: info.outputPath('make-pick-starting.png') });
 });

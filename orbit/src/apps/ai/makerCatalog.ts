@@ -51,6 +51,39 @@ export function catalogMaker(id: string): StudioMakerInfo | null {
   return ALL.find((m) => m.id === id) ?? null;
 }
 
+/** Every maker the AI machine can run (the drawing machine's own are left out). */
+export function aiMakers(): StudioMakerInfo[] {
+  return ALL;
+}
+
+/** What each kind of maker makes, in the order the pick lists show them. */
+const PICK_GROUPS: [StudioMakerInfo['kind'], string][] = [
+  ['image', 'Pictures'],
+  ['edit', 'Edit pictures'],
+  ['style', 'Picture styles'],
+  ['upscale', 'Sharpen'],
+  ['video', 'Videos'],
+  ['videoedit', 'Edit videos'],
+  ['model3d', '3D objects'],
+  ['rig', 'Rigging'],
+];
+
+/**
+ * Makers to pick from, in groups: "Yours" first (the ids given, in their order), then every other
+ * maker by what it makes. Empty groups are left out.
+ */
+export function pickGroups<T extends Pick<StudioMakerInfo, 'id' | 'kind'>>(makers: T[], yours: string[] = []): { label: string; makers: T[] }[] {
+  const mine = yours.map((id) => makers.find((m) => m.id === id)).filter((m): m is T => Boolean(m));
+  const rest = makers.filter((m) => !yours.includes(m.id));
+  const known = new Set(PICK_GROUPS.map(([k]) => k));
+  const groups = [
+    { label: 'Yours', makers: mine },
+    ...PICK_GROUPS.map(([kind, label]) => ({ label, makers: rest.filter((m) => m.kind === kind) })),
+    { label: 'More', makers: rest.filter((m) => !known.has(m.kind)) },
+  ];
+  return groups.filter((g) => g.makers.length);
+}
+
 /** 1st, 2nd, 3rd, 4th… */
 export function ordinal(n: number): string {
   const t = n % 100;

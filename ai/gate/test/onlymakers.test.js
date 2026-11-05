@@ -105,7 +105,9 @@ test('on demand, the AI machine loads nothing until you pick, then downloads in 
   assert.equal(m['h3-max'].wanted, true, 'what you picked while starting is loading');
   assert.equal(m['h3-max'].line, 1);
   for (const id of ['qwen', 'edit', 'anime']) assert.equal(m[id].loadable, true, `${id} waits to be picked`);
-  assert.equal(m.ltx.loadable, undefined, 'not yours: not offered');
+  // Every maker this machine can run is offered, not only yours; the drawing machine's are not.
+  for (const id of ['ltx', 'krea-real', 'trellis2']) assert.equal(m[id].loadable, true, `${id} can be picked too`);
+  assert.equal(Object.values(m).some((x) => x.kind === 'live' || x.kind === 'sketch'), false, 'Live Draw makers stay on the drawing machine');
 
   // Picked next, then moved first.
   await studio.loadMaker('qwen');
@@ -116,9 +118,12 @@ test('on demand, the AI machine loads nothing until you pick, then downloads in 
   assert.deepEqual([m.qwen.line, m['h3-max'].line], [1, 2]);
   assert.equal(m.qwen.loadable, undefined);
 
-  // Only your makers: one never added is added in the store first (which also puts it in line).
-  await assert.rejects(studio.loadMaker('krea-real'), /store first/);
-  // Asking for one of yours that isn't loaded puts it first and says so.
+  // One never added in the store loads all the same, at the end of the line.
+  await studio.loadMaker('krea-real');
+  m = await rows();
+  assert.equal(m['krea-real'].line, 3);
+  await assert.rejects(studio.loadMaker('not-a-maker'), /No such maker/);
+  // Asking for one that isn't loaded puts it first and says so.
   await assert.rejects(studio.createJob({ maker: 'anime', prompt: 'a castle' }), (err) => err.status === 503 && /loading first now/.test(err.message));
   m = await rows();
   assert.deepEqual([m.anime.line, m.qwen.line, m['h3-max'].line], [1, 2, 3]);

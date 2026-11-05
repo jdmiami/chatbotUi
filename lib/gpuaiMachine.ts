@@ -68,15 +68,15 @@ export async function machinePicks(): Promise<{ library: string[]; first: string
   const r2 = createR2(conf);
   const [saved, note] = await Promise.all([r2.getJson<unknown>(LIBRARY_KEY).catch(() => null), r2.getJson<{ ids?: unknown }>(FIRST_KEY).catch(() => null)]);
   const library = libraryOf(only, saved);
-  return { library, first: cleanPicks(note?.ids).filter((id) => library.includes(id)) };
+  return { library, first: cleanPicks(note?.ids) };
 }
 
 /** Save what to load first (in order); the machine reads it when it comes up. */
 export async function setFirstPicks(ids: unknown): Promise<string[]> {
   const conf = r2Config();
   if (!conf) throw new Error('The site needs the R2 keys to remember what to load first.');
-  const { library } = await machinePicks();
-  const first = cleanPicks(ids).filter((id) => library.includes(id));
+  // Any maker, not only yours: the machine skips an id it doesn't know.
+  const first = cleanPicks(ids);
   await createR2(conf).putJson(FIRST_KEY, { ids: first, at: new Date().toISOString() });
   return first;
 }
