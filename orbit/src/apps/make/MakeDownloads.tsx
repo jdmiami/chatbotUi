@@ -3,7 +3,7 @@ import { useShell } from '../../state/shell';
 import { useWorkspace } from '../../state/workspace';
 import type { AiMachineStatus, LocalAi, StudioMakerInfo } from '../../services/ai/LocalAi';
 import { IconButton } from '../../ui/components';
-import { aiMakers, canResume, ordinal, pickGroups, progressText, progressWhy } from '../ai/makerCatalog';
+import { aiMakers, canResume, catalogMaker, ordinal, pickGroups, progressText, progressWhy } from '../ai/makerCatalog';
 import { formatSize } from '../ai/models';
 
 /**
@@ -18,7 +18,22 @@ import { formatSize } from '../ai/models';
  */
 const HIDE_KEY = 'orbit:make:loading-hidden';
 
-export function MakeDownloads({ ai, status, machineOn, isActive }: { ai: LocalAi; status: AiMachineStatus | null; machineOn: boolean; isActive: boolean }) {
+export function MakeDownloads({
+  ai,
+  status,
+  machineOn,
+  isActive,
+  first: firstNow,
+  onFirst,
+}: {
+  ai: LocalAi;
+  status: AiMachineStatus | null;
+  machineOn: boolean;
+  isActive: boolean;
+  /** What loads first while the machine starts, in order (Make keeps it: the makers menu sets it too). */
+  first: string[];
+  onFirst: (ids: string[]) => void;
+}) {
   const toast = useShell((s) => s.toast);
   const [makers, setMakers] = useState<StudioMakerInfo[]>([]);
   const [busy, setBusy] = useState<string | null>(null);
@@ -33,16 +48,21 @@ export function MakeDownloads({ ai, status, machineOn, isActive }: { ai: LocalAi
   const load = useCallback(() => ai.studioMakers().then(setMakers, () => {}), [ai]);
   const loading = makers.filter((m) => m.wanted && !m.installed).sort((a, b) => (a.line ?? 99) - (b.line ?? 99));
   const loadable = makers.filter((m) => m.loadable);
-  // Picked while the machine starts (saved on the site); the machine's own answer wins once it is on.
-  const [first, setFirst] = useState<string[] | null>(null);
   const picks = status?.picks;
-  const firstNow = first ?? picks?.first ?? [];
+  // While it starts, the full list stays folded: the makers menu (step 2) sets the order too, and the
+  // list would fill a phone's screen.
+  const [allOpen, setAllOpen] = useState(false);
   useEffect(() => {
     if (!isActive || !machineOn) return;
     void load();
-    // Quicker while something is coming down.
+    // Quicker while something is coming down, and at once when the makers menu puts one in line.
     const t = setInterval(() => void load(), loading.length ? 4000 : 20000);
-    return () => clearInterval(t);
+    const now = () => void load();
+    window.addEventListener('orbit:makers-changed', now);
+    return () => {
+      clearInterval(t);
+      window.removeEventListener('orbit:makers-changed', now);
+    };
   }, [isActive, machineOn, load, loading.length]);
 
   const resume = async (m: StudioMakerInfo) => {
@@ -70,17 +90,7 @@ export function MakeDownloads({ ai, status, machineOn, isActive }: { ai: LocalAi
   };
 
   /** While it starts: tap to add to (or take out of) what loads first, in the order tapped. */
-  const pickEarly = async (id: string) => {
-    const next = firstNow.includes(id) ? firstNow.filter((x) => x !== id) : [...firstNow, id];
-    setFirst(next);
-    try {
-      const s = await ai.setFirstMakers(next);
-      if (s.picks) setFirst(s.picks.first);
-    } catch (err) {
-      setFirst(null);
-      toast((err as Error).message, 'error');
-    }
-  };
+  const pickEarly = (id: string) => onFirst(firstNow.includes(id) ? firstNow.filter((x) => x !== id) : [...firstNow, id]);
 
   const launch = useShell((s) => s.launch);
   const openManager = () => {
@@ -118,32 +128,48 @@ export function MakeDownloads({ ai, status, machineOn, isActive }: { ai: LocalAi
         </div>
         {picks ? (
           <>
-            <p className="make-pick-head">{firstNow.length ? 'Loads in this order when it is up. Tap to change.' : 'Nothing loads until you pick. Tap what you want first.'}</p>
-            <div className="make-pick-groups" role="group" aria-label="Pick what loads first">
-              {pickGroups(aiMakers(), picks.library).map((g) => (
-                <div key={g.label} className="make-pick-group" role="group" aria-label={g.label}>
-                  <p className="make-pick-label">{g.label}</p>
-                  <div className="make-pick">
-                    {g.makers.map((m) => {
-                      const at = firstNow.indexOf(m.id);
-                      return (
-                        <button key={m.id} type="button" className="make-pick-chip" aria-pressed={at >= 0} onClick={() => void pickEarly(m.id)}>
-                          {at >= 0 ? <span className="make-pick-n">{ordinal(at + 1)}</span> : null}
-                          {m.name}
-                        </button>
-                      );
-                    })}
+            <p className="make-pick-head make-pick-summary">
+              <span>
+                {firstNow.length
+                  ? `Loads first: ${firstNow.map((id, i) => `${ordinal(i + 1)} ${catalogMaker(id)?.name ?? id}`).join(', ')}.`
+                  : 'Nothing loads until you pick. Tap makers in step 2 in the order you want, or here.'}
+              </span>
+              <button type="button" className="make-loading-all" aria-expanded={allOpen} onClick={() => setAllOpen((o) => !o)}>
+                {allOpen ? 'Fold the list' : 'All makers'}
+              </button>
+            </p>
+            {allOpen && (
+              <div className="make-pick-groups" role="group" aria-label="Pick what loads first">
+                {pickGroups(aiMakers(), picks.library).map((g) => (
+                  <div key={g.label} className="make-pick-group" role="group" aria-label={g.label}>
+                    <p className="make-pick-label">{g.label}</p>
+                    <div className="make-pick">
+                      {g.makers.map((m) => {
+                        const at = firstNow.indexOf(m.id);
+                        return (
+                          <button key={m.id} type="button" className="make-pick-chip" aria-pressed={at >= 0} onClick={() => pickEarly(m.id)}>
+                            {at >= 0 ? <span className="make-pick-n">{ordinal(at + 1)}</span> : null}
+                            {m.name}
+                          </button>
+                        );
+                      })}
+                    </div>
                   </div>
-                </div>
-              ))}
-            </div>
+                ))}
+              </div>
+            )}
           </>
         ) : null}
       </section>
     );
   }
   if (!machineOn || (!loading.length && !loadable.length)) return null;
-  const chips = loadable.length ? (
+  const allButton = loadable.length ? (
+    <button type="button" className="make-loading-all" aria-expanded={allOpen} onClick={() => setAllOpen((o) => !o)}>
+      {allOpen ? 'Fold the list' : 'All makers'}
+    </button>
+  ) : null;
+  const chips = loadable.length && allOpen ? (
     <div className="make-pick-groups" role="group" aria-label={loading.length ? 'Load next' : 'Pick what to load'}>
       {pickGroups(loadable, status?.picks?.library ?? []).map((g) => (
         <div key={g.label} className="make-pick-group" role="group" aria-label={g.label}>
@@ -165,8 +191,11 @@ export function MakeDownloads({ ai, status, machineOn, isActive }: { ai: LocalAi
     return (
       <section className="make-loading" aria-label="Pick what to load">
         <p className="make-loading-head">
-          <span>{any ? 'Load another maker' : 'Nothing is loaded yet. Pick what you want first.'}</span>
-          <span className="make-loading-acts">{hideButton}</span>
+          <span>{any ? 'Load another maker: tap one in step 2, or see them all.' : 'Nothing is loaded yet. Tap makers in step 2 in the order you want, or see them all.'}</span>
+          <span className="make-loading-acts">
+            {allButton}
+            {hideButton}
+          </span>
         </p>
         {chips}
       </section>
@@ -186,6 +215,7 @@ export function MakeDownloads({ ai, status, machineOn, isActive }: { ai: LocalAi
           <button type="button" className="make-loading-all" onClick={openManager}>
             Download manager
           </button>
+          {allButton}
           {hideButton}
         </span>
       </p>

@@ -73,6 +73,21 @@ export default function MakeApp({ isActive }: AppProps) {
     useWorkspace.getState().sendIntent({ app: 'store', type: 'open', shelf: 'makers' });
     launch('store');
   };
+  // What to load first while the machine starts: one order for the bar and the makers menu (saved on
+  // the site; the machine reads it when it comes up). Shown at once, then the site's answer.
+  const [first, setFirst] = useState<string[] | null>(null);
+  const firstNow = first ?? status?.picks?.first ?? [];
+  const setFirstOrder = async (next: string[]) => {
+    setFirst(next);
+    try {
+      const s = await ai.setFirstMakers(next);
+      setStatus(s);
+      setFirst(s.picks ? s.picks.first : null);
+    } catch (err) {
+      setFirst(null);
+      toast((err as Error).message, 'error');
+    }
+  };
   const state = machineOn ? 'on' : waking ? 'waking up' : status ? 'resting' : null;
 
   const notice = status && !machineOn && (status.state === 'off' || waking) && (
@@ -93,7 +108,7 @@ export default function MakeApp({ isActive }: AppProps) {
 
   return (
     <div className="ag-root ai-root make-root">
-      <MakeDownloads ai={ai} status={status} machineOn={machineOn} isActive={isActive} />
+      <MakeDownloads ai={ai} status={status} machineOn={machineOn} isActive={isActive} first={firstNow} onFirst={(ids) => void setFirstOrder(ids)} />
       <CreateView
         ai={ai}
         machineOn={machineOn}
@@ -102,6 +117,8 @@ export default function MakeApp({ isActive }: AppProps) {
         useCharacter={useCharacter}
         onCharacters={() => setCharsOpen(true)}
         onOpenMakers={openMakers}
+        picks={waking && !machineOn && status?.picks ? firstNow : null}
+        onFirst={(ids) => void setFirstOrder(ids)}
         reloadKey={moved}
         kicker={state ? `AI machine ${state}` : undefined}
         notice={notice}

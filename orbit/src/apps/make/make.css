@@ -740,3 +740,8 @@
 .mk-batch-go { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px; padding-top: 6px; border-top: 1px solid var(--o5-hair, var(--border)); }
 .mk-batch-maker { display: inline-flex; align-items: center; gap: 8px; font: 600 var(--fs-sm, 14px) / 1 var(--font-ui); }
 .mk-batch-maker select { min-height: 44px; padding: 0 10px; border-radius: 12px; border: 1px solid var(--o5-hair, var(--border)); background: transparent; color: inherit; font: inherit; max-width: 60vw; }
+
+/* The makers menu on a machine that loads what you pick: move the chosen one up, or out of the line. */
+.mk-line-acts { display: flex; flex-wrap: wrap; gap: 8px; margin-block: 8px 0; }
+.make-pick-summary { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 4px 12px; }
+.make-pick-summary > span { flex: 1 1 14em; min-width: 0; }
