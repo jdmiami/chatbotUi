@@ -401,13 +401,14 @@ test.describe('AI app: Create', () => {
     await makeStep(page, 'Extras');
     await page.locator('.ai-create input[type="file"]').setInputFiles({ name: 'me.png', mimeType: 'image/png', buffer: PNG });
     await expect(page.getByRole('img', { name: 'Starting photo' })).toBeVisible();
-    await page.getByRole('group', { name: 'Length' }).getByRole('button', { name: '8 s' }).click();
+    // The longest one clip can be: 10 seconds.
+    await page.getByRole('group', { name: 'Length' }).getByRole('button', { name: '10 s' }).click();
     await page.getByRole('group', { name: 'Shape' }).getByRole('button', { name: 'Portrait' }).click();
     await describe(page, 'she turns and waves');
     await (await makeButton(page, 'Make video')).click();
     await expect.poll(() => studio.requests.length).toBe(1);
     const req = studio.requests[0];
-    expect(req).toMatchObject({ kind: 'video', prompt: 'she turns and waves', size: 'portrait', seconds: 8 });
+    expect(req).toMatchObject({ kind: 'video', prompt: 'she turns and waves', size: 'portrait', seconds: 10 });
     expect(String(req.image)).toMatch(/^data:image\/jpeg;base64,/);
     await expectNoHorizontalOverflow(page);
   });

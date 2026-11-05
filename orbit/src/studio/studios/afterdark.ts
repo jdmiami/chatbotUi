@@ -188,6 +188,7 @@ export const AFTER_DARK: StudioDef = {
             { label: '3 seconds', hint: 'A glance' },
             { label: '5 seconds', hint: 'A moment' },
             { label: '8 seconds', hint: 'A whole beat' },
+            { label: '10 seconds', hint: 'The longest one clip can be' },
           ],
           closed: true,
           predict: false,
