@@ -42,6 +42,7 @@ h1{font:400 34px/1.05 var(--serif);letter-spacing:-.01em;margin:18px 0 4px}
 textarea,input[type=text]{width:100%;border:1px solid var(--line);background:var(--card);border-radius:14px;padding:14px;font-size:16px;line-height:1.45;outline:none}
 textarea:focus,input[type=text]:focus{border-color:var(--accent)}
 textarea{min-height:150px;resize:vertical}
+.sel{width:100%;border:1px solid var(--line);background:var(--card);border-radius:14px;padding:12px 14px;font-size:16px;min-height:48px;margin:0 0 12px;-webkit-appearance:none;appearance:none}
 label.f{display:block;color:var(--ink2);font-size:14px;margin:14px 0 6px}
 .btn{border:1px solid var(--line);background:var(--card);border-radius:999px;padding:12px 18px;min-height:46px;font-weight:600}
 .btn.p{background:var(--ink);color:#111;border-color:var(--ink)}
@@ -90,14 +91,15 @@ export const LITE_JS = String.raw`
   var SHORT = { what: 'What', maker: 'Maker', describe: 'Describe it', extras: 'Extras', make: 'Make it' };
   var DEFAULT = { image: 'qwen', video: 'h3-max' };
   var NAME = { qwen: 'Qwen Uncensored', 'h3-max': 'H3 Max' };
-  var S = { step: 0, kind: 'image', maker: '', prompt: '', size: 'portrait', seconds: 5, makers: null, status: null, grant: null, busy: '', story: null, eros: { idea: '', who: '', heat: 'steamy', scenes: 5 }, job: null, note: '' };
+  var S = { step: 0, kind: 'image', maker: '', prompt: '', size: 'portrait', seconds: 5, makers: null, status: null, grant: null, busy: '', story: null, eros: { idea: '', who: '', heat: 'steamy', scenes: 5 }, job: null, note: '', writer: '', writers: null };
   try {
     var saved = JSON.parse(localStorage.getItem('orbit.lite') || '{}');
     ['kind', 'maker', 'prompt', 'size', 'seconds'].forEach(function (k) { if (saved[k] != null) S[k] = saved[k]; });
     if (saved.eros) S.eros = saved.eros;
+    if (saved.writer) S.writer = saved.writer;
   } catch (e) {}
   function save() {
-    try { localStorage.setItem('orbit.lite', JSON.stringify({ kind: S.kind, maker: S.maker, prompt: S.prompt, size: S.size, seconds: S.seconds, eros: S.eros })); } catch (e) {}
+    try { localStorage.setItem('orbit.lite', JSON.stringify({ kind: S.kind, maker: S.maker, prompt: S.prompt, size: S.size, seconds: S.seconds, eros: S.eros, writer: S.writer })); } catch (e) {}
   }
 
   // ---- the site and the machine
@@ -138,8 +140,27 @@ export const LITE_JS = String.raw`
 
   // ---- the NVIDIA writer (task "free": its one rule keeps everyone an adult)
   var ADULTS = 'Every character is a fictional adult, clearly over 18. Never a real, famous or named public person.';
+  // NVIDIA's unfiltered writers, to pick from (Automatic: the site tries them in order).
+  var WRITER_NAMES = {
+    'nv-mistralai/mistral-nemo-12b-instruct': 'Mistral NeMo 12B \u00b7 quick, loose',
+    'mistralai/mistral-large-2-instruct': 'Mistral Large 2 \u00b7 best writing, slower',
+    'mistralai/mistral-7b-instruct-v0.3': 'Mistral 7B \u00b7 quickest, simplest'
+  };
+  function loadWriters() {
+    return api('/api/orb/ai').then(function (r) {
+      var nv = (r.byProvider || []).filter(function (p) { return p.id === 'nvidia'; })[0];
+      S.writers = nv && nv.models && Array.isArray(nv.models.free) ? nv.models.free : [];
+      if (S.writer && S.writers.indexOf(S.writer) < 0) { S.writer = ''; save(); }
+      draw();
+    }).catch(function () { S.writers = []; });
+  }
+  function writerName(id) { return WRITER_NAMES[id] || id.split('/').pop(); }
   function write(system, user, maxTokens) {
-    return api('/api/orb/ai', { method: 'POST', body: { task: 'free', messages: [{ role: 'system', content: system + ' ' + ADULTS }, { role: 'user', content: user }], max_tokens: maxTokens || 900, temperature: 0.9 } }).then(function (j) {
+    var ask = { task: 'free', messages: [{ role: 'system', content: system + ' ' + ADULTS }, { role: 'user', content: user }], max_tokens: maxTokens || 900, temperature: 0.9 };
+    if (S.writer) { ask.model = S.writer; ask.prefer = 'nvidia'; }
+    return api('/api/orb/ai', { method: 'POST', body: ask }).catch(function (err) {
+      throw S.writer ? new Error(writerName(S.writer) + ' did not answer (' + err.message + '). Pick another writer, or Automatic.') : err;
+    }).then(function (j) {
       var t = (j.choices && j.choices[0] && j.choices[0].message && j.choices[0].message.content) || '';
       t = t.replace(/<think>[\s\S]*?<\/think>/g, '').trim();
       if (t.indexOf('[not possible]') >= 0) throw new Error("That idea can't be made.");
@@ -343,7 +364,10 @@ export const LITE_JS = String.raw`
       var story = S.story ? '<div class="story"><h3>' + esc(S.story.title) + '</h3>' + (S.story.characters ? '<p class="note">' + esc(S.story.characters) + '</p>' : '') +
         S.story.scenes.map(function (s, i) { return '<div class="scene"><p>' + esc(s.story) + '</p><p class="pr">' + esc(s.prompt) + '</p><div class="acts"><button class="btn s" data-use="' + i + '">Use this prompt</button></div></div>'; }).join('') +
         '<div class="acts"><button class="btn a" data-do="all"' + (S.busy ? ' disabled' : '') + '>' + (S.busy === 'all' ? 'Sending…' : 'Make all ' + S.story.scenes.length + ' scenes') + '</button></div></div>' : '';
-      return '<textarea id="prompt" aria-label="Describe it" placeholder="Who, what, where, the light, the mood…">' + esc(S.prompt) + '</textarea>' +
+      var writers = S.writers && S.writers.length ? '<label class="f" for="writer">Writer (NVIDIA, unfiltered)</label><select id="writer" class="sel">' +
+        '<option value=""' + (S.writer ? '' : ' selected') + '>Automatic \u00b7 the best one answering</option>' +
+        S.writers.map(function (id) { return '<option value="' + esc(id) + '"' + (S.writer === id ? ' selected' : '') + '>' + esc(writerName(id)) + '</option>'; }).join('') + '</select>' : '';
+      return writers + '<textarea id="prompt" aria-label="Describe it" placeholder="Who, what, where, the light, the mood…">' + esc(S.prompt) + '</textarea>' +
         '<div class="acts"><button class="btn a" data-do="eros" aria-expanded="' + Boolean(S.erosOpen) + '">Eros story writer</button><button class="btn s" data-do="clear">Clear</button></div>' +
         (S.erosOpen ? '<div class="story" aria-label="Eros story writer"><p class="kick">Eros</p><p class="dek">An idea becomes a short adult story, and every scene a prompt. Made-up adults only.</p>' +
           '<label class="f" for="eidea">The idea</label><textarea id="eidea" style="min-height:90px" placeholder="Two strangers stuck in a lift during a blackout…">' + esc(e.idea) + '</textarea>' +
@@ -397,6 +421,9 @@ export const LITE_JS = String.raw`
     if (d === 'story') return busy('story', doStory());
     if (d === 'clear') { S.prompt = ''; save(); return draw(); }
   });
+  document.addEventListener('change', function (e) {
+    if (e.target.id === 'writer') { S.writer = e.target.value; save(); }
+  });
   document.addEventListener('input', function (e) {
     if (e.target.id === 'prompt') S.prompt = e.target.value;
     if (e.target.id === 'eidea') S.eros.idea = e.target.value;
@@ -415,6 +442,7 @@ export const LITE_JS = String.raw`
   draw();
   drawBar();
   refresh();
+  loadWriters();
   setInterval(function () { if (!document.hidden) refresh(); }, 15000);
   setInterval(function () { if (!document.hidden && on() && STEPS[S.step] === 'maker') loadMakers(); }, 8000);
 })();

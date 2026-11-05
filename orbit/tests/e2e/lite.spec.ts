@@ -60,6 +60,16 @@ async function standIns(page: Page, opts: { on?: boolean } = {}) {
         },
       });
     if (url.pathname === '/api/ai/token') return route.fulfill({ json: state === 'on' ? { url: MACHINE, token: 'tok', expiresIn: 3600 } : { url: null, token: null, expiresIn: 3600 } });
+    if (url.pathname === '/api/orb/ai' && route.request().method() === 'GET')
+      return route.fulfill({
+        json: {
+          configured: true,
+          byProvider: [
+            { id: 'nvidia', name: 'NVIDIA', models: { free: ['nv-mistralai/mistral-nemo-12b-instruct', 'mistralai/mistral-large-2-instruct', 'mistralai/mistral-7b-instruct-v0.3'] } },
+            { id: 'groq', name: 'Groq', models: { free: ['llama-3.3-70b-versatile'] } },
+          ],
+        },
+      });
     if (url.pathname === '/api/orb/ai') {
       const b = body as { task: string; messages: { role: string; content: string }[] };
       const sys = b.messages[0].content;
@@ -134,12 +144,19 @@ test('fast Make: turn on with a GPU picked, a video maker put in line, words wri
   await expect.poll(() => calls.find((c) => c.path === 'machine:/_orbit/studio/makers/load')?.body).toEqual({ id: 'ltx', first: false });
   await menu.getByRole('radio', { name: /H3 Max/ }).click();
 
-  // 3: Do it for me writes the words with the unfiltered NVIDIA writer.
+  // 3: Do it for me writes the words with the unfiltered NVIDIA writer you pick (Automatic until then).
   await page.getByRole('button', { name: 'Describe it →' }).click();
+  const writer = page.getByLabel('Writer (NVIDIA, unfiltered)');
+  await expect(writer).toHaveValue('');
+  // NVIDIA's own writers only, and Automatic.
+  await expect(writer.locator('option')).toHaveText(['Automatic · the best one answering', 'Mistral NeMo 12B · quick, loose', 'Mistral Large 2 · best writing, slower', 'Mistral 7B · quickest, simplest']);
+  await writer.selectOption('mistralai/mistral-large-2-instruct');
+  await page.screenshot({ path: info.outputPath('lite-writer.png') });
   await page.getByRole('button', { name: 'Do it for me' }).click();
   await expect(page.getByRole('textbox', { name: 'Describe it' })).toHaveValue(/red slip dress/);
-  const asked = calls.find((c) => c.path === '/api/orb/ai')!.body as { task: string; messages: { content: string }[] };
+  const asked = calls.find((c) => c.path === '/api/orb/ai' && c.body)!.body as { task: string; messages: { content: string }[] };
   expect(asked.task).toBe('free');
+  expect(asked).toMatchObject({ model: 'mistralai/mistral-large-2-instruct', prefer: 'nvidia' });
   expect(asked.messages[0].content).toMatch(/fictional adult, clearly over 18\. Never a real, famous/);
 
   // Eros: an idea, how hot, how many scenes; each scene's prompt can be used.
@@ -152,6 +169,7 @@ test('fast Make: turn on with a GPU picked, a video maker put in line, words wri
   await expect(page.locator('.scene')).toHaveCount(3);
   const eros = calls.filter((c) => c.path === '/api/orb/ai').at(-1)!.body as { messages: { content: string }[] };
   expect(eros.messages[0].content).toMatch(/You are Eros.*fully explicit.*exactly 3 scenes/);
+  expect(eros).toMatchObject({ model: 'mistralai/mistral-large-2-instruct' });
   await page.screenshot({ path: info.outputPath('lite-eros.png') });
   await page.locator('.scene').nth(1).getByRole('button', { name: 'Use this prompt' }).click();
   await expect(page.getByRole('textbox', { name: 'Describe it' })).toHaveValue('scene 2 prompt: Mara and Theo in a dark lift');
