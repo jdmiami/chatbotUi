@@ -417,6 +417,9 @@ export function createStudio(o) {
   // Yours: on the short list (else built in), or added in the store.
   const inLibrary = (m) => !drawingOnly(m) && ((only ? only.has(m.id) : m.builtIn) || (!strict && wanted.has(m.id)));
   const keeps = (m) => (onDemand ? !drawingOnly(m) && picked.includes(m.id) : inLibrary(m));
+  // On demand, any maker this machine can run can be picked to load (not only the starting list and
+  // what you added in the store); otherwise only your makers.
+  const pickable = (m) => (onDemand ? !drawingOnly(m) : inLibrary(m));
   // A short list also sets the download order (what is needed first comes down first); picks set it on demand.
   const rank = (m) => (onDemand ? picked.indexOf(m.id) : only?.has(m.id) ? [...only].indexOf(m.id) : Infinity);
   const kept = () => (only || onDemand ? MAKERS.filter(keeps).sort((a, b) => rank(a) - rank(b)) : MAKERS.filter(keeps));
@@ -768,7 +771,7 @@ export function createStudio(o) {
                     : 'paused',
         waitingFor: !installed && !why && download.current && !mine ? download.current.name : undefined,
         // On demand: yours, not picked on this machine yet (pick it to load it).
-        loadable: onDemand && !installed && !keeps(m) && inLibrary(m) ? true : undefined,
+        loadable: onDemand && !installed && !keeps(m) && pickable(m) ? true : undefined,
       });
     }
     // On demand: each picked maker's place in the download line (1 = coming down now or next).
@@ -807,7 +810,7 @@ export function createStudio(o) {
     if (!onDemand) throw Object.assign(new Error('This machine loads every maker you added by itself.'), { status: 409 });
     const m = makerById(id);
     if (!m || drawingOnly(m)) throw Object.assign(new Error('No such maker.'), { status: 404 });
-    if (!inLibrary(m)) throw Object.assign(new Error(`Add ${m.name} in the store first.`), { status: 409 });
+    if (!pickable(m)) throw Object.assign(new Error(`Add ${m.name} in the store first.`), { status: 409 });
     addToLine(m, first);
     await savePicked();
     void downloadAll();
@@ -1444,7 +1447,7 @@ export function createStudio(o) {
     if (needs.has('photo') && !uploads.length && !req.fromItem && !itemIds.length && !character) throw bad(task === 'motion' ? 'Add a photo of who should move.' : swap ? 'Add a photo of the new person.' : 'Add a photo of the person.');
     if (!(await makerReady(maker))) {
       // On demand: one of yours that isn't loaded here yet goes first in line now.
-      if (onDemand && inLibrary(maker) && !keeps(maker)) {
+      if (onDemand && pickable(maker) && !keeps(maker)) {
         addToLine(maker, true);
         await savePicked();
         void downloadAll();
@@ -1693,7 +1696,7 @@ export function createStudio(o) {
     if (!(await makerReady(maker)) || (maker.env && o.liveEnvs && !o.liveEnvs.ready(maker.env))) {
       const env = maker.env && o.liveEnvs ? o.liveEnvs.state(maker.env) : null;
       // On demand: one of yours that isn't set up here yet goes first in line now.
-      if (onDemand && inLibrary(maker) && !keeps(maker)) {
+      if (onDemand && pickable(maker) && !keeps(maker)) {
         addToLine(maker, true);
         await savePicked();
         void downloadAll();
@@ -2596,7 +2599,7 @@ export function createStudio(o) {
     let added = false;
     for (const id of ids) {
       const m = makerById(id);
-      if (m && inLibrary(m) && !picked.includes(id)) {
+      if (m && pickable(m) && !picked.includes(id)) {
         addToLine(m);
         added = true;
       }

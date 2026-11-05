@@ -56,6 +56,9 @@
 /* GPU.ai: pick what loads (first, next). Chips wrap; each is a full 44 px touch target. */
 .make-pick-head { margin: 8px auto 4px; color: var(--text-2); font: 500 var(--fs-sm, 14px) / 1.3 var(--font-ui); }
 .make-pick { display: flex; flex-wrap: wrap; gap: 8px; margin-block: 0 4px; }
+/* Every maker to pick from, in groups; a long list scrolls inside the bar so Make stays in view. */
+.make-pick-groups { display: grid; gap: 10px; max-height: min(52vh, 420px); overflow-y: auto; overscroll-behavior: contain; -webkit-overflow-scrolling: touch; padding-block-end: 2px; }
+.make-pick-label { margin: 0 0 6px; color: var(--text-3, var(--text-2)); font: 600 var(--fs-xs, 12px) / 1.2 var(--font-ui); letter-spacing: 0.04em; text-transform: uppercase; }
 .make-pick-chip {
   appearance: none;
   display: inline-flex;
