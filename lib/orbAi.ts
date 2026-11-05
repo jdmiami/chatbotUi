@@ -48,7 +48,19 @@ const PROVIDERS: Provider[] = [
       vision: ['nvidia/nemotron-3.5-super-vl-120b-a12b', 'nvidia/nemotron-3-nano-omni-30b-a3b-reasoning'],
       write: ['nvidia/nemotron-3.5-lightning-30b-a3b', 'google/gemma-4-31b-it'],
       chat: ['nvidia/nemotron-3-super-120b-a12b', 'z-ai/glm-5.3', 'google/gemma-4-31b-it'],
-      free: ['nv-mistralai/mistral-nemo-12b-instruct', 'mistralai/mistral-large-2-instruct', 'mistralai/mistral-7b-instruct-v0.3'],
+      // Unfiltered writing: the three that have done it first, then more of NVIDIA's free list (as its
+      // /v1/models listed them on 2026-11-05), tried in this order when one turns a request down.
+      free: [
+        'nv-mistralai/mistral-nemo-12b-instruct',
+        'mistralai/mistral-large-2-instruct',
+        'mistralai/mistral-7b-instruct-v0.3',
+        'mistralai/mistral-large-4-1t-a52b',
+        'writer/palmyra-creative-122b',
+        'nvidia/mistral-nemo-minitron-8b-8k-instruct',
+        'deepseek-ai/deepseek-v4.1-flash',
+        'z-ai/glm-5.3-flash',
+        'moonshotai/kimi-k2.6',
+      ],
     },
   },
   {
