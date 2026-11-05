@@ -119,6 +119,8 @@ export interface Offering {
   available: number;
   instance_disk_gb: number;
   disk_configurable: boolean;
+  /** What each GB of disk costs per hour; a bigger disk than the included one is added to the price. */
+  disk_price_per_gb_hour?: number;
   offering_id: string;
   region?: string;
 }
@@ -128,15 +130,34 @@ export interface Offering {
  * makers. A fixed disk must already be big enough (most machines: GPU.ai refuses a size there); a
  * configurable one is asked for DISK_GB. Null when no offering of that type fits.
  */
-export function pickOffering(list: Offering[], gpu: string, diskGb = DISK_GB): { offering: Offering; diskGb: number | null } | null {
+export function pickOffering(list: Offering[], gpu: string, diskGb = DISK_GB): { offering: Offering; diskGb: number | null; pricePerHour: number } | null {
   const fits = list
     .filter((o) => o.gpu_type === gpu && o.gpu_count === 1 && o.tier === 'on_demand' && o.available > 0)
     .filter((o) => o.disk_configurable || o.instance_disk_gb >= diskGb)
     .sort((a, b) => a.price_per_hour - b.price_per_hour);
   const o = fits[0];
   if (!o) return null;
-  return { offering: o, diskGb: o.disk_configurable && o.instance_disk_gb < diskGb ? diskGb : null };
+  const size = o.disk_configurable && o.instance_disk_gb < diskGb ? diskGb : null;
+  return { offering: o, diskGb: size, pricePerHour: withDisk(o, size) };
 }
+
+/**
+ * The hourly price GPU.ai checks at launch: the machine's price plus the disk beyond the included one,
+ * rounded up to the cent (the price list shows the machine alone; an A40 at $0.59 with 200 GB is $0.61).
+ */
+export function withDisk(o: Offering, diskGb: number | null): number {
+  const extra = diskGb ? Math.max(0, diskGb - o.instance_disk_gb) * (o.disk_price_per_gb_hour ?? 0) : 0;
+  return Math.ceil(Math.round((o.price_per_hour + extra) * 10000) / 100) / 100;
+}
+
+/** The new price when GPU.ai refused a launch because the price moved ("moved to $0.61/hr"), else null. */
+export function movedPrice(detail: string): number | null {
+  const m = /moved to \$(\d+(?:\.\d+)?)/i.exec(detail);
+  return m ? Number(m[1]) : null;
+}
+
+/** A moved price a launch accepts without asking again: a few cents (disk rounding, a small change), no more. */
+export const PRICE_SLACK = 0.1;
 
 /** GPU.ai's refusal of one GPU type (no capacity, image can't run there): try the next one. */
 export const nextGpu = (status: number, body: string) =>
@@ -223,7 +244,7 @@ export function gpuOptions(list: Offering[], kind: MachineKind): { options: GpuO
       gpu,
       name: info?.name ?? gpu.replace(/_/g, ' ').toUpperCase(),
       memoryGb: mem,
-      pricePerHour: pick.offering.price_per_hour,
+      pricePerHour: pick.pricePerHour,
       region: pick.offering.region ?? null,
       free: pick.offering.available,
       fits,
