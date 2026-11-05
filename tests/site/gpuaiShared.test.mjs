@@ -2,7 +2,7 @@
 // when the address it published is the one to use. Run with: npm run test:site.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { AUTO_TERMINATE_HOURS, DISK_GB, ONLY_MAKERS, cleanPicks, libraryOf, STANDARD_GPUS, TURBO_GPUS, isLive, liveAddress, machineState, nextGpu, nextGpuAfterFailedOperation, pickMachine, pickOffering } from '../../lib/gpuaiShared.ts';
+import { AUTO_TERMINATE_HOURS, DISK_GB, ONLY_MAKERS, cleanPicks, libraryOf, STANDARD_GPUS, TURBO_GPUS, isLive, liveAddress, machineState, nextGpu, movedPrice, nextGpuAfterFailedOperation, pickMachine, pickOffering, withDisk } from '../../lib/gpuaiShared.ts';
 
 const inst = (o) => ({ id: 'gpu-1', name: 'orbit-ai', status: 'running', created_at: '2026-11-04T10:00:00Z', ...o });
 
@@ -57,13 +57,26 @@ test('the machine picked: cheapest free one with room for the makers; a size is 
     row({ offering_id: 'two', price_per_hour: 0.2, instance_disk_gb: 500, gpu_count: 2 }),
     row({ gpu_type: 'rtx_pro_6000', offering_id: 'flex', price_per_hour: 2.49, instance_disk_gb: 100, disk_configurable: true }),
   ];
-  assert.deepEqual(pickOffering(list, 'rtx_a6000'), { offering: list[1], diskGb: null });
-  assert.deepEqual(pickOffering(list, 'rtx_pro_6000'), { offering: list[4], diskGb: DISK_GB });
+  assert.deepEqual(pickOffering(list, 'rtx_a6000'), { offering: list[1], diskGb: null, pricePerHour: 0.45 });
+  assert.deepEqual(pickOffering(list, 'rtx_pro_6000'), { offering: list[4], diskGb: DISK_GB, pricePerHour: 2.49 });
   assert.equal(pickOffering(list, 'l40'), null);
   assert.equal(pickOffering([row({ offering_id: 'small', price_per_hour: 0.4, instance_disk_gb: 100 })], 'rtx_a6000'), null);
   // GPU.ai's own words for the refusal seen that day: try the next GPU.
   assert.ok(nextGpuAfterFailedOperation('The selected machine cannot be configured with a custom disk size — pick another machine or launch with the default disk.'));
   assert.ok(!nextGpuAfterFailedOperation('env key GPUAI_X is reserved'));
+});
+
+test('the price GPU.ai checks at launch includes the bigger disk; a refusal names the new price', () => {
+  // As GPU.ai listed the A40 on 2026-11-05: $0.59 with 100 GB, each extra GB $0.00014 an hour. With 200 GB
+  // it refused a launch at $0.59: "moved to $0.61/hr".
+  const a40 = { gpu_type: 'a40', gpu_count: 1, tier: 'on_demand', available: 48, region: 'ca-central', offering_id: '3a5', price_per_hour: 0.59, instance_disk_gb: 100, disk_configurable: true, disk_price_per_gb_hour: 0.00014 };
+  assert.equal(withDisk(a40, 200), 0.61);
+  assert.equal(withDisk(a40, 150), 0.6);
+  assert.equal(withDisk(a40, null), 0.59);
+  assert.equal(withDisk({ ...a40, disk_price_per_gb_hour: undefined }, 200), 0.59);
+  assert.deepEqual(pickOffering([a40], 'a40', 200), { offering: a40, diskGb: 200, pricePerHour: 0.61 });
+  assert.equal(movedPrice('The price for this offering moved to $0.61/hr, above the $0.59/hr this launch was approved at, so nothing was launched.'), 0.61);
+  assert.equal(movedPrice('no capacity'), null);
 });
 
 test('a GPU type GPU.ai cannot place our image on is skipped; anything else is a real error', () => {

@@ -1,7 +1,7 @@
 import 'server-only';
 import { randomUUID } from 'node:crypto';
 import { GPUAI_API } from './gpuai';
-import { AUTO_TERMINATE_HOURS, DISK_FOR, FIRST_KEY, GPU_INFO, LIBRARY_KEY, NOTE_KEYS, ONLY_MAKERS, cleanPicks, gpuOptions, libraryOf, type MachineKind, STANDARD_GPUS, TURBO_GPUS, liveAddress, machineState, nextGpu, nextGpuAfterFailedOperation, pickMachine, pickOffering, type GpuChoice, type GpuaiInstance, type MachineNote, type Offering } from './gpuaiShared';
+import { AUTO_TERMINATE_HOURS, DISK_FOR, FIRST_KEY, GPU_INFO, LIBRARY_KEY, NOTE_KEYS, ONLY_MAKERS, cleanPicks, gpuOptions, libraryOf, type MachineKind, STANDARD_GPUS, TURBO_GPUS, liveAddress, machineState, movedPrice, nextGpu, PRICE_SLACK, nextGpuAfterFailedOperation, pickMachine, pickOffering, type GpuChoice, type GpuaiInstance, type MachineNote, type Offering } from './gpuaiShared';
 import { imageBuilt, imageFor } from './serverlessShared';
 import { createR2, r2Config } from './r2';
 import { autoOffMinutes } from './autoOff';
@@ -164,34 +164,44 @@ export async function createMachine(
       continue;
     }
     try {
-      const op = (await gpuai('/instances', {
-        method: 'POST',
-        headers: { 'idempotency-key': randomUUID() },
-        body: JSON.stringify({
-          name: name(kind),
-          gpu_type: gpu.gpu,
-          gpu_count: 1,
-          tier: 'on_demand',
-          offering_id: pick.offering.offering_id,
-          image,
-          cmd: ['bash', '/opt/serverless/machine.sh'],
-          env,
-          // The gate on :8080, also at GPU.ai's own app address (a login page in front: a fallback for a person).
-          ports: [{ port: 8080, protocol: 'http', primary: true }],
-          ...(pick.diskGb ? { disk_gb: pick.diskGb } : {}),
-          auto_terminate_hours: AUTO_TERMINATE_HOURS,
-          // Refused, not charged more, if the price moved since the list was read.
-          viewed_price_per_hour: pick.offering.price_per_hour,
-          max_price_per_hour: Math.round((pick.offering.price_per_hour + 0.05) * 100) / 100,
-        }),
-      })) as Operation;
-      const done = await settle(op);
-      if (done.state === 'failed' || done.state === 'cancelled') {
-        lastWhy = done.error?.detail || done.error?.code || 'refused';
-        if (!only && nextGpuAfterFailedOperation(lastWhy)) continue;
-        throw new Error(`GPU.ai could not start ${what}${only ? ` on the ${gpu.gpuName}` : ''}: ${lastWhy}`);
+      // The price GPU.ai checks includes the disk. If it moved by a few cents since the list was read
+      // (it says so and launches nothing), launch once more at the new price; never for more than that.
+      let viewed = pick.pricePerHour;
+      for (let attempt = 0; ; attempt++) {
+        const op = (await gpuai('/instances', {
+          method: 'POST',
+          headers: { 'idempotency-key': randomUUID() },
+          body: JSON.stringify({
+            name: name(kind),
+            gpu_type: gpu.gpu,
+            gpu_count: 1,
+            tier: 'on_demand',
+            offering_id: pick.offering.offering_id,
+            image,
+            cmd: ['bash', '/opt/serverless/machine.sh'],
+            env,
+            // The gate on :8080, also at GPU.ai's own app address (a login page in front: a fallback for a person).
+            ports: [{ port: 8080, protocol: 'http', primary: true }],
+            ...(pick.diskGb ? { disk_gb: pick.diskGb } : {}),
+            auto_terminate_hours: AUTO_TERMINATE_HOURS,
+            // Refused, not charged more, if the price moved since the list was read.
+            viewed_price_per_hour: viewed,
+            max_price_per_hour: Math.round((viewed + 0.05) * 100) / 100,
+          }),
+        })) as Operation;
+        const done = await settle(op);
+        if (done.state === 'failed' || done.state === 'cancelled') {
+          lastWhy = done.error?.detail || done.error?.code || 'refused';
+          const moved = movedPrice(lastWhy);
+          if (attempt === 0 && moved !== null && moved > viewed && moved <= pick.pricePerHour + PRICE_SLACK) {
+            viewed = moved;
+            continue;
+          }
+          if (!only && nextGpuAfterFailedOperation(lastWhy)) break;
+          throw new Error(`GPU.ai could not start ${what}${only ? ` on the ${gpu.gpuName}` : ''}: ${lastWhy}`);
+        }
+        return { id: done.resource_id ?? op.resource_id ?? null, gpu, pricePerHour: viewed };
       }
-      return { id: done.resource_id ?? op.resource_id ?? null, gpu, pricePerHour: pick.offering.price_per_hour };
     } catch (err) {
       const e = err as { status?: number; body?: string };
       if (only || !e.status || !nextGpu(e.status, e.body ?? '')) throw err;
