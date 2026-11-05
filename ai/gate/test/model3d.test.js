@@ -129,6 +129,10 @@ test('the rigger: a gallery 3D object in, a rigged one out with the same poster;
     const fail = failNext;
     failNext = false;
     setTimeout(async () => {
+      if (fail === 'nobones') {
+        err.emit('data', Buffer.from('  File "src/model/tokenrig.py", line 395, in predict_step\n    assert res.skin_pred is not None\nAssertionError\n'));
+        return listeners.close?.(1, null);
+      }
       if (fail) {
         err.emit('data', Buffer.from("[Main] bpy_server.py started (pid=42)\nModuleNotFoundError: No module named 'scipy'\n"));
         err.emit('data', Buffer.from('RuntimeError: bpy_server failed to start\n'));
@@ -179,5 +183,11 @@ test('the rigger: a gallery 3D object in, a rigged one out with the same poster;
   assert.equal(failed.error, 'The rigger could not rig this object.');
   assert.match(failed.detail, /No module named 'scipy'/);
   assert.match(failed.detail, /bpy_server failed to start/);
+
+  // A skeleton but no full skin (an axe, on a real machine): says what to try in plain words.
+  failNext = 'nobones';
+  const axe = await studio.createJob({ maker: 'rig', fromItem: obj.id });
+  const noBones = await until(async () => (studio.job(axe.id)?.status === 'error' ? studio.job(axe.id) : null));
+  assert.match(noBones.error, /couldn't find a full set of bones.*people, animals and creatures/);
   delete process.env.GATEWAY_SECRET;
 });

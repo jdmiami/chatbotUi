@@ -1798,7 +1798,18 @@ export function createStudio(o) {
         // Its last words, for whoever looks into it (the job's detail; Orbit shows the plain error).
         job.detail = tail.split('\n').map((l) => l.trim()).filter(Boolean).slice(-6).join('\n').slice(-1500) || undefined;
         log.warn?.(`[rig] job ${job.id} ended (${code ?? signal}): ${(job.detail || '').split('\n').join(' | ')}`);
-        reject(new Error(timedOut ? 'Rigging took too long.' : 'The rigger could not rig this object.'));
+        // It made a skeleton but not a skin for every bone (seen on a real machine with an axe): it was
+        // trained on people, animals and creatures, and other shapes can run past its length limit.
+        const noBones = /skin_pred is not None|bad skin|bad skeleton|No EOS token/.test(tail);
+        reject(
+          new Error(
+            timedOut
+              ? 'Rigging took too long.'
+              : noBones
+                ? "The rigger couldn't find a full set of bones for this object. It works best on people, animals and creatures; try again, or pick another."
+                : 'The rigger could not rig this object.',
+          ),
+        );
       });
     });
   }
