@@ -160,6 +160,8 @@ export function orbAiInfo(prefer?: string) {
     configured: list.length > 0,
     providers: list.map((p) => ({ id: p.id, name: p.name })),
     models: Object.fromEntries(ORB_TASKS.map((t) => [t, list.flatMap((p) => modelsFor(p)[t])])) as Record<OrbTask, string[]>,
+    // Each provider's own models for each job (the fast Make page lets you pick NVIDIA's writer).
+    byProvider: list.map((p) => ({ id: p.id, name: p.name, models: modelsFor(p) })),
   };
 }
 

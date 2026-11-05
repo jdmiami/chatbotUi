@@ -43,7 +43,9 @@ export async function login(_prev: LoginState, form: FormData): Promise<LoginSta
     path: '/',
     maxAge: sessionMaxAgeSeconds(),
   });
-  redirect('/');
+  // Back to where you were going (a page of this site only), else home.
+  const next = String(form.get('next') ?? '');
+  redirect(/^\/[a-z0-9/_-]*$/i.test(next) && !next.startsWith('//') ? next : '/');
 }
 
 export async function logout() {

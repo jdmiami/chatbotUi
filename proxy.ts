@@ -28,6 +28,8 @@ export async function proxy(request: NextRequest) {
     return NextResponse.redirect(new URL(`/studio/login?studio=${studio}`, request.url));
   }
   const login = new URL('/login', request.url);
+  // Back to the page asked for after signing in (the fast Make page, /lite, is bookmarked on phones).
+  if (path !== '/' && /^\/[a-z0-9/_-]*$/i.test(path)) login.searchParams.set('next', path);
   return NextResponse.redirect(login);
 }
 
