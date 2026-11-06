@@ -196,3 +196,44 @@ describe('flipbook: turning notes with a thumb', () => {
     expect(velocity([{ t: 0, p: 0 }, { t: 500, p: 0 }, { t: 550, p: 0.5 }, { t: 600, p: 1 }])).toBeCloseTo(10);
   });
 });
+
+import { coast, cornerSpeed, riffling, KEEP_PLAYING, COAST_LAND } from '../../src/apps/flipbook/scrub';
+
+describe('flipbook: riffling and the bending paper', () => {
+  it('riffles when the thumb is fast or has moved the pad past 3 notes', () => {
+    expect(riffling(2, 1)).toBe(false);
+    expect(riffling(8, 0.5)).toBe(true);
+    expect(riffling(-8, -0.5)).toBe(true);
+    expect(riffling(1, 3.5)).toBe(true);
+  });
+
+  it('let go mid-riffle, it keeps going and slows down until it lands', () => {
+    let s = { pos: 0, v: 15 };
+    let t = 0;
+    while (Math.abs(s.v) >= COAST_LAND && t < 5) {
+      s = coast(s.pos, s.v, 1 / 60);
+      t += 1 / 60;
+    }
+    expect(s.pos).toBeGreaterThan(3);
+    expect(t).toBeLessThan(2);
+    expect(KEEP_PLAYING).toBeGreaterThan(COAST_LAND);
+  });
+
+  it('the corner handle: no push, no riffle; more push, faster', () => {
+    expect(cornerSpeed(0, 100)).toBe(0);
+    expect(cornerSpeed(50, 100)).toBeGreaterThan(0);
+    expect(cornerSpeed(200, 100)).toBeGreaterThan(cornerSpeed(50, 100));
+    expect(cornerSpeed(-200, 100)).toBeLessThan(0);
+    expect(cornerSpeed(10000, 100)).toBeLessThanOrEqual(48);
+  });
+
+  it('a note being lifted curls strongly from its bottom edge; notes at rest up the arms lie nearly flat', () => {
+    const desk = deskOf(1194, 760);
+    const lifting = placeNote(5, 5.4, desk, off).paper!;
+    expect(lifting.bend).toBeGreaterThan(1);
+    expect(lifting.twist).toBeGreaterThan(0);
+    for (const i of [3, 4, 6, 7]) expect(Math.abs(placeNote(i, 5, desk, off).paper!.bend)).toBeLessThan(0.4);
+    expect(placeNote(5, 5, desk, off).paper).toMatchObject({ bend: 0, rx: 0 });
+    expect(placeNote(20, 5, desk, off).paper!.bend).toBe(0);
+  });
+});

@@ -7,9 +7,12 @@ const executablePath = process.env.PW_CHROMIUM_PATH || (existsSync(sandboxChromi
 const port = Number(process.env.FLIPBOOK_E2E_PORT || 4180);
 const on = (device: (typeof devices)[string]) => ({
   ...device,
+  // Drawn in software here: plain sharpness keeps each frame of the bending paper cheap.
+  deviceScaleFactor: 1,
   browserName: 'chromium' as const,
   defaultBrowserType: 'chromium' as const,
-  launchOptions: executablePath ? { executablePath } : {},
+  // The bending paper needs WebGL2: in a machine without a graphics chip, Chromium draws it in software.
+  launchOptions: { ...(executablePath ? { executablePath } : {}), args: ['--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader'] },
 });
 
 export default defineConfig({

@@ -233,3 +233,43 @@
 .fb-walk-hint { margin: 0; text-align: center; color: var(--text-2); font-size: var(--fs-sm); line-height: 1.45; }
 .fb-walk-bottom { display: flex; justify-content: space-between; gap: 12px; }
 .fb-walk-bottom .btn { min-width: 120px; }
+
+/* ---- the bending paper (graphics chip) */
+.fb-gl { position: absolute; left: 0; top: 0; pointer-events: none; z-index: 0; }
+.fb-studio[data-gl] .fb-ink { box-shadow: none; }
+/* The flat desk's paper follows the flipbook's paper too. */
+.fb-studio[data-paper='sketch'] .fb-note { background: #f4f1ea; }
+.fb-studio[data-paper='lined'] .fb-note { background: repeating-linear-gradient(transparent 0 calc(100% / 22 - 1px), rgb(140 173 219 / 0.55) 0 calc(100% / 22)), #f7f5ee; }
+.fb-studio[data-paper='grid'] .fb-note { background: repeating-linear-gradient(transparent 0 calc(5% - 1px), rgb(158 178 199 / 0.32) 0 5%), repeating-linear-gradient(90deg, transparent 0 calc(5% - 1px), rgb(158 178 199 / 0.32) 0 5%), #f5f5f2; }
+.fb-studio[data-paper='kraft'] .fb-note { background: #d8c3a0; }
+
+/* The riffle handle: a softly turned-up corner on the note you draw on. */
+.fb-corner {
+  position: absolute;
+  z-index: 2001;
+  pointer-events: none;
+  background: linear-gradient(315deg, transparent 0 47%, rgb(0 0 0 / 0.16) 50%, #fbf6dd 53%, #e9dca2 100%);
+  clip-path: polygon(100% 38%, 100% 100%, 38% 100%);
+  opacity: 0.9;
+  transition: opacity 0.2s;
+}
+.fb-corner[data-hidden] { opacity: 0; }
+.fb-riffle {
+  position: absolute;
+  left: 50%;
+  top: 12px;
+  z-index: 2002;
+  transform: translateX(-50%);
+  margin: 0;
+  padding: 6px 12px;
+  background: rgb(20 18 12 / 0.72);
+  color: #fff;
+  font: 600 var(--fs-sm) var(--font-ui);
+  font-variant-numeric: tabular-nums;
+  pointer-events: none;
+  white-space: nowrap;
+}
+
+/* Messages over Flipbook never catch a tap: they may sit over the tools (the toolbar wraps upright). */
+.fb-standalone .toast,
+:root:has(.app-window[data-app='flipbook'][data-placement='full']) .toast { pointer-events: none; }

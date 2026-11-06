@@ -7,6 +7,7 @@
  */
 import type { VStroke } from '../livedraw/ink/vector';
 import type { Pose } from './rig';
+import type { PaperKind } from './paperGL';
 
 export interface Frame {
   id: string;
@@ -30,6 +31,8 @@ export interface Scene {
   frames: Frame[];
   /** The characters on it, in drawing order. */
   cast?: CastMember[];
+  /** Which paper its notes are (sticky notes when not set). */
+  paper?: PaperKind;
   updatedAt: number;
 }
 
@@ -153,6 +156,10 @@ export function poseAt(s: Scene, i: number, castId: string): Pose | null {
 /** Does note `i` have its own pose for this character (rather than holding the one before)? */
 export const ownsPose = (s: Scene, i: number, castId: string) => Boolean(s.frames[i]?.poses?.[castId]);
 
+export function setPaper(s: Scene, paper: PaperKind): Scene {
+  return { ...s, paper, updatedAt: Date.now() };
+}
+
 export function setFps(s: Scene, fps: number): Scene {
   return { ...s, fps, updatedAt: Date.now() };
 }
@@ -213,6 +220,7 @@ export function sanitize(raw: unknown): Scene | null {
     fps: FPS_CHOICES.includes(r.fps as (typeof FPS_CHOICES)[number]) ? (r.fps as number) : 12,
     frames: frames.length ? frames : [blankFrame()],
     ...(cast.length ? { cast } : {}),
+    ...(['sticky', 'sketch', 'lined', 'grid', 'kraft'].includes(r.paper as string) ? { paper: r.paper } : {}),
     updatedAt: typeof r.updatedAt === 'number' ? r.updatedAt : Date.now(),
   };
 }

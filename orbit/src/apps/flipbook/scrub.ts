@@ -68,3 +68,26 @@ export function springStep(x: number, v: number, target: number, dt: number, sti
 }
 
 export const atRest = (x: number, v: number, target: number) => Math.abs(x - target) < 0.002 && Math.abs(v) < 0.02;
+
+/**
+ * Riffling: past a speed, or once the thumb has moved the pad past 3 notes, the pad stops peeking and
+ * riffles like a real flipbook, playing the animation at the thumb's speed.
+ */
+export const RIFFLE_SPEED = 7;
+export const riffling = (v: number, moved: number) => Math.abs(v) >= RIFFLE_SPEED || Math.abs(moved) > 3;
+
+/** Let go mid-riffle: it keeps going and slows down (like a thumb lifting off a flipbook). */
+export function coast(pos: number, v: number, dt: number): { pos: number; v: number } {
+  const nv = v * Math.exp(-dt * 2.4);
+  return { pos: pos + nv * dt, v: nv };
+}
+/** Below this it lands on the nearest note; a flick above KEEP_PLAYING keeps the animation playing. */
+export const COAST_LAND = 2.5;
+export const KEEP_PLAYING = 22;
+
+/** The corner handle: how far the thumb has pushed sets how fast the pad riffles (notes a second). */
+export function cornerSpeed(push: number, perFrame: number): number {
+  const notes = push / perFrame;
+  if (Math.abs(notes) < 0.15) return 0;
+  return Math.sign(notes) * Math.min(48, (Math.abs(notes) - 0.15) * 14 + 2);
+}

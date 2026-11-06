@@ -83,7 +83,21 @@ export interface Place {
   o: number;
   /** 0..1: how far off the desk it is (for its shadow). */
   lift: number;
+  /**
+   * For paper that bends (the graphics-chip desk): its rigid tilt toward you, how far it curls from its
+   * bottom edge (radians: + lifts toward you), which corner leads the curl, and how much it flutters in the air.
+   * The flat desk uses rx/ry instead.
+   */
+  paper?: Bend;
 }
+
+export interface Bend {
+  rx: number;
+  bend: number;
+  twist: number;
+  flutter: number;
+}
+const FLAT: Bend = { rx: 0, bend: 0, twist: 0, flutter: 0 };
 
 /** Notes this far from the middle are in a stack. */
 const ARM = 3;
@@ -96,6 +110,10 @@ const clamp = (v: number, a: number, b: number) => Math.min(b, Math.max(a, v));
 const lerp = (a: number, b: number, t: number) => a + (b - a) * t;
 /** Quick off the middle, gentle into the corner: at rest the next notes spread up the arms like a U. */
 const out = (t: number) => 1 - (1 - t) ** 2;
+const smooth = (t: number) => {
+  const c = Math.min(1, Math.max(0, t));
+  return c * c * (3 - 2 * c);
+};
 
 /** The same small tilt for a note every time (so stacks look hand-piled, not shuffled). */
 export function jitter(i: number): number {
@@ -123,6 +141,7 @@ function stacked(at: XY, side: -1 | 1, depth: number, k: number, i: number, size
     z: 1000 - Math.round(STACK_DEPTH * 10 + depth * 10) * 2,
     o: depth > STACK_DEPTH ? 0 : 1,
     lift: 0,
+    paper: FLAT,
   };
 }
 
@@ -131,7 +150,7 @@ function flipPlace(i: number, d: number, desk: Desk): Place {
   const a = Math.abs(d);
   // Nearest the middle on top; at the same distance a done note is on top, since it is laid back down over the pad.
   const z = 1000 - Math.round(a * 10) * 2 + (d < 0 ? 1 : 0);
-  if (a === 0) return { x: desk.paper.x, y: desk.paper.y, s: 1, rx: 0, ry: 0, rz: 0, z, o: 1, lift: 0 };
+  if (a === 0) return { x: desk.paper.x, y: desk.paper.y, s: 1, rx: 0, ry: 0, rz: 0, z, o: 1, lift: 0, paper: FLAT };
   const corner = d < 0 ? desk.done : desk.next; // done notes go up to the right
   if (a >= ARM) return stacked(corner, d < 0 ? 1 : -1, a - ARM, desk.k, i, desk.size);
   const t = clamp((a - LIFTED) / (ARM - LIFTED), 0, 1);
@@ -155,6 +174,9 @@ function flipPlace(i: number, d: number, desk: Desk): Place {
       z,
       o: 1,
       lift: Math.max(l * (1 - e), flap * 0.8),
+      // The paper itself curls up from its bottom edge, the right-hand corner first, then flutters away.
+      // Once it is on its way it springs back flat (curling only a little against the air).
+      paper: { rx: -flap * 14, bend: l * 2.2 * (1 - smooth(t / 0.2)) + flap * 0.3, twist: 0.45 * l * (1 - smooth(t / 0.2)), flutter: flap },
     };
   }
   // Waiting under the note you draw on, peeking out a little, until it is its turn.
@@ -169,12 +191,14 @@ function flipPlace(i: number, d: number, desk: Desk): Place {
     z,
     o: 1,
     lift: flap * 0.8,
+    // Air pushes it back as it flies in: a gentle curl the other way.
+    paper: { rx: -flap * 16, bend: -flap * 0.3, twist: -0.25 * flap, flutter: flap },
   };
 }
 
 /** Onion view, at a whole frame distance: cards beside the note you draw on, the rest in the stacks. */
 function onionAt(i: number, j: number, desk: Desk, count: number): Place {
-  if (j === 0) return { x: desk.paper.x, y: desk.paper.y, s: 1, rx: 0, ry: 0, rz: 0, z: 1000, o: 1, lift: 0 };
+  if (j === 0) return { x: desk.paper.x, y: desk.paper.y, s: 1, rx: 0, ry: 0, rz: 0, z: 1000, o: 1, lift: 0, paper: FLAT };
   const out = j < 0;
   const a = Math.abs(j);
   if (a > count) return stacked(out ? desk.done : desk.next, out ? 1 : -1, a - count - 1, desk.k, i, desk.size);
@@ -192,6 +216,7 @@ function onionAt(i: number, j: number, desk: Desk, count: number): Place {
     z: 1000 - a * 10,
     o: 1 - fan * 0.18,
     lift: 0.25,
+    paper: FLAT,
   };
 }
 
@@ -206,6 +231,8 @@ function mix(a: Place, b: Place, t: number): Place {
     z: Math.round(lerp(a.z, b.z, t)),
     o: lerp(a.o, b.o, t),
     lift: Math.max(lerp(a.lift, b.lift, t), Math.sin(Math.PI * t) * 0.6),
+    // Floating between card spots, the paper bows a little in the middle of the move.
+    paper: { rx: 0, bend: Math.sin(Math.PI * t) * 0.35, twist: 0, flutter: Math.sin(Math.PI * t) * 0.5 },
   };
 }
 
