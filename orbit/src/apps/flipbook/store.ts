@@ -3,26 +3,29 @@
  * Backing up to your account comes later; until then a scene lives only on the device it was drawn on.
  */
 import { newScene, sanitize, type Scene } from './model';
+import { sanitizeCharacter, type Character } from './character';
 
 const DB = 'orbit-flipbook';
 const STORE = 'scenes';
+/** The character library: every character you have made, for any flipbook. */
+const CHARS = 'characters';
 
 function open(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
     if (typeof indexedDB === 'undefined') return reject(new Error('no storage'));
-    const req = indexedDB.open(DB, 1);
+    const req = indexedDB.open(DB, 2);
     req.onupgradeneeded = () => {
-      if (!req.result.objectStoreNames.contains(STORE)) req.result.createObjectStore(STORE, { keyPath: 'id' });
+      for (const name of [STORE, CHARS]) if (!req.result.objectStoreNames.contains(name)) req.result.createObjectStore(name, { keyPath: 'id' });
     };
     req.onsuccess = () => resolve(req.result);
     req.onerror = () => reject(req.error);
   });
 }
 
-async function run<T>(mode: IDBTransactionMode, fn: (s: IDBObjectStore) => IDBRequest<T>): Promise<T> {
+async function run<T>(mode: IDBTransactionMode, fn: (s: IDBObjectStore) => IDBRequest<T>, store = STORE): Promise<T> {
   const db = await open();
   return new Promise<T>((resolve, reject) => {
-    const r = fn(db.transaction(STORE, mode).objectStore(STORE));
+    const r = fn(db.transaction(store, mode).objectStore(store));
     r.onsuccess = () => resolve(r.result);
     r.onerror = () => reject(r.error);
   });
@@ -49,6 +52,27 @@ export async function loadLatest(): Promise<{ scene: Scene; saved: boolean }> {
 export async function saveScene(scene: Scene): Promise<boolean> {
   try {
     await run('readwrite', (s) => s.put(scene));
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export async function listCharacters(): Promise<Character[]> {
+  try {
+    const all = await run<unknown[]>('readonly', (s) => s.getAll(), CHARS);
+    return all
+      .map(sanitizeCharacter)
+      .filter((c): c is Character => c !== null)
+      .sort((a, b) => b.updatedAt - a.updatedAt);
+  } catch {
+    return [];
+  }
+}
+
+export async function saveCharacter(c: Character): Promise<boolean> {
+  try {
+    await run('readwrite', (s) => s.put(c), CHARS);
     return true;
   } catch {
     return false;

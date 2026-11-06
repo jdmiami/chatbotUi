@@ -2,7 +2,7 @@
  * Flipbook (Orbit 0.5): a dark desk with square paper notes on it. Type and hairlines do the work;
  * the notes are the only things with depth.
  */
-.fb-root { flex: 1; min-height: 0; display: flex; flex-direction: column; background: var(--bg); }
+.fb-root { position: relative; flex: 1; min-height: 0; display: flex; flex-direction: column; background: var(--bg); }
 
 .fb-studio { flex: 1; min-height: 0; display: flex; flex-direction: column; }
 
@@ -166,3 +166,70 @@
 .fb-viewer-bar input { flex: 1; min-width: 0; accent-color: var(--accent); }
 .fb-viewer-list { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; }
 .fb-standalone { height: 100%; display: flex; flex-direction: column; background: var(--bg); }
+
+/* ---- characters */
+.fb-face { display: inline-flex; gap: 4px; margin-left: 4px; }
+.fb-input {
+  width: 100%;
+  min-height: var(--tap);
+  padding: 0 2px;
+  border: 0;
+  border-bottom: 1px solid var(--border-strong, var(--border));
+  background: none;
+  color: var(--text);
+  font: inherit;
+  font-size: 16px; /* 16px stops iOS zooming into the box */
+}
+.fb-input:focus { outline: none; border-bottom-color: var(--accent); }
+.fb-new { display: grid; gap: 10px; }
+.fb-cast-list { list-style: none; margin: 0; padding: 0; display: grid; }
+.fb-cast-list li { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 56px; border-bottom: 1px solid var(--border); }
+.fb-cast-list span { display: grid; gap: 2px; min-width: 0; }
+.fb-cast-list small { color: var(--text-2); font-size: var(--fs-sm); }
+
+/* ---- the part-by-part walkthrough */
+.fb-walk {
+  position: absolute;
+  inset: 0;
+  z-index: 50;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: calc(var(--safe-top) + 8px) calc(var(--safe-right) + 12px) calc(var(--safe-bottom) + 8px) calc(var(--safe-left) + 12px);
+  background: var(--bg);
+}
+.fb-walk-top { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.fb-walk-title { min-width: 0; }
+.fb-walk-title h2 { margin: 0; font-family: var(--font-display, var(--font-ui)); font-weight: 600; font-size: var(--fs-xl); line-height: 1.15; }
+.fb-walk-steps {
+  display: flex;
+  gap: 6px;
+  overflow-x: auto;
+  scrollbar-width: none;
+  padding-bottom: 2px;
+  -webkit-overflow-scrolling: touch;
+}
+.fb-walk-steps::-webkit-scrollbar { display: none; }
+.fb-chip {
+  flex: none;
+  min-height: 36px;
+  padding: 0 12px;
+  border: 1px solid var(--border);
+  background: none;
+  color: var(--text-2);
+  font: 500 var(--fs-sm) var(--font-ui);
+  white-space: nowrap;
+  cursor: pointer;
+}
+.fb-chip[data-done] { color: var(--text); border-color: color-mix(in srgb, #e0873a 55%, var(--border)); }
+.fb-chip[data-done]::before { content: '✓ '; color: #e0873a; }
+.fb-chip[aria-current='step'],
+.fb-chip[aria-pressed='true'] { color: var(--text); border-color: var(--accent); box-shadow: inset 0 -2px 0 var(--accent); }
+.fb-chip:disabled { opacity: 0.4; cursor: default; }
+.fb-walk-tools { display: flex; flex-wrap: wrap; align-items: center; gap: 0 2px; }
+.fb-walk-looks { display: flex; flex-wrap: wrap; gap: 6px; }
+.fb-walk-pad { flex: 1; min-height: 160px; display: grid; place-items: center; }
+.fb-walk-note { touch-action: none; box-shadow: 0 8px 30px rgb(0 0 0 / 0.45); cursor: crosshair; }
+.fb-walk-hint { margin: 0; text-align: center; color: var(--text-2); font-size: var(--fs-sm); line-height: 1.45; }
+.fb-walk-bottom { display: flex; justify-content: space-between; gap: 12px; }
+.fb-walk-bottom .btn { min-width: 120px; }

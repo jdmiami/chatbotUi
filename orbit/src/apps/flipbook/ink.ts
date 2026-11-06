@@ -37,7 +37,7 @@ export function paintNote(
   ctx: CanvasRenderingContext2D,
   strokes: readonly VStroke[],
   px: number,
-  opts: { paper?: boolean; ghosts?: readonly Ghost[]; view?: View; skip?: ReadonlySet<number> } = {},
+  opts: { paper?: boolean; ghosts?: readonly Ghost[]; view?: View; skip?: ReadonlySet<number>; figures?: readonly VStroke[]; after?: (ctx: CanvasRenderingContext2D) => void } = {},
 ) {
   ctx.save();
   ctx.setTransform(1, 0, 0, 1, 0, 0);
@@ -56,6 +56,9 @@ export function paintNote(
     drawVectors(ctx, g.strokes, px, px, { color: g.color });
   }
   ctx.globalAlpha = 1;
+  // The characters first, then the ink drawn on this note over them.
+  if (opts.figures?.length) drawVectors(ctx, opts.figures, px, px);
   drawVectors(ctx, opts.skip?.size ? strokes.filter((s) => !opts.skip!.has(s.id)) : strokes, px, px);
+  opts.after?.(ctx);
   ctx.restore();
 }

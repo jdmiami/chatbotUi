@@ -20,9 +20,19 @@ import {
   removeStrokes,
   setFps,
   undo as undoH,
+  addCast,
+  poseAt,
+  recast,
+  removeCast,
+  setPose,
   type Frame,
   type History,
 } from './model';
+import { figure, looks, STANDING, type Character } from './character';
+import { drag, grab, handles, place as placeBones, skeleton, type Pose } from './rig';
+import { COLORS, WIDTHS } from './palette';
+import { CharacterSheet } from './CharacterSheet';
+import { Walkthrough } from './Walkthrough';
 import { deskOf, onPaper, placeNote, transformOf, visibleRange, type Desk } from './layout';
 import { atRest, dragFrames, lockAxis, rubber, settle, springStep, velocity } from './scrub';
 import { FIT, GHOST_AFTER, GHOST_BEFORE, ghostAlpha, paintNote, type Ghost, type View } from './ink';
@@ -33,25 +43,21 @@ import { FIT, GHOST_AFTER, GHOST_BEFORE, ghostAlpha, paintNote, type Ghost, type
  * on the note zoom it.
  */
 
-const COLORS = [
-  { value: '#1d1b22', label: 'Pencil black' },
-  { value: '#d2453c', label: 'Red' },
-  { value: '#2f62d8', label: 'Blue' },
-  { value: '#2f9e5a', label: 'Green' },
-  { value: '#e08a1e', label: 'Orange' },
-];
-const WIDTHS = [
-  { value: 0.004, label: 'Thin line' },
-  { value: 0.009, label: 'Medium line' },
-  { value: 0.018, label: 'Thick line' },
-];
-type Tool = 'pen' | 'eraser';
+type Tool = 'pen' | 'eraser' | 'pose';
+/** A character in its pose on one note. */
+interface Fig {
+  c: Character;
+  pose: Pose;
+}
+const sameFigs = (a: readonly Fig[], b: readonly Fig[]) => a.length === b.length && a.every((f, i) => f.c === b[i].c && f.pose === b[i].pose);
+const figStrokes = (figs: readonly Fig[]) => figs.flatMap((f) => figure(f.c, f.pose));
 type Gesture =
   | { kind: 'none' }
   | { kind: 'draw'; id: number; stab: Stabilizer; pts: Pt[] }
   | { kind: 'erase'; id: number; hit: Set<number> }
   | { kind: 'scrub'; id: number; x0: number; y0: number; start: number; base: number; axis: 'x' | 'y' | null; samples: { t: number; p: number }[] }
-  | { kind: 'pinch'; a: number; b: number; d0: number; m0: { x: number; y: number }; v0: View };
+  | { kind: 'pinch'; a: number; b: number; d0: number; m0: { x: number; y: number }; v0: View }
+  | { kind: 'pose'; id: number; castId: string; handle: string; pose: Pose };
 
 const FINGER_KEY = 'orbit:flipbook:finger';
 const readFinger = () => {
@@ -62,16 +68,34 @@ const readFinger = () => {
   }
 };
 
-const NoteFace = memo(function NoteFace({ frame, px }: { frame: Frame | undefined; px: number }) {
-  const ref = useRef<HTMLCanvasElement>(null);
-  useLayoutEffect(() => {
-    const ctx = ref.current?.getContext('2d');
-    if (ctx) paintNote(ctx, frame?.strokes ?? [], px);
-  }, [frame, px]);
-  return <canvas ref={ref} className="fb-note-ink" width={px} height={px} aria-hidden />;
-});
+const NoteFace = memo(
+  function NoteFace({ frame, px, figs }: { frame: Frame | undefined; px: number; figs: readonly Fig[] }) {
+    const ref = useRef<HTMLCanvasElement>(null);
+    useLayoutEffect(() => {
+      const ctx = ref.current?.getContext('2d');
+      if (ctx) paintNote(ctx, frame?.strokes ?? [], px, { figures: figStrokes(figs) });
+    }, [frame, px, figs]);
+    return <canvas ref={ref} className="fb-note-ink" width={px} height={px} aria-hidden />;
+  },
+  (a, b) => a.frame === b.frame && a.px === b.px && sameFigs(a.figs, b.figs),
+);
 
-export function Studio({ history, setHistory, isActive, saveLine }: { history: History; setHistory: (fn: (h: History) => History) => void; isActive: boolean; saveLine: string }) {
+export function Studio({
+  history,
+  setHistory,
+  isActive,
+  saveLine,
+  characters,
+  onCharacter,
+}: {
+  history: History;
+  setHistory: (fn: (h: History) => History) => void;
+  isActive: boolean;
+  saveLine: string;
+  /** The character library, newest first. */
+  characters: Character[];
+  onCharacter: (c: Character) => void;
+}) {
   const scene = history.now;
   const count = padLength(scene);
   const toast = useShell((s) => s.toast);
@@ -92,6 +116,8 @@ export function Studio({ history, setHistory, isActive, saveLine }: { history: H
   const [playing, setPlaying] = useState(false);
   const [view, setView] = useState<View>(FIT);
   const [more, setMore] = useState(false);
+  const [castSheet, setCastSheet] = useState(false);
+  const [walking, setWalking] = useState<string | null>(null);
 
   const pos = useRef(0);
   const vel = useRef(0);
@@ -105,6 +131,19 @@ export function Studio({ history, setHistory, isActive, saveLine }: { history: H
   const onionOpt = useMemo(() => ({ on: onion, count: onionCount }), [onion, onionCount]);
   const live = useRef({ desk, onionOpt, count, motion, scene, index });
   live.current = { desk, onionOpt, count, motion, scene, index };
+
+  // ---- the characters on this flipbook
+  const byId = useMemo(() => new Map(characters.map((c) => [c.id, c])), [characters]);
+  const cast = scene.cast ?? [];
+  const lead = cast[0] ? (byId.get(cast[0].characterId) ?? null) : null;
+  /** Everyone on note `i`, in their pose there (or held from an earlier note, or standing). */
+  const figsAt = (i: number, live?: { castId: string; pose: Pose }): Fig[] =>
+    cast.flatMap((m) => {
+      const c = byId.get(m.characterId);
+      if (!c) return [];
+      const pose = live?.castId === m.id ? live.pose : (poseAt(scene, i, m.id) ?? STANDING);
+      return [{ c, pose }];
+    });
 
   const setFinger = (on: boolean) => {
     setFingerState(on);
@@ -232,19 +271,24 @@ export function Studio({ history, setHistory, isActive, saveLine }: { history: H
     if (!onion) return [];
     const out: Ghost[] = [];
     for (let n = onionCount; n >= 1; n--) {
-      const before = scene.frames[index - n];
-      const after = scene.frames[index + n];
-      if (before?.strokes.length) out.push({ strokes: before.strokes, color: GHOST_BEFORE, alpha: ghostAlpha(n) });
-      if (after?.strokes.length) out.push({ strokes: after.strokes, color: GHOST_AFTER, alpha: ghostAlpha(n) });
+      for (const [k, color] of [
+        [index - n, GHOST_BEFORE],
+        [index + n, GHOST_AFTER],
+      ] as const) {
+        if (k < 0 || k >= scene.frames.length) continue;
+        const strokes = [...figStrokes(figsAt(k)), ...scene.frames[k].strokes];
+        if (strokes.length) out.push({ strokes, color, alpha: ghostAlpha(n) });
+      }
     }
     return out;
-  }, [onion, onionCount, scene, index]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [onion, onionCount, scene, index, byId]);
 
   const frame = scene.frames[index];
   const px = desk ? Math.round(desk.size * Math.min(2, typeof devicePixelRatio === 'number' ? devicePixelRatio : 1)) : 0;
 
   const paintBase = useCallback(
-    (skip?: ReadonlySet<number>) => {
+    (skip?: ReadonlySet<number>, livePose?: { castId: string; pose: Pose }) => {
       const cv = inkRef.current;
       if (!cv || !px) return;
       if (!base.current) base.current = document.createElement('canvas');
@@ -253,12 +297,22 @@ export function Studio({ history, setHistory, isActive, saveLine }: { history: H
       const bctx = b.getContext('2d');
       const ctx = cv.getContext('2d');
       if (!bctx || !ctx) return;
-      paintNote(bctx, frame?.strokes ?? [], px, { paper: true, ghosts, view, skip });
+      const figs = figsAt(index, livePose);
+      paintNote(bctx, frame?.strokes ?? [], px, {
+        paper: true,
+        ghosts,
+        view,
+        skip,
+        figures: figStrokes(figs),
+        // Posing: every joint you can grab, as a dot on the bones.
+        after: tool === 'pose' ? (c) => drawHandles(c, figs, px, view.z) : undefined,
+      });
       ctx.setTransform(1, 0, 0, 1, 0, 0);
       ctx.clearRect(0, 0, px, px);
       ctx.drawImage(b, 0, 0);
     },
-    [frame, ghosts, view, px],
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [frame, ghosts, view, px, tool, scene, byId, index],
   );
 
   useLayoutEffect(() => {
@@ -312,7 +366,23 @@ export function Studio({ history, setHistory, isActive, saveLine }: { history: H
 
   const beginInk = (e: React.PointerEvent) => {
     if (playing) setPlaying(false);
-    landNow();
+    const at = landNow();
+    if (tool === 'pose') {
+      const pt = toNote(local(e).x, local(e).y);
+      for (const m of cast) {
+        const c = byId.get(m.characterId);
+        if (!c) continue;
+        const pose = poseAt(live.current.scene, at, m.id) ?? STANDING;
+        const h = grab(placeBones(skeleton(c.level), pose), pt, 0.045 / view.z);
+        if (h) {
+          gesture.current = { kind: 'pose', id: e.pointerId, castId: m.id, handle: h.id, pose };
+          capture(deskRef.current, e.pointerId);
+          return;
+        }
+      }
+      if (!cast.length) toast('Put a character on first: tap the character button.', 'info');
+      return;
+    }
     if (tool === 'eraser') {
       gesture.current = { kind: 'erase', id: e.pointerId, hit: new Set() };
       eraseAt(e.nativeEvent);
@@ -353,7 +423,7 @@ export function Studio({ history, setHistory, isActive, saveLine }: { history: H
       if (on) beginInk(e);
       return;
     }
-    if (g.kind === 'draw' || g.kind === 'erase') return; // a palm while drawing
+    if (g.kind === 'draw' || g.kind === 'erase' || g.kind === 'pose') return; // a palm while drawing
     if (e.pointerType === 'mouse') {
       if (e.button !== 0) return;
       if (on) return beginInk(e);
@@ -404,6 +474,12 @@ export function Studio({ history, setHistory, isActive, saveLine }: { history: H
       paintLive(g.pts);
     } else if (g.kind === 'erase' && e.pointerId === g.id) {
       eraseAt(e.nativeEvent);
+    } else if (g.kind === 'pose' && e.pointerId === g.id) {
+      const c = byId.get(cast.find((m) => m.id === g.castId)?.characterId ?? '');
+      if (!c) return;
+      const p = local(e);
+      g.pose = drag(skeleton(c.level), g.pose, g.handle, toNote(p.x, p.y));
+      paintBase(undefined, { castId: g.castId, pose: g.pose });
     } else if (g.kind === 'scrub' && e.pointerId === g.id) {
       const p = local(e);
       const dx = p.x - g.x0;
@@ -442,6 +518,11 @@ export function Studio({ history, setHistory, isActive, saveLine }: { history: H
     } else if (g.kind === 'erase' && e.pointerId === g.id) {
       gesture.current = { kind: 'none' };
       if (g.hit.size) setHistory((h) => commit(h, removeStrokes(h.now, index, g.hit)));
+    } else if (g.kind === 'pose' && e.pointerId === g.id) {
+      gesture.current = { kind: 'none' };
+      if (e.type === 'pointercancel') return paintBase();
+      const { castId, pose } = g;
+      setHistory((h) => commit(h, setPose(h.now, index, castId, pose)));
     } else if (g.kind === 'scrub' && e.pointerId === g.id) {
       gesture.current = { kind: 'none' };
       // The lift-off counts too: a thumb that stopped before letting go is not a flick.
@@ -529,6 +610,8 @@ export function Studio({ history, setHistory, isActive, saveLine }: { history: H
         <div className="fb-group" role="group" aria-label="Drawing tools">
           <IconButton icon="pencil" label="Pen" pressed={tool === 'pen'} onClick={() => setTool('pen')} />
           <IconButton icon="eraser" label="Eraser" pressed={tool === 'eraser'} onClick={() => setTool('eraser')} />
+          <IconButton icon="person" label="Pose the character" pressed={tool === 'pose'} onClick={() => (cast.length ? setTool('pose') : setCastSheet(true))} />
+          {tool === 'pose' && lead && cast[0] && <FacePick c={lead} pose={poseAt(scene, index, cast[0].id) ?? STANDING} onPick={(pose) => setHistory((h) => commit(h, setPose(h.now, index, cast[0].id, pose)))} />}
           <span className="fb-sep" aria-hidden />
           {WIDTHS.map((w) => (
             <button key={w.value} type="button" className="fb-width" aria-label={w.label} title={w.label} aria-pressed={tool === 'pen' && width === w.value} onClick={() => (setWidth(w.value), setTool('pen'))}>
@@ -547,6 +630,7 @@ export function Studio({ history, setHistory, isActive, saveLine }: { history: H
           <IconButton icon="redo" label="Redo" onClick={redo} disabled={!history.future.length} />
           <IconButton icon="layers" label={onion ? 'Onion view on' : 'Onion view'} pressed={onion} onClick={() => setOnion((o) => !o)} />
           <IconButton icon={playing ? 'pause' : 'play'} label={playing ? 'Stop' : 'Play'} pressed={playing} onClick={() => setPlaying((p) => !p)} />
+          <IconButton icon="user" label={lead ? `Character: ${lead.name}` : 'Characters'} onClick={() => setCastSheet(true)} />
           <IconButton icon="more" label="More" onClick={() => setMore(true)} />
         </div>
       </header>
@@ -577,7 +661,7 @@ export function Studio({ history, setHistory, isActive, saveLine }: { history: H
                 data-here={(showInk && i === index) || undefined}
                 style={{ width: desk.size, height: desk.size }}
               >
-                <NoteFace frame={scene.frames[i]} px={desk.size} />
+                <NoteFace frame={scene.frames[i]} px={desk.size} figs={figsAt(i)} />
                 <span className="fb-note-no" aria-hidden>
                   {i + 1}
                 </span>
@@ -592,6 +676,8 @@ export function Studio({ history, setHistory, isActive, saveLine }: { history: H
               style={{ left: desk.paper.x - desk.size / 2, top: desk.paper.y - desk.size / 2, width: desk.size, height: desk.size }}
               aria-label={`The note you draw on: ${frameLine}`}
               role="img"
+              // While posing, where each joint is on the note (note units), for tests and tools.
+              data-joints={tool === 'pose' && lead && cast[0] ? JSON.stringify(handles(placeBones(skeleton(lead.level), poseAt(scene, index, cast[0].id) ?? STANDING)).map((h) => ({ id: h.id, x: +h.at.x.toFixed(4), y: +h.at.y.toFixed(4) }))) : undefined}
             />
             {view.z > 1 && showInk && (
               <button type="button" className="fb-fit" style={{ left: desk.paper.x + desk.size / 2 - 8, top: desk.paper.y - desk.size / 2 + 8 }} onClick={() => setView(FIT)}>
@@ -601,6 +687,30 @@ export function Studio({ history, setHistory, isActive, saveLine }: { history: H
           </>
         )}
       </div>
+
+      {castSheet && (
+        <CharacterSheet
+          library={characters}
+          onStage={lead}
+          onClose={() => setCastSheet(false)}
+          onSave={onCharacter}
+          onUse={(c) => {
+            if (cast[0]) change((h) => commit(h, recast(h.now, cast[0].id, c.id)), `${c.name} is on the flipbook.`);
+            else change((h) => commit(h, addCast(h.now, c.id).scene), `${c.name} is on the flipbook. Pose them with the person button.`);
+            setTool('pose');
+          }}
+          onDraw={(c) => {
+            setCastSheet(false);
+            setWalking(c.id);
+          }}
+          onRemove={() => {
+            if (cast[0]) change((h) => commit(h, removeCast(h.now, cast[0].id)), 'Taken off the flipbook. Undo puts them back.');
+            setCastSheet(false);
+            if (tool === 'pose') setTool('pen');
+          }}
+        />
+      )}
+      {walking && byId.get(walking) && <Walkthrough character={byId.get(walking)!} onChange={onCharacter} onClose={() => setWalking(null)} />}
 
       {more && (
         <Sheet title="Flipbook" onClose={() => setMore(false)}>
@@ -673,4 +783,53 @@ function capture(el: HTMLElement | null, id: number) {
 function pileStyle(desk: Desk, at: { x: number; y: number }): React.CSSProperties {
   const s = desk.size * desk.k;
   return { left: at.x - s / 2, top: at.y - s / 2, width: s, height: s };
+}
+
+/** Posing: a dot on every joint you can grab (the hips' dot moves the whole figure). */
+function drawHandles(ctx: CanvasRenderingContext2D, figs: readonly Fig[], px: number, z: number) {
+  const r = Math.max(3, (px * 0.011) / z);
+  for (const f of figs) {
+    const placed = placeBones(skeleton(f.c.level), f.pose);
+    ctx.lineWidth = Math.max(1.5, (px * 0.003) / z);
+    for (const p of placed.values()) {
+      ctx.strokeStyle = 'rgba(224, 135, 58, 0.55)';
+      ctx.beginPath();
+      ctx.moveTo(p.o.x * px, p.o.y * px);
+      ctx.lineTo(p.e.x * px, p.e.y * px);
+      ctx.stroke();
+    }
+    for (const p of placed.values()) dot(ctx, p.e.x * px, p.e.y * px, p.bone.len < 0.02 ? r * 0.6 : r, '#ffffff', '#e0873a');
+    const root = [...placed.values()][0];
+    if (root) dot(ctx, root.o.x * px, root.o.y * px, r * 1.4, '#e0873a', '#ffffff');
+  }
+}
+
+function dot(ctx: CanvasRenderingContext2D, x: number, y: number, r: number, fill: string, ring: string) {
+  ctx.beginPath();
+  ctx.arc(x, y, r, 0, Math.PI * 2);
+  ctx.fillStyle = fill;
+  ctx.fill();
+  ctx.strokeStyle = ring;
+  ctx.stroke();
+}
+
+/** Which eyes and mouth show on this note (only when the character has more than one look). */
+function FacePick({ c, pose, onPick }: { c: Character; pose: Pose; onPick: (p: Pose) => void }) {
+  const eyes = looks(c, 'eyes').length;
+  const mouths = looks(c, 'mouth').length;
+  if (eyes < 2 && mouths < 2) return null;
+  return (
+    <span className="fb-face" role="group" aria-label="Face on this note">
+      {eyes > 1 && (
+        <button type="button" className="btn small" onClick={() => onPick({ ...pose, eyes: (pose.eyes + 1) % eyes })}>
+          Eyes {(pose.eyes % eyes) + 1}/{eyes}
+        </button>
+      )}
+      {mouths > 1 && (
+        <button type="button" className="btn small" onClick={() => onPick({ ...pose, mouth: (pose.mouth + 1) % mouths })}>
+          Mouth {(pose.mouth % mouths) + 1}/{mouths}
+        </button>
+      )}
+    </span>
+  );
 }
