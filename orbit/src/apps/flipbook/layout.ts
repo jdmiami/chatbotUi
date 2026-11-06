@@ -94,7 +94,6 @@ export const STACK_DEPTH = 6;
 
 const clamp = (v: number, a: number, b: number) => Math.min(b, Math.max(a, v));
 const lerp = (a: number, b: number, t: number) => a + (b - a) * t;
-const ease = (t: number) => (t < 0.5 ? 2 * t * t : 1 - (-2 * t + 2) ** 2 / 2);
 /** Quick off the middle, gentle into the corner: at rest the next notes spread up the arms like a U. */
 const out = (t: number) => 1 - (1 - t) ** 2;
 
@@ -137,8 +136,11 @@ function flipPlace(i: number, d: number, desk: Desk): Place {
   if (a >= ARM) return stacked(corner, d < 0 ? 1 : -1, a - ARM, desk.k, i, desk.size);
   const t = clamp((a - LIFTED) / (ARM - LIFTED), 0, 1);
   const e = out(t);
-  const p = arm(desk.paper, corner, e);
-  const s = lerp(1, desk.k, ease(Math.min(1, t * 1.25)));
+  const s = lerp(1, desk.k, 1 - (1 - t) ** 3);
+  // Kept on the desk: a big note near the middle never hangs off the screen's edge.
+  const q = arm(desk.paper, corner, e);
+  const half = (s * desk.size) / 2;
+  const p = { x: clamp(q.x, Math.min(desk.paper.x, half), Math.max(desk.paper.x, desk.w - half)), y: q.y };
   const flap = Math.sin(Math.PI * t);
   if (d < 0) {
     // Lifted by its bottom edge, the way you lift a note to see the one under it, then away it flaps.
