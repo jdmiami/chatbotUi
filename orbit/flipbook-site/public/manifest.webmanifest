@@ -1,0 +1,16 @@
+{
+  "name": "Flipbook",
+  "short_name": "Flipbook",
+  "description": "Stick-figure animation on a pad of paper notes, drawn with the pen.",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#0b1020",
+  "theme_color": "#0b1020",
+  "start_url": "./",
+  "scope": "./",
+  "icons": [
+    { "src": "icon.svg", "sizes": "any", "type": "image/svg+xml" },
+    { "src": "apple-touch-icon.png", "sizes": "180x180", "type": "image/png" },
+    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png" }
+  ]
+}

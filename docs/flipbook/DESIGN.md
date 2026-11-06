@@ -68,3 +68,15 @@ Code: `orbit/src/apps/flipbook/`. Tests: `orbit/tests/unit/flipbook.test.ts`, `o
 
 - Real Apple Pencil, palm rejection and Safari's own touch handling on an iPad. The tests use
   Chromium with emulated devices and pointer events marked "pen" and "touch".
+
+## Its own site
+
+Flipbook is also a site of its own, with no sign-in: `orbit/flipbook-site/` (the page, icons, web
+manifest and an offline worker) with `orbit/src/flipbook-main.tsx`, built by `npm run build:flipbook`
+(in `orbit/`) into `orbit/dist-flipbook/`. It is the same app as inside Orbit. It talks to no server:
+drawings stay on the device. Add it to the iPad's home screen (Share → Add to Home Screen) and it opens
+full screen with its own icon, and works offline once it has been opened. Tests:
+`npm run test:flipbook-site` (`playwright.flipbook.config.ts`, `tests/flipbook-site/`).
+
+Hosted as its own Vercel project, `flipbook`: root directory `orbit`, build command
+`npm run build:flipbook`, output `dist-flipbook`, deployed from `main`.
