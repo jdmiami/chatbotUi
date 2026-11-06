@@ -148,6 +148,13 @@ cd "$S/ComfyUI" || exit 1
 # Each machine keeps its own ComfyUI settings, database and temp files (ComfyUI empties its temp
 # folder on start, and its database must not be shared between two machines).
 ROLE_DIR="$S/machine-${AI_ROLE:-main}"
+# A graphics card of 80 GB or more (H100, H200, RTX PRO 6000) holds a whole video maker: ComfyUI keeps
+# its models on the card between steps and jobs instead of moving them back to the machine's memory
+# (H3 Max is ~50 GB: moving it back and forth costs minutes a video). The gate still clears the card
+# when another maker, a chat model or Live draw needs it.
+VRAM_MB=$(nvidia-smi --query-gpu=memory.total --format=csv,noheader,nounits 2>/dev/null | head -1 | tr -dc 0-9)
+COMFY_VRAM=()
+if [ "${VRAM_MB:-0}" -ge 79000 ]; then COMFY_VRAM=(--highvram); log "big graphics card (${VRAM_MB} MB): models stay on it"; fi
 mkdir -p "$ROLE_DIR/user" "$ROLE_DIR/temp"
 while true; do
   state starting
@@ -157,7 +164,7 @@ while true; do
     "$S/venv/bin/python" main.py --listen 127.0.0.1 --port 8188 \
     --input-directory "$S/input" --output-directory "$S/output" \
     --user-directory "$ROLE_DIR/user" --temp-directory "$ROLE_DIR/temp" \
-    --disable-auto-launch --preview-method none &
+    --disable-auto-launch --preview-method none "${COMFY_VRAM[@]}" &
   pid=$!
   # The gate restarts a frozen ComfyUI by ending this process (this loop then starts a fresh one).
   echo "$pid" > "$ROLE_DIR/comfy.pid"

@@ -1868,8 +1868,10 @@ export function createStudio(o) {
       if (job.kind === 'video') await o.makeWayForVideo?.().catch(() => {});
       // Video models are huge (~40 GB staged in memory). Keeping the last job's models while
       // loading the next one runs the machine out of memory, and ComfyUI gets killed (soReal makes
-      // shots back to back). So before a video, or after one, start from a clean slate.
-      if (comfyHoldsGpu && (job.kind === 'video' || lastMode === 'video')) {
+      // shots back to back). So before a video, or after one, start from a clean slate, unless it is
+      // the same maker again: its models are the ones already loaded, nothing new comes in, and
+      // loading H3 Max's ~50 GB again would add minutes to every video.
+      if (comfyHoldsGpu && (job.kind === 'video' || lastMode === 'video') && loadedMaker !== job.maker) {
         await comfyJson('/free', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ unload_models: true, free_memory: true }) }).catch(
           () => {},
         );

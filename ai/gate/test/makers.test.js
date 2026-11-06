@@ -187,7 +187,7 @@ test('sharpen needs only a picture; removing a maker deletes only files nothing 
   assert.equal(byId(await studio.makers(), 'outfit').wanted, false);
 });
 
-test('memory: ComfyUI is cleared before a video and after one, not between pictures', async () => {
+test('memory: ComfyUI is cleared before a video and after one, not between pictures or the same video maker again', async () => {
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'makers-'));
   for (const f of [...FILES.image, ...FILES.video]) await place(dir, f);
   const calls = [];
@@ -206,5 +206,5 @@ test('memory: ComfyUI is cleared before a video and after one, not between pictu
   await make(studio, { kind: 'video', prompt: 'waves' });
   await make(studio, { kind: 'video', prompt: 'more waves' });
   await make(studio, { kind: 'image', prompt: 'a bird' });
-  assert.deepEqual(calls, ['/prompt', '/prompt', '/free', '/prompt', '/free', '/prompt', '/free', '/prompt']);
+  assert.deepEqual(calls, ['/prompt', '/prompt', '/free', '/prompt', '/prompt', '/free', '/prompt']);
 });
