@@ -42,6 +42,7 @@ const INDEX_TITLES = {
   make: 'Make',
   gallery: 'Gallery',
   livedraw: 'Live Draw',
+  flipbook: 'Flipbook',
   store: 'Store',
   soreal: 'soReal',
   lab: 'Lab',

@@ -12,6 +12,7 @@ export type ArtId =
   | 'ai'
   | 'make'
   | 'livedraw'
+  | 'flipbook'
   | 'store'
   | 'soreal'
   | 'lab'
@@ -30,6 +31,7 @@ const TILES: Record<ArtId, [string, string, string?]> = {
   ai: ['#9b6bff', '#2563eb', '#06b6d4'],
   make: ['#ff9a62', '#e0457b', '#5b2a86'],
   livedraw: ['#3b2a6e', '#7b3fd1', '#ff6fae'],
+  flipbook: ['#f3d36b', '#e0873a', '#5a2d1c'],
   store: ['#f5c16c', '#d9663a', '#6d2a5c'],
   soreal: ['#ff6a6a', '#c2185b', '#4a148c'],
   lab: ['#ffd36b', '#ff7a59', '#8a2be2'],
@@ -114,6 +116,20 @@ function Glyph({ id, uid }: { id: ArtId; uid: string }) {
           <circle cx="38" cy="42" r="6" fill="#fff4ea" />
           <path d="M27 69l16-17 10 10 8-8 13 15" fill="none" stroke={INK} strokeWidth="5" strokeLinejoin="round" strokeLinecap="round" />
           <path d="M70 16l2.5 6 6 2.5-6 2.5-2.5 6-2.5-6-6-2.5 6-2.5z" fill="#ffe2b8" />
+        </g>
+      );
+    case 'flipbook':
+      // A pad of square notes, the top one lifting, a stick figure mid-jump on it.
+      return (
+        <g>
+          <rect x="24" y="30" width="48" height="48" fill="#f6edc4" opacity="0.45" transform="rotate(-6 48 54)" />
+          <rect x="28" y="26" width="48" height="48" fill="#f6edc4" opacity="0.7" transform="rotate(4 52 50)" />
+          <rect x="26" y="28" width="48" height="48" fill="#f6edc4" />
+          <rect x="26" y="28" width="48" height="4" fill="#e8d895" />
+          <g fill="none" stroke="#3a2a14" strokeWidth="3.4" strokeLinecap="round" strokeLinejoin="round">
+            <circle cx="52" cy="40" r="4.5" />
+            <path d="M51 45l-3 13M49 50l-9-4M49 50l10-6M48 58l-8 9M48 58l9 6" />
+          </g>
         </g>
       );
     case 'livedraw':

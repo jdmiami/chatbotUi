@@ -35,6 +35,7 @@ const raw: Record<AppId, () => Promise<{ default: ComponentType<AppProps> }>> = 
   ai: () => import('./ai/AiApp'),
   make: () => import('./make/MakeApp'),
   livedraw: () => import('./livedraw/LiveDrawApp'),
+  flipbook: () => import('./flipbook/FlipbookApp'),
   store: () => import('./store/StoreApp'),
   soreal: () => import('./soreal/SoRealApp'),
   lab: () => import('./lab/LabApp'),
@@ -129,6 +130,15 @@ export const APPS: Record<AppId, AppMeta> = {
     tile: 'linear-gradient(145deg, #3b2a6e, #7b3fd1 55%, #ff6fae)',
     glyph: '#fff4fb',
     component: lazy(loaders.livedraw),
+  },
+  flipbook: {
+    id: 'flipbook',
+    name: 'Flipbook',
+    description: 'Stick-figure animation on a pad of paper notes, drawn with the pen',
+    icon: 'layers',
+    tile: 'linear-gradient(145deg, #f3d36b, #e0873a 55%, #5a2d1c)',
+    glyph: '#fff8e6',
+    component: lazy(loaders.flipbook),
   },
   soreal: {
     id: 'soreal',
