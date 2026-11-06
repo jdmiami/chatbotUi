@@ -25,6 +25,7 @@ import {
   recast,
   removeCast,
   setPose,
+  setPaper,
   type Frame,
   type History,
 } from './model';
@@ -34,7 +35,9 @@ import { COLORS, WIDTHS } from './palette';
 import { CharacterSheet } from './CharacterSheet';
 import { Walkthrough } from './Walkthrough';
 import { deskOf, onPaper, placeNote, transformOf, visibleRange, type Desk } from './layout';
-import { atRest, dragFrames, lockAxis, rubber, settle, springStep, velocity } from './scrub';
+import { atRest, coast, COAST_LAND, cornerSpeed, dragFrames, KEEP_PLAYING, lockAxis, riffling, rubber, settle, springStep, velocity } from './scrub';
+import { PAPER_KINDS, type GLNote, type PaperGL, type PaperKind } from './paperGL';
+import { PaperSound } from './paperSound';
 import { FIT, GHOST_AFTER, GHOST_BEFORE, ghostAlpha, paintNote, type Ghost, type View } from './ink';
 
 /**
@@ -57,7 +60,8 @@ type Gesture =
   | { kind: 'erase'; id: number; hit: Set<number> }
   | { kind: 'scrub'; id: number; x0: number; y0: number; start: number; base: number; axis: 'x' | 'y' | null; samples: { t: number; p: number }[] }
   | { kind: 'pinch'; a: number; b: number; d0: number; m0: { x: number; y: number }; v0: View }
-  | { kind: 'pose'; id: number; castId: string; handle: string; pose: Pose };
+  | { kind: 'pose'; id: number; castId: string; handle: string; pose: Pose }
+  | { kind: 'corner'; id: number; x0: number; y0: number; axis: 'x' | 'y' | null; push: number };
 
 const FINGER_KEY = 'orbit:flipbook:finger';
 const readFinger = () => {
@@ -118,6 +122,15 @@ export function Studio({
   const [more, setMore] = useState(false);
   const [castSheet, setCastSheet] = useState(false);
   const [walking, setWalking] = useState<string | null>(null);
+  /** The bending paper on the graphics chip (null: the flat desk, for Reduce Motion or without WebGL2). */
+  const [gl, setGl] = useState<PaperGL | null>(null);
+  const glCanvas = useRef<HTMLCanvasElement>(null);
+  const [riffle, setRiffle] = useState<number | null>(null);
+  const sound = useRef<PaperSound | null>(null);
+  sound.current ??= new PaperSound();
+  const [soundOn, setSoundOnState] = useState(() => sound.current!.enabled);
+  const wobble = useRef<{ t0: number; amp: number } | null>(null);
+  const lastWhole = useRef(0);
 
   const pos = useRef(0);
   const vel = useRef(0);
@@ -129,8 +142,7 @@ export function Studio({
   const base = useRef<HTMLCanvasElement | null>(null);
 
   const onionOpt = useMemo(() => ({ on: onion, count: onionCount }), [onion, onionCount]);
-  const live = useRef({ desk, onionOpt, count, motion, scene, index });
-  live.current = { desk, onionOpt, count, motion, scene, index };
+  const live = useRef({ desk, onionOpt, count, motion, scene, index, gl, inkOn: true, figsAt: (_i: number): Fig[] => [] });
 
   // ---- the characters on this flipbook
   const byId = useMemo(() => new Map(characters.map((c) => [c.id, c])), [characters]);
@@ -144,6 +156,9 @@ export function Studio({
       const pose = live?.castId === m.id ? live.pose : (poseAt(scene, i, m.id) ?? STANDING);
       return [{ c, pose }];
     });
+
+  const kind: PaperKind = scene.paper ?? 'sticky';
+  live.current = { desk, onionOpt, count, motion, scene, index, gl, inkOn: settled && !playing, figsAt };
 
   const setFinger = (on: boolean) => {
     setFingerState(on);
@@ -169,10 +184,81 @@ export function Studio({
   }, []);
 
   // ---- placing the notes (straight onto their styles: smooth at the thumb's speed)
+  const glNotes = useRef(new Map<number, { frame: unknown; figs: Fig[]; key: object }>());
+  /** A note's drawing changes only when its ink or its characters' poses change. */
+  const keyOf = (i: number, frame: unknown, figs: Fig[]) => {
+    const k = glNotes.current.get(i);
+    if (k && k.frame === frame && sameFigs(k.figs, figs)) return k.key;
+    const key = {};
+    glNotes.current.set(i, { frame, figs, key });
+    return key;
+  };
+  const drawGL = useCallback(() => {
+    const L = live.current;
+    const d = L.desk;
+    if (!L.gl || !d) return;
+    const p = pos.current;
+    const [lo, hi] = visibleRange(Math.round(p), L.count, L.onionOpt);
+    const now = performance.now();
+    const w = wobble.current;
+    const wob = w ? w.amp * Math.sin(((now - w.t0) / 1000) * 19) * Math.exp((-(now - w.t0) / 1000) * 5.5) : 0;
+    if (w && now - w.t0 > 1200) wobble.current = null;
+    const list: GLNote[] = [];
+    for (let i = lo; i <= hi; i++) {
+      const frame = L.scene.frames[i];
+      const figs = L.figsAt(i);
+      list.push({
+        i,
+        place: placeNote(i, p, d, L.onionOpt),
+        key: keyOf(i, frame, figs),
+        hideInk: L.inkOn && i === L.index,
+        wobble: i === Math.round(p) ? wob : 0,
+        paint: (ctx, px) => {
+          paintNote(ctx, frame?.strokes ?? [], px, { figures: figStrokes(figs) });
+          ctx.font = `italic 600 ${Math.round(px * 0.042)}px Georgia, serif`;
+          ctx.fillStyle = 'rgba(60, 50, 20, 0.45)';
+          ctx.textAlign = 'right';
+          ctx.fillText(String(i + 1), px * 0.965, px * 0.975);
+        },
+      });
+    }
+    const root = document.documentElement.style;
+    const tilt = { x: parseFloat(root.getPropertyValue('--tx')) || 0, y: parseFloat(root.getPropertyValue('--ty')) || 0 };
+    L.gl.draw(list, { size: d.size, kind: L.scene.paper ?? 'sticky', tilt, time: now / 1000 });
+    // How many sheets are on the desk, and where the pad is (for tests and tools).
+    if (glCanvas.current) {
+      glCanvas.current.dataset.notes = String(list.length);
+      glCanvas.current.dataset.pos = p.toFixed(2);
+    }
+    if (wobble.current && !drawPending.current)
+      drawPending.current = requestAnimationFrame(() => {
+        drawPending.current = 0;
+        drawGL();
+      });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // The paper is drawn at most once per screen frame, however many times the pad moves in between.
+  const drawPending = useRef(0);
+  const requestDraw = useCallback(() => {
+    if (drawPending.current) return;
+    drawPending.current = requestAnimationFrame(() => {
+      drawPending.current = 0;
+      drawGL();
+    });
+  }, [drawGL]);
+
   const place = useCallback(() => {
     const { desk: d, onionOpt: o } = live.current;
     if (!d) return;
     const p = pos.current;
+    // Each whole note passed: a soft paper flick.
+    const whole = Math.floor(p + 0.5);
+    if (whole !== lastWhole.current) {
+      sound.current?.flick(Math.min(1, Math.abs(vel.current) / 12 + 0.25));
+      lastWhole.current = whole;
+    }
+    if (live.current.gl) requestDraw();
     for (const [i, el] of notes.current) {
       const at = placeNote(i, p, d, o);
       el.style.transform = transformOf(at, d.size);
@@ -198,6 +284,11 @@ export function Studio({
   };
 
   const rest = useCallback((i: number) => {
+    // A note that lands at speed settles with a soft wobble.
+    const v = Math.abs(vel.current);
+    if (live.current.gl && v > 0.4) wobble.current = { t0: performance.now(), amp: Math.min(0.22, v * 0.035) };
+    sound.current?.riffle(0);
+    setRiffle(null);
     pos.current = i;
     vel.current = 0;
     target.current = i;
@@ -214,9 +305,15 @@ export function Studio({
       vel.current = v;
       let last = performance.now();
       const step = (now: number) => {
-        const dt = Math.min(0.032, (now - last) / 1000);
+        // Real time passes even when frames are slow: small steps keep the spring steady.
+        let dt = Math.max(0, Math.min(0.3, (now - last) / 1000));
         last = now;
-        const s = springStep(pos.current, vel.current, to, dt);
+        let s = { x: pos.current, v: vel.current };
+        while (dt > 0) {
+          const h = Math.min(0.008, dt);
+          s = springStep(s.x, s.v, to, h);
+          dt -= h;
+        }
         pos.current = s.x;
         vel.current = s.v;
         if (atRest(s.x, s.v, to)) return rest(to);
@@ -238,12 +335,109 @@ export function Studio({
     [glide],
   );
 
+  /** Let go mid-riffle: it keeps going and slows, then lands; a hard flick keeps the animation playing. */
+  const coastFrom = useCallback(
+    (v: number) => {
+      stopSpring();
+      if (Math.abs(v) >= KEEP_PLAYING && v > 0) {
+        setRiffle(null);
+        sound.current?.riffle(0);
+        rest(Math.max(0, Math.min(live.current.count - 1, Math.round(pos.current))));
+        setPlaying(true);
+        return;
+      }
+      vel.current = v;
+      let last = performance.now();
+      const step = (now: number) => {
+        const dt = Math.max(0, Math.min(0.1, (now - last) / 1000));
+        last = now;
+        const max = live.current.count - 1;
+        const c = coast(pos.current, vel.current, dt);
+        pos.current = c.pos;
+        vel.current = c.v;
+        setRiffle(Math.round(Math.abs(c.v)));
+        sound.current?.riffle(Math.abs(c.v));
+        if (Math.abs(c.v) < COAST_LAND || c.pos < 0 || c.pos > max) {
+          setRiffle(null);
+          sound.current?.riffle(0);
+          return glide(Math.max(0, Math.min(max, Math.round(c.pos + c.v * 0.12))), c.v);
+        }
+        place();
+        raf.current = requestAnimationFrame(step);
+      };
+      raf.current = requestAnimationFrame(step);
+    },
+    [glide, place, rest],
+  );
+
+  /** Holding the corner: the pad riffles on its own, as fast as the thumb has pushed. */
+  const cornerLoop = useCallback(() => {
+    stopSpring();
+    let last = performance.now();
+    const step = (now: number) => {
+      const g = gesture.current;
+      const d = live.current.desk;
+      if (g.kind !== 'corner' || !d) return;
+      const dt = Math.max(0, Math.min(0.1, (now - last) / 1000));
+      last = now;
+      const v = cornerSpeed(g.push, d.perFrame);
+      const max = live.current.count - 1;
+      vel.current = v;
+      pos.current = Math.max(0, Math.min(max, pos.current + v * dt));
+      setRiffle(v ? Math.round(Math.abs(v)) : null);
+      sound.current?.riffle(Math.abs(v));
+      place();
+      raf.current = requestAnimationFrame(step);
+    };
+    raf.current = requestAnimationFrame(step);
+  }, [place]);
+
   // The pad shrank (a note torn off, an undo): keep the drawing spot on a real note.
   useEffect(() => {
     if (index > count - 1) rest(count - 1);
   }, [count, index, rest]);
 
   useEffect(() => () => stopSpring(), []);
+
+  // ---- the bending paper (loaded after the first paint; the flat desk shows until then)
+  useEffect(() => {
+    if (motion === 'off') return;
+    let alive = true;
+    let made: PaperGL | null = null;
+    void import('./paperGL').then(({ PaperGL: G }) => {
+      if (!alive || !glCanvas.current) return;
+      made = G.create(glCanvas.current);
+      setGl(made);
+    });
+    return () => {
+      alive = false;
+      made?.dispose();
+      setGl(null);
+    };
+  }, [motion]);
+  useLayoutEffect(() => {
+    if (gl && desk) {
+      gl.resize(desk.w, desk.h, typeof devicePixelRatio === 'number' ? devicePixelRatio : 1);
+      drawGL();
+    }
+  }, [gl, desk, drawGL]);
+  // The light follows the iPad's tilt: redraw when the tilt changes.
+  useEffect(() => {
+    if (!gl) return;
+    let frame = 0;
+    const mo = new MutationObserver(() => {
+      if (!frame)
+        frame = requestAnimationFrame(() => {
+          frame = 0;
+          drawGL();
+        });
+    });
+    mo.observe(document.documentElement, { attributes: true, attributeFilter: ['style'] });
+    return () => {
+      mo.disconnect();
+      cancelAnimationFrame(frame);
+    };
+  }, [gl, drawGL]);
 
   // ---- playing it
   useEffect(() => {
@@ -299,7 +493,8 @@ export function Studio({
       if (!bctx || !ctx) return;
       const figs = figsAt(index, livePose);
       paintNote(bctx, frame?.strokes ?? [], px, {
-        paper: true,
+        // On the bending paper the sheet itself is drawn underneath; the flat desk paints its own.
+        paper: gl ? false : kind,
         ghosts,
         view,
         skip,
@@ -312,7 +507,7 @@ export function Studio({
       ctx.drawImage(b, 0, 0);
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [frame, ghosts, view, px, tool, scene, byId, index],
+    [frame, ghosts, view, px, tool, scene, byId, index, gl, kind],
   );
 
   useLayoutEffect(() => {
@@ -416,6 +611,7 @@ export function Studio({
     const p = local(e);
     const on = onPaper(d, p.x, p.y);
     const g = gesture.current;
+    sound.current?.wake();
     if (e.pointerType === 'pen') {
       // A pen always wins: a resting palm's touches are dropped.
       touches.current.clear();
@@ -451,6 +647,15 @@ export function Studio({
         return;
       }
       if (touches.current.size > 2) return;
+      // The note's bottom-right corner is the riffle handle: hold it and push to flip through.
+      if (inCorner(d, p.x, p.y)) {
+        if (playing) setPlaying(false);
+        gesture.current = { kind: 'corner', id: e.pointerId, x0: p.x, y0: p.y, axis: null, push: 0 };
+        setSettled(false);
+        capture(deskRef.current, e.pointerId);
+        cornerLoop();
+        return;
+      }
       if (finger && on && settled) return beginInk(e);
     }
     // A finger (or the mouse off the note): move the pad.
@@ -489,7 +694,18 @@ export function Studio({
       pos.current = rubber(g.base + dragFrames(dx, dy, g.axis, d.perFrame), live.current.count - 1);
       g.samples.push({ t: e.timeStamp, p: pos.current });
       if (g.samples.length > 12) g.samples.shift();
+      const v = velocity(g.samples);
+      vel.current = v;
+      const r = riffling(v, pos.current - g.start);
+      setRiffle(r ? Math.round(Math.abs(v)) : null);
+      sound.current?.riffle(r ? Math.abs(v) : 0);
       place();
+    } else if (g.kind === 'corner' && e.pointerId === g.id) {
+      const p = local(e);
+      const dx = p.x - g.x0;
+      const dy = p.y - g.y0;
+      g.axis ??= lockAxis(dx, dy, 4);
+      if (g.axis) g.push = g.axis === 'x' ? dx : -dy;
     } else if (g.kind === 'pinch') {
       const a = touches.current.get(g.a);
       const b = touches.current.get(g.b);
@@ -527,8 +743,18 @@ export function Studio({
       gesture.current = { kind: 'none' };
       // The lift-off counts too: a thumb that stopped before letting go is not a flick.
       const v = e.type === 'pointercancel' ? 0 : velocity([...g.samples, { t: e.timeStamp, p: pos.current }]);
+      // Riffling when let go: it keeps riffling and slows down (or keeps playing, for a hard flick).
+      if (g.axis && riffling(v, pos.current - g.start) && Math.abs(v) > COAST_LAND && live.current.motion !== 'off') return coastFrom(v);
+      setRiffle(null);
+      sound.current?.riffle(0);
       const to = g.axis ? settle(g.start, pos.current, v, live.current.count - 1) : g.start;
       glide(to, v);
+    } else if (g.kind === 'corner' && e.pointerId === g.id) {
+      gesture.current = { kind: 'none' };
+      stopSpring();
+      setRiffle(null);
+      sound.current?.riffle(0);
+      glide(Math.max(0, Math.min(live.current.count - 1, Math.round(pos.current))));
     } else if (g.kind === 'pinch' && (e.pointerId === g.a || e.pointerId === g.b)) {
       gesture.current = { kind: 'none' };
       touches.current.clear();
@@ -598,7 +824,7 @@ export function Studio({
   const frameLine = isBlank ? `New note · ${scene.frames.length} so far` : `Frame ${index + 1} of ${scene.frames.length}`;
 
   return (
-    <div className="fb-studio" data-onion={onion || undefined} data-playing={playing || undefined}>
+    <div className="fb-studio" data-onion={onion || undefined} data-playing={playing || undefined} data-gl={gl ? true : undefined} data-paper={kind}>
       <header className="fb-top" role="toolbar" aria-label="Flipbook tools">
         <div className="fb-group fb-where">
           <IconButton icon="back" label="Previous note" onClick={() => go(Math.round(target.current) - 1)} disabled={index === 0 && settled} />
@@ -630,8 +856,8 @@ export function Studio({
           <IconButton icon="redo" label="Redo" onClick={redo} disabled={!history.future.length} />
           <IconButton icon="layers" label={onion ? 'Onion view on' : 'Onion view'} pressed={onion} onClick={() => setOnion((o) => !o)} />
           <IconButton icon={playing ? 'pause' : 'play'} label={playing ? 'Stop' : 'Play'} pressed={playing} onClick={() => setPlaying((p) => !p)} />
-          <IconButton icon="user" label={lead ? `Character: ${lead.name}` : 'Characters'} onClick={() => setCastSheet(true)} />
-          <IconButton icon="more" label="More" onClick={() => setMore(true)} />
+          <IconButton icon="user" label={lead ? `Character: ${lead.name}` : 'Characters'} onClick={() => (landNow(), setCastSheet(true))} />
+          <IconButton icon="more" label="More" onClick={() => (landNow(), setMore(true))} />
         </div>
       </header>
 
@@ -649,9 +875,10 @@ export function Studio({
       >
         {desk && (
           <>
-            <div className="fb-pile" data-side="next" style={pileStyle(desk, desk.next)} aria-hidden />
-            <div className="fb-pile" data-side="done" data-empty={viewPos < 1 || undefined} style={pileStyle(desk, desk.done)} aria-hidden />
-            {shown.map((i) => (
+            <canvas ref={glCanvas} className="fb-gl" data-on={gl ? true : undefined} style={{ width: desk.w, height: desk.h }} aria-hidden />
+            {!gl && <div className="fb-pile" data-side="next" style={pileStyle(desk, desk.next)} aria-hidden />}
+            {!gl && <div className="fb-pile" data-side="done" data-empty={viewPos < 1 || undefined} style={pileStyle(desk, desk.done)} aria-hidden />}
+            {!gl && shown.map((i) => (
               <div
                 key={i}
                 ref={(el) => noteRef(i, el)}
@@ -679,6 +906,17 @@ export function Studio({
               // While posing, where each joint is on the note (note units), for tests and tools.
               data-joints={tool === 'pose' && lead && cast[0] ? JSON.stringify(handles(placeBones(skeleton(lead.level), poseAt(scene, index, cast[0].id) ?? STANDING)).map((h) => ({ id: h.id, x: +h.at.x.toFixed(4), y: +h.at.y.toFixed(4) }))) : undefined}
             />
+            <span
+              className="fb-corner"
+              data-hidden={playing || undefined}
+              style={{ left: desk.paper.x + desk.size / 2 - desk.size * CORNER, top: desk.paper.y + desk.size / 2 - desk.size * CORNER, width: desk.size * CORNER, height: desk.size * CORNER }}
+              aria-hidden
+            />
+            {riffle !== null && riffle > 0 && (
+              <p className="fb-riffle" role="status">
+                Riffling · {riffle} a second
+              </p>
+            )}
             {view.z > 1 && showInk && (
               <button type="button" className="fb-fit" style={{ left: desk.paper.x + desk.size / 2 - 8, top: desk.paper.y - desk.size / 2 + 8 }} onClick={() => setView(FIT)}>
                 Fit
@@ -748,6 +986,24 @@ export function Studio({
             <h3>Onion view</h3>
             <p className="fb-hint">Shows the notes before (red) and after (blue) faintly under the one you draw on, and lays them out as cards.</p>
             <Segmented label="Notes each side" value={String(onionCount) as '1' | '2' | '3'} options={[{ value: '1', label: '1 each side' }, { value: '2', label: '2' }, { value: '3', label: '3' }]} onChange={(v) => (setOnionCount(Number(v)), setOnion(true))} />
+            <h3>Paper</h3>
+            <Segmented label="Paper" value={kind} options={PAPER_KINDS} onChange={(v) => change((h) => commit(h, setPaper(h.now, v)))} />
+            <label className="fb-switch">
+              <input
+                type="checkbox"
+                role="switch"
+                className="switch"
+                checked={soundOn}
+                onChange={(e) => {
+                  sound.current?.set(e.target.checked);
+                  setSoundOnState(e.target.checked);
+                }}
+              />
+              <span>
+                Paper sounds
+                <small>A soft flick as each note turns, and a rustle when you riffle.</small>
+              </span>
+            </label>
             <h3>Speed</h3>
             <Segmented
               label="Frames per second"
@@ -832,4 +1088,13 @@ function FacePick({ c, pose, onPick }: { c: Character; pose: Pose; onPick: (p: P
       )}
     </span>
   );
+}
+
+/** The riffle handle: this much of the note's bottom-right corner. */
+const CORNER = 0.16;
+function inCorner(d: Desk, x: number, y: number): boolean {
+  const right = d.paper.x + d.size / 2;
+  const bottom = d.paper.y + d.size / 2;
+  const c = d.size * CORNER;
+  return x <= right && y <= bottom && x >= right - c && y >= bottom - c;
 }

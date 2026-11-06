@@ -167,7 +167,7 @@ test.describe('Flipbook on iPad', () => {
     const sheet = page.getByRole('dialog', { name: 'Flipbook' });
     await sheet.getByRole('button', { name: '24 a second' }).click();
     await expect(sheet.getByRole('button', { name: '24 a second' })).toHaveAttribute('aria-pressed', 'true');
-    await sheet.getByRole('switch').check();
+    await sheet.getByRole('switch', { name: /Draw with a finger/ }).check();
     await sheet.getByRole('button', { name: 'Copy onto the next note' }).click();
     await expect(win.locator('.fb-frame')).toHaveText('Frame 2 of 2');
     await expect.poll(() => inkPixels(page)).toBeGreaterThan(20);

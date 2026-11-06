@@ -2,6 +2,7 @@
  * Painting a note: the paper, the ghosts of the notes around it (onion view) and its ink.
  */
 import { drawVectors, type VStroke } from '../livedraw/ink/vector';
+import type { PaperKind } from './paperGL';
 
 /** The square sticky note, and its gummed strip along the top. */
 export const PAPER = '#f6edc4';
@@ -37,7 +38,7 @@ export function paintNote(
   ctx: CanvasRenderingContext2D,
   strokes: readonly VStroke[],
   px: number,
-  opts: { paper?: boolean; ghosts?: readonly Ghost[]; view?: View; skip?: ReadonlySet<number>; figures?: readonly VStroke[]; after?: (ctx: CanvasRenderingContext2D) => void } = {},
+  opts: { paper?: boolean | PaperKind; ghosts?: readonly Ghost[]; view?: View; skip?: ReadonlySet<number>; figures?: readonly VStroke[]; after?: (ctx: CanvasRenderingContext2D) => void } = {},
 ) {
   ctx.save();
   ctx.setTransform(1, 0, 0, 1, 0, 0);
@@ -45,12 +46,7 @@ export function paintNote(
   const v = opts.view ?? FIT;
   ctx.translate(v.ox * px, v.oy * px);
   ctx.scale(v.z, v.z);
-  if (opts.paper) {
-    ctx.fillStyle = PAPER;
-    ctx.fillRect(0, 0, px, px);
-    ctx.fillStyle = PAPER_GUM;
-    ctx.fillRect(0, 0, px, px * 0.075);
-  }
+  if (opts.paper) drawPaper(ctx, px, opts.paper === true ? 'sticky' : opts.paper);
   for (const g of opts.ghosts ?? []) {
     ctx.globalAlpha = g.alpha;
     drawVectors(ctx, g.strokes, px, px, { color: g.color });
@@ -61,4 +57,26 @@ export function paintNote(
   drawVectors(ctx, opts.skip?.size ? strokes.filter((s) => !opts.skip!.has(s.id)) : strokes, px, px);
   opts.after?.(ctx);
   ctx.restore();
+}
+
+/** The paper itself, flat (the 2D desk, the walkthrough and the iPhone viewer). */
+export function drawPaper(ctx: CanvasRenderingContext2D, px: number, kind: PaperKind) {
+  const base = { sticky: PAPER, sketch: '#f4f1ea', lined: '#f7f5ee', grid: '#f5f5f2', kraft: '#d8c3a0' }[kind];
+  ctx.fillStyle = base;
+  ctx.fillRect(0, 0, px, px);
+  if (kind === 'sticky') {
+    ctx.fillStyle = PAPER_GUM;
+    ctx.fillRect(0, 0, px, px * 0.075);
+  } else if (kind === 'lined') {
+    ctx.fillStyle = 'rgba(140, 173, 219, 0.55)';
+    for (let k = 3; k < 22; k++) ctx.fillRect(0, (k / 22) * px, px, Math.max(1, px * 0.0018));
+    ctx.fillStyle = 'rgba(219, 107, 107, 0.6)';
+    ctx.fillRect(px * 0.11, 0, Math.max(1, px * 0.005), px);
+  } else if (kind === 'grid') {
+    ctx.fillStyle = 'rgba(158, 178, 199, 0.32)';
+    for (let k = 1; k < 20; k++) {
+      ctx.fillRect(0, (k / 20) * px, px, Math.max(1, px * 0.0016));
+      ctx.fillRect((k / 20) * px, 0, Math.max(1, px * 0.0016), px);
+    }
+  }
 }
