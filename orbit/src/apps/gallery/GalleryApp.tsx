@@ -20,6 +20,7 @@ import { VIDEO_WORK } from '../ai/CreateView';
 import { offlineMakers } from '../ai/makerCatalog';
 import { loadHeld, type HeldItem } from '../../services/ai/HeldReview';
 import { HeldReview } from './HeldReview';
+import { UltraButton, UltraPlayer, useUltraList } from '../../ui/UltraPlayer';
 import '../agent/agent.css';
 import '../ai/ai.css';
 import './gallery.css';
@@ -363,6 +364,9 @@ export default function GalleryApp({ isActive }: AppProps) {
   const open = viewing ? (all.find((x) => x.id === viewing) ?? null) : null;
   const step = useGalleryStepper(shown, open?.id);
   const reviewing = showHeld && held.length > 0;
+  // NSFW Ultra: the NSFW videos of what's shown, back to back (only while "Show NSFW" is on).
+  const ultraList = useUltraList(shown);
+  const [ultra, setUltra] = useState<Parameters<typeof UltraPlayer>[0]['started'] | null>(null);
 
   // Gone (deleted elsewhere): the viewer closes.
   useEffect(() => {
@@ -484,6 +488,7 @@ export default function GalleryApp({ isActive }: AppProps) {
               onChange={(kind) => setPick({ kind })}
             />
             )}
+            {!reviewing && <UltraButton list={ultraList} onStart={setUltra} />}
             <div className="gallery-sources" role="radiogroup" aria-label="Made in">
               {SOURCES.map((s) => (
                 <button
@@ -640,6 +645,7 @@ export default function GalleryApp({ isActive }: AppProps) {
           </div>
         </GalleryViewer>
       )}
+      {ultra && <UltraPlayer started={ultra} onExit={() => setUltra(null)} />}
       {confirmDelete && (
         <ConfirmSheet
           title="Delete this?"

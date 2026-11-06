@@ -245,3 +245,47 @@ test('Make and the Lab open the Gallery', async ({ page }) => {
   await lab.getByRole('button', { name: 'All your creations' }).click();
   await expect(page.locator('.app-window[data-app="gallery"]')).toHaveAttribute('data-placement', /^(full|split)/);
 });
+
+test('NSFW Ultra: only with Show NSFW on, plays the NSFW videos back to back with just pause and exit', async ({ page }, testInfo) => {
+  const items = [
+    ...ITEMS,
+    stored('hot01', 'clip.webm', { prompt: 'Hot tub night one', nsfw: true, seconds: 4, createdAt: '2026-10-18T10:00:00Z' }),
+    stored('hot02', 'clip.webm', { prompt: 'Hot tub night two', nsfw: true, seconds: 4, createdAt: '2026-10-17T10:00:00Z' }),
+  ];
+  const { win, errors } = await start(page, { machine: 'off', gallery: { configured: true, items } });
+  await expect(win.getByRole('button', { name: /A warm sunset/ })).toBeVisible();
+  // Hidden while NSFW is hidden.
+  await expect(win.getByRole('button', { name: /NSFW Ultra/ })).toHaveCount(0);
+  await setShowNsfw(page, true);
+  const go = win.getByRole('button', { name: /NSFW Ultra/ });
+  await expect(go).toContainText('2 videos');
+  await go.click();
+  const player = page.getByRole('dialog', { name: 'NSFW Ultra' });
+  await expect(player).toBeVisible();
+  // Two buttons only: pause and exit.
+  await expect(player.getByRole('button')).toHaveCount(2);
+  const onScreen = () => player.locator('video.ultra-on').evaluate((v) => (v as HTMLVideoElement).src);
+  const first = await onScreen();
+  expect(first).toContain('clip.webm');
+  // The first ends: the second is on screen at once, and the first player loads the one after.
+  await player.locator('video.ultra-on').evaluate((v) => v.dispatchEvent(new Event('ended')));
+  await expect(player.locator('video.ultra-on')).toHaveCount(1);
+  const vids = player.locator('video');
+  await expect(vids).toHaveCount(2);
+  expect(await vids.nth(1).evaluate((v) => v.classList.contains('ultra-on'))).toBe(true);
+  await page.waitForTimeout(300);
+  await shot(page, 'ultra-playing', testInfo.project.name);
+  // Pause, then play again.
+  await player.click({ position: { x: 100, y: 200 } });
+  await player.getByRole('button', { name: 'Pause' }).click();
+  await expect(player.getByRole('button', { name: 'Play' })).toBeVisible();
+  await player.getByRole('button', { name: 'Play' }).click();
+  await expect(player.getByRole('button', { name: 'Pause' })).toBeVisible();
+  // The controls fade away while it plays.
+  await expect(player.getByRole('button', { name: 'Exit' })).toHaveCSS('opacity', '0', { timeout: 4000 });
+  await player.click({ position: { x: 100, y: 200 } });
+  await player.getByRole('button', { name: 'Exit' }).click();
+  await expect(player).toHaveCount(0);
+  await expectNoHorizontalOverflow(page);
+  expect(errors).toEqual([]);
+});
