@@ -57,7 +57,7 @@ Code: `orbit/src/apps/flipbook/`. Tests: `orbit/tests/unit/flipbook.test.ts`, `o
 1. **The desk** (built): the U of notes in both directions, turning with the thumb, peeking, onion cards,
    pen and eraser, colours and line widths, play at 8, 12 or 24 frames a second, undo, saving on the
    device, and the iPhone viewer's empty state.
-2. **The rig**: the skeleton at three levels plus the face, and a walkthrough that has you draw each
+2. **The rig** (built): the skeleton at three levels plus the face, and a walkthrough that has you draw each
    part in turn. Each part's drawing rides on its bone. Unfinished parts show as plain stick lines.
 3. **Moves and characters**: the 8 ready-made moves as poses per frame, putting your character on any
    of them, and up to 4 characters per scene.
@@ -80,3 +80,29 @@ full screen with its own icon, and works offline once it has been opened. Tests:
 
 Hosted as its own Vercel project, `flipbook`: root directory `orbit`, build command
 `npm run build:flipbook`, output `dist-flipbook`, deployed from `main`.
+
+## The rig (stage 2, built)
+
+- **Skeleton** (`rig.ts`): bones in a tree from the hips, lengths in note units, angles relative to
+  the parent bone. Simple has 15 parts, Detailed 19 (adds belly, neck, shoulders) and Full 51
+  (adds three joints per finger and the toes). "Left" and "right" are as seen on the note.
+- **Posing** (the person button): every joint shows as a dot.
+  - The big dot at the hips moves the whole figure.
+  - Any other dot turns its bone.
+  - Dragging a wrist or ankle bends the elbow or knee to reach, keeping the side it already bends to.
+  - A note without its own pose holds the pose of the note before it, so posing is key poses: change
+    only what moves.
+- **Characters** (`character.ts`) live in a library on the device (IndexedDB, next to the flipbooks),
+  so one character can be used in any flipbook.
+  - Each part's drawing is kept in its bone's own frame (along it, across it), so it turns and moves
+    with the bone.
+  - Parts not drawn yet are plain sticks (the head a circle).
+  - Changing the level keeps every drawn part. Parts a lower level hides are kept for later.
+- **The walkthrough** (`Walkthrough.tsx`): head first, down the body, each arm (then its fingers) and
+  each leg, then eyes and mouth.
+  - It zooms in on the part to draw, which glows orange.
+  - Skip leaves a stick. Stop any time; reopening starts at the first part not drawn yet.
+  - Once a pen has been used, a resting palm never draws.
+- **Face:** eyes and mouths have looks (Look 1, Look 2…). In pose mode, Eyes and Mouth buttons pick
+  which look shows on each note.
+- One character per flipbook for now (the data already allows several; stage 3 adds up to 4).

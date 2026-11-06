@@ -6,10 +6,20 @@
  * Every change makes a new scene (nothing is changed in place), so undo is a list of old scenes.
  */
 import type { VStroke } from '../livedraw/ink/vector';
+import type { Pose } from './rig';
 
 export interface Frame {
   id: string;
+  /** Ink drawn on this note (on top of any character). */
   strokes: VStroke[];
+  /** Each character's pose on this note, by cast id. A note without one holds the pose of the note before. */
+  poses?: Record<string, Pose>;
+}
+
+/** A character on this flipbook (the character itself is kept in the character library). */
+export interface CastMember {
+  id: string;
+  characterId: string;
 }
 
 export interface Scene {
@@ -18,6 +28,8 @@ export interface Scene {
   /** Frames per second when it plays. */
   fps: number;
   frames: Frame[];
+  /** The characters on it, in drawing order. */
+  cast?: CastMember[];
   updatedAt: number;
 }
 
@@ -84,7 +96,7 @@ export function duplicate(s: Scene, i: number): Scene {
   if (i >= s.frames.length) return s;
   const frames = s.frames.slice();
   const src = frames[i];
-  frames.splice(i + 1, 0, { id: newId('f'), strokes: src.strokes.map((st) => ({ ...st, points: st.points.slice() })) });
+  frames.splice(i + 1, 0, { id: newId('f'), strokes: src.strokes.map((st) => ({ ...st, points: st.points.slice() })), ...(src.poses ? { poses: { ...src.poses } } : {}) });
   return touch(s, frames);
 }
 
@@ -95,6 +107,52 @@ export function removeFrame(s: Scene, i: number): Scene {
   return touch(s, frames.length ? frames : [blankFrame()]);
 }
 
+/** Put a character on the flipbook. It stands in the middle until it is posed. */
+export function addCast(s: Scene, characterId: string): { scene: Scene; castId: string } {
+  const castId = newId('cast');
+  return { scene: { ...s, cast: [...(s.cast ?? []), { id: castId, characterId }], updatedAt: Date.now() }, castId };
+}
+
+/** Swap who plays a part: the poses stay, the character changes. */
+export function recast(s: Scene, castId: string, characterId: string): Scene {
+  return { ...s, cast: (s.cast ?? []).map((c) => (c.id === castId ? { ...c, characterId } : c)), updatedAt: Date.now() };
+}
+
+/** Take a character off the flipbook (its poses go with it; the character stays in the library). */
+export function removeCast(s: Scene, castId: string): Scene {
+  return {
+    ...s,
+    cast: (s.cast ?? []).filter((c) => c.id !== castId),
+    frames: s.frames.map((f) => {
+      if (!f.poses?.[castId]) return f;
+      const { [castId]: _gone, ...rest } = f.poses;
+      return { ...f, poses: rest };
+    }),
+    updatedAt: Date.now(),
+  };
+}
+
+/** A character's pose on note `i` (making the note if it is the waiting blank one). */
+export function setPose(s: Scene, i: number, castId: string, pose: Pose): Scene {
+  const e = ensure(s, i);
+  return touch(
+    e,
+    e.frames.map((f, k) => (k === i ? { ...f, poses: { ...f.poses, [castId]: pose } } : f)),
+  );
+}
+
+/** The pose a character has on note `i`: its own, or the last one before it, or null (standing). */
+export function poseAt(s: Scene, i: number, castId: string): Pose | null {
+  for (let k = Math.min(i, s.frames.length - 1); k >= 0; k--) {
+    const p = s.frames[k].poses?.[castId];
+    if (p) return p;
+  }
+  return null;
+}
+
+/** Does note `i` have its own pose for this character (rather than holding the one before)? */
+export const ownsPose = (s: Scene, i: number, castId: string) => Boolean(s.frames[i]?.poses?.[castId]);
+
 export function setFps(s: Scene, fps: number): Scene {
   return { ...s, fps, updatedAt: Date.now() };
 }
@@ -103,7 +161,7 @@ export function setFps(s: Scene, fps: number): Scene {
 export function playable(s: Scene): number[] {
   let last = -1;
   s.frames.forEach((f, i) => {
-    if (f.strokes.length) last = i;
+    if (f.strokes.length || (f.poses && Object.keys(f.poses).length)) last = i;
   });
   return Array.from({ length: Math.max(1, last + 1) }, (_, i) => i);
 }
@@ -146,12 +204,27 @@ export function sanitize(raw: unknown): Scene | null {
     .map((f) => ({
       id: typeof f.id === 'string' ? f.id : newId('f'),
       strokes: f.strokes.filter((st) => st && Array.isArray(st.points) && typeof st.width === 'number' && typeof st.color === 'string'),
+      ...(f.poses && typeof f.poses === 'object' ? { poses: cleanPoses(f.poses) } : {}),
     }));
+  const cast = Array.isArray(r.cast) ? r.cast.filter((c): c is CastMember => Boolean(c) && typeof c.id === 'string' && typeof c.characterId === 'string') : [];
   return {
     id: r.id,
     name: typeof r.name === 'string' && r.name ? r.name : 'My flipbook',
     fps: FPS_CHOICES.includes(r.fps as (typeof FPS_CHOICES)[number]) ? (r.fps as number) : 12,
     frames: frames.length ? frames : [blankFrame()],
+    ...(cast.length ? { cast } : {}),
     updatedAt: typeof r.updatedAt === 'number' ? r.updatedAt : Date.now(),
   };
+}
+
+function cleanPoses(raw: Record<string, unknown>): Record<string, Pose> {
+  const out: Record<string, Pose> = {};
+  for (const [k, v] of Object.entries(raw)) {
+    const p = v as Partial<Pose> | null;
+    if (!p || typeof p.x !== 'number' || typeof p.y !== 'number') continue;
+    const angles: Record<string, number> = {};
+    if (p.angles && typeof p.angles === 'object') for (const [b, a] of Object.entries(p.angles)) if (typeof a === 'number' && Number.isFinite(a)) angles[b] = a;
+    out[k] = { x: p.x, y: p.y, angles, eyes: typeof p.eyes === 'number' ? p.eyes : 0, mouth: typeof p.mouth === 'number' ? p.mouth : 0 };
+  }
+  return out;
 }

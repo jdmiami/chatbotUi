@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
 import type { AppProps } from '../types';
 import { historyOf, type History } from './model';
-import { loadLatest, saveScene } from './store';
+import { listCharacters, loadLatest, saveCharacter, saveScene } from './store';
+import type { Character } from './character';
 import { Studio } from './Studio';
 import { Viewer } from './Viewer';
 import './flipbook.css';
@@ -21,12 +22,17 @@ export default function FlipbookApp({ isActive }: AppProps) {
 
 function Drawing({ isActive }: { isActive: boolean }) {
   const [history, setHistory] = useState<History | null>(null);
+  const [characters, setCharacters] = useState<Character[]>([]);
   const [saveLine, setSaveLine] = useState('Saved on this iPad as you draw. Backing up to your account comes in a later update.');
   const savedAt = useRef(0);
 
   useEffect(() => {
     let alive = true;
-    void loadLatest().then(({ scene }) => alive && setHistory(historyOf(scene)));
+    void Promise.all([loadLatest(), listCharacters()]).then(([{ scene }, chars]) => {
+      if (!alive) return;
+      setCharacters(chars);
+      setHistory(historyOf(scene));
+    });
     return () => {
       alive = false;
     };
@@ -51,6 +57,32 @@ function Drawing({ isActive }: { isActive: boolean }) {
     };
   }, [scene]);
 
+  // A character is saved a moment after each change to it (the walkthrough changes it stroke by stroke).
+  const charTimers = useRef(new Map<string, number>());
+  const onCharacter = (c: Character) => {
+    setCharacters((all) => [c, ...all.filter((x) => x.id !== c.id)]);
+    clearTimeout(charTimers.current.get(c.id));
+    charTimers.current.set(
+      c.id,
+      window.setTimeout(() => {
+        charTimers.current.delete(c.id);
+        void saveCharacter(c).then((ok) => !ok && setSaveLine('This device would not let Flipbook save. Your drawing stays only while the app is open.'));
+      }, 300),
+    );
+  };
+  const charsNow = useRef(characters);
+  charsNow.current = characters;
+  useEffect(
+    () => () => {
+      // Closing: save any character still waiting.
+      for (const id of charTimers.current.keys()) {
+        const c = charsNow.current.find((x) => x.id === id);
+        if (c) void saveCharacter(c);
+      }
+    },
+    [],
+  );
+
   // Closing the app saves whatever the last moment's wait had not saved yet.
   const latest = useRef(scene);
   latest.current = scene;
@@ -63,5 +95,5 @@ function Drawing({ isActive }: { isActive: boolean }) {
   );
 
   if (!history) return <div className="fb-studio" aria-busy="true" />;
-  return <Studio history={history} setHistory={(fn) => setHistory((h) => (h ? fn(h) : h))} isActive={isActive} saveLine={saveLine} />;
+  return <Studio history={history} setHistory={(fn) => setHistory((h) => (h ? fn(h) : h))} isActive={isActive} saveLine={saveLine} characters={characters} onCharacter={onCharacter} />;
 }

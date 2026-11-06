@@ -2,7 +2,9 @@ import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { IconButton } from '../../ui/components';
 import { playable, type Scene } from './model';
 import { paintNote } from './ink';
-import { listScenes } from './store';
+import { listCharacters, listScenes } from './store';
+import { figure, STANDING, type Character } from './character';
+import { poseAt } from './model';
 
 /**
  * Flipbook on iPhone: a viewer. Drawing happens on the iPad; the phone plays what is saved on it.
@@ -10,6 +12,7 @@ import { listScenes } from './store';
  */
 export function Viewer({ isActive }: { isActive: boolean }) {
   const [scenes, setScenes] = useState<Scene[] | null>(null);
+  const [chars, setChars] = useState<Map<string, Character>>(new Map());
   const [pick, setPick] = useState(0);
   const [playing, setPlaying] = useState(true);
   const [at, setAt] = useState(0);
@@ -17,7 +20,10 @@ export function Viewer({ isActive }: { isActive: boolean }) {
 
   useEffect(() => {
     if (!isActive) return;
-    void listScenes().then((all) => setScenes(all.filter((s) => s.frames.some((f) => f.strokes.length))));
+    void Promise.all([listScenes(), listCharacters()]).then(([all, cs]) => {
+      setChars(new Map(cs.map((c) => [c.id, c])));
+      setScenes(all.filter((s) => s.frames.some((f) => f.strokes.length || (f.poses && Object.keys(f.poses).length))));
+    });
   }, [isActive]);
 
   const scene = scenes?.[pick] ?? null;
@@ -33,7 +39,12 @@ export function Viewer({ isActive }: { isActive: boolean }) {
     const cv = ref.current;
     const ctx = cv?.getContext('2d');
     if (!cv || !ctx || !scene) return;
-    paintNote(ctx, scene.frames[order[at % order.length]]?.strokes ?? [], cv.width, { paper: true });
+    const i = order[at % order.length];
+    const figures = (scene.cast ?? []).flatMap((m) => {
+      const c = chars.get(m.characterId);
+      return c ? figure(c, poseAt(scene, i, m.id) ?? STANDING) : [];
+    });
+    paintNote(ctx, scene.frames[i]?.strokes ?? [], cv.width, { paper: true, figures });
   });
 
   if (scenes === null) return <div className="fb-viewer" />;

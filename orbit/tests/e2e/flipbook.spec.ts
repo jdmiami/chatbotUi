@@ -199,3 +199,127 @@ test.describe('Flipbook on iPhone', () => {
     expect(errors).toEqual([]);
   });
 });
+
+test.describe('Flipbook characters (stage 2) on iPad', () => {
+  test.beforeEach(({}, testInfo) => test.skip(!isTablet(testInfo), 'drawing is on iPad'));
+
+  /** A pen stroke on any element, in its own units. */
+  async function penOn(page: Page, selector: string, pts: [number, number][]) {
+    const b = (await page.locator(selector).boundingBox())!;
+    const at = (u: number, v: number) => [b.x + u * b.width, b.y + v * b.height] as const;
+    const send = (type: string, x: number, y: number) =>
+      page.evaluate(
+        ([sel, type, x, y]) =>
+          document.querySelector(sel as string)!.dispatchEvent(new PointerEvent(type as string, { clientX: x as number, clientY: y as number, pointerType: 'pen', pointerId: 11, bubbles: true, isPrimary: true, pressure: 0.6, buttons: 1 })),
+        [selector, type, x, y] as const,
+      );
+    await send('pointerdown', ...at(...pts[0]));
+    for (const p of pts.slice(1)) await send('pointermove', ...at(...p));
+    await send('pointerup', ...at(...pts[pts.length - 1]));
+  }
+  const circle = (cx: number, cy: number, r: number) => Array.from({ length: 25 }, (_, k) => [cx + r * Math.cos((k / 24) * 6.283), cy + r * Math.sin((k / 24) * 6.283)] as [number, number]);
+  const joints = async (page: Page) => JSON.parse((await page.locator('.fb-ink').getAttribute('data-joints')) ?? '[]') as { id: string; x: number; y: number }[];
+
+  async function makeCharacter(page: Page, name: string) {
+    const win = page.locator('.app-window[data-app="flipbook"]');
+    await win.getByRole('button', { name: 'Characters' }).click();
+    const sheet = page.getByRole('dialog', { name: 'Characters' });
+    await sheet.getByLabel("New character's name").fill(name);
+    await sheet.getByRole('button', { name: 'Make it and start drawing' }).click();
+    const walk = page.getByRole('dialog', { name: `Drawing ${name}` });
+    await expect(walk).toBeVisible();
+    return { win, walk };
+  }
+
+  test('make a character, draw its head in the walkthrough, skip the rest: it stands on the note as sticks with a drawn head', async ({ page }) => {
+    const { errors } = await setUp(page);
+    const { win, walk } = await makeCharacter(page, 'Jumpy');
+    await expect(walk.getByRole('heading', { name: 'Head' })).toBeVisible();
+    await expect(walk.getByText('part 1 of 17')).toBeVisible();
+    await penOn(page, '.fb-walk-note', circle(0.5, 0.5, 0.15));
+    await expect(walk.getByText('1 of 15 body parts drawn')).toBeVisible();
+    await expect(walk.getByRole('button', { name: /Head/ }).first()).toHaveAttribute('data-done', 'true');
+    await walk.getByRole('button', { name: 'Next part' }).click();
+    await expect(walk.getByRole('heading', { name: 'Chest' })).toBeVisible();
+    await walk.getByRole('button', { name: 'Skip, keep a stick' }).click();
+    await expect(walk.getByRole('heading', { name: 'Hips' })).toBeVisible();
+    await walk.getByRole('button', { name: 'Done for now' }).click();
+    await expect(walk).toHaveCount(0);
+    // The figure is on the note now, and the pose tool is picked.
+    await expect(win.getByRole('button', { name: 'Pose the character' })).toHaveAttribute('aria-pressed', 'true');
+    await expect.poll(() => inkPixels(page)).toBeGreaterThan(30);
+    await expect(win.getByRole('button', { name: 'Character: Jumpy' })).toBeVisible();
+    expect(errors).toEqual([]);
+  });
+
+  test('pose with the pen: drag a hand and the arm bends to reach; the next note holds the pose; undo; it keeps after a reload', async ({ page }) => {
+    const { errors } = await setUp(page);
+    const { win, walk } = await makeCharacter(page, 'Posey');
+    await walk.getByRole('button', { name: 'Done for now' }).click();
+    const before = await joints(page);
+    const hand = before.find((j) => j.id === 'forearmR')!;
+    expect(hand).toBeTruthy();
+    // Drag the right wrist up and out.
+    const b = await paper(page);
+    const toScreen = (x: number, y: number) => [b.x + x * b.width, b.y + y * b.height] as const;
+    await fire(page, 'pointerdown', ...toScreen(hand.x, hand.y), 'pen', 12);
+    for (let i = 1; i <= 6; i++) await fire(page, 'pointermove', ...toScreen(hand.x + i * 0.02, hand.y - i * 0.05), 'pen', 12);
+    await fire(page, 'pointerup', ...toScreen(hand.x + 0.12, hand.y - 0.3), 'pen', 12);
+    await expect.poll(async () => (await joints(page)).find((j) => j.id === 'forearmR')!.y).toBeLessThan(hand.y - 0.2);
+    const posed = (await joints(page)).find((j) => j.id === 'forearmR')!;
+    // The shoulder did not move; the hips did not move.
+    expect((await joints(page)).find((j) => j.id === 'move')).toEqual(before.find((j) => j.id === 'move'));
+    // The next (blank) note holds the same pose.
+    await win.getByRole('button', { name: 'Next note' }).click();
+    await expect(win.locator('.fb-frame')).toHaveText('New note · 1 so far');
+    expect((await joints(page)).find((j) => j.id === 'forearmR')).toEqual(posed);
+    await win.getByRole('button', { name: 'Previous note' }).click();
+    // Undo puts the arm back down.
+    await win.getByRole('button', { name: 'Undo' }).click();
+    await expect.poll(async () => (await joints(page)).find((j) => j.id === 'forearmR')!.y).toBeCloseTo(hand.y, 3);
+    await win.getByRole('button', { name: 'Redo' }).click();
+    await page.waitForTimeout(700);
+    await page.reload();
+    const again = await openApp(page, 'flipbook');
+    await again.getByRole('button', { name: 'Pose the character' }).click();
+    await expect.poll(async () => (await joints(page)).find((j) => j.id === 'forearmR')?.y ?? 1).toBeLessThan(hand.y - 0.2);
+    await expect(again.getByRole('button', { name: 'Character: Posey' })).toBeVisible();
+    expect(errors).toEqual([]);
+  });
+
+  test('eyes and mouths: two looks of eyes, and each note picks which shows', async ({ page }) => {
+    const { errors } = await setUp(page);
+    const { win, walk } = await makeCharacter(page, 'Face');
+    await walk.getByRole('button', { name: 'Eyes', exact: true }).click();
+    await expect(walk.getByRole('heading', { name: 'Eyes' })).toBeVisible();
+    await penOn(page, '.fb-walk-note', [[0.42, 0.45], [0.46, 0.45]]);
+    await walk.getByRole('button', { name: '+ Another look' }).click();
+    await expect(walk.getByRole('button', { name: 'Look 2' })).toHaveAttribute('aria-pressed', 'true');
+    await penOn(page, '.fb-walk-note', [[0.42, 0.42], [0.46, 0.48]]);
+    await walk.getByRole('button', { name: 'Done for now' }).click();
+    const pick = win.getByRole('group', { name: 'Face on this note' });
+    await expect(pick.getByRole('button', { name: 'Eyes 1/2' })).toBeVisible();
+    await pick.getByRole('button', { name: 'Eyes 1/2' }).click();
+    await expect(pick.getByRole('button', { name: 'Eyes 2/2' })).toBeVisible();
+    expect(errors).toEqual([]);
+  });
+
+  test('detail levels: Full adds every finger joint and the toes to the walkthrough; drawn parts are kept', async ({ page }) => {
+    const { errors } = await setUp(page);
+    const { win, walk } = await makeCharacter(page, 'Detail');
+    await penOn(page, '.fb-walk-note', circle(0.5, 0.5, 0.15));
+    await walk.getByRole('button', { name: 'Done for now' }).click();
+    await win.getByRole('button', { name: 'Character: Detail' }).click();
+    const sheet = page.getByRole('dialog', { name: 'Detail' });
+    await expect(sheet.getByText('Simple · 1 of 15 parts drawn')).toBeVisible();
+    await sheet.getByRole('group', { name: 'Skeleton detail' }).first().getByRole('button', { name: 'Full' }).click();
+    await expect(sheet.getByText('Full · 1 of 51 parts drawn')).toBeVisible();
+    await sheet.getByRole('button', { name: 'Keep drawing its parts' }).click();
+    const again = page.getByRole('dialog', { name: 'Drawing Detail' });
+    await expect(again.getByText('part 2 of 53')).toBeVisible();
+    await expect(again.getByRole('button', { name: 'Thumb base, left' })).toBeVisible();
+    await expect(again.getByRole('button', { name: 'Toes, right' })).toBeVisible();
+    await expectNoHorizontalOverflow(page);
+    expect(errors).toEqual([]);
+  });
+});
