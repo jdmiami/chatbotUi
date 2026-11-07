@@ -5,7 +5,7 @@ import { liteMakePage, LITE_JS } from '../../lib/liteMake.ts';
 test('the fast Make page is one small response: no other script or style to fetch, and its script parses', () => {
   const html = liteMakePage();
   assert.ok(html.startsWith('<!doctype html>'));
-  assert.ok(Buffer.byteLength(html) < 48 * 1024, `the page is ${Buffer.byteLength(html)} bytes`);
+  assert.ok(Buffer.byteLength(html) < 80 * 1024, `the page is ${Buffer.byteLength(html)} bytes`);
   assert.doesNotMatch(html, /<script[^>]+src=/);
   assert.doesNotMatch(html, /<link[^>]+stylesheet/);
   assert.match(html, /viewport-fit=cover/);

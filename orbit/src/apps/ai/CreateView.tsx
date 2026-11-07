@@ -7,6 +7,7 @@ import { ConfirmSheet, EmptyState, IconButton, Segmented } from '../../ui/compon
 import { isNsfw } from '../../ui/nsfw';
 import { connectMarks, nsfwFor, rememberItems, useNsfwFlags } from '../../ui/nsfwFlags';
 import { GalleryGrid, GalleryViewer, useGalleryStepper, type GalleryMedia } from './Gallery';
+import { UltraButton, UltraPlayer, useUltraList } from '../../ui/UltraPlayer';
 import { AiError, type LocalAi, type StudioItem, type StudioJob, type StudioKind, type StudioMakerInfo, type StudioRequest, type StudioState, type VideoTask } from '../../services/ai/LocalAi';
 import { isServerlessId, onServerless, serverlessCancel, serverlessInfo, serverlessJob, serverlessPriceWords, serverlessStart, type ServerlessInfo } from '../../services/ai/Serverless';
 import { PENDING_TEXT, offlineMakers, ordinal as nth, progressText, progressWhy, rememberMakers, withCatalog } from './makerCatalog';
@@ -299,6 +300,9 @@ export function CreateView({
   }, [covered]); // eslint-disable-line react-hooks/exhaustive-deps
   // The viewer steps through the gallery in the order the grid shows it.
   const stepper = useGalleryStepper(items.map(asMedia), viewing?.id);
+  // NSFW Ultra: your NSFW videos back to back (only while "Show NSFW" is on).
+  const ultraList = useUltraList(items.map(asMedia));
+  const [ultra, setUltra] = useState<Parameters<typeof UltraPlayer>[0]['started'] | null>(null);
   useEffect(() => connectMarks(ai), [ai]);
   // The gallery: the machine's while it is on; with it off, the same gallery as kept in cloud storage
   // (what the machine and the serverless machine made), so pictures can still be reused and carried on.
@@ -1549,6 +1553,7 @@ export function CreateView({
             <h3 className="o5-chapter-title">Your creations</h3>
           </div>
           <div className="mk-screen-acts">
+            <UltraButton list={ultraList} onStart={setUltra} className="mk-top-btn" />
             <button type="button" className="mk-top-btn" onClick={() => launch('gallery')}>
               <Icon name="image" size={18} />
               <span>Everything, in Gallery</span>
@@ -1578,6 +1583,7 @@ export function CreateView({
         </div>
       </section>
 
+      {ultra && <UltraPlayer started={ultra} onExit={() => setUltra(null)} />}
       {viewing && (
         <GalleryViewer
           media={asMedia(viewing)}

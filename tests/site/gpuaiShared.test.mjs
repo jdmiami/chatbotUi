@@ -120,12 +120,14 @@ test('every GPU to choose from: the cheapest machine of each type with room, wha
   const ai = gpuOptions(list, 'ai');
   assert.deepEqual(ai.options.map((x) => [x.gpu, x.pricePerHour, x.fits]), [
     ['rtx_4000_ada', 0.28, 'no'],
-    ['l40s', 0.8, 'yes'],
+    ['l40s', 0.8, 'some'],
     ['a100_80gb', 1.23, 'yes'],
     ['h200_nvl', 3.29, 'yes'],
     ['h100_sxm', 3.99, 'yes'],
   ]);
-  assert.equal(ai.recommended, 'l40s', 'the cheapest that does everything');
+  assert.equal(ai.recommended, 'l40s', 'the cheapest that runs everything');
+  assert.match(ai.options[1].note, /H3 Max videos run slow/, '48 GB: H3 Max does not fit whole');
+  assert.match(ai.options[2].note, /H3 Max fits whole/);
   assert.equal(ai.options[1].name, 'L40S');
   assert.equal(ai.options[1].memoryGb, 48);
   assert.ok(ai.options[3].videoMinutes < ai.options[1].videoMinutes, 'faster GPUs make a video sooner');

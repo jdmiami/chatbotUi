@@ -1,0 +1,58 @@
+/* NSFW Ultra: the videos, edge to edge, and only a pause and an exit button that fade while it plays. */
+.ultra-root {
+  position: fixed;
+  inset: 0;
+  z-index: 10000;
+  background: #000;
+  touch-action: none;
+  overscroll-behavior: contain;
+}
+.ultra-stage,
+.ultra-video {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+.ultra-video {
+  object-fit: contain;
+  background: #000;
+  opacity: 0;
+  pointer-events: none;
+}
+.ultra-video.ultra-on {
+  opacity: 1;
+}
+.ultra-btn {
+  position: absolute;
+  top: max(16px, env(safe-area-inset-top));
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  border: 0;
+  display: grid;
+  place-items: center;
+  color: #fff;
+  background: rgba(0, 0, 0, 0.45);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.3s ease;
+  cursor: pointer;
+}
+.ultra-exit {
+  right: max(16px, env(safe-area-inset-right));
+}
+.ultra-pause {
+  left: max(16px, env(safe-area-inset-left));
+}
+.ultra-controls .ultra-btn {
+  opacity: 1;
+  pointer-events: auto;
+}
+.ultra-start-n {
+  opacity: 0.7;
+  font-size: 0.85em;
+  margin-left: 0.4em;
+}
