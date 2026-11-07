@@ -53,3 +53,18 @@ Everything runs on the iPad itself: no paid machines.
 6. **Motion** — the ready-made moves, in-betweens, motion paths, squash and stretch, trails, camera, up
    to 4 characters.
 7. **Backup and export** — account backup, the iPhone viewer, video, GIF, frames, sprite sheet, project file.
+
+## Done so far
+
+- Round 1, real paper and riffle: built (#162).
+- Owner asked next (7 November): visible Save, Clear and Edit, and dramatic action moves from an outside source.
+  - **Menu bar** along the top: File (new, open, save, save a version, versions, rename, make a copy,
+    start over, delete), Edit (undo, redo, copy, paste, wipe, tear off, slip in), View (onion, paper,
+    full-screen preview), Frame, Character (action moves, characters, pose, draw parts), Play (play, preview,
+    speed), Help (gestures and shortcuts). Two-finger tap undoes, three-finger tap redoes.
+  - **Action Pack**: 28 recorded moves from the CMU Graphics Lab Motion Capture Database (free for
+    research and commercial projects): backflips, monkey flip, front handspring, side flip, cartwheels, jump,
+    spin and flying kicks, kick flip, handstand kicks, front kick, punch combo, boxing, dive roll, falls,
+    360 jump, jump twist, long and high jump, run and walk. `orbit/scripts/mocap/cmu_to_flipbook.py`
+    turns them into stick-figure joints; Flipbook fits any character's skeleton to them, one pose per note,
+    at real speed, slow motion or fast, mirrored or not, travelling or in the middle.

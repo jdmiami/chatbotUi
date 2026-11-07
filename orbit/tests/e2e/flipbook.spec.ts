@@ -323,3 +323,95 @@ test.describe('Flipbook characters (stage 2) on iPad', () => {
     expect(errors).toEqual([]);
   });
 });
+
+test.describe('Flipbook menu bar and action moves on iPad', () => {
+  test.beforeEach(({}, testInfo) => test.skip(!isTablet(testInfo), 'drawing is on iPad'));
+
+  const menu = async (page: Page, name: string, item: RegExp | string) => {
+    await page.getByRole('menubar', { name: 'Flipbook menu' }).getByRole('menuitem', { name, exact: true }).click();
+    await page.getByRole('menu', { name }).getByRole('menuitem', { name: item }).click();
+  };
+
+  test('File, Edit, View, Frame, Character, Play and Help are along the top; Save says Saved', async ({ page }) => {
+    const { errors, win } = await setUp(page);
+    const bar = win.getByRole('menubar', { name: 'Flipbook menu' });
+    for (const m of ['File', 'Edit', 'View', 'Frame', 'Character', 'Play', 'Help']) await expect(bar.getByRole('menuitem', { name: m, exact: true })).toBeVisible();
+    await penLine(page, [0.2, 0.5], [0.8, 0.5]);
+    await expect(win.locator('.fb-title-status')).toHaveText('Saved');
+    await menu(page, 'File', /^Save (Saved|Saving…)$/);
+    await expect(page.getByText('Saved on this iPad.')).toBeVisible();
+    await menu(page, 'Help', 'Gestures and shortcuts');
+    await expect(page.getByRole('dialog', { name: 'Gestures and shortcuts' }).getByText('Two-finger tap')).toBeVisible();
+    await expectNoHorizontalOverflow(page);
+    expect(errors).toEqual([]);
+  });
+
+  test('versions, start over and new flipbooks: nothing is lost', async ({ page }) => {
+    const { errors, win } = await setUp(page);
+    await penLine(page, [0.2, 0.5], [0.8, 0.5]);
+    await menu(page, 'File', 'Save a version…');
+    await page.getByRole('dialog', { name: 'Save a version' }).getByRole('button', { name: 'Save version' }).click();
+    await expect(page.getByText(/Version saved/)).toBeVisible();
+    // Start over asks first, then wipes everything back to one blank note.
+    await menu(page, 'File', 'Start over…');
+    await page.getByRole('dialog', { name: 'Start over?' }).getByRole('button', { name: 'Start over' }).click();
+    await expect(win.locator('.fb-frame')).toHaveText('Frame 1 of 1');
+    await expect.poll(() => inkPixels(page)).toBe(0);
+    // Back to the saved version.
+    await menu(page, 'File', 'Versions…');
+    await page.getByRole('dialog', { name: 'Versions' }).getByRole('button', { name: 'Go back to this' }).click();
+    await expect.poll(() => inkPixels(page)).toBeGreaterThan(20);
+    // A new flipbook, then open the first one again.
+    await menu(page, 'File', 'New flipbook');
+    await expect(win.locator('.fb-title-name')).toHaveText('Flipbook 2');
+    await expect.poll(() => inkPixels(page)).toBe(0);
+    await menu(page, 'File', 'Open…');
+    const open = page.getByRole('dialog', { name: 'Open a flipbook' });
+    await open.getByRole('listitem').filter({ hasText: 'My flipbook' }).getByRole('button', { name: 'Open' }).click();
+    await expect(win.locator('.fb-title-name')).toHaveText('My flipbook');
+    await expect.poll(() => inkPixels(page)).toBeGreaterThan(20);
+    expect(errors).toEqual([]);
+  });
+
+  test('Edit: copy a note and paste it over another; a two-finger tap undoes', async ({ page }) => {
+    const { errors, win } = await setUp(page);
+    await penLine(page, [0.2, 0.5], [0.8, 0.5]);
+    await menu(page, 'Edit', 'Copy this note');
+    await win.getByRole('button', { name: 'Next note' }).click();
+    await expect.poll(() => inkPixels(page)).toBe(0);
+    await menu(page, 'Edit', 'Paste over this note');
+    await expect(win.locator('.fb-frame')).toHaveText('Frame 2 of 2');
+    await expect.poll(() => inkPixels(page)).toBeGreaterThan(20);
+    // Two fingers tap the desk together: undo the paste.
+    const b = await paper(page);
+    await fire(page, 'pointerdown', b.x + 100, b.y + 100, 'touch', 21);
+    await fire(page, 'pointerdown', b.x + 160, b.y + 100, 'touch', 22);
+    await fire(page, 'pointerup', b.x + 100, b.y + 100, 'touch', 21);
+    await fire(page, 'pointerup', b.x + 160, b.y + 100, 'touch', 22);
+    await expect(page.getByText('Undone (two-finger tap).')).toBeVisible();
+    await expect.poll(() => inkPixels(page)).toBe(0);
+    expect(errors).toEqual([]);
+  });
+
+  test('action moves: a backflip from the Action Pack goes onto the notes, with a stick character made for it', async ({ page }) => {
+    const { errors, win } = await setUp(page);
+    await menu(page, 'Character', 'Action moves…');
+    const sheet = page.getByRole('dialog', { name: 'Action moves' });
+    await expect(sheet.getByRole('tab', { name: 'Flips' })).toBeVisible();
+    await sheet.getByRole('button', { name: /^Backflip/ }).click();
+    const put = sheet.getByRole('button', { name: /Put it on notes 1 to \d+/ });
+    const label = (await put.textContent()) ?? '';
+    const last = Number(/to (\d+)/.exec(label)![1]);
+    expect(last).toBeGreaterThan(10);
+    await put.click();
+    await expect(win.locator('.fb-frame')).toHaveText(`Frame 1 of ${last}`);
+    await expect(win.getByRole('button', { name: 'Character: Stick' })).toBeVisible();
+    await expect.poll(() => inkPixels(page)).toBeGreaterThan(30);
+    // Kicks are there too; credit to the motion library.
+    await menu(page, 'Character', 'Action moves…');
+    await page.getByRole('dialog', { name: 'Action moves' }).getByRole('tab', { name: 'Kicks' }).click();
+    await expect(page.getByRole('dialog', { name: 'Action moves' }).getByRole('button', { name: /Jump kick/ })).toBeVisible();
+    await expect(page.getByText(/CMU Graphics Lab Motion Capture Database/)).toBeVisible();
+    expect(errors).toEqual([]);
+  });
+});

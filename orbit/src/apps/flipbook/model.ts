@@ -160,6 +160,26 @@ export function setPaper(s: Scene, paper: PaperKind): Scene {
   return { ...s, paper, updatedAt: Date.now() };
 }
 
+export const renameScene = (s: Scene, name: string): Scene => ({ ...s, name: name.trim() || s.name, updatedAt: Date.now() });
+
+/** Start over: every note wiped and torn off, back to one blank note (the characters stay on). */
+export const startOver = (s: Scene): Scene => ({ ...s, frames: [blankFrame()], updatedAt: Date.now() });
+
+/** A copy of the whole flipbook, as a new one. */
+export const copyScene = (s: Scene, name: string): Scene => ({ ...s, id: newId('scene'), name, updatedAt: Date.now() });
+
+/** Put a copy of `frame` over note `i` (making it if it is the waiting blank one). */
+export function pasteFrame(s: Scene, i: number, frame: Frame): Scene {
+  const copy: Frame = { id: newId('f'), strokes: frame.strokes.map((st) => ({ ...st, points: st.points.slice() })), ...(frame.poses ? { poses: { ...frame.poses } } : {}) };
+  const frames = s.frames.slice();
+  while (frames.length < i) frames.push(blankFrame());
+  frames[i] = copy;
+  return { ...s, frames, updatedAt: Date.now() };
+}
+
+/** Hold note `i` for one more beat (a copy right after it). */
+export const hold = (s: Scene, i: number) => duplicate(s, i);
+
 export function setFps(s: Scene, fps: number): Scene {
   return { ...s, fps, updatedAt: Date.now() };
 }
