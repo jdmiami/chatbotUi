@@ -108,9 +108,11 @@ describe('flipbook: the U of notes', () => {
         expect(next.y).toBeLessThan(desk.paper.y);
         expect(next.s).toBeLessThan(1);
         expect(Math.abs(next.ry)).toBeGreaterThan(1);
-        // The note nearest the middle is on top.
+        // The note in the middle is over the notes coming in; notes going out stay over both, so a note
+        // peeling off never slips under the one it reveals.
         expect(here.z).toBeGreaterThan(next.z);
-        expect(here.z).toBeGreaterThan(done.z);
+        expect(done.z).toBeGreaterThan(next.z);
+        expect(placeNote(4, 4.5, desk, off).z).toBeGreaterThan(placeNote(5, 4.5, desk, off).z);
       });
 
       it('lands far notes in the stacks, hiding the ones deep underneath', () => {
@@ -227,11 +229,21 @@ describe('flipbook: riffling and the bending paper', () => {
     expect(cornerSpeed(10000, 100)).toBeLessThanOrEqual(48);
   });
 
-  it('a note being lifted curls strongly from its bottom edge; notes at rest up the arms lie nearly flat', () => {
+  it('a turning note peels in place from its bottom edge, the next waiting flat underneath; notes at rest lie flat', () => {
     const desk = deskOf(1194, 760);
-    const lifting = placeNote(5, 5.4, desk, off).paper!;
-    expect(lifting.bend).toBeGreaterThan(1);
-    expect(lifting.twist).toBeGreaterThan(0);
+    const lifting = placeNote(5, 5.4, desk, off);
+    expect(lifting.paper!.peel).toBeGreaterThan(0.5);
+    expect(lifting.paper!.twist).toBeGreaterThan(0);
+    // It peels where it lies: no sliding about.
+    expect(lifting).toMatchObject({ x: desk.paper.x, y: desk.paper.y, s: 1 });
+    expect(placeNote(5, 5.1, desk, off)).toMatchObject({ x: desk.paper.x, y: desk.paper.y });
+    // The one under it lies exactly in the same spot, flat.
+    expect(placeNote(6, 5.4, desk, off)).toMatchObject({ x: desk.paper.x, y: desk.paper.y, s: 1, paper: { peel: 0, bend: 0 } });
+    // Once peeled off it flies away, unrolling.
+    const away = placeNote(5, 6.5, desk, off);
+    expect(away.x).toBeGreaterThan(desk.paper.x);
+    expect(away.paper!.peel).toBeLessThan(0.1);
+    for (const i of [3, 4, 6, 7]) expect(placeNote(i, 5, desk, off).paper!.peel ?? 0).toBeLessThan(0.05);
     for (const i of [3, 4, 6, 7]) expect(Math.abs(placeNote(i, 5, desk, off).paper!.bend)).toBeLessThan(0.4);
     expect(placeNote(5, 5, desk, off).paper).toMatchObject({ bend: 0, rx: 0 });
     expect(placeNote(20, 5, desk, off).paper!.bend).toBe(0);

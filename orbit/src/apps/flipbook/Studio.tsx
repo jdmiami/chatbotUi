@@ -226,9 +226,12 @@ export function Studio({
     for (let i = lo; i <= hi; i++) {
       const frame = L.scene.frames[i];
       const figs = L.figsAt(i);
+      const at = placeNote(i, p, d, L.onionOpt);
+      // Settled, the note you draw on lies over everything (its sharp ink is drawn over it).
+      if (L.inkOn && i === L.index) at.z = 5000;
       list.push({
         i,
-        place: placeNote(i, p, d, L.onionOpt),
+        place: at,
         key: keyOf(i, frame, figs),
         hideInk: L.inkOn && i === L.index,
         wobble: i === Math.round(p) ? wob : 0,
