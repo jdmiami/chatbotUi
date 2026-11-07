@@ -48,6 +48,7 @@ uniform float u_flutter;  // 0..1
 uniform float u_time;
 uniform float u_hinge;    // where the curl starts (from the top, 0..1)
 uniform float u_zoff;     // stacking: further down the pile is a little further away
+uniform float u_peel;     // 0..1: how far the roll has climbed from the bottom edge
 out vec2 v_uv;
 out vec3 v_normal;
 out float v_curve;
@@ -58,7 +59,29 @@ void main() {
   vec3 p = vec3(u - 0.5, v, 0.0);
   vec3 n = vec3(0.0, 0.0, 1.0);
   float curve = 0.0;
-  if (v > u_hinge && abs(B) > 1e-4) {
+  if (u_peel > 0.001) {
+    // Peeling: a roll climbs from the bottom edge toward the top (the right-hand corner a little
+    // ahead). Paper past the roll wraps round it and lies back over the note, face down. Everything
+    // stays on or above the note, so it never cuts into the paper beneath.
+    const float R = 0.07;
+    const float PI = 3.14159265;
+    float L = 1.0 - u_peel * 0.67 - u_twist * (u - 0.5) * 0.3 * u_peel;
+    float dd = v - L;
+    if (dd > 0.0) {
+      if (dd < PI * R) {
+        float th = dd / R;
+        p.y = L + R * sin(th);
+        p.z = R * (1.0 - cos(th));
+        n = vec3(0.0, -sin(th), cos(th));
+        curve = th;
+      } else {
+        p.y = L - (dd - PI * R);
+        p.z = 2.0 * R;
+        n = vec3(0.0, 0.0, -1.0);
+        curve = 0.0; // lying flat again: no sheen
+      }
+    }
+  } else if (v > u_hinge && abs(B) > 1e-4) {
     float L = 1.0 - u_hinge;
     float k = B / L;
     float th = k * (v - u_hinge);
@@ -145,9 +168,9 @@ void main() {
     vec4 ink = texture(u_ink, vec2(uv.x, 1.0 - uv.y));
     col = mix(col, ink.rgb, ink.a * (1.0 - u_hideInk));
   } else {
-    // The back: plainer and a little darker, the drawing faintly showing through, mirrored.
+    // The back: the same paper, a touch darker, the drawing faintly showing through, mirrored.
     vec4 ink = texture(u_ink, vec2(1.0 - uv.x, 1.0 - uv.y));
-    col = mix(col * 0.86, ink.rgb, ink.a * 0.1);
+    col = mix(col * 0.95, ink.rgb, ink.a * 0.1);
   }
   vec3 L = normalize(u_light);
   float diff = 0.8 + 0.2 * max(dot(N, L), 0.0);
@@ -287,7 +310,7 @@ export class PaperGL {
     this.gl = gl;
     this.paperProg = program(gl, VERT, FRAG);
     this.shadowProg = program(gl, SHADOW_VERT, SHADOW_FRAG);
-    for (const n of ['u_model', 'u_view', 'u_bend', 'u_twist', 'u_flutter', 'u_time', 'u_hinge', 'u_zoff', 'u_ink', 'u_hideInk', 'u_kind', 'u_light', 'u_seed', 'u_alpha'])
+    for (const n of ['u_model', 'u_view', 'u_bend', 'u_twist', 'u_flutter', 'u_time', 'u_hinge', 'u_zoff', 'u_peel', 'u_ink', 'u_hideInk', 'u_kind', 'u_light', 'u_seed', 'u_alpha'])
       this.loc[n] = gl.getUniformLocation(this.paperProg, n);
     for (const n of ['u_box', 'u_rot', 'u_blur', 'u_view', 'u_strength']) this.sloc[n] = gl.getUniformLocation(this.shadowProg, n);
 
@@ -425,6 +448,7 @@ export class PaperGL {
       gl.uniform1f(this.loc.u_bend, (p.paper?.bend ?? 0) + (n.wobble ?? 0));
       gl.uniform1f(this.loc.u_twist, p.paper?.twist ?? 0);
       gl.uniform1f(this.loc.u_flutter, p.paper?.flutter ?? 0);
+      gl.uniform1f(this.loc.u_peel, p.paper?.peel ?? 0);
       // Lower in the pile is a touch further away, so notes never fight over the same spot.
       gl.uniform1f(this.loc.u_zoff, (p.z - 1000) * 0.3);
       gl.uniform1f(this.loc.u_hideInk, n.hideInk ? 1 : 0);

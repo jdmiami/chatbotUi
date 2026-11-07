@@ -68,3 +68,8 @@ Everything runs on the iPad itself: no paid machines.
     360 jump, jump twist, long and high jump, run and walk. `orbit/scripts/mocap/cmu_to_flipbook.py`
     turns them into stick-figure joints; Flipbook fits any character's skeleton to them, one pose per note,
     at real speed, slow motion or fast, mirrored or not, travelling or in the middle.
+- Owner feedback (7 November): the turn lifted a little then slid about and cut through the paper behind.
+  Now a turning note **peels in place**: a roll climbs from its bottom edge to near the top, the paper
+  past it wrapping round and lying back over the note face down (always above the paper beneath), and the
+  next note waits flat in exactly the same spot underneath. Once peeled (60% of a turn) it flies off up
+  the right arm, unrolling. Turning back peels the previous note back in at the same spot.

@@ -96,13 +96,19 @@ export interface Bend {
   bend: number;
   twist: number;
   flutter: number;
+  /**
+   * 0..1: how far the note has peeled. A roll starts at its bottom edge and climbs toward the top,
+   * the paper beyond it wrapping round the roll and lying back over the note, face down, the way a
+   * page of a top-bound pad is peeled up and over. It always stays above the paper under it.
+   */
+  peel?: number;
 }
-const FLAT: Bend = { rx: 0, bend: 0, twist: 0, flutter: 0 };
+const FLAT: Bend = { rx: 0, bend: 0, twist: 0, flutter: 0, peel: 0 };
 
 /** Notes this far from the middle are in a stack. */
 const ARM = 3;
-/** Before this, a note only lifts (or waits under the note you draw on); after it, it travels. */
-const LIFTED = 0.5;
+/** A turning note peels where it lies until this far through the turn, then flies to the done stack. */
+export const PEELED = 0.6;
 /** Visible depth of a stack; deeper notes are hidden under it. */
 export const STACK_DEPTH = 6;
 
@@ -110,6 +116,10 @@ const clamp = (v: number, a: number, b: number) => Math.min(b, Math.max(a, v));
 const lerp = (a: number, b: number, t: number) => a + (b - a) * t;
 /** Quick off the middle, gentle into the corner: at rest the next notes spread up the arms like a U. */
 const out = (t: number) => 1 - (1 - t) ** 2;
+const ease = (t: number) => {
+  const c = Math.min(1, Math.max(0, t));
+  return c < 0.5 ? 2 * c * c : 1 - (-2 * c + 2) ** 2 / 2;
+};
 const smooth = (t: number) => {
   const c = Math.min(1, Math.max(0, t));
   return c * c * (3 - 2 * c);
@@ -149,11 +159,37 @@ function stacked(at: XY, side: -1 | 1, depth: number, k: number, i: number, size
 function flipPlace(i: number, d: number, desk: Desk): Place {
   const a = Math.abs(d);
   // Nearest the middle on top; at the same distance a done note is on top, since it is laid back down over the pad.
-  const z = 1000 - Math.round(a * 10) * 2 + (d < 0 ? 1 : 0);
+  // A note peeling off (or flying away) stays over every note still coming in, so it never slips under one.
+  const z = 1000 - Math.round(a * 10) * 2 + (d < 0 ? 41 : 0);
   if (a === 0) return { x: desk.paper.x, y: desk.paper.y, s: 1, rx: 0, ry: 0, rz: 0, z, o: 1, lift: 0, paper: FLAT };
   const corner = d < 0 ? desk.done : desk.next; // done notes go up to the right
   if (a >= ARM) return stacked(corner, d < 0 ? 1 : -1, a - ARM, desk.k, i, desk.size);
-  const t = clamp((a - LIFTED) / (ARM - LIFTED), 0, 1);
+  const out_ = d < 0;
+  if (out_ && a <= PEELED) {
+    // Peeling: it stays exactly where it lies and curls up from its bottom edge, the right-hand corner
+    // first, until it comes away. The note under it is revealed in the same spot.
+    const c = ease(a / PEELED);
+    return {
+      x: desk.paper.x,
+      y: desk.paper.y,
+      s: 1,
+      rx: -c * 55, // the flat desk can only tilt it up
+      ry: 0,
+      rz: 0,
+      z,
+      o: 1,
+      lift: c * 0.7,
+      paper: { rx: 0, bend: 0, twist: 0.35 * c, flutter: 0, peel: c },
+    };
+  }
+  if (!out_ && a <= 1) {
+    // The next note waits flat, exactly under the one you draw on, to be revealed by the peel.
+    return { x: desk.paper.x, y: desk.paper.y, s: 1, rx: 0, ry: 0, rz: 0, z, o: 1, lift: 0, paper: FLAT };
+  }
+  // Travelling between the middle and a stack: done notes fly off up the right arm (unrolling as they
+  // go), next notes wait up the left arm and come down to slip under the middle.
+  const from = out_ ? PEELED : 1;
+  const t = clamp((a - from) / (ARM - from), 0, 1);
   const e = out(t);
   const s = lerp(1, desk.k, 1 - (1 - t) ** 3);
   // Kept on the desk: a big note near the middle never hangs off the screen's edge.
@@ -161,38 +197,33 @@ function flipPlace(i: number, d: number, desk: Desk): Place {
   const half = (s * desk.size) / 2;
   const p = { x: clamp(q.x, Math.min(desk.paper.x, half), Math.max(desk.paper.x, desk.w - half)), y: q.y };
   const flap = Math.sin(Math.PI * t);
-  if (d < 0) {
-    // Lifted by its bottom edge, the way you lift a note to see the one under it, then away it flaps.
-    const l = clamp(a / LIFTED, 0, 1);
+  if (out_) {
+    const peel = 1 - smooth(t / 0.12);
     return {
       x: p.x,
       y: p.y,
       s,
-      rx: -l * 50 * (1 - e) - flap * 14,
+      rx: -flap * 14 - peel * 55,
       ry: flap * 18,
       rz: lerp(0, jitter(i) * 4, e) + flap * 5,
       z,
       o: 1,
-      lift: Math.max(l * (1 - e), flap * 0.8),
-      // The paper itself curls up from its bottom edge, the right-hand corner first, then flutters away.
-      // Once it is on its way it springs back flat (curling only a little against the air).
-      paper: { rx: -flap * 14, bend: l * 2.2 * (1 - smooth(t / 0.2)) + flap * 0.3, twist: 0.45 * l * (1 - smooth(t / 0.2)), flutter: flap },
+      lift: Math.max(peel * 0.7, flap * 0.8),
+      paper: { rx: -flap * 10, bend: flap * 0.3 * (1 - peel), twist: 0.35 * peel, flutter: flap, peel },
     };
   }
-  // Waiting under the note you draw on, peeking out a little, until it is its turn.
-  const wait = clamp(a / LIFTED, 0, 1);
   return {
-    x: p.x - wait * (1 - e) * desk.size * 0.018,
-    y: p.y + wait * (1 - e) * desk.size * 0.012,
+    x: p.x,
+    y: p.y,
     s,
     rx: -flap * 16,
     ry: -flap * 20,
-    rz: lerp(-wait * 2.5, jitter(i) * 4, e) - flap * 5,
+    rz: lerp(0, jitter(i) * 4, e) - flap * 5,
     z,
     o: 1,
     lift: flap * 0.8,
     // Air pushes it back as it flies in: a gentle curl the other way.
-    paper: { rx: -flap * 16, bend: -flap * 0.3, twist: -0.25 * flap, flutter: flap },
+    paper: { rx: -flap * 16, bend: -flap * 0.3, twist: -0.25 * flap, flutter: flap, peel: 0 },
   };
 }
 
@@ -232,7 +263,7 @@ function mix(a: Place, b: Place, t: number): Place {
     o: lerp(a.o, b.o, t),
     lift: Math.max(lerp(a.lift, b.lift, t), Math.sin(Math.PI * t) * 0.6),
     // Floating between card spots, the paper bows a little in the middle of the move.
-    paper: { rx: 0, bend: Math.sin(Math.PI * t) * 0.35, twist: 0, flutter: Math.sin(Math.PI * t) * 0.5 },
+    paper: { rx: 0, bend: Math.sin(Math.PI * t) * 0.35, twist: 0, flutter: Math.sin(Math.PI * t) * 0.5, peel: 0 },
   };
 }
 

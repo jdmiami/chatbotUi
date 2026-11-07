@@ -110,10 +110,13 @@ test.describe('Flipbook on iPad', () => {
     await thumb(page, 260);
     await expect(frame).toHaveText('Frame 1 of 2');
 
-    // The notes are on the desk around the middle: the next one is up the left arm.
-    const nextNote = win.locator('.fb-note[data-index="1"]');
+    // The next note waits exactly under the one you draw on (a turn peels to reveal it in the same
+    // spot); the one after it waits up the left arm.
     const note = await paper(page);
-    expect((await nextNote.boundingBox())!.x).toBeLessThan(note.x);
+    const under = (await win.locator('.fb-note[data-index="1"]').boundingBox())!;
+    expect(Math.abs(under.x - note.x)).toBeLessThan(2);
+    expect(Math.abs(under.y - note.y)).toBeLessThan(2);
+    expect((await win.locator('.fb-note[data-index="2"]').boundingBox())!.x).toBeLessThan(note.x);
 
     await page.reload();
     await openApp(page, 'flipbook');
