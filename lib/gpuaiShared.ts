@@ -234,8 +234,16 @@ export function gpuOptions(list: Offering[], kind: MachineKind): { options: GpuO
     let fits: GpuOption['fits'];
     let note: string;
     if (kind === 'ai') {
-      fits = mem == null ? 'some' : mem >= 48 ? 'yes' : mem >= 24 ? 'some' : 'no';
-      note = fits === 'yes' ? 'Everything: pictures and H3 Max videos' : fits === 'some' ? 'Pictures; big video makers may not fit' : 'Too small for your makers';
+      // H3 Max is ~51.5 GB: it fits whole only on 80 GB and up. On 48 GB it runs, swapping parts in and out (slow).
+      fits = mem == null ? 'some' : mem >= 80 ? 'yes' : mem >= 24 ? 'some' : 'no';
+      note =
+        fits === 'yes'
+          ? 'Everything, fast: H3 Max fits whole'
+          : mem != null && mem >= 48
+            ? 'Pictures fast; H3 Max videos run slow (it does not fit whole)'
+            : fits === 'some'
+              ? 'Pictures; big video makers may not fit'
+              : 'Too small for your makers';
     } else {
       fits = mem == null ? 'some' : mem >= 80 && (speed ?? 0) >= 3 ? 'yes' : mem >= 48 ? 'some' : 'no';
       note = fits === 'yes' ? 'Live drawing and Bring to life' : fits === 'some' ? 'Live drawing; Bring to life runs slow' : 'Too small for Live Draw';
@@ -253,7 +261,9 @@ export function gpuOptions(list: Offering[], kind: MachineKind): { options: GpuO
     });
   }
   options.sort((a, b) => a.pricePerHour - b.pricePerHour || a.gpu.localeCompare(b.gpu));
-  return { options, recommended: options.find((o) => o.fits === 'yes')?.gpu ?? options[0]?.gpu ?? null };
+  // The AI machine: the cheapest card that runs everything (48 GB and up), fast or not. The drawing machine: the cheapest that fits.
+  const runsAll = (o: GpuOption) => (kind === 'ai' ? (o.memoryGb ?? 0) >= 48 : o.fits === 'yes');
+  return { options, recommended: options.find(runsAll)?.gpu ?? options.find((o) => o.fits === 'yes')?.gpu ?? options[0]?.gpu ?? null };
 }
 
 /** A GPU id from Orbit: GPU.ai's form only (lowercase, digits, underscores). */
