@@ -9,13 +9,15 @@ const DB = 'orbit-flipbook';
 const STORE = 'scenes';
 /** The character library: every character you have made, for any flipbook. */
 const CHARS = 'characters';
+/** Saved versions of flipbooks ("Save a version"), to go back to. */
+const VERSIONS = 'versions';
 
 function open(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
     if (typeof indexedDB === 'undefined') return reject(new Error('no storage'));
-    const req = indexedDB.open(DB, 2);
+    const req = indexedDB.open(DB, 3);
     req.onupgradeneeded = () => {
-      for (const name of [STORE, CHARS]) if (!req.result.objectStoreNames.contains(name)) req.result.createObjectStore(name, { keyPath: 'id' });
+      for (const name of [STORE, CHARS, VERSIONS]) if (!req.result.objectStoreNames.contains(name)) req.result.createObjectStore(name, { keyPath: 'id' });
     };
     req.onsuccess = () => resolve(req.result);
     req.onerror = () => reject(req.error);
@@ -76,5 +78,49 @@ export async function saveCharacter(c: Character): Promise<boolean> {
     return true;
   } catch {
     return false;
+  }
+}
+
+/** Remove a flipbook from this device (its saved versions go too). */
+export async function deleteScene(id: string): Promise<boolean> {
+  try {
+    await run('readwrite', (s) => s.delete(id));
+    for (const v of await listVersions(id)) await run('readwrite', (s) => s.delete(v.id), VERSIONS);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export interface Version {
+  id: string;
+  sceneId: string;
+  /** When it was saved (ms). */
+  at: number;
+  label: string;
+  scene: Scene;
+}
+
+export async function saveVersion(scene: Scene, label: string): Promise<Version | null> {
+  const v: Version = { id: `ver-${scene.id}-${Date.now().toString(36)}`, sceneId: scene.id, at: Date.now(), label, scene };
+  try {
+    await run('readwrite', (s) => s.put(v), VERSIONS);
+    return v;
+  } catch {
+    return null;
+  }
+}
+
+/** A flipbook's saved versions, newest first. */
+export async function listVersions(sceneId: string): Promise<Version[]> {
+  try {
+    const all = await run<Version[]>('readonly', (s) => s.getAll() as IDBRequest<Version[]>, VERSIONS);
+    return all
+      .filter((v) => v && v.sceneId === sceneId)
+      .map((v) => ({ ...v, scene: sanitize(v.scene)! }))
+      .filter((v) => v.scene)
+      .sort((a, b) => b.at - a.at);
+  } catch {
+    return [];
   }
 }

@@ -33,6 +33,14 @@ import { figure, looks, STANDING, type Character } from './character';
 import { drag, grab, handles, place as placeBones, skeleton, type Pose } from './rig';
 import { COLORS, WIDTHS } from './palette';
 import { CharacterSheet } from './CharacterSheet';
+import { ConfirmSheet, PromptSheet } from '../../ui/components';
+import { MenuBar, type Menu } from './MenuBar';
+import { MovesSheet } from './moves/MovesSheet';
+import { applyMove } from './moves/moves';
+import { newCharacter } from './character';
+import type { Files } from './FlipbookApp';
+import type { Version } from './store';
+import { pasteFrame, hold, renameScene, startOver, type Scene } from './model';
 import { Walkthrough } from './Walkthrough';
 import { deskOf, onPaper, placeNote, transformOf, visibleRange, type Desk } from './layout';
 import { atRest, coast, COAST_LAND, cornerSpeed, dragFrames, KEEP_PLAYING, lockAxis, riffling, rubber, settle, springStep, velocity } from './scrub';
@@ -91,6 +99,7 @@ export function Studio({
   saveLine,
   characters,
   onCharacter,
+  files,
 }: {
   history: History;
   setHistory: (fn: (h: History) => History) => void;
@@ -99,6 +108,7 @@ export function Studio({
   /** The character library, newest first. */
   characters: Character[];
   onCharacter: (c: Character) => void;
+  files: Files;
 }) {
   const scene = history.now;
   const count = padLength(scene);
@@ -122,6 +132,15 @@ export function Studio({
   const [more, setMore] = useState(false);
   const [castSheet, setCastSheet] = useState(false);
   const [walking, setWalking] = useState<string | null>(null);
+  /** Which dialog the menu bar has open. */
+  const [dialog, setDialog] = useState<null | 'open' | 'versions' | 'rename' | 'startOver' | 'delete' | 'help' | 'moves' | 'version'>(null);
+  const [books, setBooks] = useState<Scene[]>([]);
+  const [versions, setVersions] = useState<Version[]>([]);
+  const [preview, setPreview] = useState(false);
+  const clip = useRef<Frame | null>(null);
+  const [hasClip, setHasClip] = useState(false);
+  /** Two- and three-finger taps (undo, redo). */
+  const taps = useRef<{ max: number; t0: number; moved: boolean; at: Map<number, { x: number; y: number }> } | null>(null);
   /** The bending paper on the graphics chip (null: the flat desk, for Reduce Motion or without WebGL2). */
   const [gl, setGl] = useState<PaperGL | null>(null);
   const glCanvas = useRef<HTMLCanvasElement>(null);
@@ -626,6 +645,9 @@ export function Studio({
     }
     if (e.pointerType === 'touch') {
       touches.current.set(e.pointerId, { ...p, onPaper: on });
+      if (touches.current.size === 1 || !taps.current) taps.current = { max: 0, t0: e.timeStamp, moved: false, at: new Map() };
+      taps.current.at.set(e.pointerId, p);
+      taps.current.max = Math.max(taps.current.max, touches.current.size);
       if (touches.current.size === 2) {
         const [a, b] = [...touches.current.entries()];
         if (a[1].onPaper && b[1].onPaper && !onion) {
@@ -725,6 +747,29 @@ export function Studio({
   const onUp = (e: React.PointerEvent) => {
     const g = gesture.current;
     touches.current.delete(e.pointerId);
+    // Two fingers tapped together: undo. Three: redo.
+    const tp = taps.current;
+    if (e.pointerType === 'touch' && tp) {
+      const start = tp.at.get(e.pointerId);
+      if (start && Math.hypot(local(e).x - start.x, local(e).y - start.y) > 14) tp.moved = true;
+      if (touches.current.size === 0) {
+        taps.current = null;
+        if (!tp.moved && e.timeStamp - tp.t0 < 350 && tp.max >= 2) {
+          if (g.kind === 'pinch') {
+            gesture.current = { kind: 'none' };
+            setView(FIT);
+          }
+          if (tp.max === 2) {
+            undo();
+            toast('Undone (two-finger tap).', 'info');
+          } else {
+            redo();
+            toast('Redone (three-finger tap).', 'info');
+          }
+          return;
+        }
+      }
+    }
     if (g.kind === 'draw' && e.pointerId === g.id) {
       gesture.current = { kind: 'none' };
       const pts = [...g.pts, ...g.stab.finish(sample(e))];
@@ -815,6 +860,110 @@ export function Studio({
     if (!isActive) setPlaying(false);
   }, [isActive]);
 
+  // ---- the menu bar
+  const here = () => landNow();
+  const ensureLead = (): { castId: string; c: Character; scene: Scene } => {
+    if (cast[0] && lead) return { castId: cast[0].id, c: lead, scene };
+    const c = lead ?? newCharacter('Stick', 'detailed');
+    if (!lead) onCharacter(c);
+    const r = addCast(scene, c.id);
+    return { castId: r.castId, c, scene: r.scene };
+  };
+  const menus: Menu[] = [
+    {
+      label: 'File',
+      items: [
+        { label: 'New flipbook', onSelect: () => void files.newBook() },
+        { label: 'Open…', onSelect: () => void files.list().then((b) => (setBooks(b), setDialog('open'))) },
+        { label: 'Save', hint: files.status, onSelect: () => void files.saveNow().then((ok) => toast(ok ? 'Saved on this iPad.' : 'This device would not save.', ok ? 'success' : 'error')) },
+        { label: 'Save a version…', onSelect: () => setDialog('version') },
+        { label: 'Versions…', onSelect: () => void files.versions().then((v) => (setVersions(v), setDialog('versions'))) },
+        'sep',
+        { label: 'Rename…', onSelect: () => setDialog('rename') },
+        { label: 'Make a copy', onSelect: () => void files.duplicate().then(() => toast('This is the copy. The original is in Open.', 'info')) },
+        'sep',
+        { label: 'Start over…', onSelect: () => setDialog('startOver') },
+        { label: 'Delete this flipbook…', danger: true, onSelect: () => setDialog('delete') },
+      ],
+    },
+    {
+      label: 'Edit',
+      items: [
+        { label: 'Undo', hint: 'two-finger tap', disabled: !history.past.length, onSelect: undo },
+        { label: 'Redo', hint: 'three-finger tap', disabled: !history.future.length, onSelect: redo },
+        'sep',
+        {
+          label: 'Copy this note',
+          disabled: isBlankNote(),
+          onSelect: () => {
+            const f = scene.frames[here()];
+            if (!f) return;
+            clip.current = f;
+            setHasClip(true);
+            toast('Note copied. Paste it over any note.', 'info');
+          },
+        },
+        { label: 'Paste over this note', disabled: !hasClip, onSelect: () => clip.current && change((h) => commit(h, pasteFrame(h.now, here(), clip.current!)), 'Pasted. Undo takes it back.') },
+        { label: 'Wipe this note', disabled: isBlankNote(), onSelect: () => change((h) => commit(h, clearFrame(h.now, here())), 'Note wiped. Undo brings it back.') },
+        { label: 'Tear off this note', disabled: isBlankNote(), onSelect: () => tearOff() },
+        { label: 'Slip in a blank note', onSelect: () => change((h) => commit(h, insertBlank(h.now, here()))) },
+      ],
+    },
+    {
+      label: 'View',
+      items: [
+        { label: 'Onion view', checked: onion, onSelect: () => setOnion((o) => !o) },
+        ...([1, 2, 3] as const).map((n) => ({ label: `Onion: ${n} each side`, checked: onion && onionCount === n, onSelect: () => (setOnionCount(n), setOnion(true)) })),
+        'sep' as const,
+        ...PAPER_KINDS.map((p) => ({ label: p.label, checked: kind === p.value, onSelect: () => change((h) => commit(h, setPaper(h.now, p.value))) })),
+        'sep' as const,
+        { label: 'Full-screen preview', onSelect: () => setPreview(true) },
+      ],
+    },
+    {
+      label: 'Frame',
+      items: [
+        { label: 'Previous note', disabled: index === 0, onSelect: () => go(Math.round(target.current) - 1) },
+        { label: 'Next note', onSelect: () => go(Math.round(target.current) + 1) },
+        { label: 'First note', onSelect: () => go(0) },
+        { label: 'Last note', onSelect: () => go(scene.frames.length - 1) },
+        'sep',
+        { label: 'Copy onto the next note', disabled: isBlankNote(), onSelect: () => (change((h) => commit(h, duplicate(h.now, here())), 'Copied onto the next note.'), go(here() + 1)) },
+        { label: 'Hold for another beat', disabled: isBlankNote(), onSelect: () => change((h) => commit(h, hold(h.now, here())), 'This note now shows for one more beat.') },
+      ],
+    },
+    {
+      label: 'Character',
+      items: [
+        { label: 'Action moves…', onSelect: () => (here(), setDialog('moves')) },
+        { label: 'Characters…', onSelect: () => (here(), setCastSheet(true)) },
+        { label: 'Pose', checked: tool === 'pose', onSelect: () => (cast.length ? setTool(tool === 'pose' ? 'pen' : 'pose') : setCastSheet(true)) },
+        { label: 'Draw its parts', disabled: !lead, onSelect: () => lead && setWalking(lead.id) },
+      ],
+    },
+    {
+      label: 'Play',
+      items: [
+        { label: playing ? 'Stop' : 'Play', hint: 'Space', onSelect: () => setPlaying((p) => !p) },
+        { label: 'Full-screen preview', onSelect: () => setPreview(true) },
+        'sep',
+        ...FPS_CHOICES.map((f) => ({ label: `${f} notes a second`, checked: scene.fps === f, onSelect: () => change((h) => commit(h, setFps(h.now, f))) })),
+      ],
+    },
+    {
+      label: 'Help',
+      items: [{ label: 'Gestures and shortcuts', onSelect: () => setDialog('help') }],
+    },
+  ];
+  function isBlankNote() {
+    return index >= scene.frames.length;
+  }
+  function tearOff() {
+    const i = here();
+    change((h) => commit(h, removeFrame(h.now, i)), 'Note torn off. Undo puts it back.');
+    if (i > 0 && i === scene.frames.length - 1) rest(i - 1);
+  }
+
   // ---- what's on the desk
   const [lo, hi] = desk ? visibleRange(viewPos, count, onionOpt) : [0, -1];
   const shown: number[] = [];
@@ -825,6 +974,7 @@ export function Studio({
 
   return (
     <div className="fb-studio" data-onion={onion || undefined} data-playing={playing || undefined} data-gl={gl ? true : undefined} data-paper={kind}>
+      <MenuBar menus={menus} title={scene.name} status={files.status} onTitle={() => setDialog('rename')} />
       <header className="fb-top" role="toolbar" aria-label="Flipbook tools">
         <div className="fb-group fb-where">
           <IconButton icon="back" label="Previous note" onClick={() => go(Math.round(target.current) - 1)} disabled={index === 0 && settled} />
@@ -949,6 +1099,146 @@ export function Studio({
         />
       )}
       {walking && byId.get(walking) && <Walkthrough character={byId.get(walking)!} onChange={onCharacter} onClose={() => setWalking(null)} />}
+
+      {dialog === 'moves' && (
+        <MovesSheet
+          fps={scene.fps}
+          from={index}
+          onClose={() => setDialog(null)}
+          onApply={(ch) => {
+            const e = ensureLead();
+            const standing = poseAt(e.scene, index, e.castId) ?? STANDING;
+            const r = applyMove(e.scene, e.castId, e.c.level, ch.pack, ch.move, { from: index, fps: scene.fps, speed: ch.speed, mirror: ch.mirror, inPlace: ch.inPlace, standing });
+            change((h) => commit(h, r.scene), `${ch.move.name} is on notes ${index + 1} to ${index + r.notes}. Press Play.`);
+            setDialog(null);
+            setTool('pen');
+          }}
+        />
+      )}
+      {dialog === 'rename' && <PromptSheet title="Rename" label="Name of this flipbook" initial={scene.name} confirmLabel="Rename" onCancel={() => setDialog(null)} onSubmit={(v) => (change((h) => commit(h, renameScene(h.now, v))), setDialog(null))} />}
+      {dialog === 'version' && (
+        <PromptSheet
+          title="Save a version"
+          label="Call this version"
+          initial={`Version ${new Date().toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}`}
+          confirmLabel="Save version"
+          onCancel={() => setDialog(null)}
+          onSubmit={async (v) => {
+            const ok = await files.saveVersion(v.trim() || 'Version');
+            toast(ok ? 'Version saved. Find it in File, Versions.' : 'This device would not save the version.', ok ? 'success' : 'error');
+            setDialog(null);
+          }}
+        />
+      )}
+      {dialog === 'startOver' && (
+        <ConfirmSheet
+          title="Start over?"
+          message="Every note is wiped and torn off, back to one blank note. Your characters stay. Undo brings it all back."
+          confirmLabel="Start over"
+          destructive
+          onCancel={() => setDialog(null)}
+          onConfirm={() => {
+            change((h) => commit(h, startOver(h.now)), 'Started over. Undo brings it back.');
+            rest(0);
+            setDialog(null);
+          }}
+        />
+      )}
+      {dialog === 'delete' && (
+        <ConfirmSheet
+          title={`Delete “${scene.name}”?`}
+          message="This flipbook and its saved versions are removed from this iPad. This cannot be undone. Your characters stay in the library."
+          confirmLabel="Delete flipbook"
+          destructive
+          onCancel={() => setDialog(null)}
+          onConfirm={() => {
+            setDialog(null);
+            void files.remove(scene.id);
+          }}
+        />
+      )}
+      {dialog === 'open' && (
+        <Sheet title="Open a flipbook" onClose={() => setDialog(null)}>
+          <ul className="fb-cast-list">
+            {books.map((b) => (
+              <li key={b.id}>
+                <span>
+                  <strong>{b.name}</strong>
+                  <small>
+                    {b.frames.length} {b.frames.length === 1 ? 'note' : 'notes'} · {new Date(b.updatedAt).toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}
+                  </small>
+                </span>
+                {b.id === scene.id ? (
+                  <span className="fb-hint">Open now</span>
+                ) : (
+                  <button type="button" className="btn small" onClick={() => (setDialog(null), void files.open(b))}>
+                    Open
+                  </button>
+                )}
+              </li>
+            ))}
+          </ul>
+          <div className="fb-more-actions" style={{ marginTop: 12 }}>
+            <button type="button" className="btn" onClick={() => (setDialog(null), void files.newBook())}>
+              New flipbook
+            </button>
+          </div>
+        </Sheet>
+      )}
+      {dialog === 'versions' && (
+        <Sheet title="Versions" onClose={() => setDialog(null)}>
+          {versions.length ? (
+            <ul className="fb-cast-list">
+              {versions.map((v) => (
+                <li key={v.id}>
+                  <span>
+                    <strong>{v.label}</strong>
+                    <small>
+                      {v.scene.frames.length} notes · {new Date(v.at).toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}
+                    </small>
+                  </span>
+                  <button
+                    type="button"
+                    className="btn small"
+                    onClick={() => {
+                      change((h) => commit(h, { ...v.scene, id: h.now.id, name: h.now.name, updatedAt: Date.now() }), `Back to “${v.label}”. Undo returns to where you were.`);
+                      rest(0);
+                      setDialog(null);
+                    }}
+                  >
+                    Go back to this
+                  </button>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className="fb-hint">No versions yet. File, Save a version keeps a copy of this flipbook as it is now, to come back to.</p>
+          )}
+        </Sheet>
+      )}
+      {dialog === 'help' && (
+        <Sheet title="Gestures and shortcuts" onClose={() => setDialog(null)}>
+          <dl className="fb-help">
+            <dt>Pen on the note</dt>
+            <dd>Draws (or erases, or poses, with those tools).</dd>
+            <dt>One finger, slow</dt>
+            <dd>Lifts the note to peek at the one under it; let go and it springs back.</dd>
+            <dt>One finger, fast or far</dt>
+            <dd>Riffles like a real flipbook; let go and it slows and lands. Flick hard to keep it playing.</dd>
+            <dt>The turned-up corner</dt>
+            <dd>Hold it and push: the pad riffles on its own, faster the further you push.</dd>
+            <dt>Two fingers on the note</dt>
+            <dd>Zoom in. Fit zooms back out.</dd>
+            <dt>Two-finger tap</dt>
+            <dd>Undo.</dd>
+            <dt>Three-finger tap</dt>
+            <dd>Redo.</dd>
+            <dt>Keyboard</dt>
+            <dd>⌘Z undo, ⇧⌘Z redo, arrow keys turn the notes, Space plays and stops.</dd>
+          </dl>
+        </Sheet>
+      )}
+      {preview && <Preview scene={scene} figsAt={figsAt} kind={kind} onClose={() => setPreview(false)} />}
 
       {more && (
         <Sheet title="Flipbook" onClose={() => setMore(false)}>
@@ -1097,4 +1387,36 @@ function inCorner(d: Desk, x: number, y: number): boolean {
   const bottom = d.paper.y + d.size / 2;
   const c = d.size * CORNER;
   return x <= right && y <= bottom && x >= right - c && y >= bottom - c;
+}
+
+/** Full screen: the animation plays big, looping, nothing else in the way. A tap closes it. */
+function Preview({ scene, figsAt, kind, onClose }: { scene: Scene; figsAt: (i: number) => Fig[]; kind: PaperKind; onClose: () => void }) {
+  const ref = useRef<HTMLCanvasElement>(null);
+  useEffect(() => {
+    const cv = ref.current;
+    const ctx = cv?.getContext('2d');
+    if (!cv || !ctx) return;
+    const order = playable(scene);
+    let k = 0;
+    const draw = () => {
+      const i = order[k % order.length];
+      paintNote(ctx, scene.frames[i]?.strokes ?? [], cv.width, { paper: kind, figures: figStrokes(figsAt(i)) });
+      k++;
+    };
+    draw();
+    const t = setInterval(draw, 1000 / scene.fps);
+    const key = (e: KeyboardEvent) => e.key === 'Escape' && onClose();
+    window.addEventListener('keydown', key);
+    return () => {
+      clearInterval(t);
+      window.removeEventListener('keydown', key);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [scene, kind]);
+  return (
+    <div className="fb-preview" role="dialog" aria-label="Full-screen preview" onClick={onClose}>
+      <canvas ref={ref} width={1024} height={1024} role="img" aria-label={`${scene.name}, playing`} />
+      <p className="fb-hint">Tap anywhere to close</p>
+    </div>
+  );
 }
