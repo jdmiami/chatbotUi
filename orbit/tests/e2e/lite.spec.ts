@@ -22,7 +22,8 @@ const PNG = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR
 async function standIns(page: Page, opts: { on?: boolean } = {}) {
   const calls: { path: string; body?: unknown }[] = [];
   let state = opts.on ? 'on' : 'off';
-  let loaded = ['h3-max', 'qwen', 'edit', 'trellis2', 'style-ink'];
+  let loaded = ['h3-max', 'qwen', 'edit', 'trellis2', 'style-ink', 's2v', 'vace', 'person-swap', 'rig'];
+  let cloud = { id: 'c1', status: 'queued', kind: 'image', provider: 'cloudflare', position: 1 } as Record<string, unknown>;
   const line: string[] = [];
   const makers = () =>
     [
@@ -33,6 +34,10 @@ async function standIns(page: Page, opts: { on?: boolean } = {}) {
       { id: 'edit', kind: 'edit', name: 'Edit with words' },
       { id: 'trellis2', kind: 'model3d', name: '3D object' },
       { id: 'style-ink', kind: 'style', name: 'Ink', for: 'qwen' },
+      { id: 's2v', kind: 'video', name: 'Talking photo', needs: ['photo', 'audio'] },
+      { id: 'vace', kind: 'videoedit', name: 'Edit a video', needs: ['video'], tasks: ['replace', 'restyle', 'extend', 'motion'] },
+      { id: 'person-swap', kind: 'videoedit', name: 'Swap a person', needs: ['video', 'target', 'photo'] },
+      { id: 'rig', kind: 'rig', name: 'Rig it', needs: ['model3d'] },
     ].map((m) =>
       loaded.includes(m.id)
         ? { ...m, installed: true, wanted: true, percent: 100 }
@@ -76,6 +81,8 @@ async function standIns(page: Page, opts: { on?: boolean } = {}) {
     if (url.pathname === '/api/orb/ai') {
       const b = body as { task: string; messages: { role: string; content: string }[] };
       const sys = b.messages[0].content;
+      const many = /You write (\d+) different prompts/.exec(sys);
+      if (many) return route.fulfill({ json: { choices: [{ message: { content: JSON.stringify({ prompts: Array.from({ length: Number(many[1]) }, (_, i) => `take ${i + 1}: a dancer in neon rain`) }) } }] } });
       const content = sys.includes('You are Eros')
         ? 'Here you go: ' +
           JSON.stringify({
@@ -86,14 +93,30 @@ async function standIns(page: Page, opts: { on?: boolean } = {}) {
         : 'A tall woman in her thirties in a red slip dress, neon rain behind her, slow push-in.';
       return route.fulfill({ json: { choices: [{ message: { content } }] } });
     }
+    if (url.pathname === '/api/make' && route.request().method() === 'POST') return route.fulfill({ json: cloud });
+    if (url.pathname === '/api/make' && url.searchParams.get('id')) {
+      cloud = { ...cloud, status: 'done', url: 'https://cdn.test/cloud.png', position: null };
+      return route.fulfill({ json: cloud });
+    }
+    if (url.pathname === '/api/make') return route.fulfill({ json: { configured: true, image: [{ id: 'cloudflare', name: 'Cloudflare', price: 'about 1¢ a picture' }], video: [{ id: 'gpuai', name: 'H3 in the cloud', price: '5¢ a second' }] } });
+    if (url.pathname === '/api/gallery' && route.request().method() === 'POST') return route.fulfill({ json: { ok: true, id: 'g9' } });
+    if (url.pathname === '/api/gallery') return route.fulfill({ json: { configured: true, items: [{ id: 'st1', kind: 'image', prompt: 'a kept sunset', url: 'https://cdn.test/sunset.png' }] } });
+    if (url.pathname.startsWith('/cdn')) return route.fulfill({ contentType: 'image/png', body: PNG });
     return route.fulfill({ status: 404, json: { error: 'not here' } });
   });
+  await page.route('https://cdn.test/**', (route) => route.fulfill({ contentType: 'image/png', body: PNG }));
   await page.route(`${MACHINE}/**`, async (route) => {
     const req = route.request();
     if (req.method() === 'OPTIONS') return route.fulfill({ status: 204, headers: cors });
     const url = new URL(req.url());
+    if (url.pathname === '/_orbit/studio/uploads') {
+      calls.push({ path: 'machine:/_orbit/studio/uploads', body: req.headers()['content-type'] });
+      const kind = (req.headers()['content-type'] || '').startsWith('audio') ? 'audio' : 'video';
+      return route.fulfill({ headers: cors, json: { id: kind === 'audio' ? 'aud1' : 'vid1', kind, size: 4 } });
+    }
     const body = req.method() === 'POST' ? req.postDataJSON() : undefined;
     calls.push({ path: `machine:${url.pathname}`, body });
+    if (url.pathname === '/_orbit/studio/characters') return route.fulfill({ headers: cors, json: { characters: [{ id: 'ch1', name: 'Mara', status: 'ready' }, { id: 'ch2', name: 'Draft', status: 'draft' }] } });
     if (url.pathname === '/_orbit/studio/makers') return route.fulfill({ headers: cors, json: { makers: makers() } });
     if (url.pathname === '/_orbit/studio/makers/load') {
       line.push((body as { id: string }).id);
@@ -103,7 +126,17 @@ async function standIns(page: Page, opts: { on?: boolean } = {}) {
       jobs += 1;
       return route.fulfill({ headers: cors, json: { ...job, id: `j${jobs}` } });
     }
-    if (url.pathname === '/_orbit/studio/items') return route.fulfill({ headers: cors, json: { items: [{ id: 'pic9', kind: 'image', prompt: 'a red fox', url: '/_orbit/studio/file/pic9?t=x' }] } });
+    if (url.pathname === '/_orbit/studio/items')
+      return route.fulfill({
+        headers: cors,
+        json: {
+          items: [
+            { id: 'pic9', kind: 'image', prompt: 'a red fox', url: '/_orbit/studio/file/pic9?t=x' },
+            { id: 'vid9', kind: 'video', prompt: 'a dancer on a roof', url: '/_orbit/studio/file/vid9?t=x', thumbUrl: '/_orbit/studio/file/pic9?t=x' },
+            { id: 'obj9', kind: 'model3d', prompt: 'a tiger figurine', url: '/_orbit/studio/file/obj9?t=x', thumbUrl: '/_orbit/studio/file/pic9?t=x' },
+          ],
+        },
+      });
     if (url.pathname.endsWith('/cancel')) return route.fulfill({ headers: cors, json: { ok: true } });
     if (url.pathname.startsWith('/_orbit/studio/jobs/')) {
       job = { ...job, status: 'done', progress: 100, position: 0, item: { id: 'v1', kind: 'video', url: '/_orbit/studio/file/v1?t=x' } };
@@ -143,7 +176,7 @@ test('fast Make: turn on with a GPU picked, a video maker put in line, words wri
   await page.getByRole('radio', { name: /A video/ }).click();
   await expect(page.getByRole('heading', { level: 1 })).toHaveText('Who makes it');
   const menu = page.getByRole('radiogroup', { name: 'Maker' });
-  await expect(menu.getByRole('radio')).toHaveCount(2);
+  await expect(menu.getByRole('radio')).toHaveCount(3);
   await expect(menu.getByRole('radio', { name: /LTX 10Eros/ })).toContainText('tap to load');
   await menu.getByRole('radio', { name: /LTX 10Eros/ }).click();
   await expect.poll(() => calls.find((c) => c.path === 'machine:/_orbit/studio/makers/load')?.body).toEqual({ id: 'ltx', first: false });
@@ -211,7 +244,7 @@ test('fast Make: every Eros scene goes in the queue at once', async ({ page }) =
 test('fast Make: an edit from your own photo, a 3D object from a gallery picture, a style, and a job stopped', async ({ page }) => {
   const { calls } = await standIns(page, { on: true });
   await page.goto(`${SITE}/lite`);
-  await expect(page.getByRole('radiogroup', { name: 'What to make' }).getByRole('radio')).toHaveCount(4);
+  await expect(page.getByRole('radiogroup', { name: 'What to make' }).getByRole('radio')).toHaveCount(5);
 
   // An edit: your own photo (shrunk on the phone), then words.
   await page.getByRole('radio', { name: /An edit/ }).click();
@@ -260,4 +293,131 @@ test('fast Make: a style for a picture is sent with it', async ({ page }) => {
   await page.getByRole('button', { name: 'Make it →' }).click();
   await page.locator('.pane').getByRole('button', { name: 'Make it', exact: true }).click();
   await expect.poll(() => calls.find((c) => c.path === 'machine:/_orbit/studio/jobs')?.body).toMatchObject({ kind: 'image', maker: 'qwen', style: 'style-ink' });
+});
+
+const PNG_FILE = { name: 'me.png', mimeType: 'image/png', buffer: PNG };
+const jobsSent = (calls: { path: string; body?: unknown }[]) => calls.filter((c) => c.path === 'machine:/_orbit/studio/jobs').map((c) => c.body as Record<string, unknown>);
+async function toMake(page: Page) {
+  await page.getByRole('button', { name: 'Extras →' }).click();
+  await page.getByRole('button', { name: 'Make it →' }).click();
+  await page.locator('.pane').getByRole('button', { name: 'Make it', exact: true }).click();
+}
+
+test('fast Make: work on a video (your own, restyled), then swap a person in a gallery video for a saved character', async ({ page }, info) => {
+  const errors: string[] = [];
+  page.on('pageerror', (e) => errors.push(e.message));
+  const { calls } = await standIns(page, { on: true });
+  await page.goto(`${SITE}/lite`);
+  await page.getByRole('radio', { name: /Work on a video/ }).click();
+  const menu = page.getByRole('radiogroup', { name: 'Maker' });
+  await expect(menu.getByRole('radio')).toHaveCount(2);
+  await menu.getByRole('radio', { name: /Edit a video/ }).click();
+  await page.getByRole('button', { name: 'Describe it →' }).click();
+  // Your own video goes to the machine first.
+  await page.locator('#vid').setInputFiles({ name: 'clip.mp4', mimeType: 'video/mp4', buffer: Buffer.from('fake') });
+  await expect(page.getByText('clip.mp4')).toBeVisible();
+  expect(calls.find((c) => c.path === 'machine:/_orbit/studio/uploads')?.body).toBe('video/mp4');
+  await page.getByRole('group', { name: 'What to do' }).getByRole('button', { name: 'Restyle it' }).click();
+  await page.getByRole('textbox', { name: 'Describe it' }).fill('make it a watercolour');
+  await page.screenshot({ path: info.outputPath('lite-vedit.png') });
+  await toMake(page);
+  await expect.poll(() => jobsSent(calls)[0]).toEqual({ kind: 'video', maker: 'vace', prompt: 'make it a watercolour', videoUpload: 'vid1', task: 'restyle' });
+
+  // Swap a person: a gallery video, who to replace, and a saved character instead of a photo.
+  await page.getByRole('button', { name: 'Gallery' }).first().click();
+  await page.getByRole('button', { name: 'a dancer on a roof' }).click();
+  await page.getByRole('button', { name: 'Work on this video' }).click();
+  await page.getByRole('radiogroup', { name: 'Maker' }).getByRole('radio', { name: /Swap a person/ }).click();
+  await page.getByRole('button', { name: 'Describe it →' }).click();
+  await expect(page.getByText('a dancer on a roof')).toBeVisible();
+  await page.getByLabel('Who to replace').fill('the woman in the red coat');
+  await page.getByRole('button', { name: 'Extras →' }).click();
+  const chars = page.getByRole('group', { name: 'Character' });
+  await expect(chars.getByRole('button')).toHaveText(['No character', 'Mara']);
+  await chars.getByRole('button', { name: 'Mara' }).click();
+  await page.getByRole('button', { name: 'Make it →' }).click();
+  await page.locator('.pane').getByRole('button', { name: 'Make it', exact: true }).click();
+  await expect.poll(() => jobsSent(calls)[1]).toEqual({ kind: 'video', maker: 'person-swap', prompt: '', character: 'ch1', videoItem: 'vid9', target: 'the woman in the red coat' });
+  await noSideScroll(page);
+  expect(errors).toEqual([]);
+});
+
+test('fast Make: a talking photo, and a video from a start and an end picture', async ({ page }) => {
+  const { calls } = await standIns(page, { on: true });
+  await page.goto(`${SITE}/lite`);
+  await page.getByRole('radio', { name: /A video/ }).click();
+  await page.getByRole('radiogroup', { name: 'Maker' }).getByRole('radio', { name: /Talking photo/ }).click();
+  await page.getByRole('button', { name: 'Describe it →' }).click();
+  await page.locator('#photo').setInputFiles(PNG_FILE);
+  await page.locator('#aud').setInputFiles({ name: 'song.mp3', mimeType: 'audio/mpeg', buffer: Buffer.from('fake') });
+  await expect(page.getByText('song.mp3')).toBeVisible();
+  // No end picture for a talking photo.
+  await expect(page.getByText('End on a picture')).toHaveCount(0);
+  await toMake(page);
+  await expect.poll(() => jobsSent(calls)[0]).toMatchObject({ kind: 'video', maker: 's2v', audioUpload: 'aud1' });
+  expect(String(jobsSent(calls)[0].image)).toMatch(/^data:image\/jpeg;base64,/);
+
+  // H3 Max: start from your photo, end on a gallery picture.
+  await page.getByRole('button', { name: 'Step 2 of 5: Maker' }).click();
+  await page.getByRole('radiogroup', { name: 'Maker' }).getByRole('radio', { name: /H3 Max/ }).click();
+  await page.getByRole('button', { name: 'Describe it →' }).click();
+  await page.locator('.pane').getByRole('button', { name: 'From your gallery' }).last().click();
+  await page.getByRole('button', { name: 'a red fox' }).click();
+  await page.getByRole('button', { name: 'End on this picture' }).click();
+  await expect(page.getByRole('img', { name: 'End picture' })).toBeVisible();
+  await page.getByRole('textbox', { name: 'Describe it' }).fill('she turns and walks into the sea');
+  await toMake(page);
+  await expect.poll(() => jobsSent(calls)[1]).toMatchObject({ kind: 'video', maker: 'h3-max', prompt: 'she turns and walks into the sea', toItem: 'pic9' });
+  expect(String(jobsSent(calls)[1].image)).toMatch(/^data:image\/jpeg/);
+  await noSideScroll(page);
+});
+
+test('fast Make: Batch writes many takes and puts them all in line', async ({ page }) => {
+  const { calls } = await standIns(page, { on: true });
+  await page.goto(`${SITE}/lite`);
+  await page.getByRole('radio', { name: /A picture/ }).click();
+  await page.getByRole('button', { name: 'Describe it →' }).click();
+  await page.getByRole('textbox', { name: 'Describe it' }).fill('a dancer in neon rain');
+  await page.getByRole('button', { name: 'Batch' }).click();
+  await page.getByRole('group', { name: 'How many' }).getByRole('button', { name: '4' }).click();
+  await page.getByRole('button', { name: 'Write 4 prompts' }).click();
+  await expect(page.locator('.scene')).toHaveCount(4);
+  await page.getByRole('button', { name: 'Make all 4' }).click();
+  await expect.poll(() => jobsSent(calls).length).toBe(4);
+  expect(jobsSent(calls).map((b) => b.prompt)).toEqual([1, 2, 3, 4].map((n) => `take ${n}: a dancer in neon rain`));
+  const asked = calls.find((c) => c.path === '/api/orb/ai' && c.body)!.body as { task: string; messages: { content: string }[] };
+  expect(asked.task).toBe('free');
+  expect(asked.messages[0].content).toMatch(/fictional adult/);
+});
+
+test('fast Make: with the machine off, the cloud makes it and keeps it in your gallery, and the gallery still opens', async ({ page }) => {
+  const { calls } = await standIns(page);
+  await page.goto(`${SITE}/lite`);
+  await page.getByRole('radio', { name: /A picture/ }).click();
+  await page.getByRole('button', { name: 'Describe it →' }).click();
+  await page.getByRole('textbox', { name: 'Describe it' }).fill('a fox at dawn');
+  await page.getByRole('button', { name: 'Extras →' }).click();
+  await page.getByRole('button', { name: 'Make it →' }).click();
+  await expect(page.getByText('the cloud can make it now (about 1¢ a picture)')).toBeVisible();
+  await page.getByRole('button', { name: 'Make it in the cloud' }).click();
+  await expect.poll(() => calls.find((c) => c.path === '/api/make' && c.body)?.body).toEqual({ kind: 'image', prompt: 'a fox at dawn', size: 'portrait' });
+  await expect(page.locator('.out img')).toHaveAttribute('src', 'https://cdn.test/cloud.png', { timeout: 10_000 });
+  await expect(page.getByText('Made in the cloud, kept in your gallery.')).toBeVisible();
+  expect(calls.find((c) => c.path === '/api/gallery' && c.body)?.body).toEqual({ action: 'import', url: 'https://cdn.test/cloud.png', kind: 'image', prompt: 'a fox at dawn', maker: 'cloud:cloudflare' });
+  // The gallery from cloud storage, with the machine off.
+  await page.getByRole('button', { name: 'Gallery' }).click();
+  await page.getByRole('button', { name: 'a kept sunset' }).click();
+  await expect(page.getByText('Turn the AI machine on to work on this one.')).toBeVisible();
+  await noSideScroll(page);
+});
+
+test('fast Make: Rig it from a 3D object in the gallery', async ({ page }) => {
+  const { calls } = await standIns(page, { on: true });
+  await page.goto(`${SITE}/lite`);
+  await expect(page.getByLabel('AI machine')).toContainText('on');
+  await page.getByRole('button', { name: 'Gallery' }).click();
+  await page.getByRole('button', { name: 'a tiger figurine' }).click();
+  await page.getByRole('button', { name: 'Rig it' }).click();
+  await expect.poll(() => jobsSent(calls)[0]).toEqual({ kind: 'model3d', maker: 'rig', prompt: '', fromItem: 'obj9' });
+  await expect(page.getByText('Rigging it')).toBeVisible();
 });
