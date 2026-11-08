@@ -148,6 +148,12 @@ cd "$S/ComfyUI" || exit 1
 # Each machine keeps its own ComfyUI settings, database and temp files (ComfyUI empties its temp
 # folder on start, and its database must not be shared between two machines).
 ROLE_DIR="$S/machine-${AI_ROLE:-main}"
+# Orbit's start-up check for Comfy Kitchen's fast INT8 attention (H3 Max's model files ask for it): it is
+# switched off when this machine's NVIDIA driver is too old for its CUDA 13 kernels (gate/comfy_kitchen_guard.py).
+GUARD_SRC="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/comfy_kitchen_guard.py"
+if [ -f "$GUARD_SRC" ] && [ -d "$S/ComfyUI/custom_nodes" ]; then
+  mkdir -p "$S/ComfyUI/custom_nodes/orbit_kitchen_guard" && cp "$GUARD_SRC" "$S/ComfyUI/custom_nodes/orbit_kitchen_guard/__init__.py"
+fi
 # A graphics card of 80 GB or more (H100, H200, RTX PRO 6000) holds a whole video maker: ComfyUI keeps
 # its models on the card between steps and jobs instead of moving them back to the machine's memory
 # (H3 Max is ~50 GB: moving it back and forth costs minutes a video). The gate still clears the card
