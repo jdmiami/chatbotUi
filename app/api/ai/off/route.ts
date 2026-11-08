@@ -1,5 +1,4 @@
 import { islandUser } from '@/lib/status';
-import { aiProvider } from '@/lib/ai';
 import { findMachine, terminateMachine } from '@/lib/gpuaiMachine';
 
 export const dynamic = 'force-dynamic';
@@ -13,7 +12,8 @@ export async function POST(request: Request) {
   const who = await islandUser(request);
   // The AI machine signs as ai-machine, the drawing machine as canvas-machine: each turns off only itself.
   if (who !== 'ai-machine' && who !== 'canvas-machine') return Response.json({ error: 'Unauthorized' }, { status: 401 });
-  if (aiProvider() !== 'gpuai') return Response.json({ error: 'The AI machine is not on GPU.ai' }, { status: 400 });
+  // Any machine on GPU.ai can ask, whichever provider is the default: a key for GPU.ai is what matters.
+  if (!process.env.GPUAI_API_KEY) return Response.json({ error: 'The AI machine is not on GPU.ai' }, { status: 400 });
   try {
     const m = await findMachine(who === 'canvas-machine' ? 'canvas' : 'ai');
     if (m) await terminateMachine(m.id);

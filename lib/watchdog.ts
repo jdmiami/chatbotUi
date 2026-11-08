@@ -1,7 +1,6 @@
 import 'server-only';
 import { runpod, podId as linuxPodId } from '@/lib/runpod';
 import { autoOffMinutes, BLIND_LIMIT_MINUTES, GRACE_MINUTES } from '@/lib/autoOff';
-import { aiProvider } from '@/lib/ai';
 import { findMachine, machineAddress, terminateMachine } from '@/lib/gpuaiMachine';
 import { machineState } from '@/lib/gpuaiShared';
 
@@ -105,8 +104,31 @@ async function gpuaiWatchdog(): Promise<WatchdogResult> {
   return result;
 }
 
+/**
+ * Every provider that has a key is looked at, so a machine turned on at either one is covered. One
+ * provider failing to answer never hides the other's machines (it is listed, and the run still
+ * fails only when none could be read).
+ */
 export async function runWatchdog(): Promise<WatchdogResult> {
-  if (aiProvider() === 'gpuai') return gpuaiWatchdog();
+  const checks: [string, () => Promise<WatchdogResult>][] = [];
+  if (process.env.GPUAI_API_KEY) checks.push(['GPU.ai', gpuaiWatchdog]);
+  if (process.env.RUNPOD_API_KEY) checks.push(['Runpod', runpodWatchdog]);
+  const result: WatchdogResult = { at: new Date().toISOString(), machines: [] };
+  const errors: Error[] = [];
+  for (const [name, run] of checks) {
+    try {
+      result.machines.push(...(await run()).machines);
+    } catch (err) {
+      errors.push(err as Error);
+      console.error(`[watchdog] could not read ${name}: ${(err as Error).message}`);
+      result.machines.push({ name: `${name} (could not be read)`, status: 'unknown', idleMinutes: null, action: 'kept', why: (err as Error).message.slice(0, 200) });
+    }
+  }
+  if (checks.length && errors.length === checks.length) throw errors[0];
+  return result;
+}
+
+async function runpodWatchdog(): Promise<WatchdogResult> {
   const body = (await runpod('/pods')) as { pods?: Pod[] } | Pod[];
   const pods = Array.isArray(body) ? body : (body.pods ?? []);
   const linuxId = linuxPodId();

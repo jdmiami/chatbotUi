@@ -1,6 +1,5 @@
 import { runWatchdog, type WatchdogResult } from '@/lib/watchdog';
 import { ensureEndpoint } from '@/lib/serverlessMake';
-import { aiProvider } from '@/lib/ai';
 
 export const dynamic = 'force-dynamic';
 
@@ -10,7 +9,7 @@ export const dynamic = 'force-dynamic';
 let last: { at: number; result: WatchdogResult } | null = null;
 
 export async function GET() {
-  if (!process.env.RUNPOD_API_KEY && !(aiProvider() === 'gpuai' && process.env.GPUAI_API_KEY)) return Response.json({ error: 'No machine provider key is set' }, { status: 501 });
+  if (!process.env.RUNPOD_API_KEY && !process.env.GPUAI_API_KEY) return Response.json({ error: 'No machine provider key is set' }, { status: 501 });
   if (last && Date.now() - last.at < 60_000) return Response.json(last.result, { headers: { 'cache-control': 'no-store' } });
   try {
     const result = await runWatchdog();

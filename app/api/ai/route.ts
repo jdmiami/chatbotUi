@@ -1,6 +1,7 @@
 import { currentUser } from '@/lib/auth';
 import { sameOrigin } from '@/lib/request';
-import { aiBase, aiConfigured, aiConsole, aiProvider, aiStatus, startAi, stopAi } from '@/lib/ai';
+import { activeProvider, aiBase, aiConfigured, aiConsole, aiStatus, startAi, stopAi } from '@/lib/ai';
+import { cleanProvider } from '@/lib/aiProviders';
 import { setFirstPicks } from '@/lib/gpuaiMachine';
 import { cleanGpu } from '@/lib/gpuaiShared';
 
@@ -25,20 +26,21 @@ export async function GET() {
 }
 
 /**
- * Turn the AI machine on or off: { "action": "start" | "stop", "tier"?: "standard" | "turbo", "gpu"?: GPU.ai type }.
- * On GPU.ai, { "action": "first", "makers": [ids] } saves what to load first while it starts.
+ * Turn the AI machine on or off: { "action": "start" | "stop", "provider"?: "runpod" | "gpuai", "tier"?: "standard" | "turbo", "gpu"?: GPU.ai type }.
+ * `provider` says where to turn it on when both are set up (left out: wherever it is on, else the default one);
+ * "stop" ends it wherever it is on. On GPU.ai, { "action": "first", "makers": [ids] } saves what to load first while it starts.
  */
 export async function POST(request: Request) {
   const user = await currentUser();
   if (!user) return Response.json({ error: 'Unauthorized' }, { status: 401 });
   if (!sameOrigin(request)) return Response.json({ error: 'Forbidden' }, { status: 403 });
-  const { action, tier, makers, gpu } = (await request.json().catch(() => ({}))) as { action?: string; tier?: string; makers?: unknown; gpu?: unknown };
+  const { action, tier, makers, gpu, provider } = (await request.json().catch(() => ({}))) as { action?: string; tier?: string; makers?: unknown; gpu?: unknown; provider?: unknown };
   if (action !== 'start' && action !== 'stop' && action !== 'first') {
     return Response.json({ error: 'action must be "start", "stop" or "first"' }, { status: 400 });
   }
   if (!aiConfigured()) return Response.json({ error: 'The AI machine is not set up in Vercel yet.' }, { status: 501 });
   if (action === 'first') {
-    if (aiProvider() !== 'gpuai') return Response.json({ error: 'Only the AI machine on GPU.ai loads makers when you pick them.' }, { status: 409 });
+    if ((await activeProvider()) !== 'gpuai') return Response.json({ error: 'Only the AI machine on GPU.ai loads makers when you pick them.' }, { status: 409 });
     try {
       await setFirstPicks(makers);
     } catch (err) {
@@ -47,7 +49,7 @@ export async function POST(request: Request) {
     return Response.json(await statusWithLinks(user), { headers: noStore });
   }
   try {
-    await (action === 'start' ? startAi(typeof tier === 'string' ? tier : undefined, cleanGpu(gpu)) : stopAi());
+    await (action === 'start' ? startAi(typeof tier === 'string' ? tier : undefined, cleanGpu(gpu), cleanProvider(provider)) : stopAi());
   } catch (err) {
     return Response.json({ error: (err as Error).message }, { status: 502 });
   }

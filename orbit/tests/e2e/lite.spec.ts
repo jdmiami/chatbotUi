@@ -19,7 +19,7 @@ const MACHINE = 'https://machine.test';
 const cors = { 'access-control-allow-origin': '*', 'access-control-allow-headers': 'authorization, content-type', 'access-control-allow-methods': 'GET, POST, OPTIONS' };
 const PNG = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==', 'base64');
 
-async function standIns(page: Page, opts: { on?: boolean } = {}) {
+async function standIns(page: Page, opts: { on?: boolean; both?: boolean } = {}) {
   const calls: { path: string; body?: unknown }[] = [];
   let state = opts.on ? 'on' : 'off';
   let loaded = ['h3-max', 'qwen', 'edit', 'trellis2', 'style-ink', 's2v', 'vace', 'person-swap', 'rig'];
@@ -61,6 +61,24 @@ async function standIns(page: Page, opts: { on?: boolean } = {}) {
       return route.fulfill({
         json: {
           recommended: 'a40',
+          ...(opts.both
+            ? {
+                default: 'gpuai',
+                providers: [
+                  { id: 'gpuai', label: 'GPU.ai', blurb: 'Pick any GPU. Pictures, videos and 3D with your makers (no chat).', fromPrice: 0.45 },
+                  {
+                    id: 'runpod',
+                    label: 'Runpod',
+                    blurb: 'Standard or Turbo. Your chat models and your makers.',
+                    fromPrice: 0.59,
+                    tiers: [
+                      { id: 'standard', label: 'Standard', gpuName: 'A40 / A6000 48 GB', pricePerHour: 0.59, speed: 'normal speed' },
+                      { id: 'turbo', label: 'Turbo', gpuName: 'H100 80 GB', pricePerHour: 2.89, speed: 'about 3–4× faster' },
+                    ],
+                  },
+                ],
+              }
+            : {}),
           options: [
             { gpu: 'rtx_a6000', name: 'RTX A6000', memoryGb: 48, pricePerHour: 0.45, note: 'Everything: pictures and H3 Max videos', fits: 'yes' },
             { gpu: 'a40', name: 'A40', memoryGb: 48, pricePerHour: 0.61, note: 'Everything: pictures and H3 Max videos', fits: 'yes' },
@@ -420,4 +438,42 @@ test('fast Make: Rig it from a 3D object in the gallery', async ({ page }) => {
   await page.getByRole('button', { name: 'Rig it' }).click();
   await expect.poll(() => jobsSent(calls)[0]).toEqual({ kind: 'model3d', maker: 'rig', prompt: '', fromItem: 'obj9' });
   await expect(page.getByText('Rigging it')).toBeVisible();
+});
+
+test('fast Make with Runpod and GPU.ai both set up: Turn on asks where first, then the speed; the choice is sent', async ({ page }, info) => {
+  const { calls } = await standIns(page, { both: true });
+  await page.goto(`${SITE}/lite`);
+  await page.getByRole('button', { name: 'Turn on' }).click();
+  const where = page.getByRole('dialog', { name: 'Where to run it' });
+  await expect(where.getByRole('button', { name: /GPU\.ai/ })).toHaveAttribute('aria-pressed', 'true');
+  await expect(where.getByRole('button', { name: /Runpod/ })).toContainText('from $0.59/h');
+  await expect(where).toContainText('One machine at a time');
+  await noSideScroll(page);
+  await page.screenshot({ path: info.outputPath('lite-where.png') });
+  await where.getByRole('button', { name: /Runpod/ }).click();
+  await where.getByRole('button', { name: 'Continue' }).click();
+  const speed = page.getByRole('dialog', { name: 'Pick a speed' });
+  await expect(speed.getByRole('button', { name: /Standard/ })).toHaveAttribute('aria-pressed', 'true');
+  await speed.getByRole('button', { name: /Turbo/ }).click();
+  await noSideScroll(page);
+  await page.screenshot({ path: info.outputPath('lite-speed.png') });
+  await speed.getByRole('button', { name: 'Turn on at Runpod' }).click();
+  await expect.poll(() => calls.find((c) => c.path === '/api/ai' && c.body)?.body).toEqual({ action: 'start', provider: 'runpod', tier: 'turbo' });
+  await expect(page.getByLabel('AI machine')).toContainText('on');
+});
+
+test('fast Make with both set up: GPU.ai goes on to its GPU list (Back returns) and is sent with its provider', async ({ page }) => {
+  const { calls } = await standIns(page, { both: true });
+  await page.goto(`${SITE}/lite`);
+  await page.getByRole('button', { name: 'Turn on' }).click();
+  const where = page.getByRole('dialog', { name: 'Where to run it' });
+  await where.getByRole('button', { name: 'Continue' }).click();
+  const gpus = page.getByRole('dialog', { name: 'Pick a GPU' });
+  await expect(gpus.getByRole('button', { name: /A40/ })).toHaveAttribute('aria-pressed', 'true');
+  await gpus.getByRole('button', { name: 'Back' }).click();
+  await expect(where).toBeVisible();
+  await where.getByRole('button', { name: 'Continue' }).click();
+  await gpus.getByRole('button', { name: /RTX A6000/ }).click();
+  await gpus.getByRole('button', { name: 'Turn on' }).click();
+  await expect.poll(() => calls.find((c) => c.path === '/api/ai' && c.body)?.body).toEqual({ action: 'start', gpu: 'rtx_a6000', provider: 'gpuai' });
 });

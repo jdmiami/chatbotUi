@@ -6,6 +6,9 @@ import { autoOffMinutes } from './autoOff';
 import { r2Config } from './r2';
 import { createMachine, findMachine, machineAddress, machinePicks, terminateMachine } from './gpuaiMachine';
 import { STANDARD_GPUS, TURBO_GPUS, machineState, type GpuaiInstance, type MachineKind } from './gpuaiShared';
+import { activeOf, alreadyOnMessage, defaultProviderOf, otherOn, providerLabel, providersOf, type AiProvider, type AiProviderInfo } from './aiProviders';
+
+export type { AiProvider, AiProviderInfo } from './aiProviders';
 
 /**
  * The AI machine: a Runpod GPU pod running Open WebUI + Ollama behind a small gate (ai/setup.sh).
@@ -46,8 +49,10 @@ export interface AiStatus {
   /** Speed the machine is on (or was last on), and the speeds to choose from. */
   tier?: string | null;
   tiers?: AiTier[];
-  /** GPU.ai: Orbit shows every GPU to pick from before each Turn on (instead of Standard and Turbo). */
+  /** Orbit asks before each Turn on (every GPU on GPU.ai, or Runpod or GPU.ai when both are set up) instead of showing Standard and Turbo inline. */
   pickGpu?: boolean;
+  /** Where the machine is on (or would be turned on by default). */
+  provider?: AiProvider;
   /** GPU.ai, while the machine starts: your makers, and what you picked to load first (in order). */
   picks?: { library: string[]; first: string[] };
 }
@@ -114,9 +119,9 @@ export const env = () => ({
  * Speeds to choose from. Override with AI_TIERS (JSON array of AiTier). Every speed turns itself off
  * by the same rule (autoOffMinutes()); a custom list can't change that.
  */
-export function aiTiers(): AiTier[] {
+export function aiTiers(provider: AiProvider = aiProvider()): AiTier[] {
   const minutes = autoOffMinutes();
-  return tierList().map((t) => ({ ...t, idleMinutes: minutes }));
+  return tierList(provider).map((t) => ({ ...t, idleMinutes: minutes }));
 }
 
 /**
@@ -124,9 +129,50 @@ export function aiTiers(): AiTier[] {
  * without a Runpod one). On GPU.ai the machine is our own worker image with only the makers in
  * ONLY_MAKERS (lib/gpuaiMachine.ts); there is no chat, no helper and no drawing machine there.
  */
-export const aiProvider = (): 'runpod' | 'gpuai' => (process.env.AI_PROVIDER === 'gpuai' || (!process.env.RUNPOD_API_KEY && Boolean(process.env.GPUAI_API_KEY)) ? 'gpuai' : 'runpod');
+export const aiProvider = (): AiProvider => defaultProviderOf(process.env);
 
-function tierList(): AiTier[] {
+/**
+ * Every provider the AI machine can be turned on at, the default one first. With both Runpod and
+ * GPU.ai set up, Orbit asks which at every Turn on; the machine is then on at one of them, and
+ * everything that talks to it (status, token, off) looks at that one (activeProvider).
+ */
+export const aiProviders = (): AiProvider[] => providersOf(process.env, { r2: Boolean(r2Config()), storage: env().storage, volumeId: env().volumeId });
+
+// Where a machine is on, read from both providers (a few seconds' memory per server instance).
+let onCache: { at: number; on: Record<AiProvider, boolean> } | null = null;
+const forgetOn = () => {
+  onCache = null;
+};
+export async function machinesOn(): Promise<Record<AiProvider, boolean>> {
+  if (onCache && Date.now() - onCache.at < 4000) return onCache.on;
+  const providers = aiProviders();
+  const [gpuai, runpodOn] = await Promise.all([
+    providers.includes('gpuai') ? findMachine().then((m) => Boolean(m) && machineState(m) !== 'off', () => false) : false,
+    providers.includes('runpod') ? findPodNamed(env().name).then((pod) => Boolean(pod) && pod!.status !== 'EXITED', () => false) : false,
+  ]);
+  onCache = { at: Date.now(), on: { gpuai, runpod: runpodOn } };
+  return onCache.on;
+}
+
+/** The provider the AI machine is on at; when it is off, the default one. */
+export async function activeProvider(): Promise<AiProvider> {
+  const providers = aiProviders();
+  if (providers.length < 2) return providers[0] ?? aiProvider();
+  return activeOf(await machinesOn(), providers, aiProvider());
+}
+
+/** What Orbit shows for each provider before Turn on. */
+export function providerInfos(): AiProviderInfo[] {
+  return aiProviders().map((id): AiProviderInfo => {
+    if (id === 'gpuai') {
+      return { id, label: providerLabel(id), blurb: 'Pick any GPU. Pictures, videos and 3D with your makers (no chat).', fromPrice: STANDARD_GPUS[0]?.pricePerHour ?? null };
+    }
+    const tiers = aiTiers('runpod').map((t) => ({ id: t.id, label: t.label, gpuName: t.gpuName, pricePerHour: t.pricePerHour, speed: t.speed }));
+    return { id, label: providerLabel(id), blurb: 'Standard or Turbo. Your chat models and your makers.', fromPrice: tiers[0]?.pricePerHour ?? null, tiers };
+  });
+}
+
+function tierList(provider: AiProvider): AiTier[] {
   try {
     const custom = JSON.parse(process.env.AI_TIERS || 'null');
     if (Array.isArray(custom) && custom.length) return custom as AiTier[];
@@ -134,7 +180,7 @@ function tierList(): AiTier[] {
     /* fall back to the defaults */
   }
   const minutes = autoOffMinutes();
-  if (aiProvider() === 'gpuai') {
+  if (provider === 'gpuai') {
     const [s, ...sRest] = STANDARD_GPUS;
     const [t, ...tRest] = TURBO_GPUS;
     return [
@@ -181,10 +227,10 @@ function tierList(): AiTier[] {
 const gpusOf = (t: AiTier) => [t.gpu, ...(t.alsoGpus ?? [])];
 const fallbacksOf = (t: AiTier) =>
   (t.fallbacks ?? []).filter((f) => f.pricePerHour <= (t.maxFallbackPrice ?? t.pricePerHour)).sort((a, b) => a.pricePerHour - b.pricePerHour);
-const tierOf = (pod: Pod | null) => {
+const tierOf = (pod: Pod | null, provider: AiProvider = aiProvider()) => {
   const id = pod?.gpu?.id;
   if (!id) return null;
-  const tiers = aiTiers();
+  const tiers = aiTiers(provider);
   return tiers.find((t) => gpusOf(t).includes(id)) ?? tiers.find((t) => fallbacksOf(t).some((f) => f.gpu === id)) ?? null;
 };
 /** On a backup GPU, or outside the usual (North American) data centers: try the usual place again next start. */
@@ -198,18 +244,20 @@ const onBackup = (pod: Pod, tier: AiTier) =>
 export function aiConfigured() {
   const e = env();
   if (e.secret.length < 32) return false;
-  if (aiProvider() === 'gpuai') return Boolean(process.env.GPUAI_API_KEY && r2Config());
-  return Boolean((process.env.RUNPOD_API_KEY && (e.storage === 'r2' || e.volumeId)) || process.env.AI_POD_ID);
+  return aiProviders().length > 0 || Boolean(process.env.AI_POD_ID);
 }
 
 // GPU.ai machines: their addresses, as last read from R2 in this server instance (every lookup here
 // goes through findAiPod or aiStatus first, which fill this), so aiBase stays a plain function.
 const addresses = new Map<string, string>();
+// Every GPU.ai machine id seen, so its page is GPU.ai's even before its address is published.
+const gpuaiIds = new Set<string>();
 const GPUAI_CONSOLE = 'https://gpu.ai/dashboard';
 
 /** A GPU.ai instance as the rest of this file sees a machine (a Pod), with its address remembered. */
 export async function machineAsPod(m: GpuaiInstance | null, kind: MachineKind = 'ai'): Promise<Pod | null> {
   if (!m) return null;
+  gpuaiIds.add(m.id);
   const state = machineState(m);
   let status: PodStatus = state === 'off' ? 'EXITED' : state === 'error' ? 'ERROR' : state === 'starting' ? 'STARTING' : 'RUNNING';
   if (state === 'running') {
@@ -231,7 +279,7 @@ async function gateUp(podId: string) {
 }
 
 export const aiBase = (podId: string) => addresses.get(podId) ?? `https://${podId}-8080.proxy.runpod.net`;
-export const aiConsole = (podId: string) => (addresses.has(podId) || aiProvider() === 'gpuai' ? GPUAI_CONSOLE : `https://console.runpod.io/pods?id=${encodeURIComponent(podId)}`);
+export const aiConsole = (podId: string) => (addresses.has(podId) || gpuaiIds.has(podId) ? GPUAI_CONSOLE : `https://console.runpod.io/pods?id=${encodeURIComponent(podId)}`);
 
 /** The code version the machine runs: the same commit as this deployment (falls back to main). */
 export function repoRaw() {
@@ -253,8 +301,8 @@ export async function findPodNamed(name: string): Promise<Pod | null> {
 }
 
 /** The newest live pod with the AI machine's name, or null. */
-export async function findAiPod(): Promise<Pod | null> {
-  if (aiProvider() === 'gpuai') return machineAsPod(await findMachine());
+export async function findAiPod(provider?: AiProvider): Promise<Pod | null> {
+  if ((provider ?? (await activeProvider())) === 'gpuai') return machineAsPod(await findMachine());
   const fixed = process.env.AI_POD_ID;
   if (fixed && !process.env.RUNPOD_API_KEY) {
     // No Runpod key: we can't see or change its power state, only whether it answers.
@@ -381,7 +429,7 @@ async function createOrExplain(tier: AiTier, role: 'main' | 'helper' = 'main') {
   try {
     return await createAiPod(tier, role);
   } catch (err) {
-    if (noCapacity((err as Error).message)) throw new Error(noGpu(tier, aiTiers().filter((t) => t.id !== tier.id)));
+    if (noCapacity((err as Error).message)) throw new Error(noGpu(tier, aiTiers('runpod').filter((t) => t.id !== tier.id)));
     throw err;
   }
 }
@@ -400,8 +448,22 @@ export async function waitStopped(podId: string, ms = 45_000) {
  * creates it, moves it to the other speed's GPU, or replaces it when its host has no free GPU.
  * Models, chats and creations are kept in R2 (or on the network volume), so a new pod picks up where the old left off.
  */
-export async function startAi(tierId?: string, gpu?: string | null): Promise<void> {
-  if (aiProvider() === 'gpuai') {
+export async function startAi(tierId?: string, gpu?: string | null, chosen?: AiProvider | null): Promise<void> {
+  // One machine at a time: with one on at the other provider, turning one on here would cost twice.
+  if (chosen && aiProviders().length > 1) {
+    const other = otherOn(chosen, await machinesOn());
+    if (other) throw new Error(alreadyOnMessage(other, chosen));
+  }
+  const provider = chosen ?? (await activeProvider());
+  try {
+    await startAiAt(provider, tierId, gpu);
+  } finally {
+    forgetOn();
+  }
+}
+
+async function startAiAt(provider: AiProvider, tierId?: string, gpu?: string | null): Promise<void> {
+  if (provider === 'gpuai') {
     if (!process.env.GPUAI_API_KEY) throw new Error('Add GPUAI_API_KEY in Vercel so the site can turn the AI machine on.');
     const m = await findMachine();
     if (m && machineState(m) !== 'off') return;
@@ -410,14 +472,14 @@ export async function startAi(tierId?: string, gpu?: string | null): Promise<voi
     return;
   }
   if (!process.env.RUNPOD_API_KEY) throw new Error('Add RUNPOD_API_KEY in Vercel so the site can turn the AI machine on.');
-  const tiers = aiTiers();
-  const pod = await findAiPod();
-  const tier = tiers.find((t) => t.id === tierId) ?? tierOf(pod) ?? tiers[0];
+  const tiers = aiTiers('runpod');
+  const pod = await findAiPod('runpod');
+  const tier = tiers.find((t) => t.id === tierId) ?? tierOf(pod, 'runpod') ?? tiers[0];
   if (!pod) {
     await createOrExplain(tier);
     return;
   }
-  const current = tierOf(pod);
+  const current = tierOf(pod, 'runpod');
   if (current && current.id !== tier.id) {
     // Another speed: stop this machine, start one on the other GPU, then remove the old one.
     if (pod.status !== 'EXITED') {
@@ -459,24 +521,43 @@ export async function startAi(tierId?: string, gpu?: string | null): Promise<voi
   }
 }
 
+/**
+ * Turn the AI machine off wherever it is on: GPU.ai's is ended, Runpod's is stopped. Both providers are
+ * looked at, so Turn off always leaves nothing running (and nothing costing) whichever one it was on.
+ */
 export async function stopAi(): Promise<void> {
-  if (aiProvider() === 'gpuai') {
-    const m = await findMachine();
-    if (m) await terminateMachine(m.id);
-    return;
+  const gpuai = Boolean(process.env.GPUAI_API_KEY);
+  const runpodKey = Boolean(process.env.RUNPOD_API_KEY);
+  if (!gpuai && !runpodKey) throw new Error(`Add ${aiProvider() === 'gpuai' ? 'GPUAI_API_KEY' : 'RUNPOD_API_KEY'} in Vercel so the site can turn the AI machine off.`);
+  const errors: Error[] = [];
+  if (gpuai && (aiProvider() === 'gpuai' || aiProviders().includes('gpuai'))) {
+    try {
+      const m = await findMachine();
+      if (m) await terminateMachine(m.id);
+    } catch (err) {
+      errors.push(err as Error);
+    }
   }
-  if (!process.env.RUNPOD_API_KEY) throw new Error('Add RUNPOD_API_KEY in Vercel so the site can turn the AI machine off.');
-  const pod = await findAiPod();
-  if (pod && pod.status !== 'EXITED') {
-    await runpod(`/pods/${encodeURIComponent(pod.id)}/action`, { method: 'POST', body: JSON.stringify({ action: 'stop' }) });
+  if (runpodKey && (aiProvider() === 'runpod' || aiProviders().includes('runpod'))) {
+    try {
+      const pod = await findAiPod('runpod');
+      if (pod && pod.status !== 'EXITED') {
+        await runpod(`/pods/${encodeURIComponent(pod.id)}/action`, { method: 'POST', body: JSON.stringify({ action: 'stop' }) });
+      }
+    } catch (err) {
+      errors.push(err as Error);
+    }
   }
+  forgetOn();
+  if (errors.length) throw errors[0];
 }
 
 /** Turn the helper on (Standard GPU). Creates it the first time; replaces it when its host has no free GPU. */
 export async function startHelper(): Promise<void> {
-  if (aiProvider() === 'gpuai') throw new Error('There is no helper machine on GPU.ai: the AI machine makes everything itself.');
+  // The helper is a Runpod machine next to a Runpod AI machine: with the AI machine on GPU.ai there is none.
+  if ((await activeProvider()) === 'gpuai') throw new Error('There is no helper machine on GPU.ai: the AI machine makes everything itself.');
   if (!process.env.RUNPOD_API_KEY) throw new Error('Add RUNPOD_API_KEY in Vercel so the site can turn the helper on.');
-  const tier = aiTiers()[0];
+  const tier = aiTiers('runpod')[0];
   const pod = await findHelperPod();
   if (!pod) {
     await createOrExplain(tier, 'helper');
@@ -498,7 +579,7 @@ export async function startHelper(): Promise<void> {
 }
 
 export async function stopHelper(): Promise<void> {
-  if (aiProvider() === 'gpuai') return;
+  if (!process.env.RUNPOD_API_KEY && aiProvider() === 'gpuai') return;
   if (!process.env.RUNPOD_API_KEY) throw new Error('Add RUNPOD_API_KEY in Vercel so the site can turn the helper off.');
   const pod = await findHelperPod();
   if (pod && pod.status !== 'EXITED') {
@@ -518,15 +599,18 @@ export interface HelperStatus {
 }
 
 export async function helperStatus(user: string): Promise<HelperStatus & { podId?: string }> {
-  const pricePerHour = aiTiers()[0].pricePerHour;
+  const pricePerHour = aiTiers('runpod')[0].pricePerHour;
   const rule = { pricePerHour, autoOffMinutes: autoOffMinutes() };
-  if (!aiConfigured() || !process.env.RUNPOD_API_KEY || aiProvider() === 'gpuai') return { state: 'unconfigured', costPerHour: null, ...rule };
+  if (!aiConfigured() || !process.env.RUNPOD_API_KEY) return { state: 'unconfigured', costPerHour: null, ...rule };
+  const onRunpod = (await activeProvider()) === 'runpod';
   let pod: Pod | null;
   try {
     pod = await findHelperPod();
   } catch (err) {
     return { state: 'error', costPerHour: null, ...rule, detail: (err as Error).message };
   }
+  // The AI machine is on GPU.ai and no helper is running: there is none to show. One still running is shown (and can be stopped).
+  if (!onRunpod && (!pod || pod.status === 'EXITED')) return { state: 'unconfigured', costPerHour: null, ...rule };
   if (!pod || pod.status === 'EXITED') return { state: 'off', costPerHour: null, ...rule, podId: pod?.id };
   const cost = typeof pod.cost === 'number' && pod.cost > 0 ? pod.cost : null;
   if (pod.status !== 'RUNNING') {
@@ -599,22 +683,28 @@ export async function aiStatus(user: string): Promise<AiStatus & { podId?: strin
     const need = aiProvider() === 'gpuai' ? 'GPUAI_API_KEY, the R2 keys and LINUX_GATEWAY_SECRET' : 'RUNPOD_API_KEY and LINUX_GATEWAY_SECRET';
     return { state: 'unconfigured', costPerHour: null, detail: `The AI machine is not set up in Vercel yet (${need}).` };
   }
-  const gpuaiMachine = aiProvider() === 'gpuai';
+  const providers = aiProviders();
+  const provider = await activeProvider();
+  const gpuaiMachine = provider === 'gpuai';
   let pod: Pod | null;
   let instance: GpuaiInstance | null = null;
   try {
     if (gpuaiMachine) {
       instance = await findMachine();
       pod = await machineAsPod(instance);
-    } else pod = await findAiPod();
+    } else pod = await findAiPod('runpod');
   } catch (err) {
     return { state: 'error', costPerHour: null, detail: (err as Error).message };
   }
-  // On GPU.ai Orbit shows every GPU before each Turn on (pickGpu), instead of the two speeds.
-  const speeds = { tiers: aiTiers(), tier: tierOf(pod)?.id ?? null, autoOffMinutes: autoOffMinutes(), ...(gpuaiMachine ? { pickGpu: true } : {}) };
+  // On GPU.ai Orbit shows every GPU before each Turn on (pickGpu), instead of the two speeds; with both
+  // providers set up it asks which one first (and then the GPU or the speed), so no speeds inline either.
+  const speeds = { tiers: aiTiers(provider), tier: tierOf(pod, provider)?.id ?? null, autoOffMinutes: autoOffMinutes(), provider, ...(gpuaiMachine || providers.length > 1 ? { pickGpu: true } : {}) };
+  // Two machines on at once (it should not happen): said plainly, since both cost money.
+  const both = providers.length > 1 && providers.every((p) => (onCache?.on ?? { gpuai: false, runpod: false })[p]);
+  const twice = both ? 'Your AI machine is on at both GPU.ai and Runpod, and both cost money. Turn it off and on again to keep just one.' : undefined;
   if (!pod) return { state: 'off', costPerHour: null, ...speeds };
-  const t = tierOf(pod);
-  const backup = !gpuaiMachine && pod.status !== 'EXITED' && t && onBackup(pod, t) ? backupNote(pod, t) : undefined;
+  const t = tierOf(pod, provider);
+  const backup = twice ?? (!gpuaiMachine && pod.status !== 'EXITED' && t && onBackup(pod, t) ? backupNote(pod, t) : undefined);
   const cost = typeof pod.cost === 'number' && pod.cost > 0 ? pod.cost : null;
   const where = gpuaiMachine ? { url: addresses.get(pod.id), consoleUrl: GPUAI_CONSOLE, startedAt: instance?.ready_at ?? null } : {};
   // While it starts: what you can pick to load first (Orbit shows it on the starting screen).
