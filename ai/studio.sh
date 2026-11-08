@@ -148,6 +148,27 @@ cd "$S/ComfyUI" || exit 1
 # Each machine keeps its own ComfyUI settings, database and temp files (ComfyUI empties its temp
 # folder on start, and its database must not be shared between two machines).
 ROLE_DIR="$S/machine-${AI_ROLE:-main}"
+# The fastest PyTorch this machine's NVIDIA driver can run. Driver 580 or newer (the H200s on GPU.ai):
+# PyTorch for CUDA 13, which turns on ComfyUI's optimized Comfy Kitchen kernels (H3 Max's int8 model runs
+# on them; with CUDA 12.8 ComfyUI switches them off). An older driver can't run CUDA 13 at all, so it keeps
+# (or goes back to) PyTorch for CUDA 12.8. Same versions either way; only the CUDA build differs. If the
+# switch fails (no network), the machine starts on what it has.
+DRIVER_MAJOR=$(nvidia-smi --query-gpu=driver_version --format=csv,noheader 2>/dev/null | head -1 | cut -d. -f1 | tr -dc 0-9)
+if [ -n "$DRIVER_MAJOR" ] && [ -x "$S/venv/bin/python" ]; then
+  HAVE_CUDA=$("$S/venv/bin/python" -c 'import torch; print((torch.version.cuda or "").replace(".", ""))' 2>/dev/null)
+  if [ "$DRIVER_MAJOR" -ge 580 ]; then WANT_CUDA=130; else WANT_CUDA=128; fi
+  if [ -n "$HAVE_CUDA" ] && [ "$HAVE_CUDA" != "$WANT_CUDA" ]; then
+    log "driver $DRIVER_MAJOR: switching PyTorch to its CUDA ${WANT_CUDA:0:2}.${WANT_CUDA:2} build"
+    # shellcheck disable=SC2086
+    PINNED=$(printf '%s+cu'"$WANT_CUDA"' ' $TORCH)
+    # shellcheck disable=SC2086
+    if "$S/venv/bin/python" -m pip install -q $PINNED --index-url "https://download.pytorch.org/whl/cu$WANT_CUDA" --extra-index-url https://pypi.org/simple; then
+      log "PyTorch is on CUDA ${WANT_CUDA:0:2}.${WANT_CUDA:2}"
+    else
+      log "could not switch PyTorch; starting on the CUDA ${HAVE_CUDA:0:2}.${HAVE_CUDA:2} build"
+    fi
+  fi
+fi
 # Orbit's start-up check for Comfy Kitchen's fast INT8 attention (H3 Max's model files ask for it): it is
 # switched off when this machine's NVIDIA driver is too old for its CUDA 13 kernels (gate/comfy_kitchen_guard.py).
 GUARD_SRC="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/comfy_kitchen_guard.py"
