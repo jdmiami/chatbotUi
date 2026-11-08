@@ -288,6 +288,51 @@ test.describe('AI Store', () => {
     expect(errors).toEqual([]);
   });
 
+  test('download manager: several files at once, with their total speed', async ({ page }, testInfo) => {
+    await mockAi(page, 'on');
+    const now = { name: '10Eros_v1.4_fp8mixed_learned.safetensors', makers: ['LTX video'], source: 'Hugging Face', saving: false, completed: 12e9, total: 22e9, percent: 54, bytesPerSec: 60e6, etaSeconds: 160, startedAt: '2026-10-21T18:30:00Z' };
+    await page.route('**/fake-ai/_orbit/studio/downloads', (route) =>
+      route.fulfill({
+        json: {
+          state: 'downloading',
+          paused: false,
+          current: now,
+          active: [
+            { name: now.name, makers: now.makers, source: now.source, saving: false, percent: 54, bytesPerSec: 60e6 },
+            { name: 'krea_real.safetensors', makers: ['Krea Real'], source: 'Hugging Face', saving: false, percent: 21, bytesPerSec: 58e6 },
+            { name: 'qwen_te.safetensors', makers: ['Qwen'], source: 'cloud storage', saving: true, percent: 80, bytesPerSec: 30e6 },
+          ],
+          lanes: 3,
+          bytesPerSec: 148e6,
+          queue: [{ id: 'a', name: 'h3.safetensors', size: 20.9e9, have: 0, makers: ['H3 Max'], problem: null }],
+          done: 4,
+          bytesLeft: 50e9,
+          etaSeconds: 340,
+          lastError: null,
+          diskFree: 600e9,
+          bottleneck: '3 files at once, 148 MB/s together. 1 more waits behind them.',
+          log: [{ at: '2026-10-21T18:31:00Z', kind: 'lanes', text: '3 files at once: there is bandwidth to spare (118 MB/s with 2)' }],
+          network: { rxPerSec: 150e6, txPerSec: 1e6 },
+        },
+      }),
+    );
+    const { errors, win } = await openStore(page);
+    await win.getByRole('tab', { name: 'Downloads' }).click();
+    const dm = win.getByRole('region', { name: 'Downloads' });
+    await expect(dm.getByLabel('What is happening')).toContainText('3 files at once, 148 MB/s together');
+    // The speed is all of them together; the others have their own rows.
+    await expect(dm.getByRole('definition').first()).toHaveText('148 MB/s');
+    const also = dm.getByRole('list', { name: 'Also coming down' });
+    await expect(also.getByRole('listitem')).toHaveCount(2);
+    await expect(also).toContainText('krea_real.safetensors');
+    await expect(also).toContainText('21% · 58 MB/s from Hugging Face');
+    await expect(also).toContainText('80% · saving to cloud storage');
+    await expect(dm.getByRole('list', { name: 'What happened' })).toContainText('there is bandwidth to spare');
+    await expectNoHorizontalOverflow(page);
+    await page.screenshot({ path: testInfo.outputPath('downloads-lanes.png') });
+    expect(errors).toEqual([]);
+  });
+
   test('video makers show while the machine rests (from the catalog)', async ({ page }) => {
     await mockAi(page, 'off');
     const { win } = await openStore(page);

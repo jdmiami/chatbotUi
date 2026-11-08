@@ -92,6 +92,8 @@ export function DownloadManager({ ai, status, machineOn, isActive }: { ai: Local
     );
 
   const c = d.current;
+  // The other files coming down at the same time (the first one is the card above).
+  const others = (d.active ?? []).filter((a) => a.name !== c?.name);
   const stuck = d.queue.filter((q) => q.problem);
   const waiting = d.queue.filter((q) => !q.problem);
   const pull = status?.pulling;
@@ -133,7 +135,7 @@ export function DownloadManager({ ai, status, machineOn, isActive }: { ai: Local
       <dl className="dm-stats">
         <div>
           <dt>Speed</dt>
-          <dd>{rate(c?.bytesPerSec)}</dd>
+          <dd>{rate(d.bytesPerSec ?? c?.bytesPerSec)}</dd>
         </div>
         <div>
           <dt>Time left</dt>
@@ -176,6 +178,22 @@ export function DownloadManager({ ai, status, machineOn, isActive }: { ai: Local
             </span>
           </p>
         </div>
+      )}
+
+      {others.length > 0 && (
+        <>
+          <h4 className="dm-sub">Also coming down ({others.length})</h4>
+          <ul className="dm-list" aria-label="Also coming down">
+            {others.map((a) => (
+              <li key={a.name}>
+                <span className="dm-name">{a.name}</span>
+                <span className="ai-muted">
+                  {a.percent}% · {a.saving ? 'saving to cloud storage' : `${rate(a.bytesPerSec)} from ${a.source}`}
+                </span>
+              </li>
+            ))}
+          </ul>
+        </>
       )}
 
       {pull && (

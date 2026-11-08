@@ -286,6 +286,12 @@ export interface StudioDownloads {
     etaSeconds: number | null;
     startedAt: string;
   } | null;
+  /** Every file coming down right now (the first is `current`; older machines leave this out). */
+  active?: { name: string; makers: string[]; source: string; saving: boolean; percent: number; bytesPerSec: number | null }[];
+  /** How many may come down at once right now (it changes with how much the line can take). */
+  lanes?: number;
+  /** All of them together. */
+  bytesPerSec?: number | null;
   /** Waiting behind it (problem: it gave up, and why). */
   queue: { id: string; name: string; size: number; have: number; makers: string[]; problem: string | null }[];
   done: number;
