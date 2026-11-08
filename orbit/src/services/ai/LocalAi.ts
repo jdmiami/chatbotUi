@@ -6,7 +6,7 @@
  * The token lives only in memory.
  */
 import type { HeldItem } from './HeldReview';
-import { chooseGpu } from '../../ui/GpuChooser';
+import { chooseMachine, type ProviderId } from '../../ui/GpuChooser';
 
 export type AiMachineState = 'unconfigured' | 'off' | 'starting' | 'downloading' | 'on' | 'error';
 
@@ -21,8 +21,10 @@ export interface AiMachineStatus {
   autoOffMinutes?: number;
   tier?: string | null;
   tiers?: AiTier[];
-  /** On GPU.ai every Turn on shows every GPU to pick from, so the two speeds are not shown. */
+  /** Every Turn on asks first (every GPU on GPU.ai, and where to run it when Runpod is set up too), so the two speeds are not shown. */
   pickGpu?: boolean;
+  /** Where the machine is on (or would be turned on by default). */
+  provider?: ProviderId;
   /** The AI machine on GPU.ai, while it starts: your makers, and what you picked to load first (in order). */
   picks?: { library: string[]; first: string[] };
 }
@@ -644,17 +646,23 @@ export class LocalAi {
   }
 
   /**
-   * Turn the AI machine on or off. On GPU.ai every Turn on first shows every GPU to pick from
-   * (ui/GpuChooser); cancelling leaves it off and returns the status as it is.
+   * Turn the AI machine on or off. Every Turn on first asks where and how (ui/GpuChooser): every GPU
+   * on GPU.ai, and with Runpod set up too, which of the two first; cancelling leaves it off and returns
+   * the status as it is. Turn off ends it wherever it is on.
    */
   async power(action: 'start' | 'stop', tier?: string): Promise<AiMachineStatus> {
     let gpu: string | undefined;
+    let provider: ProviderId | undefined;
     if (action === 'start') {
-      const pick = await chooseGpu('ai');
+      const pick = await chooseMachine();
       if (pick === null) return this.status();
-      gpu = pick;
+      if (pick) {
+        gpu = pick.gpu;
+        provider = pick.provider;
+        tier = pick.tier ?? tier;
+      }
     }
-    return machineStatus(await siteJson<AiMachineStatus>('/api/ai', { method: 'POST', body: JSON.stringify({ action, tier, gpu }) }));
+    return machineStatus(await siteJson<AiMachineStatus>('/api/ai', { method: 'POST', body: JSON.stringify({ action, tier, gpu, provider }) }));
   }
 
   /** While the machine on GPU.ai starts: what to load first, in order (it reads this when it comes up). */

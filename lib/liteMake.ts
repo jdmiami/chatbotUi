@@ -242,30 +242,76 @@ export const LITE_JS = String.raw`
     if (S.status && S.status.pickGpu) return gpuSheet();
     return start(undefined);
   }
-  function start(gpu) {
+  function start(gpu, provider, tier) {
     S.busy = 'power';
-    return api('/api/ai', { method: 'POST', body: { action: 'start', gpu: gpu } }).then(function (s) { closeSheet(); setStatus(s); }).catch(function (err) { alert(err.message); }).then(function () { S.busy = ''; });
+    var body = { action: 'start', gpu: gpu };
+    if (provider) body.provider = provider;
+    if (tier) body.tier = tier;
+    return api('/api/ai', { method: 'POST', body: body }).then(function (s) { closeSheet(); setStatus(s); }).catch(function (err) { alert(err.message); }).then(function () { S.busy = ''; });
+  }
+  // The Turn on sheet: with both Runpod and GPU.ai set up, where to run it first, then GPU.ai's GPUs or
+  // Runpod's speeds; with only GPU.ai, its GPUs straight away.
+  function sheetHtml(sh) {
+    var money = function (n) { return '$' + Number(n).toFixed(2) + '/h'; };
+    var acts = function (primary, back) { return '<div class="acts">' + primary + (back ? '<button class="btn" data-do="back">Back</button>' : '') + '<button class="btn" data-do="close">Cancel</button></div>'; };
+    var many = sh.providers.length > 1;
+    if (sh.step === 'wait') return '<div class="in" role="dialog" aria-label="Turn on"><p class="kick">Turn on</p><h2>One moment</h2><p class="note">Looking…</p></div>';
+    if (sh.step === 'error') return '<div class="in" role="dialog" aria-label="Turn on"><p class="kick">Turn on</p><h2>Could not look</h2><p class="note bad">' + esc(sh.err) + '</p>' + acts('', false) + '</div>';
+    if (sh.step === 'provider') {
+      return '<div class="in" role="dialog" aria-label="Where to run it"><p class="kick">Turn on</p><h2>Where should it run?</h2><p class="note">You pay by the hour, only while it is on. One machine at a time: to move it, turn it off first.</p>' +
+        sh.providers.map(function (p) {
+          return '<button class="gpu" data-provider="' + esc(p.id) + '" aria-pressed="' + (p.id === sh.provider) + '"><span>' + esc(p.label) + '<small>' + esc(p.blurb) + '</small></span><span>' + (p.fromPrice != null ? 'from ' + money(p.fromPrice) : '') + (p.id === sh['default'] ? '<small>usual</small>' : '') + '</span></button>';
+        }).join('') + acts('<button class="btn p" data-do="next">Continue</button>', false) + '</div>';
+    }
+    if (sh.step === 'speed') {
+      var rp = sh.providers.filter(function (p) { return p.id === 'runpod'; })[0];
+      var tiers = (rp && rp.tiers) || [];
+      return '<div class="in" role="dialog" aria-label="Pick a speed"><p class="kick">Turn on</p><h2>Pick a speed</h2><p class="note">Runpod gives the machine one of its GPUs, by the hour.</p>' +
+        tiers.map(function (t) { return '<button class="gpu" data-tier="' + esc(t.id) + '" aria-pressed="' + (t.id === sh.tier) + '"><span>' + esc(t.label) + ' · ' + esc(t.gpuName) + '<small>' + esc(t.speed) + '</small></span><span>' + money(t.pricePerHour) + '</span></button>'; }).join('') +
+        acts('<button class="btn p" data-do="go"' + (sh.tier ? '' : ' disabled') + '>Turn on at Runpod</button>', many) + '</div>';
+    }
+    var list = sh.options;
+    return '<div class="in" role="dialog" aria-label="Pick a GPU"><p class="kick">Turn on</p><h2>Pick a GPU</h2><p class="note">Every GPU free right now, cheapest first.</p>' +
+      (list.length ? list.map(function (o) {
+        return '<button class="gpu" data-gpu="' + esc(o.gpu) + '" aria-pressed="' + (o.gpu === sh.gpu) + '"><span>' + esc(o.name) + (o.memoryGb ? ' ' + o.memoryGb + ' GB' : '') + '<small>' + esc(o.note) + '</small></span><span>' + money(o.pricePerHour) + (o.gpu === sh.recommended ? '<small>suggested</small>' : '') + '</span></button>';
+      }).join('') : '<p class="note">No GPU is free on GPU.ai right now. ' + (many ? 'Go back and try Runpod, or try again in a few minutes.' : 'Try again in a few minutes.') + '</p>') +
+      acts('<button class="btn p" data-do="go"' + (sh.gpu ? '' : ' disabled') + '>Turn on</button>', many) + '</div>';
   }
   function gpuSheet() {
     var box = document.createElement('div');
     box.className = 'sheet';
-    box.innerHTML = '<div class="in" role="dialog" aria-label="Pick a GPU"><p class="kick">Turn on</p><h2>Pick a GPU</h2><p class="note">Every GPU free right now, cheapest first.</p><div id="gpus"><p class="note">Looking…</p></div><div class="acts"><button class="btn p" data-do="go" disabled>Turn on</button><button class="btn" data-do="close">Cancel</button></div></div>';
     document.body.appendChild(box);
-    var pick = null;
+    var sh = { step: 'wait', providers: [], provider: '', options: [], recommended: null, gpu: null, tier: null, err: '' };
+    sh['default'] = null;
+    var draw = function () { box.innerHTML = sheetHtml(sh); };
+    draw();
     api('/api/ai/gpus').then(function (r) {
-      var list = r.options || [];
-      pick = r.recommended || (list[0] && list[0].gpu) || null;
-      $('#gpus', box).innerHTML = list.length ? list.map(function (o) {
-        return '<button class="gpu" data-gpu="' + esc(o.gpu) + '" aria-pressed="' + (o.gpu === pick) + '"><span>' + esc(o.name) + (o.memoryGb ? ' ' + o.memoryGb + ' GB' : '') + '<small>' + esc(o.note) + '</small></span><span>$' + Number(o.pricePerHour).toFixed(2) + '/h' + (o.gpu === r.recommended ? '<small>suggested</small>' : '') + '</span></button>';
-      }).join('') : '<p class="note">No GPU is free on GPU.ai right now. Try again in a few minutes.</p>';
-      $('[data-do=go]', box).disabled = !pick;
-    }).catch(function (err) { $('#gpus', box).innerHTML = '<p class="note bad">' + esc(err.message) + '</p>'; });
+      sh.options = r.options || [];
+      sh.recommended = r.recommended || null;
+      sh.gpu = sh.recommended || (sh.options[0] && sh.options[0].gpu) || null;
+      sh.providers = r.providers && r.providers.length > 1 ? r.providers : [];
+      if (sh.providers.length) {
+        sh['default'] = r['default'] || sh.providers[0].id;
+        sh.provider = sh['default'];
+        var rp = sh.providers.filter(function (p) { return p.id === 'runpod'; })[0];
+        sh.tier = rp && rp.tiers && rp.tiers[0] ? rp.tiers[0].id : null;
+        sh.step = 'provider';
+      } else sh.step = 'gpu';
+      draw();
+    }).catch(function (err) { sh.step = 'error'; sh.err = err.message; draw(); });
     box.addEventListener('click', function (e) {
-      var g = e.target.closest('[data-gpu]');
-      if (g) { pick = g.getAttribute('data-gpu'); box.querySelectorAll('[data-gpu]').forEach(function (b) { b.setAttribute('aria-pressed', String(b === g)); }); $('[data-do=go]', box).disabled = false; }
-      var d = e.target.closest('[data-do]');
-      if (d && d.getAttribute('data-do') === 'go' && pick) start(pick);
-      if ((d && d.getAttribute('data-do') === 'close') || e.target === box) closeSheet();
+      var g = e.target.closest('[data-gpu]'), pv = e.target.closest('[data-provider]'), t = e.target.closest('[data-tier]'), d = e.target.closest('[data-do]');
+      if (g) { sh.gpu = g.getAttribute('data-gpu'); return draw(); }
+      if (pv) { sh.provider = pv.getAttribute('data-provider'); return draw(); }
+      if (t) { sh.tier = t.getAttribute('data-tier'); return draw(); }
+      var act = d && d.getAttribute('data-do');
+      if (act === 'next') { sh.step = sh.provider === 'runpod' ? 'speed' : 'gpu'; return draw(); }
+      if (act === 'back') { sh.step = 'provider'; return draw(); }
+      if (act === 'go') {
+        if (sh.step === 'speed' && sh.tier) return start(undefined, 'runpod', sh.tier);
+        if (sh.step === 'gpu' && sh.gpu) return start(sh.gpu, sh.providers.length > 1 ? 'gpuai' : undefined);
+      }
+      if (act === 'close' || e.target === box) closeSheet();
     });
   }
   function closeSheet() { var s = $('.sheet'); if (s) s.remove(); }

@@ -373,6 +373,90 @@ test('Make on GPU.ai: Turn it on shows every GPU first; Cancel leaves it off, a 
   expect(await page.evaluate(() => localStorage.getItem('orbit.gpu.ai'))).toBe('h100_sxm');
 });
 
+// With both Runpod and GPU.ai set up, the site's list also carries the two places to run it.
+const BOTH = {
+  recommended: 'l40s',
+  default: 'gpuai',
+  options: [
+    { gpu: 'l40s', name: 'L40S', memoryGb: 48, pricePerHour: 0.8, region: 'us-central', free: 58, fits: 'some', note: 'Pictures fast; H3 Max videos run slow (it does not fit whole)', videoMinutes: 4 },
+    { gpu: 'h100_sxm', name: 'H100 SXM', memoryGb: 80, pricePerHour: 3.99, region: 'us-east', free: 8, fits: 'yes', note: 'Everything, fast: H3 Max fits whole', videoMinutes: 2 },
+  ],
+  providers: [
+    { id: 'gpuai', label: 'GPU.ai', blurb: 'Pick any GPU. Pictures, videos and 3D with your makers (no chat).', fromPrice: 0.45 },
+    {
+      id: 'runpod',
+      label: 'Runpod',
+      blurb: 'Standard or Turbo. Your chat models and your makers.',
+      fromPrice: 0.59,
+      tiers: [
+        { id: 'standard', label: 'Standard', gpuName: 'A40 / A6000 48 GB', pricePerHour: 0.59, speed: 'normal speed' },
+        { id: 'turbo', label: 'Turbo', gpuName: 'H100 80 GB', pricePerHour: 2.89, speed: 'about 3–4× faster' },
+      ],
+    },
+  ],
+};
+
+test('Make with Runpod and GPU.ai both set up: Turn it on asks where to run it, then the speed; the choice is sent and remembered', async ({ page }, info) => {
+  const calls: Record<string, unknown>[] = [];
+  await mockAi(page, 'off', calls);
+  await page.route(/\/api\/make(\?.*)?$/, (r) => r.fulfill({ json: { configured: false } }));
+  await page.route('**/api/ai/gpus?machine=ai', (r) => r.fulfill({ json: BOTH }));
+  await openOrbit(page);
+  const win = await openMakeApp(page);
+  await win.locator('.make-banner').getByRole('button', { name: 'Turn it on' }).click();
+  const where = page.getByRole('dialog', { name: 'Where should your AI machine run?' });
+  await expect(where.getByRole('radio')).toHaveCount(2);
+  // The usual one (GPU.ai) is picked; both show what they cost from.
+  await expect(where.getByRole('radio', { name: /GPU\.ai/ })).toHaveAttribute('aria-checked', 'true');
+  await expect(where.getByRole('radio', { name: /GPU\.ai/ })).toContainText('from $0.45/h');
+  await expect(where.getByRole('radio', { name: /Runpod/ })).toContainText('from $0.59/h');
+  await expect(where.getByText('One machine at a time')).toBeVisible();
+  await expectNoHorizontalOverflow(page);
+  await page.screenshot({ path: info.outputPath('where-to-run.png') });
+
+  await where.getByRole('radio', { name: /Runpod/ }).click();
+  await where.getByRole('button', { name: 'Continue · Runpod' }).click();
+  const speed = page.getByRole('dialog', { name: 'Pick a speed for your AI machine' });
+  await expect(speed.getByRole('radio')).toHaveCount(2);
+  await expect(speed.getByRole('radio', { name: /Standard/ })).toHaveAttribute('aria-checked', 'true');
+  await speed.getByRole('radio', { name: /Turbo/ }).click();
+  await expectNoHorizontalOverflow(page);
+  await page.screenshot({ path: info.outputPath('runpod-speed.png') });
+  await speed.getByRole('button', { name: 'Turn on at Runpod · Turbo · $2.89/h' }).click();
+  await expect.poll(() => calls.find((c) => c.action === 'start')).toMatchObject({ action: 'start', provider: 'runpod', tier: 'turbo' });
+  expect(await page.evaluate(() => [localStorage.getItem('orbit.provider.ai'), localStorage.getItem('orbit.speed')])).toEqual(['runpod', 'turbo']);
+});
+
+test('Make with both set up: GPU.ai goes on to its GPU list (Back returns), and the last place is preselected next time', async ({ page }) => {
+  const calls: Record<string, unknown>[] = [];
+  await mockAi(page, 'off', calls);
+  await page.route(/\/api\/make(\?.*)?$/, (r) => r.fulfill({ json: { configured: false } }));
+  await page.route('**/api/ai/gpus?machine=ai', (r) => r.fulfill({ json: BOTH }));
+  await page.addInitScript(() => {
+    if (!localStorage.getItem('orbit.provider.ai')) localStorage.setItem('orbit.provider.ai', 'runpod');
+  });
+  await openOrbit(page);
+  const win = await openMakeApp(page);
+  const banner = win.locator('.make-banner');
+  await banner.getByRole('button', { name: 'Turn it on' }).click();
+  const where = page.getByRole('dialog', { name: 'Where should your AI machine run?' });
+  // The last place used is preselected, not the usual one.
+  await expect(where.getByRole('radio', { name: /Runpod/ })).toHaveAttribute('aria-checked', 'true');
+  await where.getByRole('radio', { name: /GPU\.ai/ }).click();
+  await where.getByRole('button', { name: 'Continue · GPU.ai' }).click();
+  const gpus = page.getByRole('dialog', { name: 'Pick a GPU for your AI machine' });
+  await expect(gpus.getByRole('radio')).toHaveCount(2);
+  await expect(gpus.getByRole('radio', { name: /L40S/ })).toContainText('H3 Max videos run slow');
+  // Back to the choice of place, then on again.
+  await gpus.getByRole('button', { name: 'Back' }).click();
+  await expect(where).toBeVisible();
+  await where.getByRole('button', { name: 'Continue · GPU.ai' }).click();
+  await gpus.getByRole('radio', { name: /H100 SXM/ }).click();
+  await gpus.getByRole('button', { name: 'Turn on · H100 SXM · $3.99/h' }).click();
+  await expect.poll(() => calls.find((c) => c.action === 'start')).toMatchObject({ action: 'start', provider: 'gpuai', gpu: 'h100_sxm' });
+  expect(await page.evaluate(() => localStorage.getItem('orbit.provider.ai'))).toBe('gpuai');
+});
+
 test('Make: the × of the "turn the AI machine on" message never sits on its words, and the message keeps its margins', async ({ page }) => {
   await mockAi(page, 'off');
   await page.route(/\/api\/make(\?.*)?$/, (r) => r.fulfill({ json: { configured: false } }));

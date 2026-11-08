@@ -1,6 +1,6 @@
 import 'server-only';
 import { SignJWT, jwtVerify } from 'jose';
-import { aiBase, aiConsole, aiProvider, aiStatus, aiTiers, aiToken, findAiPod } from './ai';
+import { activeProvider, aiBase, aiConsole, aiStatus, aiTiers, aiToken, findAiPod } from './ai';
 import { gpuaiBalance } from './gpuaiMachine';
 import { linuxIdle, linuxKeepAwake, linuxSaveHome, podHttpBase, podId, runpod } from './runpod';
 import { autoOffInfo, autoOffMinutes, keepOnMinutes } from './autoOff';
@@ -125,16 +125,18 @@ async function myself(key: string): Promise<Myself | null> {
 }
 
 // Money changes slowly and costs two Runpod calls: keep it for 30 seconds per server instance.
-let moneyCache: { at: number; value: Money } | null = null;
+let moneyCache: { at: number; provider: string; value: Money } | null = null;
 
 export async function money(): Promise<Money | null> {
-  if (moneyCache && Date.now() - moneyCache.at < 30_000) return moneyCache.value;
+  // The money of the provider the AI machine is on (with both set up, the default one while it is off).
+  const provider = await activeProvider();
+  if (moneyCache && moneyCache.provider === provider && Date.now() - moneyCache.at < 30_000) return moneyCache.value;
   // The AI machine on GPU.ai: its balance and burn rate (GPU.ai keeps no daily total to show).
-  if (aiProvider() === 'gpuai' && process.env.GPUAI_API_KEY) {
+  if (provider === 'gpuai' && process.env.GPUAI_API_KEY) {
     const b = await gpuaiBalance().catch(() => null);
     if (!b) return null;
     const value: Money = { balance: b.balance, spendPerHour: b.spendPerHour, today: null, spendLimit: null };
-    moneyCache = { at: Date.now(), value };
+    moneyCache = { at: Date.now(), provider, value };
     return value;
   }
   const key = process.env.RUNPOD_API_KEY;
@@ -150,7 +152,7 @@ export async function money(): Promise<Money | null> {
     today: bill?.metadata?.totals?.totalAmount ?? bill?.records?.[0]?.totalAmount ?? null,
     spendLimit: typeof m?.spendLimit === 'number' ? m.spendLimit : null,
   };
-  moneyCache = { at: Date.now(), value };
+  moneyCache = { at: Date.now(), provider, value };
   return value;
 }
 
@@ -242,12 +244,12 @@ async function linuxCard(user: string, detail: boolean): Promise<MachineCard | n
 async function aiCard(user: string, detail: boolean): Promise<MachineCard | null> {
   const s = await aiStatus(user).catch(() => null);
   if (!s || s.state === 'unconfigured') return null;
-  const pod = s.podId && process.env.RUNPOD_API_KEY && aiProvider() === 'runpod' ? ((await runpod(`/pods/${encodeURIComponent(s.podId)}`).catch(() => null)) as RunpodPod | null) : null;
+  const pod = s.podId && process.env.RUNPOD_API_KEY && s.provider === 'runpod' ? ((await runpod(`/pods/${encodeURIComponent(s.podId)}`).catch(() => null)) as RunpodPod | null) : null;
   const on = s.state === 'on' || s.state === 'downloading';
   const since = s.startedAt ? Date.parse(s.startedAt) : NaN;
   const upSince = Number.isFinite(since) ? Math.max(0, Math.round((Date.now() - since) / 1000)) : null;
   const stats = detail && on && s.podId ? ((await getJson(`${aiBase(s.podId)}/_orbit/stats`, await aiToken(user, 'orbit-ai'))) as { idle?: { offAt?: string; heldUntil?: string | null } } | null) : null;
-  const tier = aiTiers().find((t) => t.id === s.tier);
+  const tier = aiTiers(s.provider).find((t) => t.id === s.tier);
   return {
     id: 'ai',
     name: 'AI machine',
@@ -260,7 +262,7 @@ async function aiCard(user: string, detail: boolean): Promise<MachineCard | null
     autoOff: true,
     autoOffMinutes: autoOffMinutes(),
     tier: s.tier ?? null,
-    tiers: aiTiers().map((t) => ({ id: t.id, label: t.label, gpuName: t.gpuName, pricePerHour: t.pricePerHour })),
+    tiers: aiTiers(s.provider).map((t) => ({ id: t.id, label: t.label, gpuName: t.gpuName, pricePerHour: t.pricePerHour })),
     gpuName: tier?.gpuName ?? null,
     live: live(pod),
     stats,
