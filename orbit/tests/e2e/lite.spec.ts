@@ -349,6 +349,8 @@ test('fast Make: a talking photo, and a video from a start and an end picture', 
   await page.getByRole('radiogroup', { name: 'Maker' }).getByRole('radio', { name: /Talking photo/ }).click();
   await page.getByRole('button', { name: 'Describe it →' }).click();
   await page.locator('#photo').setInputFiles(PNG_FILE);
+  // As a person would: the photo is in before the recording is picked.
+  await expect(page.getByRole('img', { name: 'Your photo 1' })).toBeVisible();
   await page.locator('#aud').setInputFiles({ name: 'song.mp3', mimeType: 'audio/mpeg', buffer: Buffer.from('fake') });
   await expect(page.getByText('song.mp3')).toBeVisible();
   // No end picture for a talking photo.
@@ -390,7 +392,7 @@ test('fast Make: Batch writes many takes and puts them all in line', async ({ pa
   expect(asked.messages[0].content).toMatch(/fictional adult/);
 });
 
-test('fast Make: with the machine off, the cloud makes it and keeps it in your gallery, and the gallery still opens', async ({ page }) => {
+test('fast Make: only your own makers: with the machine off nothing goes to a cloud maker, and the gallery still opens', async ({ page }) => {
   const { calls } = await standIns(page);
   await page.goto(`${SITE}/lite`);
   await page.getByRole('radio', { name: /A picture/ }).click();
@@ -398,12 +400,10 @@ test('fast Make: with the machine off, the cloud makes it and keeps it in your g
   await page.getByRole('textbox', { name: 'Describe it' }).fill('a fox at dawn');
   await page.getByRole('button', { name: 'Extras →' }).click();
   await page.getByRole('button', { name: 'Make it →' }).click();
-  await expect(page.getByText('the cloud can make it now (about 1¢ a picture)')).toBeVisible();
-  await page.getByRole('button', { name: 'Make it in the cloud' }).click();
-  await expect.poll(() => calls.find((c) => c.path === '/api/make' && c.body)?.body).toEqual({ kind: 'image', prompt: 'a fox at dawn', size: 'portrait' });
-  await expect(page.locator('.out img')).toHaveAttribute('src', 'https://cdn.test/cloud.png', { timeout: 10_000 });
-  await expect(page.getByText('Made in the cloud, kept in your gallery.')).toBeVisible();
-  expect(calls.find((c) => c.path === '/api/gallery' && c.body)?.body).toEqual({ action: 'import', url: 'https://cdn.test/cloud.png', kind: 'image', prompt: 'a fox at dawn', maker: 'cloud:cloudflare' });
+  await expect(page.getByRole('button', { name: /cloud/i })).toHaveCount(0);
+  await page.locator('.pane').getByRole('button', { name: 'Make it', exact: true }).click();
+  await expect(page.getByText('Turn the AI machine on first')).toBeVisible();
+  expect(calls.some((c) => c.path === '/api/make')).toBe(false);
   // The gallery from cloud storage, with the machine off.
   await page.getByRole('button', { name: 'Gallery' }).click();
   await page.getByRole('button', { name: 'a kept sunset' }).click();

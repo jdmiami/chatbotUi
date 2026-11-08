@@ -31,10 +31,14 @@ const FAL_IMAGE = () => process.env.FAL_IMAGE_MODEL || 'fal-ai/flux/schnell';
 const FAL_VIDEO = () => process.env.FAL_VIDEO_MODEL || 'fal-ai/ltx-video';
 const CF_IMAGE = '@cf/black-forest-labs/flux-1-schnell';
 
-const gpuaiOk = () => Boolean(process.env.GPUAI_API_KEY) && process.env.GPUAI_VIDEO !== 'off';
-const cloudflareOk = () => Boolean(process.env.CLOUDFLARE_ACCOUNT_ID && process.env.CLOUDFLARE_AI_TOKEN);
-const falOk = () => Boolean(process.env.FAL_KEY);
-const runpodOk = () => Boolean(process.env.RUNPOD_API_KEY) && process.env.RUNPOD_SERVERLESS !== 'off';
+// Every maker here is someone else's model (hosted by Cloudflare, fal.ai, Runpod or GPU.ai), not one of
+// yours. The owner makes only with their own models (the AI machine, and the serverless AI machine in
+// lib/serverlessMake.ts), so none of these is offered unless HOSTED_MAKERS=on is set on purpose.
+const hostedOn = () => process.env.HOSTED_MAKERS === 'on';
+const gpuaiOk = () => hostedOn() && Boolean(process.env.GPUAI_API_KEY) && process.env.GPUAI_VIDEO !== 'off';
+const cloudflareOk = () => hostedOn() && Boolean(process.env.CLOUDFLARE_ACCOUNT_ID && process.env.CLOUDFLARE_AI_TOKEN);
+const falOk = () => hostedOn() && Boolean(process.env.FAL_KEY);
+const runpodOk = () => hostedOn() && Boolean(process.env.RUNPOD_API_KEY) && process.env.RUNPOD_SERVERLESS !== 'off';
 // Only endpoints that take the same request as the default (and answer with output.result); another
 // model needs its own adapter here first, so anything else falls back to the default.
 const RP_IMAGES = ['black-forest-labs-flux-1-schnell', 'black-forest-labs-flux-1-dev'];
@@ -200,7 +204,7 @@ async function cloudflareImage(prompt: string): Promise<string> {
 export async function cloudMakeStart(req: { kind: CloudKind; prompt: string; size: CloudSize; seconds?: number; provider?: CloudProvider }): Promise<CloudJob> {
   const info = cloudMakeInfo();
   const list = req.kind === 'video' ? info.video : info.image;
-  if (!list.length) throw new CloudMakeError(req.kind === 'video' ? 'No cloud video maker is set up yet (FAL_KEY in Vercel).' : 'No cloud picture maker is set up yet (CLOUDFLARE_* or FAL_KEY in Vercel).', 501);
+  if (!list.length) throw new CloudMakeError(hostedOn() ? (req.kind === 'video' ? 'No cloud video maker is set up yet (FAL_KEY in Vercel).' : 'No cloud picture maker is set up yet (CLOUDFLARE_* or FAL_KEY in Vercel).') : 'Only your own makers are used: turn your AI machine on to make it.', 501);
   const order = req.provider ? [...list].sort((a) => (a.id === req.provider ? -1 : 0)) : list;
   let last: unknown = null;
   for (const p of order) {
