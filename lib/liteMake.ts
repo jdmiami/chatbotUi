@@ -101,7 +101,7 @@ export const LITE_JS = String.raw`
   var NOUN = { image: 'picture', video: 'video', vedit: 'video edit', edit: 'picture edit', model3d: '3D object' };
   var KINDS = [['image', 'A picture', 'about a minute'], ['video', 'A video', 'from words, a photo, or a photo and a voice'], ['vedit', 'Work on a video', 'edit, erase, swap a person, sharpen'], ['edit', 'An edit', 'change a photo with words'], ['model3d', 'A 3D object', 'from one picture']];
   var TASKS = { replace: 'Replace something', restyle: 'Restyle it', extend: 'Make it longer', motion: 'Copy its moves onto a photo' };
-  var S = { step: 0, kind: 'image', maker: '', prompt: '', size: 'portrait', seconds: 5, makers: null, status: null, grant: null, busy: '', story: null, eros: { idea: '', who: '', heat: 'steamy', scenes: 5 }, job: null, jobs: [], photos: [], end: null, video: null, audio: null, target: '', task: '', character: '', chars: null, cloud: null, cjobs: [], batchN: 6, items: null, view: null, style: '', note: '', writer: '', writers: null };
+  var S = { step: 0, kind: 'image', maker: '', prompt: '', size: 'portrait', seconds: 5, makers: null, status: null, grant: null, busy: '', story: null, eros: { idea: '', who: '', heat: 'steamy', scenes: 5 }, job: null, jobs: [], photos: [], end: null, video: null, audio: null, target: '', task: '', character: '', chars: null, batchN: 6, items: null, view: null, style: '', note: '', writer: '', writers: null };
   try {
     var saved = JSON.parse(localStorage.getItem('orbit.lite') || '{}');
     ['kind', 'maker', 'prompt', 'size', 'seconds'].forEach(function (k) { if (saved[k] != null) S[k] = saved[k]; });
@@ -464,47 +464,6 @@ export const LITE_JS = String.raw`
   }
   function charOk(m) { return S.kind === 'image' || (S.kind === 'video' && !has(m, 'audio')) || swapping(m); }
 
-  // ---- in the cloud, while the AI machine is off (pictures and videos from words)
-  function loadCloud() { return api('/api/make').then(function (r) { S.cloud = r; draw(); }).catch(function () { S.cloud = null; }); }
-  function cloudOk() {
-    var c = S.cloud, k = S.kind;
-    return Boolean(!on() && c && c.configured && (k === 'image' || k === 'video') && (c[k] || []).length && !S.photos.length && !S.character);
-  }
-  function cloudMake() {
-    if (!S.prompt.trim()) { S.note = 'Describe it first (step 3), or tap Do it for me there.'; draw(); return; }
-    var req = { kind: S.kind, prompt: S.prompt.trim(), size: S.size };
-    if (S.kind === 'video') req.seconds = S.seconds;
-    S.busy = 'cloud'; S.note = ''; draw();
-    api('/api/make', { method: 'POST', body: req }).then(function (j) { S.cjobs.unshift(Object.assign({ prompt: req.prompt, seconds: req.seconds }, j)); cloudPoll(); })
-      .catch(function (err) { S.note = err.message; }).then(function () { S.busy = ''; draw(); });
-  }
-  var ctimer = null;
-  function cloudPoll() {
-    clearTimeout(ctimer);
-    var live = S.cjobs.filter(function (j) { return j.status !== 'done' && j.status !== 'error'; });
-    if (!live.length) return;
-    ctimer = setTimeout(function () {
-      Promise.all(live.map(function (j) {
-        return api('/api/make?id=' + encodeURIComponent(j.id)).then(function (n) {
-          var was = j.status;
-          Object.assign(j, n);
-          // Done: kept in your gallery (cloud storage), as Orbit does.
-          if (n.status === 'done' && was !== 'done' && n.url) {
-            return api('/api/gallery', { method: 'POST', body: { action: 'import', url: n.url, kind: j.kind, prompt: j.prompt, maker: 'cloud:' + (n.provider || j.provider), seconds: j.seconds } })
-              .then(function () { j.kept = true; }, function () { j.kept = false; });
-          }
-        }, function () {});
-      })).then(function () { draw(); cloudPoll(); });
-    }, 4000);
-  }
-  function cloudView() {
-    return S.cjobs.slice(0, 6).map(function (j) {
-      if (j.status === 'done' && j.url) return '<div class="out">' + media({ kind: j.kind, url: j.url }, true) + '<p class="note">' + (j.kept === false ? 'Made in the cloud. Save it now: it could not be kept in your gallery.' : 'Made in the cloud, kept in your gallery.') + '</p></div>';
-      if (j.status === 'error') return '<p class="note bad">' + esc(j.error || 'The cloud could not make it.') + '</p>';
-      return '<div class="scene"><p>' + esc(String(j.prompt || '').slice(0, 80)) + '</p><p class="note">In the cloud: ' + (j.position ? nth(j.position) + ' in line' : 'making it…') + '</p><div class="prog"><span style="width:' + (j.progress || 0) + '%"></span></div></div>';
-    }).join('');
-  }
-
   // ---- Batch: many takes on one idea, written by the NVIDIA writer, all queued
   function doBatch() {
     var n = Math.max(2, Math.min(12, Number(S.batchN) || 6));
@@ -662,9 +621,7 @@ export const LITE_JS = String.raw`
     }
     var m = chosenMaker();
     return '<ul class="sum"><li><span>What</span><span>' + (S.kind === 'video' ? 'A video, ' + S.seconds + ' s' : 'A ' + NOUN[S.kind]) + '</span></li><li><span>Maker</span><span>' + esc(m ? m.name : '') + '</span></li>' + (S.kind === 'image' || S.kind === 'video' ? '<li><span>Shape</span><span>' + esc(S.size) + '</span></li>' : '<li><span>' + (S.kind === 'vedit' ? 'Video' : 'Photos') + '</span><span>' + (S.kind === 'vedit' ? esc(S.video ? S.video.name : 'none yet') : S.photos.length) + '</span></li>') + '' + (S.kind === 'model3d' ? '' : '<li><span>Words</span><span>' + esc(S.prompt.trim() ? S.prompt.trim().slice(0, 140) + (S.prompt.length > 140 ? '…' : '') : 'none yet') + '</span></li>') + '</ul>' +
-      '<div class="acts"><button class="btn p" data-do="make"' + (S.busy ? ' disabled' : '') + '>' + (S.busy === 'make' ? 'Sending…' : 'Make it') + '</button>' +
-      (cloudOk() ? '<button class="btn a" data-do="cloud"' + (S.busy ? ' disabled' : '') + '>' + (S.busy === 'cloud' ? 'Sending…' : 'Make it in the cloud') + '</button>' : '') + '</div>' +
-      (cloudOk() ? '<p class="note">Your AI machine is off: the cloud can make it now (' + esc(S.cloud[S.kind][0].price || 'paid per use') + ').</p>' : '') + cloudView() + jobView();
+      '<div class="acts"><button class="btn p" data-do="make"' + (S.busy ? ' disabled' : '') + '>' + (S.busy === 'make' ? 'Sending…' : 'Make it') + '</button></div>' + jobView();
   }
   function go(i) { S.step = Math.max(0, Math.min(STEPS.length - 1, i)); S.note = ''; draw(); window.scrollTo(0, 0); }
   function draw() {
@@ -711,7 +668,6 @@ export const LITE_JS = String.raw`
     if (d === 'rmend') { S.end = null; return draw(); }
     if (d === 'rmvid') { S.video = null; return draw(); }
     if (d === 'rmaud') { S.audio = null; return draw(); }
-    if (d === 'cloud') return cloudMake();
     if (d === 'batch') { S.batchOpen = !S.batchOpen; return draw(); }
     if (d === 'writebatch') return busy('batch', doBatch());
     if (d === 'galclose') { var gg = $('#gal'); if (gg) gg.remove(); return; }
@@ -751,7 +707,6 @@ export const LITE_JS = String.raw`
   drawBar();
   refresh();
   loadWriters();
-  loadCloud();
   setInterval(function () { if (!document.hidden) refresh(); }, 15000);
   setInterval(function () { if (!document.hidden && on() && STEPS[S.step] === 'maker') loadMakers(); }, 8000);
 })();
