@@ -316,7 +316,20 @@ export function createStudio(o) {
 
   const jobs = new Map(); // id -> job
   const byPrompt = new Map(); // ComfyUI prompt_id -> job
-  const download = { current: null, done: new Set(), error: null, running: false, paused: false, ctrl: null, log: [] };
+  // Model files come down in lanes, several at once while that makes the total faster: a lane is added
+  // while the line has bandwidth to spare and taken away when one more doesn't add speed (see tuneLanes).
+  // One lane on a global volume (each file is staged on the pod's small disk first).
+  const MAX_LANES = Math.max(1, o.maxDownloadLanes ?? (o.stageDir ? 1 : 4));
+  const download = { lanes: new Map(), limit: Math.min(MAX_LANES, Math.max(1, o.downloadLanes ?? 2)), rates: new Map(), done: new Set(), error: null, running: false, paused: false, log: [], waitUntil: new Map(), ceiling: null, changedAt: 0 };
+  // The leading file (the first one under way, in the order they're needed): what one-line summaries show.
+  Object.defineProperty(download, 'current', {
+    get() {
+      for (const lane of download.lanes.values()) if (lane.current) return lane.current;
+      return null;
+    },
+  });
+  /** What is happening to one file right now, if it is under way. */
+  const underWay = (id) => download.lanes.get(id)?.current || null;
   /** What happened, newest last (the download manager shows it; kept short). */
   function logDownload(kind, text) {
     download.log.push({ at: new Date().toISOString(), kind, text });
@@ -326,11 +339,12 @@ export function createStudio(o) {
   }
   let lastProgressLog = 0;
   /** The file being fetched: where from, how far, and how fast (bytes a second over the last ~10 s). */
-  function begin(file, source, completed, total, saving = false) {
-    download.current = { id: fid(file), name: file.name, source, completed, total, saving, startedAt: Date.now(), samples: [[Date.now(), completed]] };
+  function begin(lane, file, source, completed, total, saving = false) {
+    download.changedAt = Date.now();
+    lane.current = { id: fid(file), name: file.name, source, completed, total, saving, startedAt: Date.now(), samples: [[Date.now(), completed]] };
   }
-  function tick(n) {
-    const c = download.current;
+  function tick(lane, n) {
+    const c = lane.current;
     if (!c) return;
     c.completed += n;
     const t = Date.now();
@@ -338,7 +352,7 @@ export function createStudio(o) {
     if (t - last[0] >= 500) c.samples.push([t, c.completed]);
     while (c.samples.length > 2 && t - c.samples[0][0] > 10_000) c.samples.shift();
     // Once a minute: how far the current file is (the log shows a long download is moving).
-    if (t - lastProgressLog >= 60_000) {
+    if (t - lastProgressLog >= 60_000 && c === download.current) {
       lastProgressLog = t;
       const pct = c.total ? Math.floor((c.completed / c.total) * 100) : null;
       const sp = speedOf(c);
@@ -366,17 +380,18 @@ export function createStudio(o) {
   // is then copied over in one pass. Free space is the pod disk's, and it only needs one file at a time.
   const stageDir = o.stageDir || null;
   const partPath = (file) => (stageDir ? path.join(stageDir, `${file.dir}/${file.name}`.replace(/[\\/]/g, '__')) + '.part' : `${modelPath(file)}.part`);
-  async function place(part, dest, file) {
+  async function place(part, dest, file, lane) {
     if (!stageDir) return fsp.rename(part, dest);
     // A file whose size is known is told apart from a half-copied one by its size; one without is
     // copied under another name first.
     const to = file.size ? dest : `${dest}.copying`;
     // A second pass over the same bytes: the count starts again so it reads 0–100%, not up to 200%.
-    const c = download.current;
+    const c = lane.current;
     if (c) Object.assign(c, { completed: 0, source: 'the drive', placing: true, samples: [[Date.now(), 0]] });
+    download.changedAt = Date.now();
     const counter = new Transform({
       transform(chunk, _enc, cb) {
-        tick(chunk.length);
+        tick(lane, chunk.length);
         cb(null, chunk);
       },
     });
@@ -449,13 +464,21 @@ export function createStudio(o) {
       new Error(`Not enough disk space for ${file.name}${free != null ? ` (${Math.round(free / GB)} GB free, needs about ${Math.ceil(((file.size || 0) + 2 * GB) / GB)} GB)` : ''}. Remove a maker or a chat model you don't use.`),
       { permanent: true, disk: true },
     );
-  /** Throws (and the file waits) when the disk can't take `bytes` more, with 2 GB to spare. */
+  /** Throws (and the file waits) when the disk can't take `bytes` more, with 2 GB to spare (and room for
+   *  what the other files coming down at the same time still need). */
   async function roomFor(file, bytes) {
     const free = await freeBytes();
-    if (free != null && bytes > 0 && free < bytes + 2 * GB) throw diskFull(file, free);
+    let others = 0;
+    for (const [id, lane] of download.lanes) {
+      if (id === fid(file)) continue;
+      const c = lane.current;
+      others += c && !c.saving && !c.placing ? Math.max(0, c.total - c.completed) : c ? 0 : lane.file.size || 0;
+    }
+    if (free != null && bytes > 0 && free < bytes + others + 2 * GB) throw diskFull(file, free);
   }
 
-  async function fetchFile(file) {
+  async function fetchFile(file, lane) {
+    const onBytes = (n) => tick(lane, n);
     const dest = modelPath(file);
     const part = partPath(file);
     await fsp.mkdir(path.dirname(dest), { recursive: true });
@@ -464,17 +487,17 @@ export function createStudio(o) {
     const kept = r2 ? await r2.head(modelKey(file)).catch(() => null) : null;
     if (kept && (!file.size || kept.size === file.size)) {
       await roomFor(file, kept.size);
-      begin(file, 'cloud storage', 0, kept.size);
-      download.ctrl = new AbortController();
+      begin(lane, file, 'cloud storage', 0, kept.size);
+      lane.ctrl = new AbortController();
       try {
-        await downloadFile(r2, modelKey(file), part, { onBytes: tick, signal: download.ctrl.signal });
+        await downloadFile(r2, modelKey(file), part, { onBytes, signal: lane.ctrl.signal });
       } catch (err) {
         // A copy from cloud storage is laid out full size before its pieces arrive, so a half one can't
         // be told from a whole one: drop it (it comes down again quickly) rather than count it as here.
         await fsp.rm(part, { force: true });
         throw err;
       }
-      await place(part, dest, file);
+      await place(part, dest, file, lane);
       return;
     }
     const have = (await fsp.stat(part).catch(() => null))?.size || 0;
@@ -486,7 +509,7 @@ export function createStudio(o) {
     const headers = { ...(have ? { range: `bytes=${have}-` } : {}), ...(file.gated ? { authorization: `Bearer ${hfToken}` } : {}) };
     // A connection that stops sending is cut after STALL_DOWNLOAD_MS and the file picks up where it was.
     const ctrl = new AbortController();
-    download.ctrl = ctrl;
+    lane.ctrl = ctrl;
     let quiet = null;
     const hush = () => {
       clearTimeout(quiet);
@@ -508,11 +531,11 @@ export function createStudio(o) {
       throw new Error(`download ${file.name}: ${res.status}`);
     }
     const resumed = res.status === 206;
-    begin(file, hostOf(url), resumed ? have : 0, file.size || Number(res.headers.get('content-length')) || 0);
+    begin(lane, file, hostOf(url), resumed ? have : 0, file.size || Number(res.headers.get('content-length')) || 0);
     const counter = new TransformStream({
       transform(chunk, c) {
         hush();
-        tick(chunk.byteLength);
+        tick(lane, chunk.byteLength);
         c.enqueue(chunk);
       },
     });
@@ -528,70 +551,171 @@ export function createStudio(o) {
     }
     const size = (await fsp.stat(part)).size;
     if (file.size && size !== file.size) throw new Error(`download ${file.name}: got ${size} of ${file.size} bytes`);
-    if (stageDir) begin(file, 'the drive', 0, size, true);
-    await place(part, dest, file);
+    if (stageDir) begin(lane, file, 'the drive', 0, size, true);
+    await place(part, dest, file, lane);
     // Keep a copy in R2 so the next start doesn't download it from its home site again.
     if (r2) {
-      begin(file, 'cloud storage', 0, size, true);
-      download.ctrl = new AbortController();
+      begin(lane, file, 'cloud storage', 0, size, true);
+      lane.ctrl = new AbortController();
       // Pause stops this too: the file is here; only its cloud copy waits for the next time.
-      await uploadFile(r2, dest, modelKey(file), { onBytes: tick, signal: download.ctrl.signal }).catch((err) =>
+      await uploadFile(r2, dest, modelKey(file), { onBytes, signal: lane.ctrl.signal }).catch((err) =>
         log.warn?.(`[studio] could not keep ${file.name} in R2: ${err.message}`),
       );
+    }
+  }
+
+  /** The next file to start: the first one needed that isn't here, under way, stuck or waiting to try again. */
+  async function nextFile() {
+    let soonest = null;
+    for (const file of neededFiles()) {
+      const id = fid(file);
+      if (download.done.has(id) || blocked.has(id) || download.lanes.has(id)) continue;
+      if (await haveFile(file)) {
+        download.done.add(id);
+        continue;
+      }
+      // Claimed by another lane while this one was checking the disk.
+      if (download.lanes.has(id)) continue;
+      const wait = download.waitUntil.get(id);
+      if (wait && wait > Date.now()) {
+        soonest = Math.min(soonest ?? wait, wait);
+        continue;
+      }
+      return { file };
+    }
+    return { file: null, retryAt: soonest };
+  }
+
+  /** One file, start to finish, in its own lane. */
+  async function runLane(file) {
+    const id = fid(file);
+    const lane = { file, current: null, ctrl: null };
+    download.lanes.set(id, lane);
+    download.changedAt = Date.now();
+    const t0 = Date.now();
+    try {
+      logDownload('start', `Downloading ${file.name}${download.lanes.size > 1 ? ` (${download.lanes.size} at once)` : ''}`);
+      await fetchFile(file, lane);
+      download.error = null;
+      download.waitUntil.delete(id);
+      download.done.add(id);
+      const s = Math.max(1, Math.round((Date.now() - t0) / 1000));
+      logDownload('done', `Finished ${file.name} (${(file.size ? file.size / GB : 0).toFixed(1)} GB in ${s < 120 ? `${s} s` : `${Math.round(s / 60)} min`})`);
+    } catch (err) {
+      if (err.paused || download.paused) {
+        logDownload('paused', `Paused ${file.name}`);
+        return;
+      }
+      download.error = err.message;
+      if (err.permanent) {
+        blocked.set(id, err.message);
+        logDownload('blocked', `${file.name}: ${err.message}`);
+        log.warn?.(`[studio] ${file.name}: ${err.message}`);
+        return;
+      }
+      const ms = o.retryMs ?? 30_000;
+      download.waitUntil.set(id, Date.now() + ms);
+      logDownload('retry', `${err.message}. Trying again in ${Math.round(ms / 1000)} s`);
+      log.warn?.(`[studio] ${err.message}; retrying in ${Math.round(ms / 1000)}s`);
+      // A failure while several are coming down: the line may be over-full; one lane fewer.
+      if (download.lanes.size > 1) setLimit(download.lanes.size - 1, 'a download failed while several were coming down');
+    } finally {
+      download.lanes.delete(id);
+      download.changedAt = Date.now();
+    }
+  }
+
+  /** How many lanes: never more than MAX_LANES; a lower ceiling holds for a while after more didn't help. */
+  function setLimit(n, why) {
+    const was = download.limit;
+    download.limit = Math.max(1, Math.min(MAX_LANES, n, download.ceiling && download.ceiling.until > Date.now() ? download.ceiling.n : Infinity));
+    if (download.limit !== was) logDownload('lanes', `${download.limit === 1 ? 'One file at a time' : `${download.limit} files at once`}: ${why}`);
+    // One more allowed: start it now, not when a file under way finishes.
+    if (download.limit > was) download.wake?.();
+  }
+  /** Bytes a second since `t0`, from a file's samples (null without two samples since then). */
+  function speedSince(c, t0) {
+    const s = c.samples.find(([t]) => t >= t0);
+    if (!s) return null;
+    const dt = (Date.now() - s[0]) / 1000;
+    return dt > 0.2 ? Math.max(0, (c.completed - s[1]) / dt) : null;
+  }
+  /**
+   * Total speed now, over the files coming down from the network (not the ones being saved or copied).
+   * `steady`: measured only since the set of files coming down last changed, after a short settle, so
+   * a lane starting or ending doesn't blur the number the tuning goes by (null until then).
+   */
+  function totalSpeed({ steady = false } = {}) {
+    const settle = o.laneWarmupMs ?? 8000;
+    const since = download.changedAt + settle;
+    if (steady && Date.now() - since < settle) return { sum: 0, n: 0 };
+    let sum = 0;
+    let n = 0;
+    for (const lane of download.lanes.values()) {
+      const c = lane.current;
+      if (!c || c.saving || c.placing) continue;
+      const sp = steady ? speedSince(c, since) : speedOf(c);
+      if (sp == null) {
+        if (steady) return { sum: 0, n: 0 };
+        continue;
+      }
+      sum += sp;
+      n++;
+    }
+    return { sum, n };
+  }
+  /**
+   * Every few seconds: the best total speed seen with each number of lanes. With every lane busy and
+   * more than with one lane fewer (by 10%+), one more is tried; when the extra lane added under 5%,
+   * the line is full: one fewer, and no more than that for ten minutes.
+   */
+  function tuneLanes() {
+    const { sum, n } = totalSpeed({ steady: true });
+    if (!n) return;
+    const best = download.rates.get(n);
+    download.rates.set(n, best ? Math.max(best * 0.9, sum) : sum);
+    const here = download.rates.get(n);
+    const fewer = download.rates.get(n - 1);
+    if (n >= 2 && fewer && here < fewer * 1.05) {
+      download.ceiling = { n: n - 1, until: Date.now() + 10 * 60_000 };
+      setLimit(n - 1, `one more didn't make it faster (${Math.round(here / 1e6)} MB/s with ${n}, ${Math.round(fewer / 1e6)} MB/s with ${n - 1}): the line is full`);
+    } else if (n === download.limit && n < MAX_LANES && (!fewer || here > fewer * 1.1)) {
+      setLimit(n + 1, `there is bandwidth to spare (${Math.round(here / 1e6)} MB/s with ${n})`);
     }
   }
 
   async function downloadAll() {
     if (download.running || download.paused) return;
     download.running = true;
+    const tuner = setInterval(tuneLanes, o.tuneLanesMs ?? 10_000);
+    tuner.unref?.();
+    const lanes = new Set();
     try {
-      // The list is read again after every file, so makers installed meanwhile are picked up.
+      // Lanes are started in the order files are needed; the list is read again each time one ends, so
+      // makers added meanwhile are picked up.
       for (;;) {
         if (download.paused) break;
-        let next = null;
-        for (const file of neededFiles()) {
-          if (download.done.has(fid(file)) || blocked.has(fid(file))) continue;
-          if (await haveFile(file)) download.done.add(fid(file));
-          else {
-            next = file;
+        while (lanes.size < download.limit) {
+          const { file, retryAt } = await nextFile();
+          if (!file) {
+            if (retryAt && !lanes.size) await new Promise((r) => setTimeout(r, Math.max(50, retryAt - Date.now())));
             break;
           }
+          const run = runLane(file).finally(() => lanes.delete(run));
+          lanes.add(run);
         }
-        if (!next) {
+        if (!lanes.size) {
+          const { file, retryAt } = await nextFile();
+          if (file || retryAt) continue;
           await setUpEnvs();
           break;
         }
-        const t0 = Date.now();
-        try {
-          logDownload('start', `Downloading ${next.name}`);
-          await fetchFile(next);
-          download.error = null;
-          download.done.add(fid(next));
-          const s = Math.max(1, Math.round((Date.now() - t0) / 1000));
-          logDownload('done', `Finished ${next.name} (${(next.size ? next.size / GB : 0).toFixed(1)} GB in ${s < 120 ? `${s} s` : `${Math.round(s / 60)} min`})`);
-        } catch (err) {
-          // Nothing is coming down while it waits to try again (or stops).
-          download.current = null;
-          if (err.paused || download.paused) {
-            logDownload('paused', `Paused ${next.name}`);
-            break;
-          }
-          download.error = err.message;
-          if (err.permanent) {
-            blocked.set(fid(next), err.message);
-            logDownload('blocked', `${next.name}: ${err.message}`);
-            log.warn?.(`[studio] ${next.name}: ${err.message}`);
-            continue;
-          }
-          logDownload('retry', `${err.message}. Trying again in ${Math.round((o.retryMs ?? 30_000) / 1000)} s`);
-          log.warn?.(`[studio] ${err.message}; retrying in 30s`);
-          await new Promise((r) => setTimeout(r, o.retryMs ?? 30_000));
-        } finally {
-          download.ctrl = null;
-        }
+        await Promise.race([...lanes, new Promise((r) => (download.wake = r))]);
+        download.wake = null;
       }
+      await Promise.allSettled([...lanes]);
     } finally {
-      download.current = null;
+      clearInterval(tuner);
       download.running = false;
       // Resumed while this loop was still stopping: start the next one now.
       if (download.again && !download.paused) {
@@ -620,17 +744,18 @@ export function createStudio(o) {
     const owners = new Map();
     for (const m of kept()) for (const file of makerFiles(m)) owners.set(fid(file), [...(owners.get(fid(file)) ?? []), m.name]);
     const c = download.current && download.running && !download.paused ? download.current : null;
-    const speed = speedOf(c);
+    const speed = c ? (download.lanes.size > 1 ? totalSpeed().sum || speedOf(c) : speedOf(c)) : null;
+    const active = download.running && !download.paused ? [...download.lanes.values()].map((l) => l.current).filter(Boolean) : [];
     const queue = [];
     for (const file of neededFiles()) {
       const id = fid(file);
-      if (download.done.has(id) || (c && c.id === id)) continue;
+      if (download.done.has(id) || active.some((a) => a.id === id)) continue;
       if (await haveFile(file)) continue;
       const part = (await fsp.stat(partPath(file)).catch(() => null))?.size || 0;
       queue.push({ id, name: file.name, size: file.size || 0, have: part, makers: owners.get(id) ?? [], problem: blocked.get(id) || null });
     }
     const waiting = queue.filter((q) => !q.problem);
-    const left = (c ? Math.max(0, c.total - c.completed) : 0) + waiting.reduce((t, q) => t + Math.max(0, q.size - q.have), 0);
+    const left = active.reduce((t, a) => t + Math.max(0, a.total - a.completed), 0) + waiting.reduce((t, q) => t + Math.max(0, q.size - q.have), 0);
     const free = await freeBytes();
     const state = download.paused ? 'paused' : c ? (c.saving ? 'saving' : 'downloading') : waiting.length ? (download.error ? 'retrying' : 'starting') : queue.length ? 'blocked' : 'idle';
     return {
@@ -645,11 +770,23 @@ export function createStudio(o) {
             completed: c.completed,
             total: c.total,
             percent: c.total ? Math.min(100, Math.floor((c.completed / c.total) * 100)) : 0,
-            bytesPerSec: speed,
-            etaSeconds: speed && c.total ? Math.round(Math.max(0, c.total - c.completed) / speed) : null,
+            bytesPerSec: speedOf(c),
+            etaSeconds: speedOf(c) && c.total ? Math.round(Math.max(0, c.total - c.completed) / speedOf(c)) : null,
             startedAt: new Date(c.startedAt).toISOString(),
           }
         : null,
+      // Every file coming down right now (the first is `current`), and how many may at once.
+      active: active.map((a) => ({
+        name: a.name,
+        makers: owners.get(a.id) ?? [],
+        source: a.source,
+        saving: Boolean(a.saving),
+        percent: a.total ? Math.min(100, Math.floor((a.completed / a.total) * 100)) : 0,
+        bytesPerSec: speedOf(a),
+      })),
+      lanes: download.limit,
+      // All of them together.
+      bytesPerSec: speed,
       queue,
       done: download.done.size,
       bytesLeft: left,
@@ -657,12 +794,12 @@ export function createStudio(o) {
       etaSeconds: speed && left ? Math.round(left / speed) : null,
       lastError: download.error,
       diskFree: free,
-      bottleneck: bottleneck(state, c, speed, waiting.length, queue.length - waiting.length, free, left),
+      bottleneck: bottleneck(state, c, speed, waiting.length, queue.length - waiting.length, free, left, active.length),
       log: download.log.slice(-40),
     };
   }
 
-  function bottleneck(state, c, speed, waiting, stuck, free, left) {
+  function bottleneck(state, c, speed, waiting, stuck, free, left, at = 1) {
     const mb = (b) => `${Math.round(b / 1e6)} MB/s`;
     if (state === 'paused') return 'Downloads are paused. Resume to carry on from where they stopped.';
     if (state === 'idle') return 'Nothing to download: everything you added is here.';
@@ -670,16 +807,22 @@ export function createStudio(o) {
     if (free != null && left > free) return `Not enough disk for everything still to come (${Math.ceil(left / GB)} GB left, ${Math.floor(free / GB)} GB free).`;
     if (state === 'retrying') return `The last try failed (${download.error}). It tries again by itself.`;
     if (!c) return 'Starting the next file…';
+    const behind = waiting ? ` ${waiting} more wait${waiting === 1 ? 's' : ''} behind ${at > 1 ? 'them' : 'it'}.` : '';
+    if (at > 1) {
+      const full = download.limit < at || (download.ceiling && download.ceiling.until > Date.now() && download.limit <= download.ceiling.n);
+      return `${at} files at once${speed ? `, ${mb(speed)} together` : ''}${full && waiting ? ' (the line is full: more at once would not be faster)' : ''}.${behind}`;
+    }
     if (speed != null && speed < 5e6) return `Slow: ${c.name} is coming from ${c.source} at only ${mb(speed)}. That site is the bottleneck, not your machine.`;
     const why = c.saving ? `saving ${c.name} to cloud storage, so the next start is quick` : c.placing ? `copying ${c.name} onto the drive` : `downloading ${c.name} from ${c.source}${speed ? ` at ${mb(speed)}` : ''}`;
-    return `One file at a time: ${why}.${waiting ? ` ${waiting} more wait${waiting === 1 ? 's' : ''} behind it.` : ''}`;
+    const one = waiting && download.limit === 1 && MAX_LANES > 1 ? 'One file at a time (more at once was not faster on this line)' : 'One file at a time';
+    return `${one}: ${why}.${behind}`;
   }
 
   /** Pause stops the file under way (it picks up where it was); resume starts again, gave-up files included. */
   function pauseDownloads() {
     if (!download.paused) logDownload('paused', 'Paused by you');
     download.paused = true;
-    download.ctrl?.abort();
+    for (const lane of download.lanes.values()) lane.ctrl?.abort();
   }
   function resumeDownloads() {
     const was = download.paused;
@@ -708,7 +851,10 @@ export function createStudio(o) {
       total += file.size || 0;
       if (download.done.has(fid(file))) done += file.size || 0;
       // Downloaded and being copied to cloud storage: here already.
-      else if (download.current?.id === fid(file)) done += download.current.saving || download.current.placing ? file.size || download.current.total : download.current.completed;
+      else if (underWay(fid(file))) {
+        const u = underWay(fid(file));
+        done += u.saving || u.placing ? file.size || u.total : u.completed;
+      }
     }
     return { total, done };
   }
@@ -725,7 +871,7 @@ export function createStudio(o) {
       const env = m.env && o.liveEnvs ? o.liveEnvs.state(m.env) : null;
       const filesHere = installed;
       const why = list.map((file) => blocked.get(fid(file))).find(Boolean) || null;
-      const mine = list.some((file) => download.current?.id === fid(file));
+      const mine = list.map((file) => underWay(fid(file))).find(Boolean) || null;
       if (env && !env.ready) installed = false;
       out.push({
         id: m.id,
@@ -761,7 +907,7 @@ export function createStudio(o) {
             : !keeps(m)
               ? undefined
               : mine
-                ? download.current.saving
+                ? mine.saving
                   ? 'saving'
                   : 'downloading'
                 : filesHere
@@ -916,7 +1062,7 @@ export function createStudio(o) {
     for (const file of files[kind]) {
       total += file.size || 0;
       if (download.done.has(fid(file))) done += file.size || 0;
-      else if (download.current?.id === fid(file)) done += download.current.completed;
+      else if (underWay(fid(file))) done += underWay(fid(file)).completed;
     }
     return total ? Math.min(100, Math.floor((done / total) * 100)) : 0;
   }
