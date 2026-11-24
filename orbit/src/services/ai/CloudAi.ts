@@ -2,9 +2,9 @@ import { AiError, readChatStream, type ChatMessage, type StreamHandlers } from '
 import { useShell } from '../../state/shell';
 
 /**
- * Cloud AI: NVIDIA's free models first, then backup serverless providers, reached through the site
- * (/api/orb/ai) so no key ever comes near the browser. Quick jobs (the orb planning a step,
- * rewriting a sentence, reading a screenshot) go here, and AI app chats while the AI machine is off.
+ * Cloud AI: NVIDIA's open-weight models, reached through the site
+ * (/api/orb/ai) so no key ever comes near the browser. Every chat (the AI app, the orb) and every
+ * writing job (rewriting a sentence, reading a screenshot) goes here.
  */
 
 /** `free`: unfiltered writing (Rewrite, Fill for me), adults only; see the site's freeWrite.ts. */
@@ -39,8 +39,7 @@ export async function cloudStatus(fresh = false): Promise<CloudStatus | null> {
   if (!fresh && cached && Date.now() - cached.at < 60_000) return cached.status;
   let status: CloudStatus | null = null;
   try {
-    const prefer = cloudPrefer();
-    const res = await fetch(prefer ? `${ENDPOINT}?prefer=${encodeURIComponent(prefer)}` : ENDPOINT, { cache: 'no-store', credentials: 'same-origin' });
+    const res = await fetch(ENDPOINT, { cache: 'no-store', credentials: 'same-origin' });
     if (res.ok) status = (await res.json()) as CloudStatus;
   } catch {
     /* offline */
@@ -54,17 +53,11 @@ export async function cloudReady() {
   return cloudAiEnabled() && Boolean((await cloudStatus())?.configured);
 }
 
-/** The provider to try first (Settings); the others are the backups. Unset: the site's order. */
-export function cloudPrefer(): string | undefined {
-  return useShell.getState().settings.cloudPrefer || undefined;
-}
-
 async function post(body: Record<string, unknown>, signal?: AbortSignal) {
-  const prefer = cloudPrefer();
   const res = await fetch(ENDPOINT, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
-    body: JSON.stringify(prefer ? { ...body, prefer } : body),
+    body: JSON.stringify(body),
     cache: 'no-store',
     credentials: 'same-origin',
     signal,

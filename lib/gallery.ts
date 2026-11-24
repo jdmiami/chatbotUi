@@ -83,7 +83,7 @@ const thumbKey = (id: string) => `gallery/thumbs/${id}.webp`;
 const INDEX_KEY = 'gallery/_index.v1.json';
 const ID = /^[A-Za-z0-9_-]{6,40}$/;
 const LAB_KEY = 'state/meme-lab.json';
-/** The words the Lab adds to spicy prompts for the maker (memes.js ADULT_NOTE): never shown. */
+/** The words the Lab adds to spicy prompts for the maker (the old Lab's adult note): never shown. */
 const ADULT_NOTE = ' The person is a fictional adult over 25, not a real or famous person. Flirty and confident but tasteful: clothed or in swimwear, no nudity, nothing explicit.';
 const TYPES: Record<string, string> = { png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', webp: 'image/webp', mp4: 'video/mp4', webm: 'video/webm', glb: 'model/gltf-binary' };
 /** Links are signed for this half hour and last two hours: the same link all half hour, so nothing reloads. */

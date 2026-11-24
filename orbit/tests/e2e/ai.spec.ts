@@ -81,44 +81,37 @@ test.describe('AI app', () => {
     expect(errors).toEqual([]);
   });
 
-  test('machine off: chats are answered in the cloud; Settings picks which cloud goes first', async ({ page }) => {
-    await mockAi(page, 'off');
-    const sent: { task: string; prefer?: string; last: string }[] = [];
-    const providers = [{ id: 'nvidia', name: 'NVIDIA' }, { id: 'groq', name: 'Groq' }];
-    await page.route(/\/api\/orb\/ai(\?.*)?$/, async (route) => {
-      const prefer = new URL(route.request().url()).searchParams.get('prefer');
-      if (route.request().method() === 'GET') {
-        const list = prefer ? [...providers].sort((a) => (a.id === prefer ? -1 : 0)) : providers;
-        return route.fulfill({ json: { configured: true, providers: list, models: {} } });
-      }
-      const body = route.request().postDataJSON() as { task: string; prefer?: string; messages: { content: string }[] };
-      sent.push({ task: body.task, prefer: body.prefer, last: String(body.messages[body.messages.length - 1].content) });
-      const sse = `data: ${JSON.stringify({ choices: [{ delta: { content: 'Hello from the cloud.' } }] })}\n\ndata: [DONE]\n\n`;
-      return route.fulfill({ headers: { 'content-type': 'text/event-stream', 'x-orb-model': 'test', 'x-orb-provider': 'nvidia' }, body: sse });
+  for (const state of ['off', 'on'] as const) {
+    test(`machine ${state}: every chat is answered by NVIDIA through the site`, async ({ page }) => {
+      await mockAi(page, state);
+      const sent: { task: string; prefer?: string; last: string }[] = [];
+      let machineChats = 0;
+      await page.route('**/fake-ai/v1/chat/completions', (route) => {
+        machineChats++;
+        return route.fulfill({ status: 500, json: { error: 'the machine should not be asked' } });
+      });
+      await page.route(/\/api\/orb\/ai(\?.*)?$/, async (route) => {
+        if (route.request().method() === 'GET') return route.fulfill({ json: { configured: true, providers: [{ id: 'nvidia', name: 'NVIDIA' }], models: {} } });
+        const body = route.request().postDataJSON() as { task: string; prefer?: string; messages: { content: string }[] };
+        sent.push({ task: body.task, prefer: body.prefer, last: String(body.messages[body.messages.length - 1].content) });
+        const sse = `data: ${JSON.stringify({ choices: [{ delta: { content: 'Hello from NVIDIA.' } }] })}\n\ndata: [DONE]\n\n`;
+        return route.fulfill({ headers: { 'content-type': 'text/event-stream', 'x-orb-model': 'test', 'x-orb-provider': 'nvidia' }, body: sse });
+      });
+      const errors = await openOrbit(page);
+      await openAi(page);
+      const win = page.locator('.app-window[data-app="ai"]');
+      const box = win.getByRole('textbox', { name: 'Message' });
+      await box.fill('hi there');
+      await win.getByRole('button', { name: 'Send' }).click();
+      await expect(win.locator('.ai-msg-assistant').last()).toContainText('Hello from NVIDIA.');
+      expect(sent[0]).toEqual({ task: 'chat', prefer: undefined, last: 'hi there' });
+      expect(machineChats).toBe(0);
+      // Settings no longer offers other clouds: NVIDIA only.
+      await openApp(page, 'settings');
+      await expect(page.locator('.app-window[data-app="settings"]').getByRole('group', { name: 'Cloud AI to try first' })).toHaveCount(0);
+      expect(errors).toEqual([]);
     });
-    const errors = await openOrbit(page);
-    await openAi(page);
-    const win = page.locator('.app-window[data-app="ai"]');
-    const box = win.getByRole('textbox', { name: 'Message' });
-    await expect(box).toHaveAttribute('placeholder', 'Message your model…');
-    await box.fill('hi there');
-    await win.getByRole('button', { name: 'Send' }).click();
-    await expect(win.locator('.ai-msg-assistant').last()).toContainText('Hello from the cloud.');
-    expect(sent[0]).toEqual({ task: 'chat', prefer: undefined, last: 'hi there' });
-
-    // Settings: put the backup first; the next chat asks for it.
-    await openApp(page, 'settings');
-    const first = page.locator('.app-window[data-app="settings"]').getByRole('group', { name: 'Cloud AI to try first' });
-    await first.scrollIntoViewIfNeeded();
-    await first.getByRole('button', { name: 'Groq' }).click();
-    await expect(first.getByRole('button', { name: 'Groq' })).toHaveAttribute('aria-pressed', 'true');
-    await openApp(page, 'ai');
-    await box.fill('again');
-    await win.getByRole('button', { name: 'Send' }).click();
-    await expect.poll(() => sent.length).toBe(2);
-    expect(sent[1]).toMatchObject({ task: 'chat', prefer: 'groq' });
-    expect(errors).toEqual([]);
-  });
+  }
 
   test('chats list: a sheet from the AI menu; survives reload', async ({ page }) => {
     await mockAi(page, 'on');
@@ -317,90 +310,6 @@ async function openCreate(page: Page) {
 }
 
 test.describe('AI app: Create', () => {
-  test('lab: watch what it makes, cancel it, set topics, reorder and add ideas, keep a video', async ({ page }, testInfo) => {
-    await mockAi(page, 'on');
-    const studio = await mockStudio(page);
-    const rec = (id: string, title: string, score: number | null, status: string) => ({
-      id, title, score, status, url: `/_orbit/studio/file/${id}?t=tok`, prompt: `${title} prompt`, caption: `${title} caption`, hashtags: ['#comedy', '#fyp'], seconds: 5,
-      createdAt: '2026-10-20T10:00:00Z', why: score ? 'Hook lands in the first second.' : 'No chat model is installed to judge it.',
-    });
-    const idea = (id: string, title: string, topic: string | null = null, yours = false) => ({ id, title, prompt: `${title} prompt`, topic, yours });
-    const lab = {
-      enabled: true, topics: ['office life'] as string[], quietMinutes: 0, readyScore: 75, minutesPerVideo: 6, minutesLeft: 48, madeLastHour: 2, lastError: null as string | null,
-      making: { title: 'Grandma discovers bubble tea', topic: null, prompt: 'x', job: { id: 'lab9', kind: 'video', prompt: 'x', status: 'running', progress: 42, etaSeconds: 180, error: null, createdAt: '', item: null } } as unknown,
-      queue: [idea('q1', 'The goose clocks in', 'office life'), idea('q2', 'Printer betrayal', 'office life'), idea('q3', 'Reply-all disaster', 'office life')],
-      records: [rec('m1', 'The goose has a 9-to-5', 62, 'judged'), rec('m2', 'Nobody: … the capybara:', 91, 'ready')],
-    };
-    const calls: string[] = [];
-    await page.route('**/fake-ai/_orbit/studio/lab**', async (route) => {
-      const url = new URL(route.request().url());
-      const method = route.request().method();
-      const p = url.pathname.replace(/.*\/_orbit\/studio/, '');
-      calls.push(`${method} ${p}`);
-      const body = (route.request().postDataJSON() ?? {}) as Record<string, unknown>;
-      if (method === 'POST' && p === '/lab') {
-        if (typeof body.enabled === 'boolean') lab.enabled = body.enabled;
-        if (Array.isArray(body.topics)) lab.topics = body.topics as string[];
-      }
-      if (p === '/lab/cancel') lab.making = null;
-      if (p === '/lab/queue' && method === 'POST') lab.queue.unshift(idea('q9', String(body.prompt), null, true));
-      const q = /^\/lab\/queue\/(\w+)(\/next)?$/.exec(p);
-      if (q && method === 'DELETE') lab.queue = lab.queue.filter((x) => x.id !== q[1]);
-      if (q && q[2]) lab.queue.unshift(...lab.queue.splice(lab.queue.findIndex((x) => x.id === q[1]), 1));
-      const keep = /^\/lab\/(\w+)\/keep$/.exec(p);
-      if (keep) {
-        const r = lab.records.find((x) => x.id === keep[1])!;
-        lab.records = lab.records.filter((x) => x.id !== keep[1]);
-        studio.items.unshift({ id: r.id, kind: 'video', prompt: r.prompt, width: 704, height: 1280, seconds: 5, createdAt: r.createdAt, url: r.url });
-      }
-      return route.fulfill({ json: lab });
-    });
-    const errors = await openOrbit(page);
-    const section = (await openApp(page, 'lab')).getByRole('region', { name: 'Lab' });
-
-    const now = section.getByRole('status', { name: 'Making now' });
-    await expect(now).toContainText('Grandma discovers bubble tea');
-    await expect(now).toContainText('about 3 min left');
-    await expectNoHorizontalOverflow(page);
-    await page.screenshot({ path: testInfo.outputPath('lab.png') });
-    await now.getByRole('button', { name: 'Cancel' }).click();
-    await expect(section.getByText('Starting the next one as soon as the machine is free.')).toBeVisible();
-    expect(calls).toContain('POST /lab/cancel');
-
-    await section.getByRole('textbox', { name: 'New topic' }).fill('my cat Luna');
-    await section.getByRole('textbox', { name: 'New topic' }).press('Enter');
-    await expect(section.getByRole('list', { name: 'Topics' }).getByRole('listitem')).toHaveCount(2);
-    await section.getByRole('button', { name: 'Remove topic office life' }).click();
-    await expect(section.getByRole('list', { name: 'Topics' }).getByRole('listitem')).toHaveCount(1);
-    expect(lab.topics).toEqual(['my cat Luna']);
-
-    const upNext = section.getByRole('list', { name: 'Up next' });
-    await expect(upNext.getByRole('listitem')).toHaveCount(3);
-    await upNext.getByRole('button', { name: 'Make Reply-all disaster next' }).click();
-    await expect(upNext.getByRole('listitem').first()).toContainText('Reply-all disaster');
-    await upNext.getByRole('button', { name: 'Remove Printer betrayal' }).click();
-    await expect(upNext.getByRole('listitem')).toHaveCount(2);
-    await section.getByRole('textbox', { name: 'Your own idea' }).fill('A cat sees a cucumber and leaps');
-    await section.getByRole('textbox', { name: 'Your own idea' }).press('Enter');
-    await expect(upNext.getByRole('listitem').first()).toContainText('Your idea, made as written');
-
-    // The Lab gallery is the Make gallery: tiles, best first; a tap opens the viewer with the score.
-    const gallery = section.getByRole('list', { name: 'Lab movies, best first' });
-    await expect(gallery.getByRole('listitem').first()).toContainText('91');
-    await gallery.getByRole('button', { name: 'Video: Nobody: … the capybara:' }).click();
-    const viewer = page.getByRole('dialog', { name: 'Lab movie' });
-    await expect(viewer.getByRole('region', { name: 'Scouting report' })).toContainText('Ready to post');
-    await viewer.getByRole('button', { name: 'Keep in my gallery' }).click();
-    await expect(viewer).toHaveCount(0);
-    await expect(gallery.getByRole('listitem')).toHaveCount(1);
-    expect(calls).toContain('POST /lab/m2/keep');
-
-    await section.getByRole('switch', { name: 'Make comedy movies while the machine is on' }).click();
-    await expect.poll(() => lab.enabled).toBe(false);
-    await expectNoHorizontalOverflow(page);
-    expect(errors).toEqual([]);
-  });
-
   test('make an image: progress, then it lands in the gallery; fits and is tappable', async ({ page }, testInfo) => {
     await mockAi(page, 'on');
     const studio = await mockStudio(page);

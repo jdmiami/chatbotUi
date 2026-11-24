@@ -3,12 +3,17 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { transformSync } from 'esbuild';
 
-// The page comes from the site's own file (lib/liteMake.ts, outside Orbit's package): compiled here.
-const source = readFileSync(fileURLToPath(new URL('../../../lib/liteMake.ts', import.meta.url)), 'utf8');
-const compiled = transformSync(source, { loader: 'ts', format: 'cjs' }).code;
-const mod = { exports: {} as { liteMakePage?: () => string } };
-new Function('module', 'exports', compiled)(mod, mod.exports);
-const liteMakePage = mod.exports.liteMakePage!;
+// The page comes from the site's own files (lib/liteMake.ts and its other tabs, lib/simpleCenter.ts,
+// outside Orbit's package): compiled here.
+function load<T>(file: string): T {
+  const source = readFileSync(fileURLToPath(new URL(`../../../lib/${file}`, import.meta.url)), 'utf8');
+  const mod = { exports: {} as T };
+  new Function('module', 'exports', transformSync(source, { loader: 'ts', format: 'cjs' }).code)(mod, mod.exports);
+  return mod.exports;
+}
+const { liteMakePage: makePage } = load<{ liteMakePage: (c: { css: string; js: string }) => string }>('liteMake.ts');
+const center = load<{ CENTER_CSS: string; CENTER_JS: string }>('simpleCenter.ts');
+const liteMakePage = () => makePage({ css: center.CENTER_CSS, js: center.CENTER_JS });
 
 /**
  * The fast Make page (/lite): plain HTML, no Orbit. Served here from a stand-in site and AI machine
@@ -216,7 +221,7 @@ test('fast Make: turn on with a GPU picked, a video maker put in line, words wri
   expect(asked.messages[0].content).toMatch(/fictional adult, clearly over 18\. Never a real, famous/);
 
   // Eros: an idea, how hot, how many scenes; each scene's prompt can be used.
-  await page.getByRole('button', { name: 'Eros story writer' }).click();
+  await page.getByRole('link', { name: 'Eros story writer' }).click();
   await page.getByLabel('The idea').fill('Two strangers stuck in a lift during a blackout');
   await page.getByRole('group', { name: 'How hot' }).getByRole('button', { name: 'Explicit' }).click();
   await page.getByRole('group', { name: 'Scenes' }).getByRole('button', { name: '3' }).click();
@@ -249,7 +254,7 @@ test('fast Make: every Eros scene goes in the queue at once', async ({ page }) =
   await page.goto(`${SITE}/lite`);
   await page.getByRole('radio', { name: /A picture/ }).click();
   await page.getByRole('button', { name: 'Describe it →' }).click();
-  await page.getByRole('button', { name: 'Eros story writer' }).click();
+  await page.getByRole('link', { name: 'Eros story writer' }).click();
   await page.getByRole('button', { name: 'Write the story' }).click();
   await expect(page.locator('.scene')).toHaveCount(3);
   await page.getByRole('button', { name: 'Make all 3 scenes' }).click();
@@ -342,7 +347,7 @@ test('fast Make: work on a video (your own, restyled), then swap a person in a g
   await expect.poll(() => jobsSent(calls)[0]).toEqual({ kind: 'video', maker: 'vace', prompt: 'make it a watercolour', videoUpload: 'vid1', task: 'restyle' });
 
   // Swap a person: a gallery video, who to replace, and a saved character instead of a photo.
-  await page.getByRole('button', { name: 'Gallery' }).first().click();
+  await page.getByRole('navigation', { name: 'Sections' }).getByRole('link', { name: 'Gallery' }).click();
   await page.getByRole('button', { name: 'a dancer on a roof' }).click();
   await page.getByRole('button', { name: 'Work on this video' }).click();
   await page.getByRole('radiogroup', { name: 'Maker' }).getByRole('radio', { name: /Swap a person/ }).click();
@@ -423,7 +428,7 @@ test('fast Make: only your own makers: with the machine off nothing goes to a cl
   await expect(page.getByText('Turn the AI machine on first')).toBeVisible();
   expect(calls.some((c) => c.path === '/api/make')).toBe(false);
   // The gallery from cloud storage, with the machine off.
-  await page.getByRole('button', { name: 'Gallery' }).click();
+  await page.getByRole('navigation', { name: 'Sections' }).getByRole('link', { name: 'Gallery' }).click();
   await page.getByRole('button', { name: 'a kept sunset' }).click();
   await expect(page.getByText('Turn the AI machine on to work on this one.')).toBeVisible();
   await noSideScroll(page);
@@ -433,7 +438,7 @@ test('fast Make: Rig it from a 3D object in the gallery', async ({ page }) => {
   const { calls } = await standIns(page, { on: true });
   await page.goto(`${SITE}/lite`);
   await expect(page.getByLabel('AI machine')).toContainText('on');
-  await page.getByRole('button', { name: 'Gallery' }).click();
+  await page.getByRole('navigation', { name: 'Sections' }).getByRole('link', { name: 'Gallery' }).click();
   await page.getByRole('button', { name: 'a tiger figurine' }).click();
   await page.getByRole('button', { name: 'Rig it' }).click();
   await expect.poll(() => jobsSent(calls)[0]).toEqual({ kind: 'model3d', maker: 'rig', prompt: '', fromItem: 'obj9' });
@@ -476,4 +481,124 @@ test('fast Make with both set up: GPU.ai goes on to its GPU list (Back returns) 
   await gpus.getByRole('button', { name: /RTX A6000/ }).click();
   await gpus.getByRole('button', { name: 'Turn on' }).click();
   await expect.poll(() => calls.find((c) => c.path === '/api/ai' && c.body)?.body).toEqual({ action: 'start', gpu: 'rtx_a6000', provider: 'gpuai' });
+});
+
+// ---- Simple's other tabs: Lab, AI Center, Gallery
+
+test('Simple: four tabs; the Lab multiplies your prompts on your machine; keep what it made', async ({ page }, info) => {
+  const errors: string[] = [];
+  page.on('pageerror', (e) => errors.push(e.message));
+  const { calls } = await standIns(page, { on: true });
+  let lab = {
+    kind: 'multiply', enabled: true, mix: 'both', writerReady: true, writing: false, yours: { pictures: 9, videos: 2 },
+    making: { prompt: 'A lone astronaut naps in a flooded neon subway car', kind: 'picture', job: { id: 'l1', status: 'running', progress: 30 } },
+    queue: [{ id: 'q1', prompt: 'A lone astronaut buys noodles from a robot stall', kind: 'picture', maker: 'qwen' }, { id: 'q2', prompt: 'Fog through pines, camera low', kind: 'clip', maker: 'ltx', from: 'foggy forest' }],
+    madeLastHour: 3, lastError: null as string | null,
+    records: [{ id: 'r1', prompt: 'A lone astronaut on a rooftop', kind: 'image', createdAt: '2026-11-24T10:00:00Z', url: '/_orbit/studio/file/r1?t=x', nsfw: true }],
+  };
+  await page.route(`${MACHINE}/_orbit/studio/lab**`, async (route) => {
+    const req = route.request();
+    if (req.method() === 'OPTIONS') return route.fulfill({ status: 204, headers: cors });
+    const p = new URL(req.url()).pathname.replace('/_orbit/studio', '');
+    const body = req.method() === 'POST' ? req.postDataJSON() : undefined;
+    calls.push({ path: `machine:${p}:${req.method()}`, body });
+    if (p === '/lab' && body) lab = { ...lab, ...(typeof body.enabled === 'boolean' ? { enabled: body.enabled } : {}), ...(body.mix ? { mix: body.mix } : {}) };
+    if (p === '/lab/queue') lab = { ...lab, queue: [{ id: 'q9', prompt: `New take on: ${body.prompt}`, kind: 'picture', maker: 'qwen', from: body.prompt }, ...lab.queue] };
+    if (p === '/lab/queue/q2' && req.method() === 'DELETE') lab = { ...lab, queue: lab.queue.filter((q) => q.id !== 'q2') };
+    if (p === '/lab/r1/keep') lab = { ...lab, records: [] };
+    return route.fulfill({ headers: cors, json: lab });
+  });
+  await page.goto(`${SITE}/lite`);
+  const tabs = page.getByRole('navigation', { name: 'Sections' });
+  await expect(tabs.getByRole('link')).toHaveText(['Make', 'Lab', 'AI Center', 'Gallery']);
+  await tabs.getByRole('link', { name: 'Lab' }).click();
+  await expect(page).toHaveURL(/#lab$/);
+  await expect(page.getByRole('heading', { level: 1 })).toHaveText('Your prompts, multiplied');
+  await expect(page.getByRole('status', { name: 'Making now' })).toContainText('flooded neon subway car');
+  await expect(page.getByTestId('lab-yours')).toHaveText('Learning from 9 picture and 2 video prompts of yours.');
+  await expect(page.locator('.nav')).toBeHidden();
+  await noSideScroll(page);
+  await page.screenshot({ path: info.outputPath('simple-lab.png') });
+
+  await page.getByRole('group', { name: 'What the Lab makes' }).getByRole('button', { name: 'Pictures' }).click();
+  await expect.poll(() => calls.find((c) => c.path === 'machine:/lab:POST')?.body).toEqual({ mix: 'pictures' });
+  await page.getByLabel('Multiply one prompt').fill('A red fox in snow, film grain');
+  await page.getByRole('button', { name: 'Multiply' }).click();
+  await expect.poll(() => calls.find((c) => c.path === 'machine:/lab/queue:POST')?.body).toEqual({ prompt: 'A red fox in snow, film grain', count: 6 });
+  await expect(page.locator('.lab-q').first()).toContainText('New take on: A red fox in snow');
+  await page.locator('.lab-q').filter({ hasText: 'Fog through pines' }).getByRole('button', { name: 'Drop' }).click();
+  await expect(page.locator('.lab-q')).toHaveCount(2);
+
+  // What it made: blurred (NSFW) until Show NSFW; kept into the gallery.
+  const tile = page.locator('.tile[data-labview="r1"]');
+  await expect(tile).toHaveClass(/nsfw/);
+  await page.getByRole('button', { name: 'Show NSFW' }).click();
+  await expect(tile).not.toHaveClass(/nsfw/);
+  await tile.click();
+  await page.getByRole('dialog', { name: 'Made in the Lab' }).getByRole('button', { name: 'Keep in my gallery' }).click();
+  await expect.poll(() => calls.some((c) => c.path === 'machine:/lab/r1/keep:POST')).toBe(true);
+  await expect(page.locator('.tile[data-labview]')).toHaveCount(0);
+  expect(errors).toEqual([]);
+});
+
+test('Simple: AI Center chats with NVIDIA (streamed), and Eros writes a story whose scenes go to Make or the Lab', async ({ page }, info) => {
+  const errors: string[] = [];
+  page.on('pageerror', (e) => errors.push(e.message));
+  const { calls } = await standIns(page, { on: true });
+  const chats: { task: string; stream?: boolean; messages: { role: string; content: string }[] }[] = [];
+  await page.route(`${SITE}/api/orb/ai`, async (route) => {
+    const body = route.request().method() === 'POST' ? route.request().postDataJSON() : null;
+    if (!body || body.task !== 'chat') return route.fallback();
+    chats.push(body);
+    const sse = ['Hello', ' from', ' NVIDIA.'].map((t) => `data: ${JSON.stringify({ choices: [{ delta: { content: t } }] })}\n\n`).join('') + 'data: [DONE]\n\n';
+    return route.fulfill({ headers: { 'content-type': 'text/event-stream' }, body: sse });
+  });
+  await page.route(`${MACHINE}/_orbit/studio/lab**`, (route) =>
+    route.request().method() === 'OPTIONS' ? route.fulfill({ status: 204, headers: cors }) : (calls.push({ path: 'machine:lab', body: route.request().postDataJSON() }), route.fulfill({ headers: cors, json: { kind: 'multiply', enabled: true, mix: 'both', yours: { pictures: 1, videos: 0 }, making: null, queue: [], records: [], madeLastHour: 0, lastError: null } })),
+  );
+  await page.goto(`${SITE}/lite#ai`);
+  await expect(page.getByRole('heading', { level: 1 })).toHaveText('Talk and create');
+  await page.getByRole('textbox', { name: 'Message' }).fill('hi there');
+  await page.getByRole('button', { name: 'Send' }).click();
+  await expect(page.locator('.msg.a')).toHaveText('Hello from NVIDIA.');
+  expect(chats[0]).toMatchObject({ task: 'chat', stream: true });
+  expect(chats[0].messages.at(-1)).toEqual({ role: 'user', content: 'hi there' });
+  // The chat is kept on this device.
+  await page.reload();
+  await expect(page.locator('.msg.a')).toHaveText('Hello from NVIDIA.');
+
+  await page.getByLabel('The idea').fill('Two strangers stuck in a lift during a blackout');
+  await page.getByRole('button', { name: 'Write the story' }).click();
+  await expect(page.getByRole('heading', { level: 3, name: 'Blackout' })).toBeVisible();
+  await noSideScroll(page);
+  await page.screenshot({ path: info.outputPath('simple-ai.png') });
+  await page.locator('.scene').nth(0).getByRole('button', { name: 'More like it (Lab)' }).click();
+  await expect.poll(() => calls.find((c) => c.path === 'machine:lab')?.body).toEqual({ prompt: 'scene 1 prompt: Mara and Theo in a dark lift', count: 4 });
+  await expect(page).toHaveURL(/#lab$/);
+  await page.getByRole('navigation', { name: 'Sections' }).getByRole('link', { name: 'AI Center' }).click();
+  await page.locator('.scene').nth(1).getByRole('button', { name: 'Use this prompt' }).click();
+  await expect(page.getByRole('heading', { level: 1 })).toHaveText('Describe it');
+  await expect(page.getByRole('textbox', { name: 'Describe it' })).toHaveValue('scene 2 prompt: Mara and Theo in a dark lift');
+  expect(errors).toEqual([]);
+});
+
+test('Simple: the Gallery tab shows what you made (kept in cloud storage while the machine is off)', async ({ page }) => {
+  const errors: string[] = [];
+  page.on('pageerror', (e) => errors.push(e.message));
+  await standIns(page);
+  await page.goto(`${SITE}/lite`);
+  await page.getByRole('navigation', { name: 'Sections' }).getByRole('link', { name: 'Gallery' }).click();
+  await expect(page.getByRole('heading', { level: 1 })).toHaveText('Your gallery');
+  await expect(page.locator('.tile[data-gview]')).toHaveCount(1);
+  await page.locator('.tile[data-gview="st1"]').click();
+  const viewer = page.getByRole('dialog', { name: 'Your gallery' });
+  await expect(viewer.locator('img')).toHaveAttribute('src', 'https://cdn.test/sunset.png');
+  await viewer.getByRole('button', { name: 'Close' }).click();
+  await expect(viewer).toHaveCount(0);
+  // Back to Make: the steps come back.
+  await page.getByRole('navigation', { name: 'Sections' }).getByRole('link', { name: 'Make' }).click();
+  await expect(page.getByRole('heading', { level: 1 })).toHaveText('What will it be?');
+  await expect(page.locator('.nav')).toBeVisible();
+  await noSideScroll(page);
+  expect(errors).toEqual([]);
 });

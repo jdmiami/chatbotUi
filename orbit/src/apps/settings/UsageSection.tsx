@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useShell } from '../../state/shell';
 import { cloudStatus, type CloudStatus } from '../../services/ai/CloudAi';
-import { Segmented, Toggle } from '../../ui/components';
+import { Toggle } from '../../ui/components';
 import { Section } from './parts';
 import { disableNotify, enableNotify, notifyState, type NotifyState } from '../../services/notify';
 import { AUTO_OFF, autoOffMinutesOf, autoOffSentence, untilText } from '../../services/autoOff';
@@ -246,11 +246,10 @@ export function OrbSection() {
   );
 }
 
-/** Cloud AI: NVIDIA's free models for quick jobs, so the orb is smart even with the AI machine off. */
+/** Cloud AI: NVIDIA's open-weight models for every chat and writing job. */
 export function CloudAiSection() {
   const on = useShell((s) => s.settings.cloudAi !== false);
   const writeHelp = useShell((s) => s.settings.writeHelp !== false);
-  const prefer = useShell((s) => s.settings.cloudPrefer);
   const updateSettings = useShell((s) => s.updateSettings);
   const [status, setStatus] = useState<CloudStatus | null | undefined>(undefined);
   useEffect(() => {
@@ -259,13 +258,12 @@ export function CloudAiSection() {
     return () => {
       live = false;
     };
-  }, [prefer]);
-  const providers = status?.providers ?? [];
+  }, []);
   const state = status === undefined ? 'Checking…' : status?.configured ? 'Ready' : 'Not set up on the site yet';
   return (
     <Section
       title="Cloud AI"
-      caption="Quick jobs (the orb planning a step, help writing, reading what's on screen), and chats while your AI machine is off, use free cloud models: NVIDIA first, then a backup if it is busy or down. Pictures and videos stay on your AI machine."
+      caption="Every chat and every writing job (the orb, help writing, the Lab's prompt writer) uses NVIDIA's open-weight models. Pictures and videos stay on your AI machine."
     >
       <div className="list">
         <label className="row st-row st-click">
@@ -281,20 +279,6 @@ export function CloudAiSection() {
             <span className="st-sub">{on ? state : 'Off'}</span>
           </span>
         </div>
-        {on && providers.length > 1 && (
-          <div className="row st-row st-wrap">
-            <span className="st-main st-shrink">
-              <span className="st-label">Try first</span>
-              <span className="st-sub">The others are the backups, tried in turn when this one is busy or down.</span>
-            </span>
-            <Segmented
-              label="Cloud AI to try first"
-              value={providers.some((p) => p.id === prefer) ? prefer! : providers[0].id}
-              options={providers.map((p) => ({ value: p.id, label: p.name }))}
-              onChange={(id) => updateSettings({ cloudPrefer: id })}
-            />
-          </div>
-        )}
         {on && (
           <label className="row st-row st-click">
             <span className="st-main">

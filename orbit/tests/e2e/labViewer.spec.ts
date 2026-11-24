@@ -53,12 +53,12 @@ test('Lab viewer plays like Make: at once, nothing over the picture while it pla
   await page.goto('/');
   const win = await openApp(page, 'lab');
   await setShowNsfw(page, true);
-  const gallery = win.getByRole('list', { name: 'Lab movies, best first' });
+  const gallery = win.getByRole('list', { name: 'Made in the Lab, newest first' });
   await expect(gallery.getByRole('listitem')).toHaveCount(3);
 
   // A clear one: it plays the moment the viewer opens, with no browser controls and nothing over it.
   await gallery.getByRole('button', { name: 'Video: Rooftop glance' }).click();
-  const viewer = page.getByRole('dialog', { name: 'Lab movie' });
+  const viewer = page.getByRole('dialog', { name: 'Lab video' });
   const player = viewer.locator('.ai-player');
   await expect(player).toHaveAttribute('data-playing', '');
   expect(await plays()).toBeGreaterThan(0);

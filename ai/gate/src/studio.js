@@ -1179,7 +1179,7 @@ export function createStudio(o) {
   // machine can tell when one takes too long, and a stuck one can be stopped and tried again.
   const active = () => [...jobs.values()].filter((j) => j.status === 'queued' || j.status === 'running');
   /** Jobs waiting their turn, in order (a job being tried again goes first). */
-  // Your jobs before the meme lab's (memes.js), which only fill time nobody is using. Jobs you put
+  // Your jobs before the Lab's (promptlab.js), which only fill time nobody is using. Jobs you put
   // in order yourself (reorder) keep that order; ones added later go after them.
   const LAST = Number.MAX_SAFE_INTEGER;
   const waiting = () =>

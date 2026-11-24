@@ -29,7 +29,7 @@ const pick = <T extends object, K extends keyof T>(o: T, keys: K[]): Pick<T, K> 
 
 const STORED_KEYS: (keyof StoredItem)[] = ['id', 'kind', 'source', 'maker', 'prompt', 'title', 'caption', 'hashtags', 'score', 'width', 'height', 'seconds', 'movie', 'nsfw', 'nsfwUser', 'lab', 'createdAt', 'url', 'thumbUrl'];
 const ITEM_KEYS: (keyof StudioItem)[] = ['id', 'kind', 'prompt', 'width', 'height', 'seconds', 'maker', 'movie', 'nsfw', 'nsfwUser', 'createdAt', 'url', 'thumbUrl'];
-const LAB_KEYS: (keyof MemeRecord)[] = ['id', 'kind', 'nsfw', 'nsfwUser', 'url', 'thumbUrl', 'title', 'prompt', 'caption', 'hashtags', 'seconds', 'createdAt', 'score', 'movieId', 'remixOf', 'style', 'status'];
+const LAB_KEYS: (keyof MemeRecord)[] = ['id', 'kind', 'nsfw', 'nsfwUser', 'url', 'thumbUrl', 'title', 'prompt', 'from', 'maker', 'caption', 'hashtags', 'seconds', 'createdAt', 'score', 'movieId', 'remixOf', 'style', 'status'];
 const newest = <T extends { createdAt?: string }>(list: T[]) => [...list].sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt))).slice(0, LAST_MAX);
 
 /** What is kept of a list: the newest LAST_MAX of each, only the fields the grid and the viewer's words need. */

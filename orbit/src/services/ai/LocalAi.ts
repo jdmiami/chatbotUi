@@ -112,109 +112,64 @@ export interface StudioState {
   jobs: StudioJob[];
 }
 
-/** A maker in the studio's store (Create → Makers). */
-/** A meme-lab video: made while the AI machine was unused, scored by a chat model for how viral it could go. */
+/**
+ * Something the Lab made: a picture or a short video from a prompt its writer wrote in your style.
+ * It stays in the Lab until you keep it (then it is in your gallery) or delete it.
+ */
 export interface MemeRecord {
   id: string;
-  /** The AI machine's NSFW check flagged the video. */
+  /** The AI machine's NSFW check flagged it. */
   nsfw?: boolean;
   /** Your own say on it: true blurs it, false never blurs it. */
   nsfwUser?: boolean;
   url?: string;
   /** Its small picture for the grid, once the machine made one. */
   thumbUrl?: string;
-  title: string;
   prompt: string;
-  caption: string;
-  hashtags: string[];
+  kind?: 'image' | 'video';
+  maker?: string;
   seconds?: number;
   createdAt: string;
-  /** 0–100, or null when there was no chat model to judge it. */
+  /** Multiply: the prompt of yours it was built on. */
+  from?: string;
+  /** Older Lab work (movies, remixes) still carries these. */
+  title?: string;
+  caption?: string;
+  hashtags?: string[];
   score?: number | null;
-  why?: string;
-  /** judging · made (waiting to be judged) · judged · ready (scored high enough to post) */
-  status: 'judging' | 'made' | 'judged' | 'ready';
-  /** comedy · spicy · yours (a 30-second movie in your style) · remix (a picture or clip remade from your prompt). */
-  style?: LabStyle;
-  /** A movie in your style: its soReal movie (it moves into soReal when kept). */
   movieId?: string;
-  /** A remix: a picture or a short video. Older machines only made videos. */
-  kind?: 'image' | 'video';
-  /** A remix: the prompt of yours it was remade from. */
   remixOf?: string;
+  style?: string;
+  status?: string;
 }
+/** A prompt the Lab's writer wrote, waiting to be made. */
 export interface LabIdea {
   id: string;
-  title: string;
   prompt: string;
-  topic: string | null;
-  /** Written or edited by you: made exactly as written. */
-  yours: boolean;
-  /** "Your style": a 30-second movie (made with soReal's auto flow), with its look. Remix: a picture or a short clip. */
-  kind?: 'movie' | 'picture' | 'clip';
-  /** A remix: the prompt of yours it remakes. */
-  remixOf?: string;
-  seconds?: number;
-  look?: string;
-  /** Your style leans spicy: blurred like any NSFW item. */
-  nsfw?: boolean;
+  kind: 'picture' | 'clip';
+  maker: string;
+  size?: string;
+  /** Multiply: the prompt of yours it was built on. */
+  from?: string;
 }
-/** comedy · spicy · yours: 30-second movies in your own style, from your saved prompts · remix: pictures and clips remade from your Make prompts. */
-export type LabStyle = 'comedy' | 'spicy' | 'yours' | 'remix';
-/** What Remix makes from your prompts: both (as you made them), only pictures, or only videos. */
+/** What the Lab makes: both (as you make them), only pictures, or only videos. */
 export type LabMix = 'both' | 'pictures' | 'videos';
-/** Where a Lab movie is: the story, the lead, the storyboard, the shots, the final cut. */
-export interface LabMovieProgress {
-  id: string;
-  phase: 'draft' | 'story' | 'lead' | 'storyboard' | 'review' | 'shots' | 'final' | 'done' | 'stopped' | 'error';
-  /** Waiting for your job to finish (it made way, and carries on after). */
-  paused: boolean;
-  shots: number;
-  shotsDone: number;
-  etaSeconds: number | null;
-  seconds: number;
-}
-/** A chip on the "Your style" panel: something the profile picked up (remove it to leave it out). */
-export interface StyleChip {
-  kind: 'subject' | 'look' | 'mood';
-  text: string;
-}
-/** Your style: a profile of your own saved prompts, written on the AI machine (nothing leaves it). */
-export interface YourStyleProfile {
-  ready: boolean;
-  building: boolean;
-  /** In plain words; yours to edit (your edits steer it). */
-  summary: string;
-  edited: boolean;
-  /** How many of your prompts it was built from, and when. */
-  count: number;
-  builtAt: string | null;
-  /** ai: the chat model on the machine wrote it; words: a word count (no chat model). */
-  by: 'ai' | 'words' | null;
-  spicy: boolean;
-  profile: Record<string, string[]>;
-  chips: StyleChip[];
-  removed: string[];
-  lastError: string | null;
-}
 export interface MemeLabState {
+  /** 'multiply': the Lab writes new prompts in your style. Older machines don't say. */
+  kind?: 'multiply';
   enabled: boolean;
-  /** Comedy, or spicy: flirty thirst-trap clips of made-up adults, no nudity. Older machines don't say. */
-  style?: LabStyle;
-  /** Remix: what it makes, and how many of your prompts it has to remix from. */
   mix?: LabMix;
-  remix?: { sources: number; pictures: number; videos: number };
-  /** Your topics; the planned ideas are built around them. */
-  topics: string[];
-  quietMinutes: number;
-  readyScore: number;
-  /** Minutes one lab video takes (learned), and minutes until the machine turns itself off. */
-  minutesPerVideo: number;
-  minutesLeft: number;
-  making: { title: string; topic: string | null; prompt: string; job: StudioJob | null; movie?: LabMovieProgress | null; nsfw?: boolean; kind?: 'movie' | 'picture' | 'clip'; remixOf?: string } | null;
-  /** Planned ideas, in the order they will be made. */
+  /** The writer (NVIDIA through the site) can be reached. */
+  writerReady?: boolean;
+  /** A round of new prompts is being written now. */
+  writing?: boolean;
+  /** How many of your own Make prompts it writes from. */
+  yours?: { pictures: number; videos: number };
+  making: { prompt: string; kind?: 'picture' | 'clip'; maker?: string; job: StudioJob | null } | null;
+  /** Written prompts, in the order they will be made. */
   queue: LabIdea[];
   madeLastHour: number;
+  maxPerHour?: number;
   lastError: string | null;
   records: MemeRecord[];
 }
@@ -881,7 +836,7 @@ export class LocalAi {
     return r.jobs.map((j) => this.absoluteJob(j));
   }
 
-  // ---- meme lab (made while the machine is unused; never keeps it on)
+  // ---- the Lab (made while the machine is unused; never keeps it on)
 
   private labAbsolute(st: MemeLabState): MemeLabState {
     return { ...st, making: st.making ? { ...st.making, job: st.making.job ? this.absoluteJob(st.making.job) : null } : null, records: st.records.map((r) => this.absolute(r)) };
@@ -895,30 +850,27 @@ export class LocalAi {
     return this.labAbsolute(await this.studioCall<MemeLabState>('/_orbit/studio/lab', { method: 'POST', body: JSON.stringify({ enabled }) }));
   }
 
-  async setLabStyle(style: LabStyle): Promise<MemeLabState> {
-    return this.labAbsolute(await this.studioCall<MemeLabState>('/_orbit/studio/lab', { method: 'POST', body: JSON.stringify({ style }) }));
-  }
-
-  /** Remix: make pictures, videos or both from your prompts. */
+  /** Make pictures, videos or both. */
   async setLabMix(mix: LabMix): Promise<MemeLabState> {
     return this.labAbsolute(await this.studioCall<MemeLabState>('/_orbit/studio/lab', { method: 'POST', body: JSON.stringify({ mix }) }));
   }
 
-  async setLabTopics(topics: string[]): Promise<MemeLabState> {
-    return this.labAbsolute(await this.studioCall<MemeLabState>('/_orbit/studio/lab', { method: 'POST', body: JSON.stringify({ topics }) }));
+  /** Write a fresh round of prompts in your style now (replaces the ones waiting). */
+  async writeLab(): Promise<MemeLabState> {
+    return this.labAbsolute(await this.studioCall<MemeLabState>('/_orbit/studio/lab/write', { method: 'POST', body: '{}' }));
   }
 
-  /** Stop the lab video being made now. */
+  /** Stop the one being made now. */
   async cancelLabVideo(): Promise<MemeLabState> {
     return this.labAbsolute(await this.studioCall<MemeLabState>('/_orbit/studio/lab/cancel', { method: 'POST', body: '{}' }));
   }
 
-  /** Your own idea; it is made next. */
-  async addLabIdea(idea: { title?: string; prompt: string }): Promise<MemeLabState> {
+  /** Multiply one prompt: the writer builds `count` new ones on it in your style, made next. */
+  async addLabIdea(idea: { prompt: string; count?: number; kind?: 'picture' | 'clip' }): Promise<MemeLabState> {
     return this.labAbsolute(await this.studioCall<MemeLabState>('/_orbit/studio/lab/queue', { method: 'POST', body: JSON.stringify(idea) }));
   }
 
-  async editLabIdea(id: string, idea: { title?: string; prompt?: string }): Promise<MemeLabState> {
+  async editLabIdea(id: string, idea: { prompt: string }): Promise<MemeLabState> {
     return this.labAbsolute(await this.studioCall<MemeLabState>(`/_orbit/studio/lab/queue/${encodeURIComponent(id)}`, { method: 'POST', body: JSON.stringify(idea) }));
   }
 
@@ -930,22 +882,7 @@ export class LocalAi {
     return this.labAbsolute(await this.studioCall<MemeLabState>(`/_orbit/studio/lab/queue/${encodeURIComponent(id)}`, { method: 'DELETE' }));
   }
 
-  /** Your style (for the Lab's "Your style"): the profile of your own saved prompts. */
-  async labProfile(): Promise<YourStyleProfile> {
-    return this.studioCall<YourStyleProfile>('/_orbit/studio/lab/profile');
-  }
-
-  /** Change your style: your summary steers it; removed chips stay out. */
-  async editLabProfile(edit: { summary?: string; remove?: string[]; restore?: string[] }): Promise<YourStyleProfile> {
-    return this.studioCall<YourStyleProfile>('/_orbit/studio/lab/profile', { method: 'POST', body: JSON.stringify(edit) });
-  }
-
-  /** Build your style again from your saved prompts now (it says building until done). */
-  async rebuildLabProfile(): Promise<YourStyleProfile> {
-    return this.studioCall<YourStyleProfile>('/_orbit/studio/lab/profile/rebuild', { method: 'POST', body: '{}' });
-  }
-
-  /** Move a meme-lab video into the gallery. */
+  /** Move something the Lab made into your gallery. */
   async keepMeme(id: string): Promise<MemeLabState> {
     return this.labAbsolute(await this.studioCall<MemeLabState>(`/_orbit/studio/lab/${encodeURIComponent(id)}/keep`, { method: 'POST', body: '{}' }));
   }
