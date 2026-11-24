@@ -109,7 +109,7 @@ const bearer = (req) => {
  *   status()                async () => object for /_orbit/status
  *   studio                  image/video maker (studio.js), optional
  *   characters              saved characters (characters.js), optional: the owner's routes under /_orbit/studio/characters
- *   lab                     meme lab (memes.js), optional
+ *   lab                     the Lab (promptlab.js), optional
  *   studioKey               key Open WebUI uses for the studio from inside the machine (loopback only)
  *   r2test                  R2 speed test (r2.js createR2Test), optional
  *   liveDraw                Live draw (live.js createLiveDraw), optional: /_orbit/live/draw, as a
@@ -892,12 +892,14 @@ export function createGate(cfg, log = console) {
         return j ? send(res, 200, withJobUrl(j)) : send(res, 404, { error: 'No such job' });
       }
       if (movies && path.startsWith('/_orbit/studio/movies')) return await handleMovies(req, res, path, withUrl);
-      // Meme lab: GET its videos and scores; POST { enabled, style, topics, mix } turns it on or off, picks
-      // comedy, spicy, yours (30-second movies in your style) or remix (pictures and clips remade from
-      // your Make prompts; mix: both, pictures or videos), and sets your topics;
-      // POST /lab/<id>/keep moves a video into the gallery; DELETE /lab/<id> throws it away.
+      // The Lab (promptlab.js): GET what it made, what is waiting and what is being made;
+      // POST { enabled, mix } turns it on or off and picks pictures, videos or both;
+      // POST /lab/write writes a fresh round of prompts now; POST /lab/queue { prompt, count?, kind? }
+      // multiplies one prompt (new ones built on it, made next); POST /lab/queue/<id> edits one,
+      // /lab/queue/<id>/next moves it up front, DELETE /lab/queue/<id> drops it; POST /lab/cancel stops
+      // the one being made; POST /lab/<id>/keep moves one into the gallery; DELETE /lab/<id> deletes it.
       if (path === '/_orbit/studio/lab' || path.startsWith('/_orbit/studio/lab/')) {
-        if (!cfg.lab) return send(res, 404, { error: 'The meme lab runs on the main AI machine only.' });
+        if (!cfg.lab) return send(res, 404, { error: 'The Lab is not available on this machine.' });
         const labState = async () => {
           const s = await cfg.lab.state();
           await studio.thumbsReady?.();
@@ -910,22 +912,25 @@ export function createGate(cfg, log = console) {
             }),
           };
         };
+        const body = async () => JSON.parse((await readBody(req, 16_384)) || '{}');
         if (path === '/_orbit/studio/lab' && req.method === 'GET') return send(res, 200, await labState());
         if (path === '/_orbit/studio/lab' && req.method === 'POST') {
-          const { enabled, style, topics, mix } = JSON.parse((await readBody(req, 16_384)) || '{}');
-          await cfg.lab.configure({ enabled: typeof enabled === 'boolean' ? enabled : undefined, style: typeof style === 'string' ? style : undefined, topics: Array.isArray(topics) ? topics : undefined, mix: typeof mix === 'string' ? mix : undefined });
+          const { enabled, mix } = await body();
+          await cfg.lab.configure({ enabled: typeof enabled === 'boolean' ? enabled : undefined, mix: typeof mix === 'string' ? mix : undefined });
           return send(res, 200, await labState());
         }
-        // The queue: POST /lab/cancel stops the video being made; POST /lab/queue { title, prompt } adds
-        // your idea (made next); POST /lab/queue/<id> edits one, /lab/queue/<id>/next moves it up front;
-        // DELETE /lab/queue/<id> removes it.
         if (path === '/_orbit/studio/lab/cancel' && req.method === 'POST') {
           await cfg.lab.cancelCurrent();
           return send(res, 200, await labState());
         }
+        if (path === '/_orbit/studio/lab/write' && req.method === 'POST') {
+          const { keep } = await body();
+          await cfg.lab.writeNow({ keep: keep === true });
+          return send(res, 200, await labState());
+        }
         if (path === '/_orbit/studio/lab/queue' && req.method === 'POST') {
-          const idea = JSON.parse((await readBody(req, 16_384)) || '{}');
-          if (!(await cfg.lab.addIdea(idea))) return send(res, 400, { error: 'Write what the video should show.' });
+          const { prompt, count, kind } = await body();
+          if (!(await cfg.lab.addIdea({ prompt: typeof prompt === 'string' ? prompt : '', count, kind }))) return send(res, 400, { error: 'Nothing new was written.' });
           return send(res, 200, await labState());
         }
         const queueMatch = /^\/_orbit\/studio\/lab\/queue\/([A-Za-z0-9_-]+)(\/next)?$/.exec(path);
@@ -934,20 +939,10 @@ export function createGate(cfg, log = console) {
           let ok = false;
           if (req.method === 'DELETE' && !next) ok = await cfg.lab.removeIdea(qid);
           else if (req.method === 'POST' && next) ok = await cfg.lab.makeNext(qid);
-          else if (req.method === 'POST') ok = await cfg.lab.editIdea(qid, JSON.parse((await readBody(req, 16_384)) || '{}'));
+          else if (req.method === 'POST') ok = await cfg.lab.editIdea(qid, await body());
           else return send(res, 405, { error: 'Not allowed' });
           return send(res, ok ? 200 : 404, await labState());
         }
-        // Your style (style.js): GET /lab/profile shows it; POST /lab/profile { summary?, remove?, restore? }
-        // edits it (your words steer it, removed chips stay out); POST /lab/profile/rebuild builds it again
-        // from your saved prompts (in the background: GET it again to see it done).
-        if (path === '/_orbit/studio/lab/profile' && req.method === 'GET') return send(res, 200, await cfg.lab.profile());
-        if (path === '/_orbit/studio/lab/profile' && req.method === 'POST') {
-          const { summary, remove, restore } = JSON.parse((await readBody(req, 16_384)) || '{}');
-          return send(res, 200, await cfg.lab.editProfile({ summary: typeof summary === 'string' ? summary : undefined, remove: Array.isArray(remove) ? remove : undefined, restore: Array.isArray(restore) ? restore : undefined }));
-        }
-        if (path === '/_orbit/studio/lab/profile/rebuild' && req.method === 'POST') return send(res, 200, await cfg.lab.rebuildProfile());
-        if (path.startsWith('/_orbit/studio/lab/profile')) return send(res, 405, { error: 'Not allowed' });
         const labMatch = /^\/_orbit\/studio\/lab\/([A-Za-z0-9_-]+)(\/keep)?$/.exec(path);
         if (labMatch && req.method === 'POST' && labMatch[2]) return send(res, (await cfg.lab.keep(labMatch[1])) ? 200 : 404, await labState());
         if (labMatch && req.method === 'DELETE' && !labMatch[2]) return send(res, (await cfg.lab.remove(labMatch[1])) ? 200 : 404, await labState());

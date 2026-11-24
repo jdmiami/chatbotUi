@@ -3,13 +3,13 @@ import type { AppProps } from '../types';
 import { AppHeader } from '../../ui/components';
 import { useShell } from '../../state/shell';
 import { getLocalAi, type AiMachineStatus } from '../../services/ai/LocalAi';
-import { MemeLab } from '../ai/MemeLab';
+import { PromptLab } from './PromptLab';
 import { MachineNotice } from '../../ui/MachineNotice';
 import { SpeedChoice, useSpeed } from '../../ui/SpeedChoice';
 import '../agent/agent.css';
 import '../ai/ai.css';
 
-/** The Lab as its own app: the same screen as the AI app's Lab tab. */
+/** The Lab as its own app: your prompts, multiplied in your style. */
 export default function LabApp({ isActive }: AppProps) {
   const ai = useMemo(() => getLocalAi(), []);
   const toast = useShell((s) => s.toast);
@@ -65,7 +65,7 @@ export default function LabApp({ isActive }: AppProps) {
             </div>
           </MachineNotice>
         )}
-        <MemeLab ai={ai} machineOn={machineOn} isActive={isActive} />
+        <PromptLab ai={ai} machineOn={machineOn} isActive={isActive} />
       </div>
     </div>
   );

@@ -1,9 +1,9 @@
 import 'server-only';
 
 /**
- * Cloud AI: NVIDIA's free API first, then backup serverless providers (Groq, Gemini, Cerebras,
- * OpenRouter, Together), all OpenAI-compatible. Keys stay here on the server; the browser only ever talks to
- * /api/orb/ai. The orb's quick jobs go here, and AI app chats when the AI machine is off.
+ * Cloud AI: NVIDIA's API with open-weight models only (models whose weights are published, the same
+ * kind you could run on your own machine). Every chat and every writing job on the site goes here.
+ * The key stays on the server; the browser only ever talks to /api/orb/ai.
  */
 
 export const NVIDIA_BASE = 'https://integrate.api.nvidia.com/v1';
@@ -16,7 +16,7 @@ export const NVIDIA_BASE = 'https://integrate.api.nvidia.com/v1';
 export type OrbTask = 'fast' | 'agent' | 'vision' | 'write' | 'chat' | 'free';
 export const ORB_TASKS: OrbTask[] = ['fast', 'agent', 'vision', 'write', 'chat', 'free'];
 
-export type ProviderId = 'nvidia' | 'groq' | 'gemini' | 'cerebras' | 'openrouter' | 'together';
+export type ProviderId = 'nvidia';
 
 interface Provider {
   id: ProviderId;
@@ -30,10 +30,9 @@ interface Provider {
 }
 
 /**
- * Every serverless provider speaks the same OpenAI-style chat API, so a backup is just another
- * base URL and key. A provider is used when its key is set in Vercel; the order is ORB_PROVIDERS
- * (or this list), and Settings can put any one of them first. Model lists can be swapped without
- * a code change: ORB_MODELS for NVIDIA, ORB_MODELS_GROQ, ORB_MODELS_OPENROUTER and so on.
+ * NVIDIA only, open weights only: no closed models and no other companies. A model is skipped for
+ * the next one when it is missing, busy or failing. The lists can be swapped without a code change
+ * with ORB_MODELS (keep them open-weight).
  */
 const PROVIDERS: Provider[] = [
   {
@@ -55,82 +54,11 @@ const PROVIDERS: Provider[] = [
         'mistralai/mistral-large-2-instruct',
         'mistralai/mistral-7b-instruct-v0.3',
         'mistralai/mistral-large-4-1t-a52b',
-        'writer/palmyra-creative-122b',
         'nvidia/mistral-nemo-minitron-8b-8k-instruct',
         'deepseek-ai/deepseek-v4.1-flash',
         'z-ai/glm-5.3-flash',
         'moonshotai/kimi-k2.6',
       ],
-    },
-  },
-  {
-    id: 'groq',
-    name: 'Groq',
-    base: 'https://api.groq.com/openai/v1',
-    keyEnv: 'GROQ_API_KEY',
-    models: {
-      fast: ['llama-3.1-8b-instant', 'openai/gpt-oss-20b'],
-      agent: ['openai/gpt-oss-120b', 'llama-3.3-70b-versatile'],
-      vision: ['meta-llama/llama-4-scout-17b-16e-instruct'],
-      write: ['llama-3.3-70b-versatile', 'openai/gpt-oss-20b'],
-      chat: ['llama-3.3-70b-versatile', 'openai/gpt-oss-120b'],
-      free: ['llama-3.3-70b-versatile'],
-    },
-  },
-  {
-    id: 'gemini',
-    name: 'Google Gemini',
-    base: 'https://generativelanguage.googleapis.com/v1beta/openai',
-    keyEnv: 'GEMINI_API_KEY',
-    models: {
-      fast: ['gemini-2.5-flash-lite', 'gemini-2.5-flash'],
-      agent: ['gemini-2.5-flash', 'gemini-2.5-flash-lite'],
-      vision: ['gemini-2.5-flash', 'gemini-2.5-flash-lite'],
-      write: ['gemini-2.5-flash-lite', 'gemini-2.5-flash'],
-      chat: ['gemini-2.5-flash', 'gemini-2.5-flash-lite'],
-      free: ['gemini-2.5-flash'],
-    },
-  },
-  {
-    id: 'cerebras',
-    name: 'Cerebras',
-    base: 'https://api.cerebras.ai/v1',
-    keyEnv: 'CEREBRAS_API_KEY',
-    models: {
-      fast: ['llama3.1-8b', 'gpt-oss-120b'],
-      agent: ['gpt-oss-120b', 'llama-3.3-70b'],
-      vision: [],
-      write: ['llama-3.3-70b', 'gpt-oss-120b'],
-      chat: ['gpt-oss-120b', 'llama-3.3-70b'],
-      free: ['llama-3.3-70b'],
-    },
-  },
-  {
-    id: 'openrouter',
-    name: 'OpenRouter',
-    base: 'https://openrouter.ai/api/v1',
-    keyEnv: 'OPENROUTER_API_KEY',
-    models: {
-      fast: ['meta-llama/llama-3.3-70b-instruct:free', 'openai/gpt-oss-20b:free'],
-      agent: ['openai/gpt-oss-120b:free', 'deepseek/deepseek-chat-v3.1:free'],
-      vision: ['qwen/qwen2.5-vl-72b-instruct:free', 'google/gemma-3-27b-it:free'],
-      write: ['meta-llama/llama-3.3-70b-instruct:free', 'openai/gpt-oss-20b:free'],
-      chat: ['deepseek/deepseek-chat-v3.1:free', 'meta-llama/llama-3.3-70b-instruct:free'],
-      free: ['cognitivecomputations/dolphin-mistral-24b-venice-edition:free', 'mistralai/mistral-nemo:free'],
-    },
-  },
-  {
-    id: 'together',
-    name: 'Together AI',
-    base: 'https://api.together.xyz/v1',
-    keyEnv: 'TOGETHER_API_KEY',
-    models: {
-      fast: ['meta-llama/Llama-3.3-70B-Instruct-Turbo-Free'],
-      agent: ['meta-llama/Llama-3.3-70B-Instruct-Turbo-Free'],
-      vision: ['meta-llama/Llama-Vision-Free'],
-      write: ['meta-llama/Llama-3.3-70B-Instruct-Turbo-Free'],
-      chat: ['meta-llama/Llama-3.3-70B-Instruct-Turbo-Free'],
-      free: ['meta-llama/Llama-3.3-70B-Instruct-Turbo-Free'],
     },
   },
 ];
@@ -139,7 +67,7 @@ const configured = (p: Provider) => Boolean(process.env[p.keyEnv]);
 
 function modelsFor(p: Provider): Record<OrbTask, string[]> {
   const models = { ...p.models };
-  const env = p.id === 'nvidia' ? 'ORB_MODELS' : `ORB_MODELS_${p.id.toUpperCase()}`;
+  const env = 'ORB_MODELS';
   try {
     const custom = JSON.parse(process.env[env] || '{}') as Partial<Record<OrbTask, unknown>>;
     for (const task of ORB_TASKS) {
@@ -152,13 +80,10 @@ function modelsFor(p: Provider): Record<OrbTask, string[]> {
   return models;
 }
 
-/** The providers with a key, in the order they are tried; `prefer` goes first. */
+/** The providers with a key (NVIDIA only). `prefer` is kept for old callers and changes nothing. */
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 export function orbProviders(prefer?: string): Provider[] {
-  const order = (process.env.ORB_PROVIDERS || '').split(',').map((s) => s.trim()).filter(Boolean);
-  const rank = (p: Provider) => (p.id === prefer ? -1 : order.includes(p.id) ? order.indexOf(p.id) : order.length + PROVIDERS.indexOf(p));
-  return PROVIDERS.filter(configured)
-    .filter((p) => !order.length || order.includes(p.id) || p.id === prefer)
-    .sort((a, b) => rank(a) - rank(b));
+  return PROVIDERS.filter(configured);
 }
 
 export function orbAiConfigured() {
@@ -285,8 +210,6 @@ export async function callProvider({ provider, model }: Attempt, body: Record<st
       authorization: `Bearer ${process.env[provider.keyEnv]}`,
       'content-type': 'application/json',
       accept: body.stream ? 'text/event-stream' : 'application/json',
-      // OpenRouter shows where requests come from; harmless elsewhere.
-      ...(provider.id === 'openrouter' ? { 'x-title': 'Orbit' } : {}),
     },
     body: JSON.stringify({ ...payload, model }),
     signal,

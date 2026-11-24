@@ -108,7 +108,7 @@ function machineCreations(raw: MachineRaw | null, cached: boolean): Creation[] {
       kind: r.kind === 'image' ? 'image' : 'video',
       url: r.url ?? '',
       thumbUrl: r.thumbUrl,
-      label: r.title,
+      label: r.title ?? r.prompt,
       nsfw: r.nsfw === true || isNsfw(r.title, r.prompt, r.caption, r.remixOf) || unknown(r.nsfw),
       seconds: r.seconds,
       source: 'lab' as const,

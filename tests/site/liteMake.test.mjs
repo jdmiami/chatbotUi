@@ -23,7 +23,7 @@ test('every NVIDIA unfiltered writer has a plain name in the fast Make picker', 
   // lib/orbAi.ts is server-only: its NVIDIA list is read from the file itself.
   const { readFileSync } = await import('node:fs');
   const src = readFileSync(new URL('../../lib/orbAi.ts', import.meta.url), 'utf8');
-  const nvidia = src.slice(src.indexOf("id: 'nvidia'"), src.indexOf("id: 'groq'"));
+  const nvidia = src.slice(src.indexOf("id: 'nvidia'"), src.indexOf('];', src.indexOf("id: 'nvidia'")));
   const free = nvidia.slice(nvidia.indexOf('free: ['), nvidia.indexOf('],', nvidia.indexOf('free: [')));
   const ids = [...free.matchAll(/'([a-z0-9.-]+\/[a-z0-9.-]+)'/g)].map((m) => m[1]);
   assert.ok(ids.length >= 3, `found ${ids.length}`);

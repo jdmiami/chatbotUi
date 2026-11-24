@@ -144,7 +144,8 @@ export default function AiApp({ isActive, placement }: AppProps) {
     if (hasPictures && isActive && status?.state === 'on') void refreshFlags(ai);
   }, [ai, hasPictures, isActive, status?.state, chat?.id]);
   const ready = status?.state === 'on';
-  // With the AI machine off, chats go to the cloud (NVIDIA, then the backups) instead of waiting.
+  // Every chat goes to NVIDIA's open-weight models (the AI machine keeps its power for pictures and
+  // videos). Only when cloud AI is off or not set up does a chat use a model on the machine.
   const [cloudOk, setCloudOk] = useState(false);
   useEffect(() => {
     if (!isActive) return;
@@ -154,7 +155,7 @@ export default function AiApp({ isActive, placement }: AppProps) {
       live = false;
     };
   }, [isActive]);
-  const viaCloud = !ready && cloudOk;
+  const viaCloud = cloudOk;
   const canChat = ready || viaCloud;
 
   const update = useCallback((fn: (s: AiChatStore) => AiChatStore) => {

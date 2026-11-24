@@ -14,9 +14,8 @@ import { createStudio } from './studio.js';
 import { createMovies, runFfmpeg } from './movies.js';
 import { createNsfwCheck } from './nsfwcheck.js';
 import { createCharacters } from './characters.js';
-import { ADULT_NOTE, createMemeLab } from './memes.js';
+import { createPromptLab } from './promptlab.js';
 import { createCloudChat } from './cloudchat.js';
-import { createStyleProfile } from './style.js';
 import { createSysStats } from './sysstats.js';
 import { createGpuStats } from './gpustats.js';
 import { createSearch } from './search.js';
@@ -278,7 +277,7 @@ const canvas =
       })
     : null;
 // soReal movies (chained video shots), kept with the studio's files.
-// A chat model on this machine writes each movie's story (labChat: below, the same as the meme lab's).
+// The writer (labChat: below, NVIDIA through the site) writes each movie's story.
 const movies = studio ? createMovies({ dir: env.STUDIO_DIR, studio, machine: ROLE, mirror: studio.mirror, chat: ({ system, user }) => labChat({ system, user }) }) : null;
 // R2 speed test (only when the R2 keys are set as Runpod secrets): the Qwen image model, volume vs R2.
 const QWEN = STUDIO_FILES.image[0];
@@ -310,7 +309,7 @@ const push = NO_CHAT
 
 // The one auto-off rule (shared/autooff.js): off after IDLE_MINUTES without a job. The site sends its
 // AUTO_OFF_MINUTES as IDLE_MINUTES; never more than an hour and never 0 (the money fail-safe). The
-// meme lab fills that time with videos, but its videos never count as a job.
+// Lab fills that time with videos, but its videos never count as a job.
 const idle = createAutoOff({
   limitMinutes: clampAutoOffMinutes(env.IDLE_MINUTES),
   // Busy while a picture, video or movie shot is being made or a download is running (so the hour
@@ -335,10 +334,9 @@ const idle = createAutoOff({
   tag: '[gate]',
 });
 
-// The meme lab (memes.js): makes 30-second meme movies while nobody is using the machine, and has a chat
-// model on this machine score how viral each could go. On the main machine, and on the AI machine on
-// GPU.ai with the site's cloud AI as its chat model.
-const LAB_KEY = 'state/meme-lab.json';
+// The Lab (promptlab.js): the writer studies your own prompts from Make and keeps writing new ones in
+// your style; this machine makes them in the background while you are not using it.
+const LAB_KEY = 'state/meme-lab.json'; // the same place as before: the site reads it too (lib/gallery.ts)
 const labFile = path.join(env.PERSIST_DIR || '/workspace', '.orbit-meme-lab.json');
 async function labChatModel() {
   const tags = await ollamaJson(OLLAMA, '/api/tags').catch(() => null);
@@ -349,18 +347,17 @@ async function labChatModel() {
   const small = names.find((n) => !/embed/i.test(n));
   return small ? { name: small, vision: false } : null;
 }
-// The AI machine on GPU.ai (a helper with no chat model of its own) writes with the site's cloud AI
-// instead, so the Lab, "Your style" and soReal's stories work there too. CLOUD_LAB=0 turns that off.
+// Every writing job on the machine (the Lab's prompt writer, "Your style", soReal's stories) uses the
+// site's cloud AI: NVIDIA's open-weight models. Words only: pictures never leave the machine. A chat
+// model on this machine is used only when the site can't be reached (no SITE_URL, or CLOUD_LAB=0).
 const cloudChat =
-  NO_CHAT && !CANVAS && studio && /^https:\/\//.test(env.SITE_URL || '') && env.CLOUD_LAB !== '0'
+  !CANVAS && studio && /^https:\/\//.test(env.SITE_URL || '') && env.CLOUD_LAB !== '0'
     ? createCloudChat({ siteUrl: env.SITE_URL, secret: env.GATEWAY_SECRET })
     : null;
 const canChat = !NO_CHAT || Boolean(cloudChat);
 async function labChat({ system, user, images, temperature = 0.9 }) {
-  if (NO_CHAT) {
-    if (!cloudChat) throw new Error('No chat model is installed on the AI machine.');
-    return cloudChat({ system, user, temperature });
-  }
+  if (cloudChat) return cloudChat({ system, user, temperature });
+  if (NO_CHAT) throw new Error('No chat model is installed on the AI machine.');
   const m = await labChatModel();
   if (!m) throw new Error('No chat model is installed on the AI machine.');
   const ask = async (withImages) => {
@@ -384,39 +381,11 @@ async function labChat({ system, user, images, temperature = 0.9 }) {
   // A model that can't see answers from the idea alone.
   return m.vision ? ask(true).catch(() => ask(false)) : ask(false);
 }
-// "Your style" (style.js): a profile of the owner's own saved prompts, written by the same chat model
-// on this machine (nothing leaves it), that the Lab's "Your style" movies are made from.
-const STYLE_KEY = 'state/your-style.json';
-const styleFile = path.join(env.PERSIST_DIR || '/workspace', '.orbit-your-style.json');
-const yourStyle =
-  studio && movies && canChat
-    ? createStyleProfile({
-        sources: async () => ({
-          items: (await studio.items(1000)).map((it) => ({ ...it, prompt: String(it.prompt || '').replace(ADULT_NOTE, '') })),
-          movies: await movies.list(),
-          labIdeas: lab ? await lab.ownIdeas() : [],
-        }),
-        // Steadier than the idea writer: it sums up, it doesn't invent.
-        chat: ({ system, user }) => labChat({ system, user, temperature: 0.3 }),
-        load: async () => (r2 ? r2.getJson(STYLE_KEY) : JSON.parse(await fs.readFile(styleFile, 'utf8'))),
-        save: async (state) => (r2 ? r2.put(STYLE_KEY, JSON.stringify(state), 'application/json') : fs.writeFile(styleFile, JSON.stringify(state))),
-        log: console,
-      })
-    : null;
 const lab =
   studio && canChat
-    ? createMemeLab({
+    ? createPromptLab({
         studio,
-        // Every Lab style makes 30-second movies through soReal's auto flow (chained from each last
-        // frame); "Your style" writes them from the profile above.
         movies,
-        profile: yourStyle,
-        quietSeconds: () => idle.state().idleSeconds,
-        // The lab plans enough videos to fill the time until the machine turns itself off.
-        minutesLeft: () => {
-          const off = Date.parse(idle.state().offAt || '');
-          return Number.isFinite(off) ? Math.max(0, (off - Date.now()) / 60_000) : idle.state().limitMinutes;
-        },
         chat: labChat,
         load: async () => (r2 ? r2.getJson(LAB_KEY) : JSON.parse(await fs.readFile(labFile, 'utf8'))),
         save: async (state) => (r2 ? r2.put(LAB_KEY, JSON.stringify(state), 'application/json') : fs.writeFile(labFile, JSON.stringify(state))),

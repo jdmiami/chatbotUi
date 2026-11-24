@@ -527,7 +527,7 @@ export function createMovies(o) {
       render: null,
       createdAt: new Date(now()).toISOString(),
     };
-    // Made by the Lab (memes.js, never from a request): kept out of soReal until you keep it, its
+    // Made by the Lab (never from a request): kept out of soReal until you keep it, its
     // studio jobs wait behind yours and make way for them, and its cut may be blurred as NSFW.
     if (body.lab) Object.assign(m, { lab: true, background: true, nsfw: Boolean(body.nsfw) || undefined });
     if (m.shots.length) {
