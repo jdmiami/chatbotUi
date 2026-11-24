@@ -1,11 +1,22 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { liteMakePage, LITE_JS } from '../../lib/liteMake.ts';
+import { CENTER_CSS, CENTER_JS } from '../../lib/simpleCenter.ts';
 
-test('the fast Make page is one small response: no other script or style to fetch, and its script parses', () => {
-  const html = liteMakePage();
+test('Simple is one small response with all four tabs: no other script or style to fetch, and its script parses', () => {
+  const html = liteMakePage({ css: CENTER_CSS, js: CENTER_JS });
   assert.ok(html.startsWith('<!doctype html>'));
-  assert.ok(Buffer.byteLength(html) < 80 * 1024, `the page is ${Buffer.byteLength(html)} bytes`);
+  // Still far lighter than Orbit: about a quarter of this once compressed.
+  assert.ok(Buffer.byteLength(html) < 110 * 1024, `the page is ${Buffer.byteLength(html)} bytes`);
+  assert.doesNotMatch(CENTER_JS, /\$\{|`/);
+  const script = html.slice(html.indexOf('<script>') + 8, html.lastIndexOf('</script>'));
+  assert.doesNotThrow(() => new Function(script));
+  assert.ok(!script.includes('/*CENTER*/'), 'the tabs are in the script');
+  // The tabs share the page's script: none of their names may hide one of the page's.
+  const names = (js) => new Set([...js.matchAll(/(?:function|var)\s+([A-Za-z_$][\w$]*)/g)].map((m) => m[1]));
+  const page = names(LITE_JS);
+  const top = [...CENTER_JS.matchAll(/^  (?:function|var) ([A-Za-z_$][\w$]*)/gm)].map((m) => m[1]);
+  for (const n of top) assert.ok(!page.has(n), `${n} is already a name in the Make page`);
   assert.doesNotMatch(html, /<script[^>]+src=/);
   assert.doesNotMatch(html, /<link[^>]+stylesheet/);
   assert.match(html, /viewport-fit=cover/);

@@ -1,8 +1,8 @@
 /**
- * The fast Make page (/lite): one plain HTML page with its own small styles and script, no Orbit,
- * no React, no orb. It loads in one response and works on an iPhone over a slow line. A five-step
- * walkthrough (What, Maker, Describe it, Extras, Make it) with "Do it for me" on every step, and
- * Eros, a story writer that turns an idea into a short adult story and one prompt per scene.
+ * Simple (/lite): the light alternative to Orbit, chosen on the first page. One plain HTML page with
+ * its own small styles and script, no React, no orb; it loads in one response and works on an iPhone
+ * over a slow line. Four tabs: Make, a five-step walkthrough (What, Maker, Describe it, Extras, Make
+ * it) with "Do it for me" on every step; Lab, AI Center (chat and Eros) and Gallery (lib/simpleCenter.ts).
  *
  * It talks to what Orbit uses: /api/ai (the machine's state, Turn on with every GPU to pick from,
  * Turn off), /api/ai/gpus, /api/ai/token (the AI machine's address and a token for it) and
@@ -156,7 +156,6 @@ export const LITE_JS = String.raw`
     'mistralai/mistral-large-2-instruct': 'Mistral Large 2 \u00b7 best writing, slower',
     'mistralai/mistral-7b-instruct-v0.3': 'Mistral 7B \u00b7 quickest, simplest',
     'mistralai/mistral-large-4-1t-a52b': 'Mistral Large 4 \u00b7 newest, biggest',
-    'writer/palmyra-creative-122b': 'Palmyra Creative \u00b7 made for stories',
     'nvidia/mistral-nemo-minitron-8b-8k-instruct': 'Minitron 8B \u00b7 small, quick',
     'deepseek-ai/deepseek-v4.1-flash': 'DeepSeek V4.1 Flash \u00b7 sharp, may say no',
     'z-ai/glm-5.3-flash': 'GLM 5.3 Flash \u00b7 quick, may say no',
@@ -234,9 +233,8 @@ export const LITE_JS = String.raw`
     var st = s.state;
     var words = st === 'on' ? 'on' : st === 'starting' ? 'starting' : st === 'downloading' ? 'loading its models' : st === 'unconfigured' ? 'not set up' : st === 'error' ? 'not answering' : 'off';
     var price = s.costPerHour ? ' · $' + Number(s.costPerHour).toFixed(2) + '/h' : '';
-    var gal = '<button class="btn s" data-do="gal">Gallery</button>';
-    var btn = gal + (st === 'on' ? '<button class="btn s" data-do="off">Turn off</button>' : st === 'off' ? '<button class="btn s a" data-do="power">Turn on</button>' : '');
-    $('#bar').innerHTML = '<span class="st"><span class="dot ' + (st === 'on' ? 'on' : st === 'starting' || st === 'downloading' ? 'wait' : '') + '"></span>AI machine: <b>' + words + '</b>' + esc(price) + '</span>' + btn + '<a class="btn s" href="/">Orbit</a>';
+    var btn = (st === 'on' ? '<button class="btn s" data-do="off">Turn off</button>' : st === 'off' ? '<button class="btn s a" data-do="power">Turn on</button>' : '');
+    $('#bar').innerHTML = '<span class="st"><span class="dot ' + (st === 'on' ? 'on' : st === 'starting' || st === 'downloading' ? 'wait' : '') + '"></span>AI machine: <b>' + words + '</b>' + esc(price) + '</span>' + btn + '<a class="btn s" href="/choose?ui=orbit">Orbit</a>';
   }
   function power() {
     if (S.status && S.status.pickGpu) return gpuSheet();
@@ -597,6 +595,12 @@ export const LITE_JS = String.raw`
   }
 
   // ---- the steps
+  // A written story (Eros, in the AI Center) or a batch: every scene's prompt, to use, multiply or make.
+  function storyHtml() {
+    return '<div class="story"><h3>' + esc(S.story.title) + '</h3>' + (S.story.characters ? '<p class="note">' + esc(S.story.characters) + '</p>' : '') +
+      S.story.scenes.map(function (s, i) { return '<div class="scene"><p>' + esc(s.story) + '</p><p class="pr">' + esc(s.prompt) + '</p><div class="acts"><button class="btn s" data-use="' + i + '">Use this prompt</button><button class="btn s" data-smore="' + i + '">More like it (Lab)</button></div></div>'; }).join('') +
+      '<div class="acts"><button class="btn a" data-do="all"' + (S.busy ? ' disabled' : '') + '>' + (S.busy === 'all' ? 'Sending…' : 'Make all ' + S.story.scenes.length + (S.story.batch ? '' : ' scenes')) + '</button></div></div>';
+  }
   function chip(attr, val, cur, label) { return '<button class="chip" ' + attr + '="' + esc(val) + '" aria-pressed="' + (String(val) === String(cur)) + '">' + esc(label) + '</button>'; }
   function body(step) {
     if (step === 'what') {
@@ -614,9 +618,7 @@ export const LITE_JS = String.raw`
     }
     if (step === 'describe') {
       var e = S.eros;
-      var story = S.story ? '<div class="story"><h3>' + esc(S.story.title) + '</h3>' + (S.story.characters ? '<p class="note">' + esc(S.story.characters) + '</p>' : '') +
-        S.story.scenes.map(function (s, i) { return '<div class="scene"><p>' + esc(s.story) + '</p><p class="pr">' + esc(s.prompt) + '</p><div class="acts"><button class="btn s" data-use="' + i + '">Use this prompt</button></div></div>'; }).join('') +
-        '<div class="acts"><button class="btn a" data-do="all"' + (S.busy ? ' disabled' : '') + '>' + (S.busy === 'all' ? 'Sending…' : 'Make all ' + S.story.scenes.length + (S.story.batch ? '' : ' scenes')) + '</button></div></div>' : '';
+      var story = S.story && S.story.batch ? storyHtml() : '';
       var writers = S.writers && S.writers.length ? '<label class="f" for="writer">Writer (NVIDIA, unfiltered)</label><select id="writer" class="sel">' +
         '<option value=""' + (S.writer ? '' : ' selected') + '>Automatic \u00b7 the best one answering</option>' +
         S.writers.map(function (id) { return '<option value="' + esc(id) + '"' + (S.writer === id ? ' selected' : '') + '>' + esc(writerName(id)) + '</option>'; }).join('') + '</select>' : '';
@@ -647,15 +649,10 @@ export const LITE_JS = String.raw`
       if (S.kind === 'vedit' && m3 && m3.id === 'video-sharpen') return inputs + '<p class="note">No words needed: it makes the video twice as large and crisper.</p>';
       photos = inputs + photos;
       return photos + writers + '<textarea id="prompt" aria-label="Describe it" placeholder="' + (opt ? 'Optional: ' : '') + (S.kind === 'vedit' || S.kind === 'edit' ? 'the change you want…' : 'Who, what, where, the light, the mood…') + '">' + esc(S.prompt) + '</textarea>' +
-        '<div class="acts"><button class="btn a" data-do="eros" aria-expanded="' + Boolean(S.erosOpen) + '">Eros story writer</button><button class="btn a" data-do="batch" aria-expanded="' + Boolean(S.batchOpen) + '">Batch</button><button class="btn s" data-do="clear">Clear</button></div>' +
+        '<div class="acts"><a class="btn a" href="#ai" data-tab="ai">Eros story writer</a><button class="btn a" data-do="batch" aria-expanded="' + Boolean(S.batchOpen) + '">Batch</button><button class="btn s" data-do="clear">Clear</button></div>' +
         (S.batchOpen ? '<div class="story" aria-label="Batch"><p class="kick">Batch</p><p class="dek">Many takes on the words above (or a surprise), written for you and all put in line.</p><label class="f">How many</label><div class="row" role="group" aria-label="How many">' + [4, 6, 10].map(function (n) { return chip('data-batch', n, S.batchN, String(n)); }).join('') + '</div>' +
           '<div class="acts"><button class="btn p" data-do="writebatch"' + (S.busy ? ' disabled' : '') + '>' + (S.busy === 'batch' ? 'Writing…' : 'Write ' + S.batchN + ' prompts') + '</button></div></div>' : '') +
-        (S.erosOpen ? '<div class="story" aria-label="Eros story writer"><p class="kick">Eros</p><p class="dek">An idea becomes a short adult story, and every scene a prompt. Made-up adults only.</p>' +
-          '<label class="f" for="eidea">The idea</label><textarea id="eidea" style="min-height:90px" placeholder="Two strangers stuck in a lift during a blackout…">' + esc(e.idea) + '</textarea>' +
-          '<label class="f" for="ewho">Who (optional)</label><input type="text" id="ewho" value="' + esc(e.who) + '" placeholder="a tall bartender in her thirties, a shy architect">' +
-          '<label class="f">How hot</label><div class="row" role="group" aria-label="How hot">' + chip('data-heat', 'romantic', e.heat, 'Romantic') + chip('data-heat', 'steamy', e.heat, 'Steamy') + chip('data-heat', 'explicit', e.heat, 'Explicit') + '</div>' +
-          '<label class="f">Scenes</label><div class="row" role="group" aria-label="Scenes">' + [3, 5, 8].map(function (n) { return chip('data-scenes', n, e.scenes, String(n)); }).join('') + '</div>' +
-          '<div class="acts"><button class="btn p" data-do="story"' + (S.busy ? ' disabled' : '') + '>' + (S.busy === 'story' ? 'Writing…' : 'Write the story') + '</button></div></div>' : '') + story;
+story;
     }
     if (step === 'extras') {
       var cm = chosenMaker(), st = S.kind === 'image' ? stylesFor(cm) : [];
@@ -722,7 +719,6 @@ export const LITE_JS = String.raw`
     if (d === 'off') return off();
     if (d === 'make') return makeOne();
     if (d === 'all') return makeAll();
-    if (d === 'eros') { S.erosOpen = !S.erosOpen; return draw(); }
     if (d === 'story') return busy('story', doStory());
     if (d === 'clear') { S.prompt = ''; save(); return draw(); }
   });
@@ -746,31 +742,33 @@ export const LITE_JS = String.raw`
     if (sx == null) return;
     var dx = e.changedTouches[0].clientX - sx, dy = e.changedTouches[0].clientY - sy;
     sx = null;
-    if (Math.abs(dx) > 70 && Math.abs(dx) > Math.abs(dy) * 1.5) go(S.step + (dx < 0 ? 1 : -1));
+    if (S.tab === 'make' && Math.abs(dx) > 70 && Math.abs(dx) > Math.abs(dy) * 1.5) go(S.step + (dx < 0 ? 1 : -1));
   }, { passive: true });
 
+/*CENTER*/
   draw();
   drawBar();
   refresh();
   loadWriters();
+  if (S.tab === 'gallery') loadItems();
   setInterval(function () { if (!document.hidden) refresh(); }, 15000);
   setInterval(function () { if (!document.hidden && on() && STEPS[S.step] === 'maker') loadMakers(); }, 8000);
 })();
 `;
 
-/** The whole page: everything in one response, no other file to fetch. */
-export function liteMakePage(): string {
+/** The whole page: everything in one response, no other file to fetch. `center`: the other tabs (lib/simpleCenter.ts). */
+export function liteMakePage(center: { css: string; js: string } = { css: '', js: '' }): string {
   return (
     '<!doctype html><html lang="en"><head><meta charset="utf-8">' +
     '<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">' +
     '<meta name="theme-color" content="#0d0c0b"><meta name="apple-mobile-web-app-capable" content="yes">' +
-    '<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"><meta name="apple-mobile-web-app-title" content="Make">' +
-    '<link rel="apple-touch-icon" href="/apple-icon.png"><title>Make</title>' +
-    '<style>' + LITE_CSS + '</style></head><body>' +
+    '<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"><meta name="apple-mobile-web-app-title" content="Simple">' +
+    '<link rel="apple-touch-icon" href="/apple-icon.png"><title>Simple</title>' +
+    '<style>' + LITE_CSS + center.css + '</style></head><body>' +
     '<div class="wrap"><header class="bar" id="bar" aria-label="AI machine"><span class="st">AI machine…</span></header>' +
-    '<nav class="dots" id="dots" aria-label="Make, step by step"></nav><main id="pane"></main></div>' +
+    '<nav class="tabs" id="tabs" aria-label="Sections"></nav><nav class="dots" id="dots" aria-label="Make, step by step"></nav><main id="pane"></main></div>' +
     '<div class="nav"><div class="in"><button class="btn back" id="back"></button><span class="grow"></span><button class="btn p next" id="next"></button></div></div>' +
     '<noscript><p style="padding:16px">This page needs JavaScript.</p></noscript>' +
-    '<script>' + LITE_JS + '</script></body></html>'
+    '<script>' + LITE_JS.replace('/*CENTER*/', () => center.js) + '</script></body></html>'
   );
 }

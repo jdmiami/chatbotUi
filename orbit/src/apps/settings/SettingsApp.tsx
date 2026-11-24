@@ -580,6 +580,7 @@ function AppearanceSection() {
       caption="Motion: Auto picks Full or Lite for your device and follows its Reduce Motion setting. Full is the bounciest. Lite keeps short, light movement. Off turns animation off."
     >
       <div className="list">
+        <ActionRow icon="sparkle" title="Switch to Simple" sub="The light look: Make, Lab, AI Center and Gallery. Remembered on this device." onClick={() => window.location.assign('/choose?ui=simple')} />
         <div className="row st-row st-wrap">
           <span className="st-label">Theme</span>
           <div className="st-control">
