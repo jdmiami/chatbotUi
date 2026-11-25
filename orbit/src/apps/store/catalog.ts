@@ -72,6 +72,9 @@ interface MakerDef {
   tasks?: StudioMakerInfo['tasks'];
   /** Only runs on the Turbo machine (80 GB). */
   turboOnly?: boolean;
+  liveVideo?: boolean;
+  minGpuGb?: number;
+  sources?: StudioMakerInfo['sources'];
 }
 interface Catalog {
   chat: ChatEntry[];
@@ -84,7 +87,7 @@ interface Catalog {
 export const CATALOG = raw as unknown as Catalog;
 
 /** The catalog's extra makers, shaped like the machine reports them (for when it is off). */
-export const CATALOG_MAKERS: Pick<StudioMakerInfo, 'id' | 'kind' | 'name' | 'blurb' | 'for' | 'twoImages' | 'size' | 'needs' | 'accepts' | 'tasks' | 'gated' | 'turboOnly'>[] = (CATALOG.makerDefs ?? []).map((m) => ({
+export const CATALOG_MAKERS: Pick<StudioMakerInfo, 'id' | 'kind' | 'name' | 'blurb' | 'for' | 'twoImages' | 'size' | 'needs' | 'accepts' | 'tasks' | 'gated' | 'turboOnly' | 'liveVideo' | 'minGpuGb' | 'sources'>[] = (CATALOG.makerDefs ?? []).map((m) => ({
   id: m.id,
   kind: m.kind,
   name: m.name,
@@ -96,6 +99,9 @@ export const CATALOG_MAKERS: Pick<StudioMakerInfo, 'id' | 'kind' | 'name' | 'blu
   tasks: m.tasks ?? [],
   gated: m.files.some((k) => CATALOG.files?.[k]?.gated),
   turboOnly: m.turboOnly || undefined,
+  liveVideo: m.liveVideo || undefined,
+  minGpuGb: m.minGpuGb || undefined,
+  sources: m.sources || undefined,
   // Only the files this maker adds (shared base models are counted where they first appear).
   size: m.files.reduce((n, k) => n + (CATALOG.files?.[k]?.size ?? 0), 0),
 }));

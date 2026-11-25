@@ -215,11 +215,26 @@ export interface GpuOption {
   free: number;
   /** yes: does everything this machine does · some: part of it · no: too small (still allowed). */
   fits: 'yes' | 'some' | 'no';
+  /** The live video makers this card can run (Simple's Live tab). */
+  live?: string[];
   /** What it can do, in plain words. */
   note: string;
   /** A rough guide: minutes for a 5-second H3 Max video at 720p (the AI machine), from the speed above. */
   videoMinutes: number | null;
 }
+
+/**
+ * The live video makers a card can run, by its memory (the machine checks the same: catalog.json
+ * minGpuGb, livevideo.js). Helios and Krea need an 80 GB card; LongLive 24 GB; Waypoint 16 GB.
+ */
+export function liveMakersFor(memoryGb: number | null | undefined): string[] {
+  const m = memoryGb ?? 0;
+  return [m >= 70 && 'Helios', m >= 70 && 'Krea', m >= 24 && 'LongLive', m >= 16 && 'Waypoint'].filter((x): x is string => Boolean(x));
+}
+const liveNote = (memoryGb: number | null) => {
+  const live = liveMakersFor(memoryGb);
+  return live.length ? ` · Live: ${live.join(', ')}` : '';
+};
 
 /** Every GPU GPU.ai offers right now for this machine, cheapest first, and the one to suggest. */
 export function gpuOptions(list: Offering[], kind: MachineKind): { options: GpuOption[]; recommended: string | null } {
@@ -256,7 +271,8 @@ export function gpuOptions(list: Offering[], kind: MachineKind): { options: GpuO
       region: pick.offering.region ?? null,
       free: pick.offering.available,
       fits,
-      note,
+      note: kind === 'ai' ? note + liveNote(mem) : note,
+      ...(kind === 'ai' ? { live: liveMakersFor(mem) } : {}),
       videoMinutes: speed ? Math.max(1, Math.round(7.5 / speed)) : null,
     });
   }

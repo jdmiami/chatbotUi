@@ -580,3 +580,130 @@ test('Krea’s SageAttention: tried once with Krea’s Python; a card without it
   const hung = (cmd, args, opts) => Object.assign(new EventEmitter(), { kill() {} });
   assert.equal(await sageWorks({ python: '/k/python', spawn: hung, timeoutMs: 20 }), false);
 });
+
+// ---------------------------------------------------------------- Helios, LongLive, Waypoint (live_gen_worker.py)
+
+/** A stand-in for a live_gen_worker.py worker: records requests; `emit` sends its events. */
+function fakeGen() {
+  const calls = [];
+  const emits = new Map();
+  const make = (id, onEvent) => {
+    emits.set(id, onEvent);
+    return {
+      async request(m) {
+        calls.push({ maker: id, ...m });
+        return { ok: true };
+      },
+      warm() {},
+      stop() {
+        calls.push({ maker: id, op: 'unloaded' });
+      },
+    };
+  };
+  return { make, calls, emit: (id, ev) => emits.get(id)(ev) };
+}
+function genVideo({ gpu = 80e9, installed = true, gen = fakeGen() } = {}) {
+  const added = [];
+  const studio = {
+    dir: os.tmpdir(),
+    makerInstalled: async () => installed,
+    videoInFlight: () => false,
+    makeRoom: async () => {},
+    addItem: async (it) => (added.push(it), { id: 'live1', ...it }),
+  };
+  const video = createLiveVideo({ studio, genWorker: gen.make, gpuMemory: async () => gpu, ffmpeg: async (args) => fs.writeFile(args.at(-1), 'mp4'), log: quiet });
+  return { video, gen, added };
+}
+
+test('Helios: needs an 80 GB card; streams video from words, at its own pace; new words go to the next part; stop unloads nothing but stops it', async () => {
+  const small = genVideo({ gpu: 48e9 });
+  const p0 = page(small.video);
+  await p0.conn.message({ type: 'start', maker: 'live-helios', prompt: 'a fox in the snow' });
+  assert.match((await p0.next('error')).error, /Helios needs a graphics card with 80 GB or more/);
+  assert.equal(small.gen.calls.length, 0, 'nothing loaded on a card too small');
+
+  const { video, gen } = genVideo();
+  const p = page(video);
+  await p.conn.message({ type: 'start', maker: 'live-helios', prompt: 'a fox in the snow' });
+  assert.deepEqual(await p.next('state'), { type: 'state', state: 'loading', maker: 'live-helios', source: 'text' });
+  assert.deepEqual(gen.calls[0], { maker: 'live-helios', op: 'start', prompt: 'a fox in the snow' });
+  // A burst of frames (Helios makes 33 at a time) comes out one by one at the video's pace.
+  gen.emit('live-helios', { event: 'frames', frames: [OUT(1), OUT(2), OUT(3)].map((b) => b.toString('base64')), fps: 50 });
+  assert.deepEqual(await p.next('state'), { type: 'state', state: 'live', maker: 'live-helios', source: 'text' });
+  await until(() => p.got.filter((m) => m.type === 'frame').length === 3);
+  const frames = p.got.filter((m) => m.type === 'frame').map((m) => Buffer.from(m.image.split(',')[1], 'base64')[2]);
+  assert.deepEqual(frames, [1, 2, 3]);
+  await p.conn.message({ type: 'prompt', prompt: 'a fox in the rain' });
+  assert.deepEqual(gen.calls.at(-1), { maker: 'live-helios', op: 'prompt', prompt: 'a fox in the rain' });
+  // Blocked words never reach it.
+  await p.conn.message({ type: 'prompt', prompt: 'a naked child' });
+  assert.equal((await p.next('error')).blocked, true);
+  await p.conn.message({ type: 'stop' });
+  assert.deepEqual(gen.calls.at(-1), { maker: 'live-helios', op: 'stop' });
+  assert.equal((await p.next('state')).state, 'stopped');
+
+  // A run that ends with an error says so.
+  await p.conn.message({ type: 'start', maker: 'live-helios', prompt: 'a fox' });
+  await p.next('state');
+  gen.emit('live-helios', { event: 'ended', error: 'out of memory' });
+  assert.match((await p.next('error')).error, /Helios stopped: out of memory/);
+  assert.equal((await p.next('state')).state, 'stopped');
+  p.conn.close();
+});
+
+test('LongLive fits 48 GB; Waypoint starts from a picture and follows the keys held and the look-around; a video job stops them', async () => {
+  const { video, gen } = genVideo({ gpu: 48e9 });
+  const p = page(video);
+  await p.conn.message({ type: 'start', maker: 'live-longlive', prompt: 'a paper boat on a rainy street' });
+  assert.equal((await p.next('state')).state, 'loading');
+  assert.equal(gen.calls[0].maker, 'live-longlive');
+  // LongLive is words only.
+  await p.conn.message({ type: 'start', maker: 'live-longlive', prompt: 'x', image: J64 });
+  assert.match((await p.next('error')).error, /words only/);
+
+  await p.conn.message({ type: 'start', maker: 'live-waypoint' });
+  assert.match((await p.next('error')).error, /starts from a picture/);
+  await p.conn.message({ type: 'start', maker: 'live-waypoint', image: J64 });
+  assert.deepEqual(await p.next('state'), { type: 'state', state: 'loading', maker: 'live-waypoint', source: 'world' });
+  const start = gen.calls.filter((c) => c.maker === 'live-waypoint' && c.op === 'start').at(-1);
+  assert.equal(start.image, J64);
+  assert.ok(gen.calls.some((c) => c.maker === 'live-longlive' && c.op === 'unloaded'), 'one worker holds the card at a time');
+  await p.conn.message({ type: 'control', keys: ['w', 'shift', 'rm -rf'], look: [3, -0.25] });
+  assert.deepEqual(gen.calls.at(-1), { maker: 'live-waypoint', op: 'control', keys: ['w', 'shift'], look: [1, -0.25] });
+  // Words that would make a real person sexual are refused for a picture start (the photo rule).
+  await p.conn.message({ type: 'prompt', prompt: 'take off her clothes' });
+  assert.equal((await p.next('error')).error, PHOTO_MESSAGE);
+  // A video you asked for needs the whole card: live stops and its worker unloads.
+  video.release();
+  assert.equal((await p.next('error')).status, 409);
+  assert.ok(gen.calls.filter((c) => c.op === 'unloaded').length >= 2);
+  p.conn.close();
+});
+
+// The real worker (live_gen_worker.py) with a stand-in engine, when a Python with PyTorch is given
+// (LIVE_TEST_PYTHON): start, frames, new words, held keys, stop, a new start while running, an error.
+const PY = process.env.LIVE_TEST_PYTHON;
+test('live_gen_worker.py: start, frames, new words, keys, stop and errors over its JSON lines', { skip: !PY && 'set LIVE_TEST_PYTHON to a Python with torch, numpy and Pillow' }, async () => {
+  const events = [];
+  const w = createLiveWorker({ name: 'Fake', python: PY, script: path.join(path.dirname(new URL(import.meta.url).pathname), 'fixtures', 'live_gen_fake.py'), onEvent: (m) => events.push(m), startTimeoutMs: 60_000, timeoutMs: 10_000, log: quiet });
+  const frames = () => events.filter((e) => e.event === 'frames');
+  assert.deepEqual(await w.request({ op: 'start', prompt: 'a fox' }, { timeout: 60_000 }), { id: 'r1', ok: true });
+  await until(() => frames().length >= 2, 10_000);
+  assert.equal(frames()[0].words, 'a fox');
+  assert.equal(frames()[0].frames.length, 2);
+  await w.request({ op: 'prompt', prompt: 'a cat' });
+  await w.request({ op: 'control', keys: ['w', 'd'], look: [0.5, 0] });
+  await until(() => frames().some((f) => f.words === 'a cat' && f.keys.join() === 'd,w'), 10_000);
+  await w.request({ op: 'stop' });
+  await until(() => events.some((e) => e.event === 'ended'), 10_000);
+  // A new start while one runs: that one ends and the new one runs.
+  events.length = 0;
+  await w.request({ op: 'start', prompt: 'first' });
+  await until(() => frames().length >= 1, 10_000);
+  await w.request({ op: 'start', prompt: 'second' });
+  await until(() => frames().some((f) => f.words === 'second'), 10_000);
+  // An error ends the run and says why.
+  await w.request({ op: 'start', prompt: 'explode' });
+  await until(() => events.some((e) => e.event === 'ended' && /it broke/.test(e.error || '')), 10_000);
+  w.close();
+});

@@ -27,7 +27,13 @@ input[type=search]:focus{border-color:var(--accent)}
 .gv .in{max-height:96dvh}
 .gv .out img,.gv .out video{max-height:62dvh;object-fit:contain}
 .out.nsfw img,.out.nsfw video{filter:blur(24px)}
-#lvimg{max-height:50dvh;object-fit:contain}
+#lvimg{max-height:50dvh;object-fit:contain;touch-action:none;user-select:none;-webkit-user-select:none}
+.pad{display:grid;grid-template-columns:repeat(3,64px);grid-template-rows:repeat(2,56px);gap:6px;justify-content:center;margin:12px 0;touch-action:none;user-select:none;-webkit-user-select:none}
+.padk{border:1px solid var(--line);background:var(--card);border-radius:14px;font:600 20px/1 var(--ui);touch-action:none}
+.padk[data-down],.padk[aria-pressed=true]{background:#1c1d33;border-color:var(--accent)}
+.pad-w{grid-column:2;grid-row:1}.pad-a{grid-column:1;grid-row:2}.pad-s{grid-column:2;grid-row:2}.pad-d{grid-column:3;grid-row:2}
+.pad-run{grid-column:1;grid-row:1;font-size:14px}.pad-jump{grid-column:3;grid-row:1;font-size:14px}
+.ch:disabled{opacity:.55}
 .pa{position:fixed;inset:0;background:#000;z-index:9;display:flex;flex-direction:column}
 .pa video{flex:1;width:100%;min-height:0;object-fit:contain;background:#000}
 .pa-bar{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:10px 16px calc(10px + env(safe-area-inset-bottom))}
@@ -319,65 +325,107 @@ export const CENTER_JS = String.raw`
   }
 
 
-  // ---- Live: Krea Realtime makes a video from your words while you watch
+  // ---- Live: video made while you watch (Helios, Krea Realtime, LongLive), or a world to walk in (Waypoint)
   S.live = { state: 'off', err: '', note: '', last: '', at: [] };
   S.livePrompt = '';
+  S.liveImg = null;
+  try { S.liveId = localStorage.getItem('orbit.lite.live') || ''; } catch (e) {}
   var lv = null;
-  var liveMaker = function () { return (S.makers || []).filter(function (m) { return m.id === 'live-krea'; })[0] || null; };
+  // Best first: the one picked, else the first ready one that fits this card.
+  var LIVE_ORDER = ['live-helios', 'live-krea', 'live-longlive', 'live-waypoint', 'live-sdv2'];
+  var LIVE_TEXT = { 'live-helios': 'Words, or a picture to start from. A minute and more.', 'live-krea': 'Words. Personal use only.', 'live-longlive': 'Words; change them while it plays. Personal use only.', 'live-waypoint': 'Walk into a picture: move and look around.' };
+  var liveList = function () {
+    return (S.makers || []).filter(function (m) { return m.liveVideo && m.id !== 'live-sdv2'; }).sort(function (a, b) { return LIVE_ORDER.indexOf(a.id) - LIVE_ORDER.indexOf(b.id); });
+  };
+  var liveMaker = function () {
+    var list = liveList();
+    return list.filter(function (m) { return m.id === S.liveId; })[0] || list.filter(function (m) { return m.installed && !m.tooBig; })[0] || list.filter(function (m) { return !m.tooBig; })[0] || list[0] || null;
+  };
+  var walking = function () { var m = liveMaker(); return Boolean(m && m.id === 'live-waypoint'); };
   var liveOn = function () { return S.live.state === 'connecting' || S.live.state === 'loading' || S.live.state === 'live'; };
   function liveWords() {
-    var L = S.live;
+    var L = S.live, m = liveMaker(), name = m ? m.name : 'it';
     if (L.state === 'connecting') return 'Connecting to your AI machine…';
-    if (L.state === 'loading') return 'Starting Krea Realtime. The first time after the machine starts takes a few minutes.';
+    if (L.state === 'loading') return 'Starting ' + name + '. The first time after the machine starts takes a few minutes.';
     if (L.state === 'live') {
       var n = L.at.length, fps = n > 1 ? (n - 1) / Math.max(0.001, (L.at[n - 1] - L.at[0]) / 1000) : 0;
-      return 'Live' + (fps ? ' · ' + fps.toFixed(1) + ' frames a second' : '') + '. Change the words any time.';
+      return 'Live' + (fps ? ' · ' + fps.toFixed(1) + ' frames a second' : '') + (walking() ? '. Hold the arrows to move, drag the picture to look around.' : '. Change the words any time.');
     }
     return 'Stopped.';
   }
+  // A card counted as 80 GB reports a little under or over: the machine checks 70, people read 80.
+  var cardGb = function (m) { var g = m.minGpuGb || 80; return g >= 70 ? 80 : g; };
+  function liveState(m) {
+    if (m.tooBig) return 'needs ' + cardGb(m) + ' GB';
+    if (m.installed) return 'ready';
+    if (m.setup) return 'setting up';
+    if (m.wanted) return 'loading ' + (m.percent || 0) + '%';
+    return 'tap to load';
+  }
   function livePane() {
-    var head = '<p class="kick">Live</p><h1>Watch it as it is made</h1><p class="dek">Type what you want to see: Krea Realtime makes the video while it plays, and you can change the words while it runs. It needs an 80 GB graphics card (H100, H200 or A100 80 GB) and has the card to itself while it plays, so the Lab waits.</p>';
+    var head = '<p class="kick">Live</p><h1>Watch it as it is made</h1><p class="dek">Video made while it plays, on your AI machine. It has the graphics card to itself while it plays, so the Lab waits.</p>';
     if (!on()) return head + needOn('Live video');
-    var m = liveMaker();
     if (!S.makers) return head + '<p class="note">Checking your makers…</p>';
-    if (!m) return head + '<p class="note bad">Krea Realtime is not available on this machine.</p>';
-    if (!m.installed) {
-      return head + '<p class="note" data-testid="live-maker">' + (m.wanted ? 'Krea Realtime is loading (' + (m.percent || 0) + '%). It is big: this takes a while the first time.' : 'Krea Realtime is not loaded on this machine yet.') + '</p>' +
-        (m.problem ? '<p class="note bad">' + esc(m.problem) + '</p>' : '') + (m.wanted ? '' : '<div class="acts"><button class="btn p" data-do="lvload">Load Krea Realtime</button></div>');
-    }
+    var list = liveList(), m = liveMaker();
+    if (!m) return head + '<p class="note bad">Your AI machine has no live makers yet. It gets them the next time it starts.</p>';
     var running = liveOn();
-    return head + (running || S.live.last ? '<div class="out"><img id="lvimg" alt="Live video"' + (S.live.last ? ' src="' + S.live.last + '"' : '') + '></div>' : '') +
-      (running ? '<p class="note" role="status" id="lvst">' + esc(liveWords()) + '</p>' : '') +
-      '<label class="f" for="lvp">What to see</label><textarea id="lvp" style="min-height:90px" placeholder="A slow drone shot over a neon city in the rain…">' + esc(S.livePrompt) + '</textarea>' +
-      '<div class="acts">' + (running ? '<button class="btn p" data-do="lvchange">Change the words</button><button class="btn a" data-do="lvsave"' + (S.live.state === 'live' ? '' : ' disabled') + '>Save the last 10 s</button><button class="btn" data-do="lvstop">Stop</button>' : '<button class="btn p" data-do="lvstart">Start</button>') + '</div>' +
+    // While it plays: just its name (the list would push the picture and the controls off screen).
+    var pick = running ? '<p class="note" data-testid="live-about"><b>' + esc(m.name) + '</b></p>' : '<div class="choices" role="radiogroup" aria-label="Live maker">' + list.map(function (x) {
+      var sel = x.id === m.id;
+      return '<button class="ch" data-live="' + esc(x.id) + '" role="radio" aria-checked="' + sel + '" aria-pressed="' + sel + '"' + (x.tooBig || running ? ' disabled' : '') + '><span class="n">' + esc(x.name) + '</span><span class="s">' + esc(liveState(x)) + '</span></button>';
+    }).join('') + '</div><p class="note" data-testid="live-about">' + esc(LIVE_TEXT[m.id] || m.blurb || '') + (m.tooBig ? ' This machine’s graphics card is too small for it: turn it off and pick one with ' + cardGb(m) + ' GB or more.' : '') + '</p>';
+    if (m.tooBig) return head + pick;
+    if (!m.installed) {
+      return head + pick + '<p class="note" data-testid="live-maker">' + (m.wanted ? esc(m.name) + ' is ' + (m.setup ? 'setting up its Python: ' + esc(m.setup) : 'loading (' + (m.percent || 0) + '%). It is big: this takes a while the first time.') : esc(m.name) + ' is not loaded on this machine yet.') + '</p>' +
+        (m.problem ? '<p class="note bad">' + esc(m.problem) + '</p>' : '') + (m.wanted ? '' : '<div class="acts"><button class="btn p" data-do="lvload">Load ' + esc(m.name) + '</button></div>');
+    }
+    var walk = m.id === 'live-waypoint', canPic = walk || m.id === 'live-helios';
+    var picBox = canPic && !running ? '<label class="f">' + (walk ? 'The picture to walk into' : 'Start from a picture (optional)') + '</label><div class="row">' +
+      (S.liveImg ? '<span class="thumb"><img src="' + esc(S.liveImg.src) + '" alt="Start picture"><button class="x" data-do="lvnopic" aria-label="Remove the start picture">×</button></span>' : '<label class="btn s a pick">Add a picture<input type="file" accept="image/*" id="lvfile" class="hide"></label><button class="btn s" data-do="lvgal">From your gallery</button>') + '</div>' +
+      (S.lvGal && !S.liveImg ? '<div class="grid" style="margin-top:8px">' + S.lvGal.map(function (it) { return '<button class="tile" data-lvpic="' + esc(it.id) + '" aria-label="' + esc((it.prompt || 'picture').slice(0, 60)) + '"><img loading="lazy" src="' + esc(abs(it.thumbUrl || it.url)) + '" alt=""></button>'; }).join('') + '</div>' : '') : '';
+    var pad = walk && running ? '<div class="pad" aria-label="Walk">' + [['w', '↑', 'Forward'], ['a', '←', 'Left'], ['s', '↓', 'Back'], ['d', '→', 'Right']].map(function (k) { return '<button class="padk pad-' + k[0] + '" data-key="' + k[0] + '" aria-label="' + k[2] + '">' + k[1] + '</button>'; }).join('') +
+      '<button class="padk pad-run" data-key="shift" aria-pressed="' + Boolean(S.run) + '" aria-label="Run">Run</button><button class="padk pad-jump" data-key="space" aria-label="Jump">Jump</button></div>' : '';
+    return head + pick + (running || S.live.last ? '<div class="out lvout"><img id="lvimg" alt="Live video"' + (S.live.last ? ' src="' + S.live.last + '"' : '') + '></div>' : '') +
+      (running ? '<p class="note" role="status" id="lvst">' + esc(liveWords()) + '</p>' : '') + pad + picBox +
+      (walk ? '' : '<label class="f" for="lvp">What to see</label><textarea id="lvp" style="min-height:90px" placeholder="A slow drone shot over a neon city in the rain…">' + esc(S.livePrompt) + '</textarea>') +
+      '<div class="acts">' + (running ? (walk ? '' : '<button class="btn p" data-do="lvchange">Change the words</button>') + '<button class="btn a" data-do="lvsave"' + (S.live.state === 'live' ? '' : ' disabled') + '>Save the last 10 s</button><button class="btn" data-do="lvstop">Stop</button>' : '<button class="btn p" data-do="lvstart">Start</button>') + '</div>' +
       (S.live.note ? '<p class="note">' + esc(S.live.note) + '</p>' : '') + (S.live.err ? '<p class="note bad" role="alert">' + esc(S.live.err) + '</p>' : '');
   }
   var liveSend = function (msg) { if (lv && lv.readyState === 1) lv.send(JSON.stringify(msg)); };
   function liveStart() {
-    var words = (($('#lvp') && $('#lvp').value) || S.livePrompt).trim();
-    if (!words) { S.live.err = 'Describe what you want to see first.'; return draw(); }
+    var m = liveMaker();
+    if (!m) return;
+    var walk = m.id === 'live-waypoint';
+    var words = walk ? '' : (($('#lvp') && $('#lvp').value) || S.livePrompt).trim();
+    if (!walk && !words) { S.live.err = 'Describe what you want to see first.'; return draw(); }
+    if (walk && !S.liveImg) { S.live.err = 'Pick the picture to walk into first.'; return draw(); }
     S.livePrompt = words;
     S.live = { state: 'connecting', err: '', note: '', last: '', at: [] };
+    S.keys = {}; S.look = [0, 0]; S.run = false;
     draw();
     grant().then(function (g) {
       if (!g) throw new Error('Your AI machine is not on yet.');
       var ws = new WebSocket(g.url.replace(/^http/, 'ws') + '/_orbit/live/video', ['orbit-live', g.token]);
       lv = ws;
-      ws.onopen = function () { liveSend({ type: 'start', maker: 'live-krea', source: 'text', prompt: words }); };
+      ws.onopen = function () {
+        var msg = { type: 'start', maker: m.id, source: walk ? 'world' : S.liveImg && m.id === 'live-helios' ? 'image' : 'text', prompt: words };
+        if (S.liveImg && (walk || m.id === 'live-helios')) msg.image = S.liveImg.data;
+        liveSend(msg);
+      };
       ws.onmessage = function (ev) {
-        var m; try { m = JSON.parse(ev.data); } catch (e) { return; }
-        if (m.type === 'frame') {
-          S.live.last = m.image;
+        var x; try { x = JSON.parse(ev.data); } catch (e) { return; }
+        if (x.type === 'frame') {
+          S.live.last = x.image;
           S.live.at = S.live.at.concat([Date.now()]).slice(-20);
           var img = $('#lvimg');
           if (S.live.state !== 'live' || !img) { S.live.state = 'live'; if (S.tab === 'live') draw(); return; }
-          img.src = m.image;
+          img.src = x.image;
           var st = $('#lvst'); if (st) st.textContent = liveWords();
           return;
         }
-        if (m.type === 'state') { S.live.state = m.state === 'stopped' ? 'off' : m.state; if (S.tab === 'live') draw(); return; }
-        if (m.type === 'saved') { S.live.note = 'Saved to your gallery.'; if (S.tab === 'live') draw(); return; }
-        if (m.type === 'error') { S.live.err = m.error || 'Live video stopped.'; if (m.status !== 422 || !liveOn()) S.live.state = 'off'; if (S.tab === 'live') draw(); }
+        if (x.type === 'state') { S.live.state = x.state === 'stopped' ? 'off' : x.state; if (S.tab === 'live' && !typing()) draw(); return; }
+        if (x.type === 'saved') { S.live.note = 'Saved to your gallery.'; if (S.tab === 'live') draw(); return; }
+        if (x.type === 'error') { S.live.err = x.error || 'Live video stopped.'; if (x.status !== 422 || !liveOn()) S.live.state = 'off'; if (S.tab === 'live') draw(); }
       };
       ws.onclose = function () { if (lv === ws) lv = null; if (liveOn()) { S.live.state = 'off'; if (!S.live.err) S.live.err = 'The connection to your AI machine closed.'; } if (S.tab === 'live') draw(); };
     }).catch(function (err) { S.live.state = 'off'; S.live.err = err.message; draw(); });
@@ -388,6 +436,57 @@ export const CENTER_JS = String.raw`
     var ws = lv; lv = null;
     setTimeout(function () { try { ws.close(); } catch (e) {} }, 300);
     S.live.state = 'off';
+  }
+  // Waypoint: the keys held and the look-around, sent ten times a second while anything changes.
+  S.keys = {}; S.look = [0, 0];
+  function walkSend() {
+    var keys = Object.keys(S.keys).filter(function (k) { return S.keys[k]; });
+    if (S.run) keys.push('shift');
+    if (!keys.length && !S.look[0] && !S.look[1] && !S.walkWas) return;
+    S.walkWas = keys.length > 0;
+    liveSend({ type: 'control', keys: keys, look: [S.look[0], S.look[1]] });
+    S.look = [0, 0];
+  }
+  setInterval(function () { if (lv && walking() && S.live.state === 'live') walkSend(); }, 100);
+  var keyOf = { ArrowUp: 'w', ArrowLeft: 'a', ArrowDown: 's', ArrowRight: 'd', w: 'w', a: 'a', s: 's', d: 'd', W: 'w', A: 'a', S: 's', D: 'd', ' ': 'space' };
+  document.addEventListener('keydown', function (e) {
+    if (S.tab !== 'live' || !walking() || !lv || /TEXTAREA|INPUT/.test(e.target.tagName)) return;
+    var k = keyOf[e.key]; if (!k) return;
+    e.preventDefault(); S.keys[k] = true;
+  });
+  document.addEventListener('keyup', function (e) { var k = keyOf[e.key]; if (k) S.keys[k] = false; });
+  document.addEventListener('pointerdown', function (e) {
+    var b = e.target.closest('.padk');
+    if (b && b.getAttribute('data-key') !== 'shift') { e.preventDefault(); S.keys[b.getAttribute('data-key')] = true; b.setAttribute('data-down', ''); return; }
+    if (e.target.closest('.lvout') && walking() && lv) { S.drag = [e.clientX, e.clientY]; e.target.setPointerCapture && e.target.setPointerCapture(e.pointerId); }
+  });
+  document.addEventListener('pointermove', function (e) {
+    if (!S.drag) return;
+    var w = Math.max(200, ($('.lvout') || document.body).clientWidth);
+    S.look[0] = Math.max(-1, Math.min(1, S.look[0] + (e.clientX - S.drag[0]) / w * 2));
+    S.look[1] = Math.max(-1, Math.min(1, S.look[1] + (e.clientY - S.drag[1]) / w * 2));
+    S.drag = [e.clientX, e.clientY];
+  });
+  var lift = function () {
+    S.drag = null;
+    Object.keys(S.keys).forEach(function (k) { if (k !== 'shift') S.keys[k] = false; });
+    var down = document.querySelectorAll('.padk[data-down]'); for (var i = 0; i < down.length; i++) down[i].removeAttribute('data-down');
+  };
+  document.addEventListener('pointerup', lift);
+  document.addEventListener('pointercancel', lift);
+  // The start picture: one of yours (shrunk on the phone) or one from your gallery.
+  function setLivePic(data) { S.liveImg = { src: data, data: data }; S.lvGal = null; S.live.err = ''; draw(); }
+  function liveGallery() {
+    return machine('/_orbit/studio/items').then(function (r) {
+      S.lvGal = (r.items || []).filter(function (it) { return it.kind === 'image' && !it.photo; }).slice(0, 12);
+      if (!S.lvGal.length) S.live.err = 'No pictures in your gallery yet: make one in Make, or add one.';
+      draw();
+    }).catch(function (err) { S.live.err = err.message; draw(); });
+  }
+  function useGalleryPic(id) {
+    var it = (S.lvGal || []).filter(function (x) { return x.id === id; })[0];
+    if (!it) return;
+    fetch(abs(it.url)).then(function (r) { if (!r.ok) throw new Error('That picture could not be read.'); return r.blob(); }).then(function (b) { return shrink(b, 1280); }).then(setLivePic).catch(function (err) { S.live.err = err.message; draw(); });
   }
   window.addEventListener('pagehide', liveStop);
 
@@ -411,7 +510,12 @@ export const CENTER_JS = String.raw`
     if (d === 'lvstop') { liveStop(); return draw(); }
     if (d === 'lvsave') { S.live.note = 'Saving…'; liveSend({ type: 'save' }); return draw(); }
     if (d === 'lvchange') { var w = (($('#lvp') && $('#lvp').value) || '').trim(); if (!w) return; S.livePrompt = w; S.live.err = ''; S.live.note = 'Changing to the new words…'; liveSend({ type: 'prompt', prompt: w }); return draw(); }
-    if (d === 'lvload') { S.busy = 'lvload'; return machine('/_orbit/studio/makers/load', { method: 'POST', body: { id: 'live-krea', first: true } }).then(function (r) { if (Array.isArray(r.makers)) S.makers = r.makers; }).catch(function (err) { S.live.err = err.message; }).then(function () { S.busy = ''; draw(); }); }
+    if (d === 'lvload') { var lm = liveMaker(); S.busy = 'lvload'; return machine('/_orbit/studio/makers/load', { method: 'POST', body: { id: lm.id, first: true } }).then(function (r) { if (Array.isArray(r.makers)) S.makers = r.makers; }).catch(function (err) { S.live.err = err.message; }).then(function () { S.busy = ''; draw(); }); }
+    if (d === 'lvgal') return liveGallery();
+    if (d === 'lvnopic') { S.liveImg = null; return draw(); }
+    if (t.hasAttribute('data-lvpic')) return useGalleryPic(t.getAttribute('data-lvpic'));
+    if (t.hasAttribute('data-live')) { S.liveId = t.getAttribute('data-live'); try { localStorage.setItem('orbit.lite.live', S.liveId); } catch (x) {} S.live.err = ''; S.liveImg = S.liveId === 'live-longlive' || S.liveId === 'live-krea' ? null : S.liveImg; return draw(); }
+    if (t.hasAttribute('data-key') && t.getAttribute('data-key') === 'shift') { S.run = !S.run; t.setAttribute('aria-pressed', String(S.run)); return; }
     if (d === 'newchat') { S.chat = []; saveChat(); return draw(); }
     if (d === 'galreload') { S.gal = null; draw(); return galleryLoad(); }
     if (d === 'gmore') { S.glimit += 90; return regrid(); }
@@ -457,6 +561,9 @@ export const CENTER_JS = String.raw`
     if (e.target.id === 'labseed') S.labSeed = e.target.value;
     if (e.target.id === 'lvp') S.livePrompt = e.target.value;
     if (e.target.id === 'gq') { S.gq = e.target.value; S.glimit = 90; regrid(); }
+  });
+  document.addEventListener('change', function (e) {
+    if (e.target.id === 'lvfile' && e.target.files && e.target.files[0]) { shrink(e.target.files[0], 1280).then(setLivePic).catch(function (err) { S.live.err = err.message; draw(); }); e.target.value = ''; }
   });
   document.addEventListener('keydown', function (e) {
     if (e.target.id === 'chatin' && e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); sendChat(); }

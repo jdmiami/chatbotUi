@@ -15,10 +15,17 @@
 #                      bpy 5.0.1, scipy (its code needs it; its list leaves it out), a prebuilt
 #                      flash-attn, and its two checkpoints (about 1.6 GB)
 #
+#   live_env.sh dfx    Helios (PKU, Apache-2.0) and Waypoint-1.5 (Overworld, Apache-2.0): no code of its
+#                      own to download, Diffusers 0.43 (it has Helios's pipeline and the modular one
+#                      Waypoint's own code plugs into) on PyTorch 2.11 for CUDA 12.8, Python 3.11
+#   live_env.sh longlive  LongLive 1.0 (NVIDIA; code Apache-2.0, weights CC BY-NC-SA 4.0): its code at
+#                      a pinned commit and the packages it imports to make video (not its training,
+#                      TensorRT or web-demo extras), on PyTorch 2.11 for CUDA 12.8, Python 3.11
+#
 # Writes $STUDIO_DIR/live-env/<name>/.installed when done (and prints its progress for the gate).
 set -uo pipefail
 
-name="${1:?which maker: sdv2 | krea | rig}"
+name="${1:?which maker: sdv2 | krea | rig | dfx | longlive}"
 S="${STUDIO_DIR:?STUDIO_DIR is required}"
 UV_VERSION=0.12.24
 # StreamDiffusionV2 pins PyTorch 2.6, which has no kernels for Blackwell GPUs. Its README (Blackwell
@@ -34,11 +41,18 @@ RIG_FLASH=2.8.3
 # Its code imports scipy (src/rig_package/info/asset.py) but its requirements.txt leaves it out: without
 # it the rigger's Blender helper dies at start and every rig fails after 30 s ("bpy_server failed to start").
 RIG_SCIPY="scipy==1.17.1"
+# The live makers on Diffusers (Helios, Waypoint) and LongLive: PyTorch 2.11 for CUDA 12.8 like
+# StreamDiffusionV2, and the packages each needs, at the versions resolved for it (2026-11-25).
+DFX_PKGS="diffusers==0.43.0 transformers==5.24.1 accelerate==1.16.0 safetensors==0.8.0 huggingface-hub==2.4.0 tokenizers==0.23.3 sentencepiece==0.2.3 ftfy==6.3.1 regex==2026.11.24 einops==0.8.2 tensordict==0.15.6 pillow==13.0.0 numpy==2.4.6 imageio==2.38.2"
+LL_PKGS="diffusers==0.31.0 transformers==4.57.6 accelerate==1.16.0 safetensors==0.8.0 huggingface-hub==0.36.2 tokenizers==0.22.2 peft==0.22.0 omegaconf==2.4.0 easydict==1.14 einops==0.8.2 ftfy==6.3.1 regex==2026.11.24 sentencepiece==0.2.3 imageio==2.38.2 imageio-ffmpeg==0.8.1 av==18.1.1 opencv-python-headless==5.1.0.95 tqdm==4.70.1 pillow==13.0.0 numpy==2.4.6"
 EXTRA=""
 case "$name" in
   sdv2) REPO=https://github.com/chenfengxu714/StreamDiffusionV2 COMMIT=6961a5cf2045d1dda05a04ef229698bdc04e873a EXTRA="$SDV2_TORCH cu128" ;;
   krea) REPO=https://github.com/krea-ai/realtime-video COMMIT=acf4b7b4e1a3049a0e04782e751d12203334038d ;;
   rig) REPO=https://github.com/VAST-AI-Research/SkinTokens COMMIT=273b691d35989d71cd17ff2895fdc735097b92d1 EXTRA="$RIG_TORCH $RIG_BPY $RIG_SCIPY flash-attn $RIG_FLASH" ;;
+  # No code to download: Diffusers has Helios, and Waypoint's code comes with its model files.
+  dfx) REPO="" COMMIT=diffusers-0.43.0 EXTRA="$SDV2_TORCH cu128 $DFX_PKGS" ;;
+  longlive) REPO=https://github.com/NVlabs/LongLive COMMIT=31c70d9071cd7851d82939806dc9fac645fcabe5 EXTRA="$SDV2_TORCH cu128 $LL_PKGS" ;;
   *) echo "unknown live maker: $name" >&2; exit 2 ;;
 esac
 # A new PyTorch changes the stamp, so a Python set up with the old one is set up again.
@@ -75,8 +89,12 @@ fi
 export UV_CACHE_DIR="$ROOT/uv-cache" UV_PYTHON_INSTALL_DIR="$ROOT/python"
 
 rm -rf "$D" && mkdir -p "$D"
-log "downloading its code ($COMMIT)"
-git clone -q "$REPO" "$D/src" && git -C "$D/src" checkout -q "$COMMIT" || exit 1
+if [ -n "$REPO" ]; then
+  log "downloading its code ($COMMIT)"
+  git clone -q "$REPO" "$D/src" && git -C "$D/src" checkout -q "$COMMIT" || exit 1
+else
+  mkdir -p "$D/src"
+fi
 
 if [ "$name" = rig ]; then
   log "installing its packages (PyTorch 2.7, Blender's bpy and friends: a few minutes)"
@@ -96,6 +114,23 @@ if [ "$name" = rig ]; then
   "$PY" -c 'import bpy, scipy, open3d, trimesh, lightning, transformers' || exit 1
   log "downloading its checkpoints (about 1.6 GB)"
   (cd "$D/src" && "$PY" download.py --model) || exit 1
+elif [ "$name" = dfx ] || [ "$name" = longlive ]; then
+  log "installing its packages (PyTorch 2.11 for CUDA 12.8 and friends: a few minutes)"
+  PY="$D/src/.venv/bin/python"
+  "$UV" venv -q --python 3.11 "$D/src/.venv" || exit 1
+  # shellcheck disable=SC2086
+  "$UV" pip install -q --python "$PY" --index-url "$TORCH_INDEX" $SDV2_TORCH || exit 1
+  # shellcheck disable=SC2086
+  printf '%s\n' $SDV2_TORCH > "$D/torch-override.txt"
+  if [ "$name" = dfx ]; then PKGS="$DFX_PKGS"; else PKGS="$LL_PKGS"; fi
+  # shellcheck disable=SC2086
+  "$UV" pip install -q --python "$PY" --override "$D/torch-override.txt" $PKGS || exit 1
+  # What the worker (live_gen_worker.py) imports at start is all there.
+  if [ "$name" = dfx ]; then
+    "$PY" -c 'import torch, diffusers, transformers, tensordict, einops; from diffusers import HeliosPyramidPipeline; from diffusers.modular_pipelines import ModularPipeline' || exit 1
+  else
+    (cd "$D/src/LongLive1.0" && "$PY" -c 'import torch, peft, omegaconf, diffusers; from pipeline.interactive_causal_inference import InteractiveCausalInferencePipeline') || exit 1
+  fi
 elif [ "$name" = sdv2 ]; then
   log "installing its packages (PyTorch 2.11 for CUDA 12.8 and friends: a few minutes)"
   PY="$D/src/.venv/bin/python"

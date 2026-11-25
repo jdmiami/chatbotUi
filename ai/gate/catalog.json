@@ -950,7 +950,7 @@
    "repo": "Lightricks/LTX-2.5",
    "license": "LTX-2.x Community (free under $10M a year in revenue)",
    "output": "Video with sound, 24 fps, up to 10 s",
-   "resolution": "1280 \u00d7 704",
+   "resolution": "1280 × 704",
    "gpu": "About 30 GB of the 48 GB",
    "gated": true,
    "about": "The newest LTX: sharper motion and sound than 2.3. Start from words, a photo, a first and last photo, or restyle a video you have. The download is gated: add a Hugging Face token to your AI machine and accept the licence on its page first.",
@@ -964,7 +964,7 @@
    "repo": "Wan-AI/Wan2.2-S2V-14B",
    "license": "Apache 2.0",
    "output": "A talking or singing video, 16 fps, as long as the sound (up to about 19 s)",
-   "resolution": "640 \u00d7 640",
+   "resolution": "640 × 640",
    "gpu": "About 24 GB of the 48 GB",
    "about": "Give it a photo of someone and a voice recording or a song: their lips, face and body move with it. Describe the scene to steer the moves.",
    "tryIt": [
@@ -977,7 +977,7 @@
    "repo": "Wan-AI/Wan2.1-VACE-14B",
    "license": "Apache 2.0",
    "output": "The edited video, 16 fps, up to 5 s (extend: 4 s more)",
-   "resolution": "Up to 1280 \u00d7 720",
+   "resolution": "Up to 1280 × 720",
    "gpu": "About 28 GB of the 48 GB",
    "about": "An all-in-one video editor. Replace: name a thing in the video and describe what goes there. Restyle: keep the motion, change the look. Extend: what happens next. Move a photo: a person from a photo moves like the video.",
    "tryIt": [
@@ -991,7 +991,7 @@
    "repo": "Wan-AI/Wan2.1-VACE-14B",
    "license": "Apache 2.0",
    "output": "The video without it, 16 fps, up to 5 s",
-   "resolution": "Up to 1280 \u00d7 720",
+   "resolution": "Up to 1280 × 720",
    "gpu": "About 28 GB of the 48 GB",
    "about": "Type what to remove: SAM 3.1 finds it in every frame and VACE paints the background back in. Uses the same files as Wan VACE, so it is free once VACE is on your machine.",
    "tryIt": [
@@ -1021,7 +1021,7 @@
    "repo": "ByteDance-Seed/SeedVR2-3B",
    "license": "Apache 2.0",
    "output": "The same video, twice as large and sharper, with its sound",
-   "resolution": "Up to 2560 \u00d7 1440",
+   "resolution": "Up to 2560 × 1440",
    "gpu": "About 12 GB of the 48 GB",
    "about": "A one-step video restorer: cleans up blur, noise and compression and doubles the size, frame by frame without flicker."
   },
@@ -1133,6 +1133,54 @@
    "speed": "Under a second per drawing on the drawing machine (an estimate, not measured yet)",
    "about": "The orb looks at your sketch and suggests what it is; tap a guess to use its words.",
    "tryIt": []
+  },
+  "live-helios": {
+   "publisher": "Shenghai Yuan et al., Peking University (PKU-YuanGroup)",
+   "base": "Helios-Distilled (Wan 2.1 14B, autoregressive, distilled)",
+   "repo": "BestWishYsh/Helios-Distilled",
+   "code": "https://github.com/PKU-YuanGroup/Helios",
+   "license": "Apache 2.0 (code and weights)",
+   "output": "A video from your words (or from a picture) as it plays, a minute and more",
+   "resolution": "640 × 384 (its default)",
+   "gpu": "About 40 GB while it runs: 80 GB cards only (H100, H200, A100 80 GB)",
+   "speed": "Its makers measured 19.5 frames a second on one H100. Not measured on your machines yet; an A100 is slower",
+   "about": "A 14-billion-parameter video model that keeps making video while you watch, 33 frames at a time. Change the words and the next part follows them. “Save the last 10 s” keeps the end in your gallery. About 80 GB of files plus its own Python.",
+   "tryIt": [
+    "a slow drone shot over a neon city in the rain",
+    "a red fox running through deep snow at sunrise"
+   ]
+  },
+  "live-longlive": {
+   "publisher": "NVIDIA (NVlabs LongLive)",
+   "base": "LongLive-1.3B (causal Wan 2.1 T2V 1.3B with a LoRA)",
+   "repo": "Efficient-Large-Model/LongLive-1.3B",
+   "code": "https://github.com/NVlabs/LongLive",
+   "license": "Code: Apache 2.0. Weights: CC BY-NC-SA 4.0, so personal, non-commercial use only",
+   "output": "A video from your words as it plays; change the words while it runs",
+   "resolution": "832 × 480",
+   "gpu": "About 20 GB while it runs: fits 48 GB cards (A40, A6000, L40S) and up",
+   "speed": "Its makers measured 20.7 frames a second on one H100 (not counting turning frames into pictures). Not measured on your machines yet; a 48 GB card is slower",
+   "about": "A small, fast video model made for live use: type what should happen and change the words while it plays, and it carries on smoothly. Uses the same Wan 2.1 files as StreamDiffusionV2.",
+   "tryIt": [
+    "a paper boat drifting down a rainy street",
+    "a hot air balloon rising over green hills"
+   ]
+  },
+  "live-waypoint": {
+   "publisher": "Overworld",
+   "base": "Waypoint-1.5-1B (interactive world model)",
+   "repo": "Overworld/Waypoint-1.5-1B",
+   "code": "https://github.com/Wayfarer-Labs/world_engine",
+   "license": "Apache 2.0",
+   "output": "A world made from your picture that you walk through, live",
+   "resolution": "1024 × 512 (720p class)",
+   "gpu": "About 12–16 GB: any of your graphics cards",
+   "speed": "Its makers measured 56 frames a second on an RTX 5090. Not measured on your machines yet",
+   "about": "Start from a picture and walk into it: forward, back, left, right and look around, and the world is made as you go. It follows where you move, not words. Its own rules say no explicit content.",
+   "tryIt": [
+    "a picture of a forest path",
+    "a picture of a city street at night"
+   ]
   }
  },
  "files": {
@@ -1841,6 +1889,294 @@
    "path": "model.safetensors",
    "revision": "4271c66b88cdbc05735372ec13b2360108de5317",
    "size": 1553541016
+  },
+  "heliosModelIndex": {
+   "dir": "live/helios",
+   "name": "model_index.json",
+   "repo": "BestWishYsh/Helios-Distilled",
+   "path": "model_index.json",
+   "revision": "b991c0379a018f4de3227d95468237f56066f5bb",
+   "size": 461
+  },
+  "heliosSchedulerSchedulerConfig": {
+   "dir": "live/helios/scheduler",
+   "name": "scheduler_config.json",
+   "repo": "BestWishYsh/Helios-Distilled",
+   "path": "scheduler/scheduler_config.json",
+   "revision": "b991c0379a018f4de3227d95468237f56066f5bb",
+   "size": 416
+  },
+  "heliosTextEncoderConfig": {
+   "dir": "live/helios/text_encoder",
+   "name": "config.json",
+   "repo": "BestWishYsh/Helios-Distilled",
+   "path": "text_encoder/config.json",
+   "revision": "b991c0379a018f4de3227d95468237f56066f5bb",
+   "size": 853
+  },
+  "heliosTextEncoderModel00001": {
+   "dir": "live/helios/text_encoder",
+   "name": "model-00001-of-00005.safetensors",
+   "repo": "BestWishYsh/Helios-Distilled",
+   "path": "text_encoder/model-00001-of-00005.safetensors",
+   "revision": "b991c0379a018f4de3227d95468237f56066f5bb",
+   "size": 4972389712
+  },
+  "heliosTextEncoderModel00002": {
+   "dir": "live/helios/text_encoder",
+   "name": "model-00002-of-00005.safetensors",
+   "repo": "BestWishYsh/Helios-Distilled",
+   "path": "text_encoder/model-00002-of-00005.safetensors",
+   "revision": "b991c0379a018f4de3227d95468237f56066f5bb",
+   "size": 4899225672
+  },
+  "heliosTextEncoderModel00003": {
+   "dir": "live/helios/text_encoder",
+   "name": "model-00003-of-00005.safetensors",
+   "repo": "BestWishYsh/Helios-Distilled",
+   "path": "text_encoder/model-00003-of-00005.safetensors",
+   "revision": "b991c0379a018f4de3227d95468237f56066f5bb",
+   "size": 4966309504
+  },
+  "heliosTextEncoderModel00004": {
+   "dir": "live/helios/text_encoder",
+   "name": "model-00004-of-00005.safetensors",
+   "repo": "BestWishYsh/Helios-Distilled",
+   "path": "text_encoder/model-00004-of-00005.safetensors",
+   "revision": "b991c0379a018f4de3227d95468237f56066f5bb",
+   "size": 4999880704
+  },
+  "heliosTextEncoderModel00005": {
+   "dir": "live/helios/text_encoder",
+   "name": "model-00005-of-00005.safetensors",
+   "repo": "BestWishYsh/Helios-Distilled",
+   "path": "text_encoder/model-00005-of-00005.safetensors",
+   "revision": "b991c0379a018f4de3227d95468237f56066f5bb",
+   "size": 2885866152
+  },
+  "heliosTextEncoderModelindex": {
+   "dir": "live/helios/text_encoder",
+   "name": "model.safetensors.index.json",
+   "repo": "BestWishYsh/Helios-Distilled",
+   "path": "text_encoder/model.safetensors.index.json",
+   "revision": "b991c0379a018f4de3227d95468237f56066f5bb",
+   "size": 22476
+  },
+  "heliosTokenizerSpecialTokensMap": {
+   "dir": "live/helios/tokenizer",
+   "name": "special_tokens_map.json",
+   "repo": "BestWishYsh/Helios-Distilled",
+   "path": "tokenizer/special_tokens_map.json",
+   "revision": "b991c0379a018f4de3227d95468237f56066f5bb",
+   "size": 7079
+  },
+  "heliosTokenizerSpiece": {
+   "dir": "live/helios/tokenizer",
+   "name": "spiece.model",
+   "repo": "BestWishYsh/Helios-Distilled",
+   "path": "tokenizer/spiece.model",
+   "revision": "b991c0379a018f4de3227d95468237f56066f5bb",
+   "size": 4548313
+  },
+  "heliosTokenizerTokenizer": {
+   "dir": "live/helios/tokenizer",
+   "name": "tokenizer.json",
+   "repo": "BestWishYsh/Helios-Distilled",
+   "path": "tokenizer/tokenizer.json",
+   "revision": "b991c0379a018f4de3227d95468237f56066f5bb",
+   "size": 16837459
+  },
+  "heliosTokenizerTokenizerConfig": {
+   "dir": "live/helios/tokenizer",
+   "name": "tokenizer_config.json",
+   "repo": "BestWishYsh/Helios-Distilled",
+   "path": "tokenizer/tokenizer_config.json",
+   "revision": "b991c0379a018f4de3227d95468237f56066f5bb",
+   "size": 61758
+  },
+  "heliosTransformerConfig": {
+   "dir": "live/helios/transformer",
+   "name": "config.json",
+   "repo": "BestWishYsh/Helios-Distilled",
+   "path": "transformer/config.json",
+   "revision": "b991c0379a018f4de3227d95468237f56066f5bb",
+   "size": 659
+  },
+  "heliosTransformerDit00001": {
+   "dir": "live/helios/transformer",
+   "name": "diffusion_pytorch_model-00001-of-00006.safetensors",
+   "repo": "BestWishYsh/Helios-Distilled",
+   "path": "transformer/diffusion_pytorch_model-00001-of-00006.safetensors",
+   "revision": "b991c0379a018f4de3227d95468237f56066f5bb",
+   "size": 9992481688
+  },
+  "heliosTransformerDit00002": {
+   "dir": "live/helios/transformer",
+   "name": "diffusion_pytorch_model-00002-of-00006.safetensors",
+   "repo": "BestWishYsh/Helios-Distilled",
+   "path": "transformer/diffusion_pytorch_model-00002-of-00006.safetensors",
+   "revision": "b991c0379a018f4de3227d95468237f56066f5bb",
+   "size": 9943937952
+  },
+  "heliosTransformerDit00003": {
+   "dir": "live/helios/transformer",
+   "name": "diffusion_pytorch_model-00003-of-00006.safetensors",
+   "repo": "BestWishYsh/Helios-Distilled",
+   "path": "transformer/diffusion_pytorch_model-00003-of-00006.safetensors",
+   "revision": "b991c0379a018f4de3227d95468237f56066f5bb",
+   "size": 9944020376
+  },
+  "heliosTransformerDit00004": {
+   "dir": "live/helios/transformer",
+   "name": "diffusion_pytorch_model-00004-of-00006.safetensors",
+   "repo": "BestWishYsh/Helios-Distilled",
+   "path": "transformer/diffusion_pytorch_model-00004-of-00006.safetensors",
+   "revision": "b991c0379a018f4de3227d95468237f56066f5bb",
+   "size": 9839059792
+  },
+  "heliosTransformerDit00005": {
+   "dir": "live/helios/transformer",
+   "name": "diffusion_pytorch_model-00005-of-00006.safetensors",
+   "repo": "BestWishYsh/Helios-Distilled",
+   "path": "transformer/diffusion_pytorch_model-00005-of-00006.safetensors",
+   "revision": "b991c0379a018f4de3227d95468237f56066f5bb",
+   "size": 9839059792
+  },
+  "heliosTransformerDit00006": {
+   "dir": "live/helios/transformer",
+   "name": "diffusion_pytorch_model-00006-of-00006.safetensors",
+   "repo": "BestWishYsh/Helios-Distilled",
+   "path": "transformer/diffusion_pytorch_model-00006-of-00006.safetensors",
+   "revision": "b991c0379a018f4de3227d95468237f56066f5bb",
+   "size": 7691262792
+  },
+  "heliosTransformerDitindex": {
+   "dir": "live/helios/transformer",
+   "name": "diffusion_pytorch_model.safetensors.index.json",
+   "repo": "BestWishYsh/Helios-Distilled",
+   "path": "transformer/diffusion_pytorch_model.safetensors.index.json",
+   "revision": "b991c0379a018f4de3227d95468237f56066f5bb",
+   "size": 97783
+  },
+  "heliosVaeConfig": {
+   "dir": "live/helios/vae",
+   "name": "config.json",
+   "repo": "BestWishYsh/Helios-Distilled",
+   "path": "vae/config.json",
+   "revision": "b991c0379a018f4de3227d95468237f56066f5bb",
+   "size": 724
+  },
+  "heliosVaeDit": {
+   "dir": "live/helios/vae",
+   "name": "diffusion_pytorch_model.safetensors",
+   "repo": "BestWishYsh/Helios-Distilled",
+   "path": "vae/diffusion_pytorch_model.safetensors",
+   "revision": "b991c0379a018f4de3227d95468237f56066f5bb",
+   "size": 507591892
+  },
+  "waypointModularBlockspy": {
+   "dir": "live/waypoint",
+   "name": "modular_blocks.py",
+   "repo": "Overworld/Waypoint-1.5-1B",
+   "path": "modular_blocks.py",
+   "revision": "391f92827075edcf4a8b3c8a2ddae010698f8636",
+   "size": 41902
+  },
+  "waypointModularConfig": {
+   "dir": "live/waypoint",
+   "name": "modular_config.json",
+   "repo": "Overworld/Waypoint-1.5-1B",
+   "path": "modular_config.json",
+   "revision": "391f92827075edcf4a8b3c8a2ddae010698f8636",
+   "size": 165
+  },
+  "waypointModularModelIndex": {
+   "dir": "live/waypoint",
+   "name": "modular_model_index.json",
+   "repo": "Overworld/Waypoint-1.5-1B",
+   "path": "modular_model_index.json",
+   "revision": "391f92827075edcf4a8b3c8a2ddae010698f8636",
+   "size": 1690
+  },
+  "waypointTransformerInitPy": {
+   "dir": "live/waypoint/transformer",
+   "name": "__init__.py",
+   "repo": "Overworld/Waypoint-1.5-1B",
+   "path": "transformer/__init__.py",
+   "revision": "391f92827075edcf4a8b3c8a2ddae010698f8636",
+   "size": 721
+  },
+  "waypointTransformerConfig": {
+   "dir": "live/waypoint/transformer",
+   "name": "config.json",
+   "repo": "Overworld/Waypoint-1.5-1B",
+   "path": "transformer/config.json",
+   "revision": "391f92827075edcf4a8b3c8a2ddae010698f8636",
+   "size": 1241
+  },
+  "waypointTransformerWeights": {
+   "dir": "live/waypoint/transformer",
+   "name": "diffusion_pytorch_model.safetensors",
+   "repo": "Overworld/Waypoint-1.5-1B",
+   "path": "transformer/diffusion_pytorch_model.safetensors",
+   "revision": "391f92827075edcf4a8b3c8a2ddae010698f8636",
+   "size": 7443340184
+  },
+  "waypointTransformerModelpy": {
+   "dir": "live/waypoint/transformer",
+   "name": "model.py",
+   "repo": "Overworld/Waypoint-1.5-1B",
+   "path": "transformer/model.py",
+   "revision": "391f92827075edcf4a8b3c8a2ddae010698f8636",
+   "size": 40737
+  },
+  "waypointVaeInitPy": {
+   "dir": "live/waypoint/vae",
+   "name": "__init__.py",
+   "repo": "Overworld/Waypoint-1.5-1B",
+   "path": "vae/__init__.py",
+   "revision": "391f92827075edcf4a8b3c8a2ddae010698f8636",
+   "size": 772
+  },
+  "waypointVaeAeModelpy": {
+   "dir": "live/waypoint/vae",
+   "name": "ae_model.py",
+   "repo": "Overworld/Waypoint-1.5-1B",
+   "path": "vae/ae_model.py",
+   "revision": "391f92827075edcf4a8b3c8a2ddae010698f8636",
+   "size": 13506
+  },
+  "waypointVaeConfig": {
+   "dir": "live/waypoint/vae",
+   "name": "config.json",
+   "repo": "Overworld/Waypoint-1.5-1B",
+   "path": "vae/config.json",
+   "revision": "391f92827075edcf4a8b3c8a2ddae010698f8636",
+   "size": 365
+  },
+  "waypointVaeWeights": {
+   "dir": "live/waypoint/vae",
+   "name": "diffusion_pytorch_model.safetensors",
+   "repo": "Overworld/Waypoint-1.5-1B",
+   "path": "vae/diffusion_pytorch_model.safetensors",
+   "revision": "391f92827075edcf4a8b3c8a2ddae010698f8636",
+   "size": 22755856
+  },
+  "longliveBase": {
+   "dir": "live/longlive/models",
+   "name": "longlive_base.pt",
+   "repo": "Efficient-Large-Model/LongLive-1.3B",
+   "path": "models/longlive_base.pt",
+   "revision": "cda9138d93872ef109d9a74c270184eb3a5acc6e",
+   "size": 5676334208
+  },
+  "longliveLora": {
+   "dir": "live/longlive/models",
+   "name": "lora.pt",
+   "repo": "Efficient-Large-Model/LongLive-1.3B",
+   "path": "models/lora.pt",
+   "revision": "cda9138d93872ef109d9a74c270184eb3a5acc6e",
+   "size": 2800056690
   }
  },
  "makerDefs": [
@@ -2115,7 +2451,7 @@
    "id": "ltx-25",
    "kind": "video",
    "name": "LTX-2.5",
-   "blurb": "Lightricks\u2019 newest: video with sound, first and last frame, and video to video. Needs a Hugging Face token.",
+   "blurb": "Lightricks’ newest: video with sound, first and last frame, and video to video. Needs a Hugging Face token.",
    "files": [
     "ltx25Unet",
     "ltx25Te",
@@ -2275,7 +2611,8 @@
     "wan13Tokenizer",
     "wan13TokConfig",
     "sdv2Ckpt"
-   ]
+   ],
+   "liveVideo": true
   },
   {
    "id": "live-krea",
@@ -2294,6 +2631,94 @@
     "wan13Tokenizer",
     "wan13TokConfig",
     "kreaRealtime"
+   ],
+   "liveVideo": true
+  },
+  {
+   "id": "live-helios",
+   "kind": "live",
+   "liveVideo": true,
+   "name": "Helios 14B (live)",
+   "blurb": "Video from your words as it plays, for a minute or more. 80 GB graphics cards (H100, H200, A100 80 GB).",
+   "env": "dfx",
+   "minGpuGb": 70,
+   "sources": [
+    "text",
+    "image"
+   ],
+   "files": [
+    "heliosModelIndex",
+    "heliosSchedulerSchedulerConfig",
+    "heliosTextEncoderConfig",
+    "heliosTextEncoderModel00001",
+    "heliosTextEncoderModel00002",
+    "heliosTextEncoderModel00003",
+    "heliosTextEncoderModel00004",
+    "heliosTextEncoderModel00005",
+    "heliosTextEncoderModelindex",
+    "heliosTokenizerSpecialTokensMap",
+    "heliosTokenizerSpiece",
+    "heliosTokenizerTokenizer",
+    "heliosTokenizerTokenizerConfig",
+    "heliosTransformerConfig",
+    "heliosTransformerDit00001",
+    "heliosTransformerDit00002",
+    "heliosTransformerDit00003",
+    "heliosTransformerDit00004",
+    "heliosTransformerDit00005",
+    "heliosTransformerDit00006",
+    "heliosTransformerDitindex",
+    "heliosVaeConfig",
+    "heliosVaeDit"
+   ]
+  },
+  {
+   "id": "live-longlive",
+   "kind": "live",
+   "liveVideo": true,
+   "name": "LongLive 1.3B (live)",
+   "blurb": "Video from your words as it plays, on 48 GB cards and up. Personal use only.",
+   "env": "longlive",
+   "minGpuGb": 24,
+   "sources": [
+    "text"
+   ],
+   "files": [
+    "wan13Dit",
+    "wan13Config",
+    "wan13T5",
+    "wan13Vae",
+    "wan13TokSpecial",
+    "wan13TokSpiece",
+    "wan13Tokenizer",
+    "wan13TokConfig",
+    "longliveBase",
+    "longliveLora"
+   ]
+  },
+  {
+   "id": "live-waypoint",
+   "kind": "live",
+   "liveVideo": true,
+   "name": "Waypoint 1.5 (walk in)",
+   "blurb": "Walk into a picture: move and look around while the world is made. Any card.",
+   "env": "dfx",
+   "minGpuGb": 16,
+   "sources": [
+    "world"
+   ],
+   "files": [
+    "waypointModularBlockspy",
+    "waypointModularConfig",
+    "waypointModularModelIndex",
+    "waypointTransformerInitPy",
+    "waypointTransformerConfig",
+    "waypointTransformerWeights",
+    "waypointTransformerModelpy",
+    "waypointVaeInitPy",
+    "waypointVaeAeModelpy",
+    "waypointVaeConfig",
+    "waypointVaeWeights"
    ]
   },
   {

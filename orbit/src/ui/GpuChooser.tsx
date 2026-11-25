@@ -35,7 +35,7 @@ export interface ProviderOption {
   blurb: string;
   fromPrice: number | null;
   /** Runpod: Standard and Turbo. */
-  tiers?: { id: string; label: string; gpuName: string; pricePerHour: number; speed: string }[];
+  tiers?: { id: string; label: string; gpuName: string; pricePerHour: number; speed: string; live?: string }[];
 }
 
 /** What was picked. `provider` is only set when the site offered both. */
@@ -230,7 +230,10 @@ function GpuSheet({ ask }: { ask: Ask }) {
                 <span className="gpu-mem"> · {t.gpuName}</span>
               </span>
               <span className="gpu-price">{money(t.pricePerHour)}/h</span>
-              <span className="gpu-note">{t.speed}</span>
+              <span className="gpu-note">
+                {t.speed}
+                {t.live ? ` · Live: ${t.live}` : ''}
+              </span>
             </button>
           ))}
         </div>

@@ -214,6 +214,12 @@ export interface StudioMakerInfo {
   pending?: boolean;
   /** Only runs on the Turbo machine (80 GB): Krea Realtime. */
   turboOnly?: boolean;
+  /** A live video maker (Helios, Krea, LongLive, Waypoint, StreamDiffusionV2): used in Simple's Live tab. */
+  liveVideo?: boolean;
+  /** Graphics memory it needs (GB), what it starts from, and whether this machine's card is too small. */
+  minGpuGb?: number;
+  sources?: ('text' | 'image' | 'world')[];
+  tooBig?: boolean;
   /** Its files are here and its own Python is being set up: what it is doing. */
   setup?: string;
   /**

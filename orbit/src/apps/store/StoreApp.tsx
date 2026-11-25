@@ -55,7 +55,7 @@ function needsText(m: StudioMakerInfo): string | null {
   const swap = Boolean(m.needs?.includes('target') && m.needs?.includes('photo'));
   const word = (n: string) => (swap && n === 'target' ? 'words saying who to replace' : swap && n === 'photo' ? 'a photo of the new person' : NEED_WORDS[n]);
   const list = (m.needs ?? []).map(word).filter(Boolean);
-  if (!list.length) return m.twoImages ? 'Two pictures' : m.kind === 'edit' || m.kind === 'upscale' ? 'A picture to start from' : m.kind === 'live' || m.kind === 'sketch' ? 'Your drawing (in Live Draw)' : null;
+  if (!list.length) return m.twoImages ? 'Two pictures' : m.kind === 'edit' || m.kind === 'upscale' ? 'A picture to start from' : m.liveVideo ? (m.sources?.includes('world') ? 'A picture to walk into (in Simple’s Live tab)' : 'Your words (in Simple’s Live tab)') : m.kind === 'live' || m.kind === 'sketch' ? 'Your drawing (in Live Draw)' : null;
   const s = list.length > 1 ? `${list.slice(0, -1).join(', ')} and ${list.at(-1)}` : list[0];
   return s[0].toUpperCase() + s.slice(1) + (m.accepts?.includes('facePhoto') ? ' (a close-up of their face helps)' : '');
 }
@@ -621,6 +621,8 @@ function Detail({
         ? PENDING_TEXT
         : m?.setup
         ? `Setting up its own Python: ${m.setup}`
+        : m?.tooBig
+        ? `Needs a graphics card with ${(m.minGpuGb ?? 80) >= 70 ? 80 : m.minGpuGb} GB or more: turn the AI machine on with a bigger one to add it`
         : m?.turboOnly
         ? 'Turbo machine only (H100, 80 GB): turn the AI machine on as Turbo to add it'
         : m?.needsToken
