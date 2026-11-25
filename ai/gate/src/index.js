@@ -231,6 +231,35 @@ const liveVideo =
           idleMs: 5 * 60_000,
           log: console,
         }),
+        // Helios, LongLive and Waypoint (live_gen_worker.py): one worker each, in its own Python.
+        genWorker: (maker, onEvent) => {
+          const engine = { 'live-helios': 'helios', 'live-longlive': 'longlive', 'live-waypoint': 'waypoint' }[maker];
+          const envName = engine === 'longlive' ? 'longlive' : 'dfx';
+          const folder = (key) => path.dirname(studio.modelPath(FILES[key]));
+          const where = {
+            helios: () => ({ HELIOS_DIR: folder('heliosModelIndex') }),
+            waypoint: () => ({ WAYPOINT_DIR: folder('waypointModularModelIndex') }),
+            longlive: () => ({
+              LONGLIVE_REPO: path.join(liveEnvs.root, 'longlive', 'src', 'LongLive1.0'),
+              // Its code reads the Wan 2.1 files from wan_models/ here (the ones StreamDiffusionV2 uses).
+              WAN_ROOT: path.join(env.STUDIO_DIR, 'models', 'live'),
+              LONGLIVE_BASE: studio.modelPath(FILES.longliveBase),
+              LONGLIVE_LORA: studio.modelPath(FILES.longliveLora),
+            }),
+          }[engine];
+          return createLiveWorker({
+            name: { helios: 'Helios', longlive: 'LongLive', waypoint: 'Waypoint' }[engine],
+            python: path.join(liveEnvs.root, envName, 'src', '.venv', 'bin', 'python'),
+            script: fileURLToPath(new URL('../live_gen_worker.py', import.meta.url)),
+            env: { LIVE_ENGINE: engine, ...where(), HF_HOME: path.join(env.STUDIO_DIR, 'hf'), HF_HUB_OFFLINE: '1', PYTORCH_CUDA_ALLOC_CONF: 'expandable_segments:True' },
+            onEvent,
+            idleMs: 5 * 60_000,
+            // Loading 14B (and Waypoint's first speed-up) takes a while.
+            startTimeoutMs: 25 * 60_000,
+            timeoutMs: 120_000,
+            log: console,
+          });
+        },
         kreaUrl: `ws://127.0.0.1:${KREA_PORT}`,
         gpuMemory,
         turboBytes: KREA_BYTES,

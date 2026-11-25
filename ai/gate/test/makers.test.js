@@ -59,8 +59,9 @@ const node = (wf, type) => Object.values(wf).find((n) => n.class_type === type);
 test('maker list: built-ins are installed; the rest are offered with their size', async () => {
   const { studio } = await setup();
   const list = await studio.makers();
-  // Live Draw and live video belong to the drawing machine, so this machine never lists them.
-  assert.equal(list.length, MAKERS.filter((m) => m.kind !== 'live' && m.kind !== 'sketch').length);
+  // Live Draw and Sketch finish belong to the drawing machine, so this machine never lists them; live
+  // video makers it does.
+  assert.equal(list.length, MAKERS.filter((m) => (m.kind !== 'live' || m.liveVideo) && m.kind !== 'sketch').length);
   assert.deepEqual(
     ['qwen', 'ltx', 'edit'].map((id) => [byId(list, id).installed, byId(list, id).builtIn]),
     [
@@ -77,9 +78,9 @@ test('maker list: built-ins are installed; the rest are offered with their size'
   assert.equal(byId(list, 'outfit').twoImages, true);
 });
 
-test('Live Draw and live video never download here: only the drawing machine keeps them', async () => {
+test('Live Draw never downloads here (only the drawing machine keeps it); live video makers do, on a card big enough', async () => {
   const { dir, studio } = await setup();
-  const drawing = MAKERS.filter((m) => m.kind === 'live' || m.kind === 'sketch');
+  const drawing = MAKERS.filter((m) => (m.kind === 'live' && !m.liveVideo) || m.kind === 'sketch');
   assert.ok(drawing.length > 0);
   const list = await studio.makers();
   for (const m of drawing) {
@@ -90,6 +91,24 @@ test('Live Draw and live video never download here: only the drawing machine kee
   await fs.writeFile(path.join(dir, 'makers.json'), JSON.stringify({ wanted: [drawing[0].id] }));
   const again = await createStudio({ dir, files: FILES, fetchImpl: fakeServices({ prompts: [] }), WebSocketImpl: null, log: { warn() {} }, statfs: async () => ({ bavail: 1e7, bsize: 1024 ** 2 }) }).makers();
   assert.equal(byId(again, drawing[0].id), undefined);
+
+  // Live video makers are listed here, with the graphics memory each needs. On a 48 GB card the
+  // 80 GB ones say they are too big and are refused before anything downloads; the rest are offered.
+  const small = createStudio({ dir, files: FILES, fetchImpl: fakeServices({ prompts: [] }), WebSocketImpl: null, log: { warn() {} }, statfs: async () => ({ bavail: 1e7, bsize: 1024 ** 2 }), gpuMemory: async () => 48e9, turboBytes: 70e9 });
+  const rows = await small.makers();
+  assert.deepEqual(['live-helios', 'live-longlive', 'live-waypoint', 'live-krea', 'live-sdv2'].map((id) => [id, Boolean(byId(rows, id)?.tooBig)]), [
+    ['live-helios', true],
+    ['live-longlive', false],
+    ['live-waypoint', false],
+    ['live-krea', true],
+    ['live-sdv2', false],
+  ]);
+  assert.equal(byId(rows, 'live-helios').minGpuGb, 70);
+  assert.deepEqual(byId(rows, 'live-waypoint').sources, ['world']);
+  await assert.rejects(small.installMaker('live-helios'), (e) => e.status === 409 && /80 GB or more/.test(e.message));
+  // On an 80 GB card Helios is fine.
+  const big = createStudio({ dir, files: FILES, fetchImpl: fakeServices({ prompts: [] }), WebSocketImpl: null, log: { warn() {} }, statfs: async () => ({ bavail: 1e7, bsize: 1024 ** 2 }), gpuMemory: async () => 80e9, turboBytes: 70e9 });
+  assert.equal(byId(await big.makers(), 'live-helios').tooBig, undefined);
 });
 
 test('install remembers the choice; a maker works once its files are there', async () => {

@@ -128,6 +128,10 @@ test('every GPU to choose from: the cheapest machine of each type with room, wha
   assert.equal(ai.recommended, 'l40s', 'the cheapest that runs everything');
   assert.match(ai.options[1].note, /H3 Max videos run slow/, '48 GB: H3 Max does not fit whole');
   assert.match(ai.options[2].note, /H3 Max fits whole/);
+  // Which live video makers each card runs: 80 GB all four, 48 GB LongLive and Waypoint.
+  assert.match(ai.options[2].note, /Live: Helios, Krea, LongLive, Waypoint$/);
+  assert.deepEqual(ai.options[1].live, ['LongLive', 'Waypoint']);
+  assert.deepEqual(ai.options[0].live, ['Waypoint'], 'a 20 GB card still walks into pictures');
   assert.equal(ai.options[1].name, 'L40S');
   assert.equal(ai.options[1].memoryGb, 48);
   assert.ok(ai.options[3].videoMinutes < ai.options[1].videoMinutes, 'faster GPUs make a video sooner');

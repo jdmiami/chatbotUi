@@ -5,7 +5,7 @@ import { runpod, type PodStatus } from './runpod';
 import { autoOffMinutes } from './autoOff';
 import { r2Config } from './r2';
 import { createMachine, findMachine, machineAddress, machinePicks, terminateMachine } from './gpuaiMachine';
-import { STANDARD_GPUS, TURBO_GPUS, machineState, type GpuaiInstance, type MachineKind } from './gpuaiShared';
+import { STANDARD_GPUS, TURBO_GPUS, liveMakersFor, machineState, type GpuaiInstance, type MachineKind } from './gpuaiShared';
 import { activeOf, alreadyOnMessage, defaultProviderOf, otherOn, providerLabel, providersOf, type AiProvider, type AiProviderInfo } from './aiProviders';
 
 export type { AiProvider, AiProviderInfo } from './aiProviders';
@@ -84,6 +84,8 @@ export interface AiTier {
   idleMinutes: number;
   /** Plain-words speed compared to Standard. */
   speed: string;
+  /** The live video makers its card runs (Simple's Live tab). */
+  live?: string;
 }
 
 export interface Pod {
@@ -184,8 +186,8 @@ function tierList(provider: AiProvider): AiTier[] {
     const [s, ...sRest] = STANDARD_GPUS;
     const [t, ...tRest] = TURBO_GPUS;
     return [
-      { id: 'standard', label: 'Standard', gpu: s.gpu, gpuName: s.gpuName, pricePerHour: s.pricePerHour, idleMinutes: minutes, speed: 'normal speed', fallbacks: sRest, maxFallbackPrice: sRest[sRest.length - 1]?.pricePerHour ?? s.pricePerHour },
-      { id: 'turbo', label: 'Turbo', gpu: t.gpu, gpuName: t.gpuName, pricePerHour: t.pricePerHour, idleMinutes: minutes, speed: 'about 2–3× faster', fallbacks: tRest, maxFallbackPrice: tRest[tRest.length - 1]?.pricePerHour ?? t.pricePerHour },
+      { id: 'standard', label: 'Standard', gpu: s.gpu, gpuName: s.gpuName, pricePerHour: s.pricePerHour, idleMinutes: minutes, speed: 'normal speed', live: liveMakersFor(48).join(', '), fallbacks: sRest, maxFallbackPrice: sRest[sRest.length - 1]?.pricePerHour ?? s.pricePerHour },
+      { id: 'turbo', label: 'Turbo', gpu: t.gpu, gpuName: t.gpuName, pricePerHour: t.pricePerHour, idleMinutes: minutes, speed: 'about 2–3× faster', live: liveMakersFor(80).join(', '), fallbacks: tRest, maxFallbackPrice: tRest[tRest.length - 1]?.pricePerHour ?? t.pricePerHour },
     ];
   }
   return [
@@ -198,6 +200,7 @@ function tierList(provider: AiProvider): AiTier[] {
       pricePerHour: 0.59,
       idleMinutes: minutes,
       speed: 'normal speed',
+      live: liveMakersFor(48).join(', '),
       // Same 48 GB of memory (everything fits), newer and a little faster, a little dearer.
       fallbacks: [
         { gpu: 'NVIDIA L40', gpuName: 'L40 48 GB', pricePerHour: 0.82 },
@@ -214,6 +217,7 @@ function tierList(provider: AiProvider): AiTier[] {
       pricePerHour: 2.89,
       idleMinutes: minutes,
       speed: 'about 3–4× faster',
+      live: liveMakersFor(80).join(', '),
       // Big, fast GPUs that never cost more than Turbo itself.
       fallbacks: [
         { gpu: 'NVIDIA A100-SXM4-80GB', gpuName: 'A100 80 GB', pricePerHour: 1.79 },

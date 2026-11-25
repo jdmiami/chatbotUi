@@ -36,6 +36,21 @@ export const CANVAS_KREA_GPU_BYTES = 40e9;
 /** How much of the stream "Save last 10 s" keeps. */
 export const SAVE_SECONDS = 10;
 
+/**
+ * Live makers that make video as it plays in one Python worker each (live_gen_worker.py): what they
+ * start from and the graphics memory each needs. Helios: words or a picture, 80 GB cards (H100, H200,
+ * A100 80 GB). LongLive: words, 48 GB cards and up. Waypoint: a picture to walk into, any card.
+ */
+export const GEN_MAKERS = {
+  'live-helios': { name: 'Helios', minBytes: 70e9, sources: ['text', 'image'] },
+  'live-longlive': { name: 'LongLive', minBytes: 24e9, sources: ['text'] },
+  'live-waypoint': { name: 'Waypoint', minBytes: 16e9, sources: ['world'] },
+};
+/** Keys Waypoint follows (forward, left, back, right, jump, run). */
+export const WALK_KEYS = ['w', 'a', 's', 'd', 'space', 'shift'];
+const MAKER_NAMES = { 'live-krea': 'Krea Realtime', 'live-sdv2': 'StreamDiffusionV2' };
+const makerName = (id) => GEN_MAKERS[id]?.name || MAKER_NAMES[id] || id;
+
 // ---------------------------------------------------------------- their Python environments
 
 /**
@@ -301,6 +316,11 @@ export function createLiveVideo(o) {
   const WS = o.WebSocketImpl || globalThis.WebSocket;
   let current = null; // the one live session on this machine
   let sdv2 = null;
+  const gens = new Map(); // maker id -> its worker (live_gen_worker.py), made on first use
+  const genWorker = (id) => {
+    if (!gens.has(id)) gens.set(id, o.genWorker(id, (msg) => current?.maker === id && current.onGen?.(msg)));
+    return gens.get(id);
+  };
   const turboBytes = o.turboBytes ?? TURBO_GPU_BYTES;
   const holdMs = o.holdMs ?? 125;
 
@@ -339,11 +359,14 @@ export function createLiveVideo(o) {
 
     function checkWords(words) {
       if (blockedPrompt(words)) throw bad(BLOCKED_MESSAGE, 422, { blocked: true });
-      // The camera shows real people: the photo rule (nothing sexual, no undressing) holds for it.
-      if (s.source === 'camera' && blockedForPhoto(words)) throw bad(PHOTO_MESSAGE, 422, { blocked: true });
+      // The camera, and a picture to start from, may show real people: the photo rule (nothing sexual,
+      // no undressing) holds for them.
+      if (['camera', 'image', 'world'].includes(s.source) && blockedForPhoto(words)) throw bad(PHOTO_MESSAGE, 422, { blocked: true });
     }
 
     async function start(msg) {
+      const gen = o.genWorker && GEN_MAKERS[msg.maker] && !opts.maker ? GEN_MAKERS[msg.maker] : null;
+      if (gen) return startGen(msg);
       const maker = opts.maker || (msg.maker === 'live-krea' ? 'live-krea' : 'live-sdv2');
       const source = opts.source || (['camera', 'canvas', 'text'].includes(msg.source) ? msg.source : 'camera');
       const still = msg.image != null && msg.image !== '' ? frameBytes(msg.image) : null;
@@ -355,7 +378,7 @@ export function createLiveVideo(o) {
       s.strength = Math.min(0.95, Math.max(0.3, Number(msg.strength) || 0.7));
       if (!s.prompt) throw bad('Describe the look, e.g. “a watercolour painting”.');
       checkWords(s.prompt);
-      if (!(await o.studio.makerInstalled(maker))) throw bad(`${maker === 'live-krea' ? 'Krea Realtime' : 'StreamDiffusionV2'} is not installed. Add it in the Store (Makers).`, 503);
+      if (!(await o.studio.makerInstalled(maker))) throw bad(`${makerName(maker)} is not installed. Add it in the Store (Makers).`, 503);
       if (maker === 'live-krea' && (await o.gpuMemory()) < turboBytes) throw bad(TURBO_MESSAGE, 409, { turbo: true });
       if (o.studio.videoInFlight()) throw bad('Your AI machine is making a video: live video can start when it is done.', 409);
       // One live stream per machine: a newer one takes over.
@@ -386,6 +409,83 @@ export function createLiveVideo(o) {
       } else {
         await startKrea();
       }
+    }
+
+    /** Helios, LongLive or Waypoint: its worker makes the video and sends frames as they are made. */
+    async function startGen(msg) {
+      const maker = msg.maker;
+      const gen = GEN_MAKERS[maker];
+      const walk = gen.sources.includes('world');
+      const still = msg.image != null && msg.image !== '' ? frameBytes(msg.image) : null;
+      if (msg.image != null && msg.image !== '' && !still) throw bad('The picture to start from is not a picture.');
+      if (walk && !still) throw bad(`${gen.name} starts from a picture: pick one first.`);
+      if (still && !gen.sources.includes('image') && !walk) throw bad(`${gen.name} makes video from words only.`);
+      s.maker = maker;
+      s.source = walk ? 'world' : still ? 'image' : 'text';
+      s.prompt = String(msg.prompt || '').trim().slice(0, 500);
+      if (!s.prompt && !walk) throw bad('Say what to see, e.g. “a fox running through snow”.');
+      if (s.prompt) checkWords(s.prompt);
+      if (!(await o.studio.makerInstalled(maker))) throw bad(`${gen.name} is not loaded on this machine yet. Load it first.`, 503);
+      if ((await o.gpuMemory()) < gen.minBytes) throw bad(`${gen.name} needs a graphics card with ${gen.minBytes >= 70e9 ? 80 : Math.round(gen.minBytes / 1e9)} GB or more. Turn the AI machine off and pick a bigger one.`, 409, { turbo: true });
+      if (o.studio.videoInFlight()) throw bad('Your AI machine is making a video: live video can start when it is done.', 409);
+      if (current && current !== s) {
+        current.send({ type: 'error', status: 409, error: 'Live video was started on another screen.' });
+        current.stop();
+      }
+      current = s;
+      await o.makeWay?.().catch(() => {});
+      await o.studio.makeRoom().catch(() => {});
+      // Only one of these workers holds the graphics card at a time.
+      for (const [id, w] of gens) if (id !== maker) w.stop();
+      o.activity?.();
+      s.running = true;
+      s.startedAt = now();
+      s.frames = [];
+      s.outq = [];
+      send({ type: 'state', state: 'loading', maker, source: s.source });
+      const w = genWorker(maker);
+      s.gen = w;
+      s.onGen = (ev) => {
+        if (!s.running) return;
+        if (ev.event === 'frames') {
+          w.warm();
+          o.activity?.();
+          for (const f of ev.frames || []) s.outq.push(Buffer.from(f, 'base64'));
+          pace(Number(ev.fps) || 16);
+          if (!s.live) {
+            s.live = true;
+            send({ type: 'state', state: 'live', maker, source: s.source });
+          }
+        } else if (ev.event === 'ended') {
+          if (ev.error) send({ type: 'error', status: 502, error: `${gen.name} stopped: ${ev.error}` });
+          s.stop();
+          send({ type: 'state', state: 'stopped' });
+        }
+      };
+      const r = await w.request({ op: 'start', prompt: s.prompt, ...(still ? { image: still.toString('base64') } : {}) }, { timeout: 25 * 60_000 });
+      if (r.error) throw bad(`${gen.name} could not start: ${r.error}`, 503);
+    }
+
+    /** Frames come in bursts (Helios: 33 at once): they are shown at the video's own pace, never far behind. */
+    function pace(fps) {
+      const keep = Math.max(8, Math.round(fps * 4));
+      while (s.outq.length > keep) s.outq.shift();
+      if (s.pacer && s.pacerFps === fps) return;
+      if (s.pacer) clearInterval(s.pacer);
+      s.pacerFps = fps;
+      s.pacer = setInterval(() => {
+        const f = s.outq.shift();
+        if (f) deliver(f);
+      }, Math.max(10, Math.round(1000 / fps)));
+      s.pacer.unref?.();
+    }
+
+    /** Waypoint: the keys held and the look-around since the last step. */
+    function control(msg) {
+      if (!s.running || !s.gen || s.source !== 'world') return;
+      const keys = (Array.isArray(msg.keys) ? msg.keys : []).map(String).filter((k) => WALK_KEYS.includes(k));
+      const look = Array.isArray(msg.look) ? msg.look.slice(0, 2).map((v) => Math.max(-1, Math.min(1, Number(v) || 0))) : [0, 0];
+      void s.gen.request({ op: 'control', keys, look }, { timeout: 10_000 });
     }
 
     async function startKrea() {
@@ -505,8 +605,10 @@ export function createLiveVideo(o) {
       checkWords(words);
       s.prompt = words;
       o.activity?.();
-      // StreamDiffusionV2 starts a new session with the next frames; Krea blends to the new prompt.
+      // StreamDiffusionV2 starts a new session with the next frames; Krea blends to the new prompt;
+      // Helios's next part follows the new words; LongLive switches them in.
       if (s.krea?.readyState === 1) s.krea.send(packb({ prompt: words }));
+      if (s.gen) void s.gen.request({ op: 'prompt', prompt: words }, { timeout: 10_000 });
       send({ type: 'prompt', prompt: words });
     }
 
@@ -515,9 +617,19 @@ export function createLiveVideo(o) {
         clearInterval(s.ticker);
         s.ticker = null;
       }
-      if (!s.running && !s.krea) return;
+      if (s.pacer) {
+        clearInterval(s.pacer);
+        s.pacer = null;
+      }
+      if (!s.running && !s.krea && !s.gen) return;
       s.running = false;
+      s.live = false;
       s.pending = [];
+      s.outq = [];
+      if (s.gen) {
+        void s.gen.request({ op: 'stop' }, { timeout: 10_000 });
+        s.gen = null;
+      }
       if (s.krea) {
         try {
           s.krea.close();
@@ -546,7 +658,7 @@ export function createLiveVideo(o) {
         await fsp.rm(tmp, { recursive: true, force: true });
       }
       const seconds = Math.round(((frames.length / fps) * 10)) / 10;
-      return o.studio.addItem({ kind: 'video', maker: s.maker, prompt: s.prompt, file: rel, seconds, photo: s.source === 'camera', ...(opts.owner ? { owner: opts.owner } : {}) });
+      return o.studio.addItem({ kind: 'video', maker: s.maker, prompt: s.prompt, file: rel, seconds, photo: ['camera', 'image', 'world'].includes(s.source), ...(opts.owner ? { owner: opts.owner } : {}) });
     }
 
     return {
@@ -556,6 +668,7 @@ export function createLiveVideo(o) {
           if (msg.type === 'frame') return frame(msg);
           if (msg.type === 'still') return still(msg);
           if (msg.type === 'prompt') return prompt(msg);
+          if (msg.type === 'control') return control(msg);
           if (msg.type === 'strength') {
             s.strength = Math.min(0.95, Math.max(0.3, Number(msg.strength) || s.strength));
             return undefined;
@@ -597,6 +710,7 @@ export function createLiveVideo(o) {
       }
       sdv2?.stop();
       o.krea?.stop();
+      for (const w of gens.values()) w.stop();
     },
   };
 }

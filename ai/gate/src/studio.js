@@ -426,9 +426,14 @@ export function createStudio(o) {
     if (m.id === 'ltx') return files.video;
     return m.files.map((k) => (k in QWEN_KEYS ? files.image[QWEN_KEYS[k]] : k.startsWith('style:') ? m.loraFile : FILES[k])).filter(Boolean);
   }
-  // Live Draw and live video run only on the drawing machine (role 'canvas'): any other machine
-  // never keeps, lists or downloads them, even if an older version of it was asked to.
-  const drawingOnly = (m) => role !== 'canvas' && (m.kind === 'live' || m.kind === 'sketch');
+  // Live Draw and Sketch finish run only on the drawing machine (role 'canvas'): any other machine never
+  // keeps, lists or downloads them. Live video makers (liveVideo: Krea, Helios, LongLive, Waypoint and
+  // StreamDiffusionV2) run on any machine whose graphics card is big enough for them (minGpuGb).
+  const drawingOnly = (m) => role !== 'canvas' && ((m.kind === 'live' && !m.liveVideo) || m.kind === 'sketch');
+  /** The graphics memory a maker needs (bytes), or 0. Krea's is the role's own turbo size. */
+  const needsGpu = (m) => (m.turboOnly ? (o.turboBytes ?? 70e9) : m.minGpuGb ? m.minGpuGb * 1e9 : 0);
+  const tooSmallMessage = (m) =>
+    m.turboOnly ? o.turboMessage || 'This maker needs the Turbo machine (80 GB).' : `${m.name} needs a graphics card with ${m.minGpuGb >= 70 ? 80 : m.minGpuGb} GB or more of memory. Turn the AI machine off and pick a bigger one.`;
   // Yours: on the short list (else built in), or added in the store.
   const inLibrary = (m) => !drawingOnly(m) && ((only ? only.has(m.id) : m.builtIn) || (!strict && wanted.has(m.id)));
   const keeps = (m) => (onDemand ? !drawingOnly(m) && picked.includes(m.id) : inLibrary(m));
@@ -861,6 +866,7 @@ export function createStudio(o) {
 
   async function makers() {
     const out = [];
+    const gpu = MAKERS.some((m) => needsGpu(m) && !drawingOnly(m)) ? await o.gpuMemory?.().catch(() => 0) : 0;
     for (const m of MAKERS) {
       if (drawingOnly(m)) continue;
       const list = makerFiles(m);
@@ -890,6 +896,12 @@ export function createStudio(o) {
         problem: why || env?.error || null,
         // Only on the Turbo machine (80 GB of GPU memory): Krea Realtime.
         turboOnly: Boolean(m.turboOnly) || undefined,
+        // Live video makers: the graphics memory each needs, what it starts from (words, a picture, a
+        // world to walk in), and whether this machine's card is too small for it.
+        liveVideo: Boolean(m.liveVideo) || undefined,
+        minGpuGb: m.minGpuGb || undefined,
+        sources: m.sources || undefined,
+        tooBig: (gpu && needsGpu(m) && gpu < needsGpu(m)) || undefined,
         // Its files are here and its Python is being set up: what it is doing.
         setup: filesHere && env?.installing ? env.step || 'Setting up' : undefined,
         builtIn: Boolean(m.builtIn),
@@ -957,6 +969,7 @@ export function createStudio(o) {
     const m = makerById(id);
     if (!m || drawingOnly(m)) throw Object.assign(new Error('No such maker.'), { status: 404 });
     if (!pickable(m)) throw Object.assign(new Error(`Add ${m.name} in the store first.`), { status: 409 });
+    if (needsGpu(m) && (await o.gpuMemory?.().catch(() => 0)) < needsGpu(m)) throw Object.assign(new Error(tooSmallMessage(m)), { status: 409, turbo: true });
     addToLine(m, first);
     await savePicked();
     void downloadAll();
@@ -974,8 +987,8 @@ export function createStudio(o) {
     if (!m) throw Object.assign(new Error('No such maker.'), { status: 404 });
     if (drawingOnly(m)) throw Object.assign(new Error(`${m.name} runs on the drawing machine. Open Live Draw to use it.`), { status: 409 });
     if (!hfToken && makerFiles(m).some((file) => file.gated) && !(await makerReady(m))) throw Object.assign(new Error(TOKEN_MESSAGE), { status: 400, needsToken: true });
-    // Krea Realtime needs 40 GB+ of GPU memory (and 30 GB of files): refused on the Standard machine.
-    if (m.turboOnly && (await o.gpuMemory?.().catch(() => 0)) < (o.turboBytes ?? 70e9)) throw Object.assign(new Error(o.turboMessage || 'This maker needs the Turbo machine (80 GB).'), { status: 409, turbo: true });
+    // A maker bigger than this graphics card (Krea, Helios: 80 GB cards) is refused before its files come down.
+    if (needsGpu(m) && (await o.gpuMemory?.().catch(() => 0)) < needsGpu(m)) throw Object.assign(new Error(tooSmallMessage(m)), { status: 409, turbo: true });
     // Refused up front when its files can't fit (with 2 GB to spare), instead of stopping half way.
     // What is left to download: a file half-way down (.part) only needs the rest, as fetchFile counts it.
     // Staged downloads (a global volume) only need room for the biggest file at a time.

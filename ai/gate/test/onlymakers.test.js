@@ -107,7 +107,9 @@ test('on demand, the AI machine loads nothing until you pick, then downloads in 
   for (const id of ['qwen', 'edit', 'anime']) assert.equal(m[id].loadable, true, `${id} waits to be picked`);
   // Every maker this machine can run is offered, not only yours; the drawing machine's are not.
   for (const id of ['ltx', 'krea-real', 'trellis2']) assert.equal(m[id].loadable, true, `${id} can be picked too`);
-  assert.equal(Object.values(m).some((x) => x.kind === 'live' || x.kind === 'sketch'), false, 'Live Draw makers stay on the drawing machine');
+  assert.equal(Object.values(m).some((x) => (x.kind === 'live' && !x.liveVideo) || x.kind === 'sketch'), false, 'Live Draw makers stay on the drawing machine');
+  // Live video makers can be picked here too (the graphics card decides which fit).
+  for (const id of ['live-helios', 'live-longlive', 'live-waypoint', 'live-krea']) assert.equal(m[id].loadable, true, `${id} can be picked`);
 
   // Picked next, then moved first.
   await studio.loadMaker('qwen');

@@ -27,7 +27,7 @@ const PNG = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR
 async function standIns(page: Page, opts: { on?: boolean; both?: boolean } = {}) {
   const calls: { path: string; body?: unknown }[] = [];
   let state = opts.on ? 'on' : 'off';
-  let loaded = ['h3-max', 'qwen', 'edit', 'trellis2', 'style-ink', 's2v', 'vace', 'person-swap', 'rig'];
+  let loaded = ['h3-max', 'qwen', 'edit', 'trellis2', 'style-ink', 's2v', 'vace', 'person-swap', 'rig', 'live-longlive', 'live-waypoint'];
   let cloud = { id: 'c1', status: 'queued', kind: 'image', provider: 'cloudflare', position: 1 } as Record<string, unknown>;
   const line: string[] = [];
   const makers = () =>
@@ -43,7 +43,10 @@ async function standIns(page: Page, opts: { on?: boolean; both?: boolean } = {})
       { id: 'vace', kind: 'videoedit', name: 'Edit a video', needs: ['video'], tasks: ['replace', 'restyle', 'extend', 'motion'] },
       { id: 'person-swap', kind: 'videoedit', name: 'Swap a person', needs: ['video', 'target', 'photo'] },
       { id: 'rig', kind: 'rig', name: 'Rig it', needs: ['model3d'] },
-      { id: 'live-krea', kind: 'live', name: 'Krea Realtime' },
+      { id: 'live-helios', kind: 'live', liveVideo: true, name: 'Helios 14B (live)', minGpuGb: 70, tooBig: true },
+      { id: 'live-krea', kind: 'live', liveVideo: true, name: 'Krea Realtime' },
+      { id: 'live-longlive', kind: 'live', liveVideo: true, name: 'LongLive 1.3B (live)' },
+      { id: 'live-waypoint', kind: 'live', liveVideo: true, name: 'Waypoint 1.5 (walk in)' },
     ].map((m) =>
       loaded.includes(m.id)
         ? { ...m, installed: true, wanted: true, percent: 100 }
@@ -693,7 +696,7 @@ test('Simple Gallery: filters, search, sort, a viewer you can swipe, play all vi
   expect(errors).toEqual([]);
 });
 
-test('Simple Live: load Krea Realtime, watch the video as it is made, change the words, save the last 10 s, stop', async ({ page }, info) => {
+test('Simple Live: pick a maker that fits the card, load one, watch the video as it is made, change the words, save the last 10 s, stop', async ({ page }, info) => {
   const errors: string[] = [];
   page.on('pageerror', (e) => errors.push(e.message));
   const { calls, loaded } = await standIns(page, { on: true });
@@ -704,8 +707,8 @@ test('Simple Live: load Krea Realtime, watch the video as it is made, change the
       const m = JSON.parse(String(raw));
       sent.push(m);
       if (m.type === 'start') {
-        ws.send(JSON.stringify({ type: 'state', state: 'loading', maker: 'live-krea', source: 'text' }));
-        ws.send(JSON.stringify({ type: 'state', state: 'live', maker: 'live-krea', source: 'text' }));
+        ws.send(JSON.stringify({ type: 'state', state: 'loading', maker: m.maker, source: m.source }));
+        ws.send(JSON.stringify({ type: 'state', state: 'live', maker: m.maker, source: m.source }));
         for (let i = 0; i < 3; i++) ws.send(JSON.stringify({ type: 'frame', image: FRAME, ms: 90 }));
       }
       if (m.type === 'save') ws.send(JSON.stringify({ type: 'saved', item: { id: 'live1', kind: 'video' } }));
@@ -714,19 +717,29 @@ test('Simple Live: load Krea Realtime, watch the video as it is made, change the
   });
   await page.goto(`${SITE}/lite#live`);
   await expect(page.getByRole('heading', { level: 1 })).toHaveText('Watch it as it is made');
+  // Every live maker, with what each needs: Helios is too big for this card; the first ready one is picked.
+  const pick = page.getByRole('radiogroup', { name: 'Live maker' });
+  await expect(pick.getByRole('radio')).toHaveText([/Helios 14B.*needs 80 GB/, /Krea Realtime.*tap to load/, /LongLive.*ready/, /Waypoint.*ready/]);
+  await expect(pick.getByRole('radio', { name: /Helios/ })).toBeDisabled();
+  await expect(pick.getByRole('radio', { name: /LongLive/ })).toHaveAttribute('aria-checked', 'true');
+
   // Not loaded yet: one tap loads it first.
+  await pick.getByRole('radio', { name: /Krea Realtime/ }).click();
   await expect(page.getByTestId('live-maker')).toContainText('not loaded on this machine yet');
   await page.getByRole('button', { name: 'Load Krea Realtime' }).click();
   await expect.poll(() => calls.find((c) => c.path === 'machine:/_orbit/studio/makers/load')?.body).toEqual({ id: 'live-krea', first: true });
-  loaded(['qwen', 'h3-max', 'live-krea']);
+  loaded(['qwen', 'h3-max', 'live-krea', 'live-longlive', 'live-waypoint']);
   await page.getByRole('navigation', { name: 'Sections' }).getByRole('link', { name: 'Gallery' }).click();
   await page.getByRole('navigation', { name: 'Sections' }).getByRole('link', { name: 'Live' }).click();
+  await expect(pick.getByRole('radio', { name: /Krea Realtime/ })).toContainText('ready');
 
+  // LongLive: words; it plays as it is made.
+  await pick.getByRole('radio', { name: /LongLive/ }).click();
   await page.getByLabel('What to see').fill('A slow drone shot over a neon city in the rain');
-  await page.getByRole('button', { name: 'Start' }).click();
+  await page.getByRole('button', { name: 'Start', exact: true }).click();
   await expect(page.getByRole('img', { name: 'Live video' })).toHaveAttribute('src', FRAME);
   await expect(page.getByRole('status')).toContainText('Live');
-  expect(sent[0]).toEqual({ type: 'start', maker: 'live-krea', source: 'text', prompt: 'A slow drone shot over a neon city in the rain' });
+  expect(sent[0]).toEqual({ type: 'start', maker: 'live-longlive', source: 'text', prompt: 'A slow drone shot over a neon city in the rain' });
   await noSideScroll(page);
   await page.screenshot({ path: info.outputPath('simple-live.png') });
 
@@ -738,5 +751,57 @@ test('Simple Live: load Krea Realtime, watch the video as it is made, change the
   // Leaving Live stops it (it holds the whole graphics card).
   await page.getByRole('navigation', { name: 'Sections' }).getByRole('link', { name: 'Make' }).click();
   await expect.poll(() => sent.at(-1)).toEqual({ type: 'stop' });
+  expect(errors).toEqual([]);
+});
+
+test('Simple Live: walk into a picture with Waypoint: pick the picture, hold the arrows, run, look around', async ({ page }, info) => {
+  const errors: string[] = [];
+  page.on('pageerror', (e) => errors.push(e.message));
+  await standIns(page, { on: true });
+  const sent: Record<string, unknown>[] = [];
+  const FRAME = `data:image/png;base64,${PNG.toString('base64')}`;
+  await page.routeWebSocket(`${MACHINE.replace('https', 'wss')}/_orbit/live/video`, (ws) => {
+    ws.onMessage((raw) => {
+      const m = JSON.parse(String(raw));
+      sent.push(m);
+      if (m.type === 'start') {
+        ws.send(JSON.stringify({ type: 'state', state: 'live', maker: m.maker, source: m.source }));
+        for (let i = 0; i < 3; i++) ws.send(JSON.stringify({ type: 'frame', image: FRAME }));
+      }
+    });
+  });
+  await page.goto(`${SITE}/lite#live`);
+  await page.getByRole('radiogroup', { name: 'Live maker' }).getByRole('radio', { name: /Waypoint/ }).click();
+  await expect(page.getByLabel('What to see')).toHaveCount(0);
+  await page.getByRole('button', { name: 'Start', exact: true }).click();
+  await expect(page.getByRole('alert')).toHaveText('Pick the picture to walk into first.');
+  // From the gallery: its pictures to tap.
+  await page.getByRole('button', { name: 'From your gallery' }).click();
+  await page.getByRole('button', { name: 'a red fox' }).click();
+  await expect(page.getByRole('img', { name: 'Start picture' })).toBeVisible();
+  await page.getByRole('button', { name: 'Start', exact: true }).click();
+  await expect.poll(() => sent[0]?.type).toBe('start');
+  expect(sent[0]).toMatchObject({ type: 'start', maker: 'live-waypoint', source: 'world', prompt: '' });
+  expect(String(sent[0].image)).toMatch(/^data:image\/jpeg;base64,/);
+  await expect(page.getByRole('img', { name: 'Live video' })).toHaveAttribute('src', FRAME);
+  const walk = page.getByLabel('Walk');
+  await expect(walk.getByRole('button')).toHaveText(['↑', '←', '↓', '→', 'Run', 'Jump']);
+  await noSideScroll(page);
+  await page.screenshot({ path: info.outputPath('simple-walk.png') });
+  // Hold forward: the key goes up while it is held; Run adds shift; letting go stops.
+  await walk.getByRole('button', { name: 'Run' }).click();
+  await walk.getByRole('button', { name: 'Forward' }).dispatchEvent('pointerdown');
+  await expect.poll(() => sent.filter((m) => m.type === 'control').at(-1)).toMatchObject({ type: 'control', keys: ['w', 'shift'] });
+  await page.dispatchEvent('body', 'pointerup');
+  await walk.getByRole('button', { name: 'Run' }).click();
+  await expect.poll(() => sent.filter((m) => m.type === 'control').at(-1)?.keys).toEqual([]);
+  // Drag the picture to look around.
+  await page.getByRole('img', { name: 'Live video' }).scrollIntoViewIfNeeded();
+  const box = (await page.getByRole('img', { name: 'Live video' }).boundingBox())!;
+  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(box.x + box.width / 2 + 60, box.y + box.height / 2, { steps: 4 });
+  await page.mouse.up();
+  await expect.poll(() => (sent.filter((m) => m.type === 'control').at(-1)?.look as number[] | undefined)?.[0] ?? 0).toBeGreaterThan(0);
   expect(errors).toEqual([]);
 });

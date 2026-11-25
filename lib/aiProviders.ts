@@ -16,7 +16,7 @@ export interface AiProviderInfo {
   /** The cheapest price per hour, to show beside the name. */
   fromPrice: number | null;
   /** Runpod: Standard and Turbo (GPU.ai lists every GPU instead). */
-  tiers?: { id: string; label: string; gpuName: string; pricePerHour: number; speed: string }[];
+  tiers?: { id: string; label: string; gpuName: string; pricePerHour: number; speed: string; live?: string }[];
 }
 
 type Env = Record<string, string | undefined>;
