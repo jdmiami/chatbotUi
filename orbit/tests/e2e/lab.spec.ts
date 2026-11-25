@@ -14,6 +14,7 @@ const base = () => ({
   writerReady: true,
   writing: false,
   yours: { pictures: 12, videos: 3 },
+  makers: { picture: { id: 'krea-real', name: 'Krea Real' }, clip: { id: 'ltx', name: 'LTX 10Eros' } },
   making: { prompt: 'A lone astronaut naps in a flooded neon subway car', kind: 'picture', maker: 'krea-real', job },
   queue: [
     { id: 'q1', prompt: 'A lone astronaut buys noodles from a robot stall in the rain', kind: 'picture', maker: 'krea-real' },
@@ -50,6 +51,7 @@ test('the Lab shows what it is making, the prompts it wrote in your style, and w
   await expect(next).toContainText('5-second video');
   await expect(next).toContainText('From your prompt: “Slow dolly through a foggy forest at dawn”');
   await expect(lab.getByTestId('lab-yours')).toHaveText('Learning from 12 picture prompts and 3 video prompts of yours.');
+  await expect(lab.getByTestId('lab-makers')).toHaveText('Making videos and pictures with Krea Real: the makers you used last in Make, already loaded.'.replace('videos and pictures with Krea Real', 'videos with LTX 10Eros and pictures with Krea Real'));
   await expect(lab.getByRole('list', { name: 'Made in the Lab, newest first' }).getByRole('listitem')).toHaveCount(1);
   await expectNoHorizontalOverflow(page);
   expect(errors).toEqual([]);

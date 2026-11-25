@@ -15,8 +15,11 @@ import { CLIP_SECONDS, MIXES, forMix, remixSources } from './remix.js';
 export const BATCH = 6;
 /** How many of your own prompts the writer is shown each round. */
 export const EXAMPLES = 12;
-/** When fewer than this many are waiting, the next round is written. */
-const LOW_WATER = 2;
+/** When fewer than this many are waiting, the next round is written: the line never runs dry. */
+const LOW_WATER = 3;
+/** With fewer video prompts of yours than this, your picture prompts teach the writer your style too. */
+const FEW = 4;
+const MAKER_KIND = { picture: 'image', clip: 'video' };
 
 export const WRITER_SYSTEM =
   'You write prompts for an AI picture or video maker, in the exact style of one creator. You are shown their own prompts. ' +
@@ -77,13 +80,15 @@ export const promptOk = (p) => !blockedPrompt(p) && !mentionsMinor(p);
 export function createPromptLab(o) {
   const { studio, log = console, now = Date.now } = o;
   const maxPerHour = o.maxPerHour ?? 60;
-  let saved = { enabled: true, mix: 'both', queue: [], records: [], making: null };
+  // Videos by default: the Lab always has videos waiting to be made.
+  let saved = { enabled: true, mix: 'videos', mixChosen: false, queue: [], records: [], making: null };
   let loaded = false;
   let current = null; // { jobId, idea, startedAt }
   let ticking = null; // the step running now (a promise)
   let writing = null; // the round being written (a promise)
   let lastError = null;
-  let sources = [];
+  let sources = []; // your prompts, whatever made them (the writer's examples)
+  let makerList = []; // studio.makers()
   let sourcesAt = 0;
   let turn = 0;
   let seq = 0;
@@ -100,14 +105,16 @@ export function createPromptLab(o) {
       if (s && typeof s === 'object') {
         saved = {
           enabled: s.enabled !== false,
-          mix: MIXES.includes(s.mix) ? s.mix : 'both',
+          // Until you pick, the Lab makes videos.
+          mix: s.mixChosen && MIXES.includes(s.mix) ? s.mix : 'videos',
+          mixChosen: Boolean(s.mixChosen),
           // Only this Lab's own prompts (the old Lab's movie ideas are dropped).
-          queue: Array.isArray(s.queue) ? s.queue.filter((q) => q?.prompt && q.maker && (q.kind === 'picture' || q.kind === 'clip')) : [],
+          queue: Array.isArray(s.queue) ? s.queue.filter((q) => q?.prompt && (q.kind === 'picture' || q.kind === 'clip')) : [],
           records: Array.isArray(s.records) ? s.records.filter((r) => r?.id && r.prompt).map((r) => ({ ...r, prompt: String(r.prompt) })) : [],
           making: null,
         };
         // One being made when the machine stopped: its job is gone, so it is made again first.
-        if (s.making?.idea?.maker) saved.queue.unshift(s.making.idea);
+        if (s.making?.idea?.prompt) saved.queue.unshift(s.making.idea);
       }
     } catch {
       /* first run */
@@ -120,18 +127,51 @@ export function createPromptLab(o) {
     sourcesAt = now();
     try {
       const [items, makers] = await Promise.all([studio.items(1000), studio.makers ? studio.makers() : []]);
-      sources = remixSources(items, makers);
+      makerList = makers;
+      sources = remixSources(items, makers, { anyMaker: true });
     } catch (err) {
       log.warn?.(`[lab] could not read your prompts: ${err.message}`);
     }
   }
 
-  /** Which kind the next round writes: what the mix allows and you have made, taking turns. */
+  /** Makers loaded on this machine that make a picture or a video from words alone. */
+  const wordMakers = (kind) => makerList.filter((m) => m && m.installed && m.kind === MAKER_KIND[kind] && !(m.needs || []).length);
+
+  /**
+   * The maker a Lab picture or video is made with: the one you last used yourself (already loaded,
+   * so nothing reloads), else the one loaded now, else the one behind your newest prompt of that
+   * kind, else any loaded one. Only makers loaded here that work from words alone.
+   */
+  function makerFor(kind) {
+    const ok = wordMakers(kind);
+    if (!ok.length) return null;
+    const recent = studio.recentMakers?.() || {};
+    const newest = sources.find((s) => s.kind === kind && ok.some((m) => m.id === s.maker));
+    const order = [recent[MAKER_KIND[kind]], recent.loaded, newest?.maker];
+    for (const id of order) {
+      const m = id && ok.find((x) => x.id === id);
+      if (m) return m;
+    }
+    return ok[0];
+  }
+
+  /** The shape and look: like your newest prompt of that kind made with that maker (or of that kind). */
+  function lookFor(kind, maker) {
+    const same = sources.find((s) => s.kind === kind && s.maker === maker.id);
+    const any = sources.find((s) => s.kind === kind);
+    return { size: (same || any)?.size || 'portrait', ...(kind === 'picture' && same?.style ? { style: same.style } : {}) };
+  }
+
+  /** Which kind the next round writes: what the mix allows and a loaded maker can make, taking turns. */
   function nextKind() {
-    const kinds = ['picture', 'clip'].filter((k) => forMix(sources, saved.mix).some((s) => s.kind === k));
+    const want = saved.mix === 'pictures' ? ['picture'] : saved.mix === 'videos' ? ['clip'] : ['clip', 'picture'];
+    const kinds = want.filter((k) => wordMakers(k).length);
     if (!kinds.length) return null;
     return kinds[turn++ % kinds.length];
   }
+
+  const noMaker = (mix) =>
+    Object.assign(new Error(`Load a ${mix === 'pictures' ? 'picture' : mix === 'videos' ? 'video' : 'picture or video'} maker in Make first: the Lab makes with the makers loaded on your machine.`), { status: 409 });
 
   /**
    * One writing round: `count` new prompts in your style. `focus`: one prompt of yours to build them
@@ -141,11 +181,13 @@ export function createPromptLab(o) {
     if (!o.chat) throw Object.assign(new Error('The prompt writer is not set up on this machine (the site address is missing).'), { status: 503 });
     await refreshSources();
     kind ||= nextKind();
-    const from = forMix(sources, saved.mix).filter((s) => s.kind === kind);
-    const all = sources.filter((s) => s.kind === kind);
-    const like = from.length ? from : all;
-    if (!kind || !like.length) throw Object.assign(new Error('Make a few pictures or videos in Make first: the Lab writes in the style of your own prompts.'), { status: 409 });
-    const examples = like.slice(0, EXAMPLES).map((s) => s.prompt);
+    if (!kind || !wordMakers(kind).length) throw noMaker(kind ? (kind === 'clip' ? 'videos' : 'pictures') : saved.mix);
+    // Your prompts of that kind teach the writer your style; with few video prompts, your picture
+    // prompts too (it turns them into moving shots).
+    let like = sources.filter((s) => s.kind === kind);
+    if (kind === 'clip' && like.length < FEW) like = like.concat(sources.filter((s) => s.kind === 'picture'));
+    if (!like.length && !focus) throw Object.assign(new Error('Make a few pictures or videos in Make first: the Lab writes in the style of your own prompts.'), { status: 409 });
+    const examples = (like.length ? like : [{ prompt: focus }]).slice(0, EXAMPLES).map((s) => s.prompt);
     const avoid = [...saved.queue, ...saved.records.slice(-12)].map((q) => q.prompt.slice(0, 90)).slice(-16);
     const text = await o.chat({ ...writerMessages({ kind, examples, count, avoid, focus }), temperature: 1 });
     const seen = new Set([...examples, ...saved.queue.map((q) => q.prompt)].map((p) => p.toLowerCase()));
@@ -153,9 +195,8 @@ export function createPromptLab(o) {
     for (const p of parsePrompts(text)) {
       if (seen.has(p.toLowerCase()) || !promptOk(p)) continue;
       seen.add(p.toLowerCase());
-      // Each one is made like one of yours (its maker, size and look), taking them in turn.
-      const s = like[fresh.length % like.length];
-      fresh.push({ id: id(), prompt: p, kind, maker: s.maker, size: s.size, ...(s.style ? { style: s.style } : {}), writtenAt: new Date(now()).toISOString(), ...(focus ? { from: focus.slice(0, 200) } : {}) });
+      // The maker is picked when it is made: the one you used last by then.
+      fresh.push({ id: id(), prompt: p, kind, writtenAt: new Date(now()).toISOString(), ...(focus ? { from: focus.slice(0, 200) } : {}) });
       if (fresh.length >= count) break;
     }
     if (!fresh.length) throw Object.assign(new Error('The writer gave nothing new this time. Try again.'), { status: 502 });
@@ -199,11 +240,13 @@ export function createPromptLab(o) {
     await persist();
   }
 
-  async function start(next) {
+  async function start(next, maker) {
+    const look = lookFor(next.kind, maker);
+    const idea = { ...next, maker: maker.id };
     try {
-      const job = await studio.createJob({ maker: next.maker, prompt: next.prompt, size: next.size, ...(next.kind === 'clip' ? { seconds: CLIP_SECONDS } : {}), ...(next.style ? { style: next.style } : {}), background: true });
-      current = { jobId: job.id, idea: next, startedAt: now() };
-      saved.making = { jobId: job.id, idea: next };
+      const job = await studio.createJob({ maker: maker.id, prompt: next.prompt, size: look.size, ...(next.kind === 'clip' ? { seconds: CLIP_SECONDS } : {}), ...(look.style ? { style: look.style } : {}), background: true });
+      current = { jobId: job.id, idea, startedAt: now() };
+      saved.making = { jobId: job.id, idea };
       lastError = null;
     } catch (err) {
       lastError = `Skipped "${next.prompt.slice(0, 60)}": ${err.message}`;
@@ -228,16 +271,19 @@ export function createPromptLab(o) {
       await refreshSources();
       // Writing needs no graphics card: the next round is written even while you work (waited for
       // only when there is nothing else to make).
-      if (saved.queue.length < LOW_WATER && !writing && o.chat) {
+      if (forMix(saved.queue, saved.mix).length < LOW_WATER && !writing && o.chat && nextKind()) {
         const round = writeSoon();
-        if (!saved.queue.length) await round;
+        if (!forMix(saved.queue, saved.mix).length) await round;
       }
       if (ownerBusy() || madeLastHour() >= maxPerHour) return;
       const st = await studio.state().catch(() => null);
-      const i = saved.queue.findIndex((q) => st?.[q.kind === 'clip' ? 'video' : 'image']?.ready && forMix([q], saved.mix).length);
-      if (i < 0) return;
+      const i = saved.queue.findIndex((q) => st?.[MAKER_KIND[q.kind]]?.ready && forMix([q], saved.mix).length && makerFor(q.kind));
+      if (i < 0) {
+        if (!nextKind()) lastError = noMaker(saved.mix).message;
+        return;
+      }
       const [next] = saved.queue.splice(i, 1);
-      await start(next);
+      await start(next, makerFor(next.kind));
     } catch (err) {
       lastError = err.message;
       log.warn?.(`[lab] ${err.message}`);
@@ -280,8 +326,13 @@ export function createPromptLab(o) {
         writerReady: Boolean(o.chat),
         writing: Boolean(writing),
         yours: { pictures: sources.filter((s) => s.kind === 'picture').length, videos: sources.filter((s) => s.kind === 'clip').length },
-        making: current ? { prompt: current.idea.prompt, kind: current.idea.kind, maker: current.idea.maker, job: studio.job(current.jobId) } : null,
-        queue: saved.queue.map(({ id: qid, prompt, kind, maker, size, from }) => ({ id: qid, prompt, kind, maker, size, ...(from ? { from } : {}) })),
+        // The makers it uses now: the ones you used last (loaded), for pictures and for videos.
+        makers: Object.fromEntries(['picture', 'clip'].map((k) => {
+          const m = makerFor(k);
+          return [k, m ? { id: m.id, name: m.name || m.id } : null];
+        })),
+        making: current ? { prompt: current.idea.prompt, kind: current.idea.kind, maker: current.idea.maker, makerName: makerList.find((m) => m.id === current.idea.maker)?.name, job: studio.job(current.jobId) } : null,
+        queue: saved.queue.map(({ id: qid, prompt, kind, from }) => ({ id: qid, prompt, kind, maker: makerFor(kind)?.id ?? null, ...(from ? { from } : {}) })),
         madeLastHour: madeLastHour(),
         maxPerHour,
         lastError,
@@ -292,7 +343,10 @@ export function createPromptLab(o) {
     async configure({ enabled, mix } = {}) {
       await ensureLoaded();
       if (mix !== undefined && !MIXES.includes(mix)) throw fail('The Lab makes pictures, videos or both.');
-      if (MIXES.includes(mix) && mix !== saved.mix) saved.mix = mix;
+      if (MIXES.includes(mix)) {
+        saved.mix = mix;
+        saved.mixChosen = true;
+      }
       if (typeof enabled === 'boolean') {
         saved.enabled = enabled;
         if (!enabled) await dropCurrent();

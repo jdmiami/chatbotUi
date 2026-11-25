@@ -490,7 +490,7 @@ test('Simple: four tabs; the Lab multiplies your prompts on your machine; keep w
   page.on('pageerror', (e) => errors.push(e.message));
   const { calls } = await standIns(page, { on: true });
   let lab = {
-    kind: 'multiply', enabled: true, mix: 'both', writerReady: true, writing: false, yours: { pictures: 9, videos: 2 },
+    kind: 'multiply', enabled: true, mix: 'videos', writerReady: true, writing: false, yours: { pictures: 9, videos: 2 }, makers: { picture: null, clip: { id: 'ltx', name: 'LTX 10Eros' } },
     making: { prompt: 'A lone astronaut naps in a flooded neon subway car', kind: 'picture', job: { id: 'l1', status: 'running', progress: 30 } },
     queue: [{ id: 'q1', prompt: 'A lone astronaut buys noodles from a robot stall', kind: 'picture', maker: 'qwen' }, { id: 'q2', prompt: 'Fog through pines, camera low', kind: 'clip', maker: 'ltx', from: 'foggy forest' }],
     madeLastHour: 3, lastError: null as string | null,
@@ -516,6 +516,7 @@ test('Simple: four tabs; the Lab multiplies your prompts on your machine; keep w
   await expect(page.getByRole('heading', { level: 1 })).toHaveText('Your prompts, multiplied');
   await expect(page.getByRole('status', { name: 'Making now' })).toContainText('flooded neon subway car');
   await expect(page.getByTestId('lab-yours')).toHaveText('Learning from 9 picture and 2 video prompts of yours.');
+  await expect(page.getByTestId('lab-makers')).toHaveText('Making videos with LTX 10Eros: the makers you used last in Make, already loaded.');
   await expect(page.locator('.nav')).toBeHidden();
   await noSideScroll(page);
   await page.screenshot({ path: info.outputPath('simple-lab.png') });

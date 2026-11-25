@@ -79,7 +79,7 @@ export const CENTER_JS = String.raw`
     return labDo('/queue', { prompt: prompt, count: count || 6 }, 'POST', 'multiply');
   }
   function labPane() {
-    var head = '<p class="kick">Lab</p><h1>Your prompts, multiplied</h1><p class="dek">The writer reads the prompts you wrote in Make and keeps writing new ones in the same style. Your machine makes them with the same maker, size and look, whenever you are not making something.</p>';
+    var head = '<p class="kick">Lab</p><h1>Your prompts, multiplied</h1><p class="dek">It runs on its own while your machine is on: the writer reads the prompts you wrote in Make and keeps writing new ones in the same style, and your machine makes them with the maker you used last. It steps aside whenever you make something, then carries on.</p>';
     if (!on()) return head + needOn('The Lab');
     var L = S.lab;
     if (!L) return head + (S.labErr ? '<p class="note bad">' + esc(S.labErr) + '</p>' : '<p class="note">Opening the Lab…</p>');
@@ -93,14 +93,21 @@ export const CENTER_JS = String.raw`
     var made = (L.records || []).filter(function (r) { return r && r.id; });
     return head +
       '<div class="row"><button class="chip" data-do="labpower" aria-pressed="' + Boolean(L.enabled) + '">' + (L.enabled ? 'On: making new ones' : 'Off: tap to start') + '</button></div>' +
-      '<div class="seg" role="group" aria-label="What the Lab makes">' + [['both', 'Both'], ['pictures', 'Pictures'], ['videos', 'Videos']].map(function (m) { return chip('data-labmix', m[0], L.mix || 'both', m[1]); }).join('') + '</div>' +
+      '<div class="seg" role="group" aria-label="What the Lab makes">' + [['both', 'Both'], ['pictures', 'Pictures'], ['videos', 'Videos']].map(function (m) { return chip('data-labmix', m[0], L.mix || 'videos', m[1]); }).join('') + '</div>' +
       '<p class="note" data-testid="lab-yours">' + (none ? 'Make a few pictures or videos in Make first: the Lab writes in the style of your own prompts.' : 'Learning from ' + y.pictures + ' picture and ' + y.videos + ' video prompts of yours.') + '</p>' +
+      (L.makers ? '<p class="note" data-testid="lab-makers">' + esc(labMakers(L)) + '</p>' : '') +
       (S.labErr || L.lastError ? '<p class="note bad">' + esc(S.labErr || ('Last try: ' + L.lastError)) + '</p>' : '') +
       '<label class="f" for="labseed">Multiply one prompt</label><textarea id="labseed" style="min-height:80px" placeholder="Paste one of your prompts: 6 new ones are written from it">' + esc(S.labSeed || '') + '</textarea>' +
       '<div class="acts"><button class="btn p" data-do="labmul"' + (S.busy ? ' disabled' : '') + '>' + (S.busy === 'multiply' ? 'Writing…' : 'Multiply') + '</button><button class="btn a" data-do="labwrite"' + (S.busy || none ? ' disabled' : '') + '>' + (S.busy === 'labwrite' ? 'Writing…' : 'Write new ones') + '</button></div>' +
       '<p class="kick">Making now</p>' + making +
       '<p class="kick">Up next' + ((L.queue || []).length ? ' · ' + L.queue.length : '') + '</p>' + (queue || '<p class="note">The writer adds the next prompts here a moment before they are needed.</p>') +
       '<p class="kick">Made in the Lab</p>' + (made.length ? '<div class="row">' + nsfwChip() + '</div><div style="height:8px"></div>' + tiles(made, 'data-labview') : '<p class="note">What the Lab makes shows up here. Keep the ones you like: they move to your gallery.</p>');
+  }
+  function labMakers(L) {
+    var m = L.makers || {}, mix = L.mix || 'videos', parts = [];
+    if (mix !== 'pictures') parts.push(m.clip ? 'videos with ' + m.clip.name : 'no video maker loaded');
+    if (mix !== 'videos') parts.push(m.picture ? 'pictures with ' + m.picture.name : 'no picture maker loaded');
+    return 'Making ' + parts.join(' and ') + ': the makers you used last in Make, already loaded.';
   }
   function labViewer(id) {
     var r = ((S.lab && S.lab.records) || []).filter(function (x) { return x.id === id; })[0];

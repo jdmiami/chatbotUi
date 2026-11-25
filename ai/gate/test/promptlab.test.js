@@ -12,6 +12,8 @@ const MAKERS = [
   { id: 'qwen', kind: 'image', installed: true },
   { id: 'krea-real', kind: 'image', installed: true },
   { id: 'ltx', kind: 'video', installed: true },
+  { id: 'wan', kind: 'video', name: 'Wan', installed: true },
+  { id: 's2v', kind: 'video', installed: true, needs: ['photo', 'audio'] },
   { id: 'h3-max', kind: 'video', installed: false },
   { id: 'edit', kind: 'edit', installed: true },
 ];
@@ -20,7 +22,7 @@ const GALLERY = [
   { id: 'a', kind: 'image', maker: 'krea-real', prompt: 'A lone astronaut in a rainy neon market, anamorphic, teal and orange', width: 832, height: 1216, style: 'style-darkbrush', createdAt: at(3) },
   { id: 'b', kind: 'video', maker: 'ltx', prompt: 'Slow dolly through a foggy forest at dawn', width: 1280, height: 720, seconds: 5, createdAt: at(2) },
   { id: 'c', kind: 'image', maker: 'qwen', prompt: 'A lone astronaut in a rainy neon market, anamorphic, teal and orange', width: 1024, height: 1024, createdAt: at(1) },
-  { id: 'd', kind: 'image', maker: 'edit', prompt: 'make the sky purple', createdAt: at(4) },
+  { id: 'd', kind: 'image', maker: 'edit', prompt: 'make the sky purple', fromImage: true, createdAt: at(4) },
   { id: 'e', kind: 'image', maker: 'qwen', prompt: 'my photo, smiling', fromImage: true, createdAt: at(5) },
   { id: 'f', kind: 'video', maker: 'h3-max', prompt: 'not installed any more', createdAt: at(6) },
   { id: 'g', kind: 'image', maker: 'qwen', prompt: 'a Lab picture', lab: true, createdAt: at(7) },
@@ -51,12 +53,14 @@ function fakeStudio() {
     items,
     created: [],
     hasUserWork() { return this.user; },
+    recent: { image: null, video: null, loaded: null },
+    recentMakers() { return this.recent; },
     async state() { return { image: { ready: true }, video: { ready: true } }; },
     async items() { return GALLERY; },
     async makers() { return MAKERS; },
     estimate: () => 40,
     async createJob(req) {
-      const j = { id: `j${++n}`, kind: req.maker === 'ltx' ? 'video' : 'image', status: 'running', notes: [], req };
+      const j = { id: `j${++n}`, kind: ['ltx', 'wan'].includes(req.maker) ? 'video' : 'image', status: 'running', notes: [], req };
       jobs.set(j.id, j);
       this.created.push(req);
       return j;
@@ -102,50 +106,69 @@ test('the writer is shown your own prompts and asked for new scenes in your styl
   assert.deepEqual(parsePrompts('Sure!\n1. A cat on a neon roof at night\n2) A dog in the rain under a lamp'), ['A cat on a neon roof at night', 'A dog in the rain under a lamp']);
 });
 
-test('the Lab writes new prompts in your style and makes them in the background with your maker, size and look', async () => {
+test('on its own the Lab keeps videos coming, made with a loaded video maker, the one you used last', async () => {
   const studio = fakeStudio();
   const asked = [];
   const lab = createPromptLab({ studio, chat: writer(asked), log: quiet });
-  // Nothing waiting: the first round is written, then the first one is made.
+  // Nothing waiting: a round of video prompts is written, then the first one is made.
   await lab.tick();
   let st = await lab.state();
-  assert.equal(st.kind, 'multiply');
-  assert.deepEqual(st.yours, { pictures: 1, videos: 1 });
+  assert.equal(st.mix, 'videos', 'videos until you pick otherwise');
+  assert.deepEqual(st.yours, { pictures: 1, videos: 2 }, 'every prompt of yours counts, whatever made it');
   assert.equal(asked.length, 1);
-  assert.match(asked[0].user, /A lone astronaut in a rainy neon market/, 'shown your own prompt');
+  assert.match(asked[0].user, /5-second videos/);
+  assert.match(asked[0].user, /Slow dolly through a foggy forest/, 'your video prompts');
+  assert.match(asked[0].user, /A lone astronaut in a rainy neon market/, 'with few video prompts, your picture prompts teach your style too');
   assert.doesNotMatch(asked[0].user, /a Lab picture|my photo|make the sky purple/, 'never Lab work, photos or edits');
   assert.equal(st.queue.length, 2);
-  assert.ok(st.queue.every((q) => q.kind === 'picture' && q.maker === 'krea-real' && q.size === 'portrait'));
-
+  assert.ok(st.queue.every((q) => q.kind === 'clip' && q.maker === 'ltx'));
+  // Your newest video was made with LTX (H3 Max isn't loaded; a talking photo needs a photo): LTX it is.
   const req = studio.created[0];
-  assert.equal(req.background, true, 'Lab work makes way for yours');
-  assert.equal(req.maker, 'krea-real');
-  assert.equal(req.size, 'portrait');
-  assert.equal(req.style, 'style-darkbrush');
-  assert.equal(req.prompt, NEW[0]);
-  st = await lab.state();
-  assert.equal(st.making.prompt, NEW[0]);
+  assert.deepEqual(req, { maker: 'ltx', prompt: NEW[0], size: 'landscape', seconds: 5, background: true });
+  assert.deepEqual((await lab.state()).makers, { picture: { id: 'krea-real', name: 'krea-real' }, clip: { id: 'ltx', name: 'ltx' } });
 
   // Done: it waits in the Lab until you keep or delete it.
   studio.finish('j1');
   await lab.tick();
   st = await lab.state();
   assert.equal(st.records.length, 1);
-  assert.equal(st.records[0].prompt, NEW[0]);
+  assert.equal(st.records[0].kind, 'video');
   assert.equal(await lab.keep('it-j1'), true);
   assert.equal((await lab.state()).records.length, 0, 'kept: it moved to your gallery');
 
-  // While you make something, nothing new starts.
+  // The next one started at once. You make a video with Wan: the Lab's one makes way (the studio
+  // stops it), nothing new starts while you work, then it carries on with Wan.
+  assert.equal(studio.created.length, 2);
   studio.user = true;
-  const before = studio.created.length;
+  studio.recent.video = 'wan';
+  studio.jobs.get('j2').status = 'error';
+  studio.jobs.get('j2').notes.push('Made way for your job.');
   await lab.tick();
-  assert.equal(studio.created.length, before);
+  assert.equal(studio.created.length, 2, 'nothing starts while your job runs');
+  assert.equal((await lab.state()).queue[0].prompt, NEW[1], 'the one that made way goes first again');
   studio.user = false;
+  await lab.tick();
+  assert.equal(studio.created.at(-1).maker, 'wan', 'the maker you used last, already loaded');
+  // The line is topped up so it never runs dry.
+  assert.ok(asked.length >= 2);
 
   // Off: nothing is made.
+  await lab.cancelCurrent();
   await lab.configure({ enabled: false });
+  const n = studio.created.length;
   await lab.tick();
-  assert.equal(studio.created.length, before);
+  assert.equal(studio.created.length, n);
+});
+
+test('with no video maker loaded the Lab says to load one in Make', async () => {
+  const studio = fakeStudio();
+  studio.makers = async () => MAKERS.map((m) => (m.kind === 'video' && !m.needs ? { ...m, installed: false } : m));
+  const lab = createPromptLab({ studio, chat: writer([]), log: quiet });
+  await lab.tick();
+  const st = await lab.state();
+  assert.equal(studio.created.length, 0);
+  assert.match(st.lastError, /Load a video maker in Make first/);
+  assert.equal(st.makers.clip, null);
 });
 
 test('multiply one prompt: new ones built on it, made next; videos use your video maker for 5 seconds', async () => {
@@ -156,8 +179,8 @@ test('multiply one prompt: new ones built on it, made next; videos use your vide
   assert.equal(await lab.addIdea({ prompt: 'Slow dolly through a foggy forest at dawn', count: 2, kind: 'clip' }), true);
   let st = await lab.state();
   assert.match(asked[0].user, /Build every new one on this prompt of theirs[^\n]*foggy forest/);
-  assert.deepEqual(st.queue.map((q) => [q.kind, q.maker]), [['clip', 'ltx'], ['clip', 'ltx']]);
-  assert.ok(st.queue.every((q) => q.from === 'Slow dolly through a foggy forest at dawn'));
+  assert.deepEqual(st.queue.map((q) => [q.kind, q.maker]).slice(0, 2), [['clip', 'ltx'], ['clip', 'ltx']]);
+  assert.ok(st.queue.slice(0, 2).every((q) => q.from === 'Slow dolly through a foggy forest at dawn'));
   await lab.configure({ enabled: true });
   await lab.tick();
   assert.equal(studio.created[0].maker, 'ltx');
