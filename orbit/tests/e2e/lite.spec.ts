@@ -430,7 +430,10 @@ test('fast Make: only your own makers: with the machine off nothing goes to a cl
   // The gallery from cloud storage, with the machine off.
   await page.getByRole('navigation', { name: 'Sections' }).getByRole('link', { name: 'Gallery' }).click();
   await page.getByRole('button', { name: 'a kept sunset' }).click();
-  await expect(page.getByText('Turn the AI machine on to work on this one.')).toBeVisible();
+  const viewer = page.getByRole('dialog', { name: 'Your gallery' });
+  await expect(viewer.getByRole('button', { name: 'Use prompt' })).toBeVisible();
+  // Using it as a photo needs the machine on.
+  await expect(viewer.getByRole('button', { name: 'Use as my photo' })).toHaveCount(0);
   await noSideScroll(page);
 });
 
@@ -601,5 +604,90 @@ test('Simple: the Gallery tab shows what you made (kept in cloud storage while t
   await expect(page.getByRole('heading', { level: 1 })).toHaveText('What will it be?');
   await expect(page.locator('.nav')).toBeVisible();
   await noSideScroll(page);
+  expect(errors).toEqual([]);
+});
+
+test('Simple Gallery: filters, search, sort, a viewer you can swipe, play all videos, select many to delete', async ({ page }, info) => {
+  const errors: string[] = [];
+  page.on('pageerror', (e) => errors.push(e.message));
+  await standIns(page);
+  const at = (d: number) => new Date(Date.UTC(2026, 10, d)).toISOString();
+  let items = [
+    { id: 'p1', kind: 'image', prompt: 'A red fox in snow', url: 'https://cdn.test/fox.png', createdAt: at(5), maker: 'qwen' },
+    { id: 'v1', kind: 'video', prompt: 'A dancer on a roof at dusk', url: 'https://cdn.test/dance.mp4', thumbUrl: 'https://cdn.test/d.png', createdAt: at(4), maker: 'ltx' },
+    { id: 'l1', kind: 'video', prompt: 'Neon koi in the rain', url: 'https://cdn.test/koi.mp4', thumbUrl: 'https://cdn.test/k.png', createdAt: at(3), lab: true, source: 'lab' },
+    { id: 'p2', kind: 'image', prompt: 'A quiet lake at dawn', url: 'https://cdn.test/lake.png', createdAt: at(2), nsfw: true },
+    ...Array.from({ length: 120 }, (_, i) => ({ id: `b${i}`, kind: 'image', prompt: `Old take ${i}`, url: 'https://cdn.test/old.png', createdAt: at(1) })),
+  ];
+  const posts: unknown[] = [];
+  await page.route(`${SITE}/api/gallery`, async (route) => {
+    if (route.request().method() === 'POST') {
+      const b = route.request().postDataJSON();
+      posts.push(b);
+      if (b.action === 'delete') items = items.filter((x) => x.id !== b.id);
+      return route.fulfill({ json: { ok: true } });
+    }
+    return route.fulfill({ json: { configured: true, items } });
+  });
+  // A real short video, so the player plays it (and nothing errors).
+  const clip = readFileSync(fileURLToPath(new URL('./fixtures/gallery/clip.webm', import.meta.url)));
+  await page.route('https://cdn.test/*.mp4', (route) => route.fulfill({ contentType: 'video/webm', body: clip }));
+  page.on('dialog', (d) => void d.accept());
+  await page.goto(`${SITE}/lite#gallery`);
+  await expect(page.getByRole('heading', { level: 1 })).toHaveText('Your gallery');
+  const tiles = page.locator('.tile[data-gview]');
+  // A screenful first (90 of 124), more as you scroll.
+  await expect(tiles).toHaveCount(90);
+  await page.locator('#gmore').scrollIntoViewIfNeeded();
+  await expect(tiles).toHaveCount(124);
+  // The NSFW one is blurred until Show NSFW.
+  await expect(page.locator('.tile[data-gview="p2"]')).toHaveClass(/nsfw/);
+
+  // Filters, search and sort.
+  const show = page.getByRole('group', { name: 'Show' });
+  await show.getByRole('button', { name: 'Videos' }).click();
+  await expect(tiles).toHaveCount(2);
+  await show.getByRole('button', { name: 'Lab' }).click();
+  await expect(tiles).toHaveCount(1);
+  await show.getByRole('button', { name: 'All' }).click();
+  await page.getByRole('searchbox', { name: 'Search your prompts' }).fill('FOX snow');
+  await expect(tiles).toHaveCount(1);
+  await expect(page.getByRole('searchbox', { name: 'Search your prompts' })).toBeFocused();
+  await page.getByRole('searchbox', { name: 'Search your prompts' }).fill('');
+  await page.getByRole('group', { name: 'Sort' }).getByRole('button', { name: 'Oldest' }).click();
+  await expect(tiles.first()).toHaveAttribute('data-gview', /^b/);
+  await page.getByRole('group', { name: 'Sort' }).getByRole('button', { name: 'Newest' }).click();
+  await expect(tiles.first()).toHaveAttribute('data-gview', 'p1');
+  await noSideScroll(page);
+  await page.screenshot({ path: info.outputPath('simple-gallery.png') });
+
+  // The viewer: next and previous (a swipe does the same), use the prompt in Make.
+  await tiles.first().click();
+  const viewer = page.getByRole('dialog', { name: 'Your gallery' });
+  await expect(viewer).toContainText('A red fox in snow');
+  await expect(viewer).toContainText('1 of 124');
+  await viewer.getByRole('button', { name: 'Next →' }).click();
+  await expect(viewer).toContainText('A dancer on a roof at dusk');
+  await viewer.getByRole('button', { name: '← Previous' }).click();
+  await expect(viewer).toContainText('A red fox in snow');
+  await viewer.getByRole('button', { name: 'Close' }).click();
+
+  // Play all videos: one after another, with only Pause and Exit.
+  await page.getByRole('button', { name: 'Play all videos' }).click();
+  await expect(page.locator('#pa video')).toHaveAttribute('src', 'https://cdn.test/dance.mp4');
+  await expect(page.locator('#pa button')).toHaveText(['Pause', 'Exit']);
+  await page.locator('#pa video').evaluate((v) => v.dispatchEvent(new Event('ended')));
+  await expect(page.locator('#pa video')).toHaveAttribute('src', 'https://cdn.test/koi.mp4');
+  await page.getByRole('button', { name: 'Exit' }).click();
+  await expect(page.locator('#pa')).toHaveCount(0);
+
+  // Select many, delete them (after asking).
+  await page.getByRole('button', { name: 'Select' }).click();
+  await page.locator('.tile[data-gview="b0"]').click();
+  await page.locator('.tile[data-gview="b1"]').click();
+  await expect(page.locator('.tile.sel')).toHaveCount(2);
+  await page.getByRole('button', { name: 'Delete 2' }).click();
+  await expect.poll(() => posts).toEqual([{ action: 'delete', id: 'b0' }, { action: 'delete', id: 'b1' }]);
+  await expect(page.locator('.tile[data-gview="b0"]')).toHaveCount(0);
   expect(errors).toEqual([]);
 });

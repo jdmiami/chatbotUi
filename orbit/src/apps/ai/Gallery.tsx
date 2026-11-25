@@ -36,6 +36,8 @@ export interface GalleryMedia {
 
 /** About how many tiles the first screen holds (iPad landscape): those load first, the rest as you scroll. */
 const FIRST_SCREEN = 12;
+/** Tiles drawn at a time in a gallery grid (more come as you scroll). */
+const PAGE = 90;
 
 /** A video's first frame instead of black: start a tenth of a second in (iPhone shows no frame otherwise). */
 const firstFrame = (url: string) => (url.includes('#') ? url : `${url}#t=0.1`);
@@ -54,12 +56,23 @@ export function GalleryGrid<T extends GalleryMedia>({
 }) {
   useNsfwFlags();
   const view = useNsfwView();
-  const shown = items.filter((it) => shows(nsfwFor(it.id, it.nsfw), view));
-  const hidden = items.length - shown.length;
+  const all = items.filter((it) => shows(nsfwFor(it.id, it.nsfw), view));
+  const hidden = items.length - all.length;
+  // Big galleries stay quick: a few screens of tiles first, more as you scroll near the end.
+  const [limit, setLimit] = useState(PAGE);
+  const more = useRef<HTMLLIElement>(null);
+  const shown = all.length > limit ? all.slice(0, limit) : all;
+  useEffect(() => {
+    const el = more.current;
+    if (!el || typeof IntersectionObserver === 'undefined') return;
+    const io = new IntersectionObserver((seen) => seen.some((e) => e.isIntersecting) && setLimit((n) => n + PAGE), { rootMargin: '800px 0px' });
+    io.observe(el);
+    return () => io.disconnect();
+  }, [shown.length, all.length]);
   // Thumbnails that would not load: those tiles use the file instead.
   const [broken, setBroken] = useState<ReadonlySet<string>>(() => new Set());
   const thumbBroke = (id: string) => setBroken((b) => (b.has(id) ? b : new Set(b).add(id)));
-  if (items.length > 0 && shown.length === 0) return <p className="ai-muted">{hidden === 1 ? 'One NSFW result is hidden.' : `${hidden} NSFW results are hidden.`} Turn on "Show NSFW" in Settings to see them.</p>;
+  if (items.length > 0 && all.length === 0) return <p className="ai-muted">{hidden === 1 ? 'One NSFW result is hidden.' : `${hidden} NSFW results are hidden.`} Turn on "Show NSFW" in Settings to see them.</p>;
   return (
     <ul className="ai-gallery" aria-label={label}>
       {shown.map((it, n) => (
@@ -83,6 +96,13 @@ export function GalleryGrid<T extends GalleryMedia>({
           </Censor>
         </li>
       ))}
+      {all.length > shown.length && (
+        <li ref={more} className="ai-gallery-more">
+          <button type="button" className="btn ghost small" onClick={() => setLimit((n) => n + PAGE)}>
+            Show more ({all.length - shown.length})
+          </button>
+        </li>
+      )}
     </ul>
   );
 }

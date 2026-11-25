@@ -49,11 +49,14 @@ export interface Creation extends GalleryMedia {
   score?: number | null;
   lab: boolean;
   movie?: string;
+  /** The maker it was made with (when known). */
+  maker?: string;
   createdAt: string;
   downloadUrl: string;
 }
 
 type Kind = 'all' | 'image' | 'video' | 'model3d';
+type Sort = 'new' | 'old' | 'maker';
 type Source = 'all' | CreationSource;
 const SOURCES: { value: Source; label: string }[] = [
   { value: 'all', label: 'Everything' },
@@ -97,6 +100,7 @@ function machineCreations(raw: MachineRaw | null, cached: boolean): Creation[] {
     prompt: it.prompt,
     lab: false,
     movie: it.movie,
+    maker: it.maker,
     rigged: it.rigged,
     createdAt: it.createdAt,
     downloadUrl: it.url ? withParam(it.url, 'download=1') : '',
@@ -126,13 +130,25 @@ function machineCreations(raw: MachineRaw | null, cached: boolean): Creation[] {
   return [...made, ...fromLab];
 }
 
-function loadPick(): { kind: Kind; source: Source } {
+function loadPick(): { kind: Kind; source: Source; sort: Sort } {
   try {
-    const v = JSON.parse(localStorage.getItem(PICK_KEY) || '{}') as { kind?: Kind; source?: Source };
-    return { kind: v.kind === 'image' || v.kind === 'video' || v.kind === 'model3d' ? v.kind : 'all', source: SOURCES.some((s) => s.value === v.source) ? v.source! : 'all' };
+    const v = JSON.parse(localStorage.getItem(PICK_KEY) || '{}') as { kind?: Kind; source?: Source; sort?: Sort };
+    return {
+      kind: v.kind === 'image' || v.kind === 'video' || v.kind === 'model3d' ? v.kind : 'all',
+      source: SOURCES.some((s) => s.value === v.source) ? v.source! : 'all',
+      sort: v.sort === 'old' || v.sort === 'maker' ? v.sort : 'new',
+    };
   } catch {
-    return { kind: 'all', source: 'all' };
+    return { kind: 'all', source: 'all', sort: 'new' };
   }
+}
+
+/** The words of a search, each one found somewhere in the prompt, title or caption (any order, any case). */
+export function matches(c: Pick<Creation, 'prompt' | 'title' | 'caption' | 'maker'>, query: string, makerName = ''): boolean {
+  const words = query.toLowerCase().split(/\s+/).filter(Boolean);
+  if (!words.length) return true;
+  const text = `${c.prompt || ''} ${c.title || ''} ${c.caption || ''} ${c.maker || ''} ${makerName}`.toLowerCase();
+  return words.every((w) => text.includes(w));
 }
 
 export default function GalleryApp({ isActive }: AppProps) {
@@ -155,6 +171,7 @@ export default function GalleryApp({ isActive }: AppProps) {
   const [loaded, setLoaded] = useState(Boolean(last));
   const [problem, setProblem] = useState<string | null>(null);
   const [pick, setPickState] = useState(loadPick);
+  const [query, setQuery] = useState('');
   const [viewing, setViewing] = useState<string | null>(null);
   const viewFrom = useRef<DOMRect | null>(null);
   const [confirmDelete, setConfirmDelete] = useState<Creation | null>(null);
@@ -339,6 +356,7 @@ export default function GalleryApp({ isActive }: AppProps) {
         score: it.score,
         lab: it.lab,
         movie: it.movie,
+        maker: it.maker,
         createdAt: it.createdAt,
         downloadUrl: it.downloadUrl || it.url,
       });
@@ -360,7 +378,14 @@ export default function GalleryApp({ isActive }: AppProps) {
     }
     return c;
   })();
-  const shown = all.filter((it) => (pick.kind === 'all' || it.kind === pick.kind) && (pick.source === 'all' || it.source === pick.source));
+  const makerNames = useMemo(() => new Map(offlineMakers().map((m) => [m.id, m.name])), []);
+  const makerName = (id?: string) => (id ? makerNames.get(id) || id : '');
+  const shown = useMemo(() => {
+    const list = all.filter((it) => (pick.kind === 'all' || it.kind === pick.kind) && (pick.source === 'all' || it.source === pick.source) && matches(it, query, makerName(it.maker)));
+    if (pick.sort === 'old') return [...list].reverse();
+    if (pick.sort === 'maker') return [...list].sort((a, b) => (makerName(a.maker) || '~').localeCompare(makerName(b.maker) || '~') || String(b.createdAt).localeCompare(String(a.createdAt)));
+    return list;
+  }, [all, pick.kind, pick.source, pick.sort, query]); // eslint-disable-line react-hooks/exhaustive-deps
   const open = viewing ? (all.find((x) => x.id === viewing) ?? null) : null;
   const step = useGalleryStepper(shown, open?.id);
   const reviewing = showHeld && held.length > 0;
@@ -429,6 +454,18 @@ export default function GalleryApp({ isActive }: AppProps) {
     });
     launch('make');
   };
+  /** The Lab's writer builds six new prompts on this one, in your style, made next in the Lab. */
+  const moreLikeThis = async (c: Creation) => {
+    setBusy(`more-${c.id}`);
+    try {
+      await ai.addLabIdea({ prompt: c.prompt, count: 6, kind: c.kind === 'video' ? 'clip' : 'picture' });
+      toast('Six new ones like it are written: the Lab makes them next.', 'success');
+    } catch (err) {
+      toast((err as Error).message, 'error');
+    } finally {
+      setBusy(null);
+    }
+  };
   /** Rig a 3D object on the AI machine (bones and skin weights): the rigged one lands in the gallery. */
   const rig = async (c: Creation) => {
     try {
@@ -488,6 +525,30 @@ export default function GalleryApp({ isActive }: AppProps) {
               onChange={(kind) => setPick({ kind })}
             />
             )}
+            {!reviewing && (
+              <div className="gallery-find">
+                <input
+                  type="search"
+                  className="gallery-search"
+                  value={query}
+                  onChange={(e) => setQuery(e.target.value)}
+                  placeholder="Search your prompts"
+                  aria-label="Search your prompts"
+                  autoComplete="off"
+                  enterKeyHint="search"
+                />
+                <Segmented<Sort>
+                  label="Sort"
+                  value={pick.sort}
+                  options={[
+                    { value: 'new', label: 'Newest' },
+                    { value: 'old', label: 'Oldest' },
+                    { value: 'maker', label: 'By maker' },
+                  ]}
+                  onChange={(sort) => setPick({ sort })}
+                />
+              </div>
+            )}
             {!reviewing && <UltraButton list={ultraList} onStart={setUltra} />}
             <div className="gallery-sources" role="radiogroup" aria-label="Made in">
               {SOURCES.map((s) => (
@@ -527,7 +588,9 @@ export default function GalleryApp({ isActive }: AppProps) {
                 ? off && noStorage
                   ? 'Nothing to show yet with the machine off.'
                   : 'Nothing here yet. What you make in Make, the Lab, soReal and Live Draw shows up here.'
-                : 'Nothing of this kind yet. Pick another tab.'}
+                : query.trim()
+                  ? `Nothing matches “${query.trim()}”.`
+                  : 'Nothing of this kind yet. Pick another tab.'}
             </p>
           ) : (
             <GalleryGrid
@@ -588,6 +651,7 @@ export default function GalleryApp({ isActive }: AppProps) {
         >
           <p className="ai-muted gallery-meta">
             {SOURCE_NAME[open.source]}
+            {open.maker ? ` · ${makerName(open.maker)}` : ''}
             {open.lab ? ' · kept apart until you keep it' : ''}
             {open.createdAt ? ` · ${when(open.createdAt)}` : ''}
             {open.seconds ? ` · ${Math.round(open.seconds)} s` : ''}
@@ -628,6 +692,11 @@ export default function GalleryApp({ isActive }: AppProps) {
                     </button>
                   ))}
               </>
+            )}
+            {machineOn && open.prompt && (open.kind === 'image' || open.kind === 'video') && (
+              <button type="button" className="btn" disabled={busy === `more-${open.id}`} onClick={() => void moreLikeThis(open)}>
+                <Icon name="sparkle" size={16} /> More like this
+              </button>
             )}
             {open.lab && (
               <button type="button" className="btn" disabled={busy === open.id} onClick={() => void keep(open)}>

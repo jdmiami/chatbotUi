@@ -554,7 +554,7 @@ export const LITE_JS = String.raw`
       b.innerHTML = '<div class="out">' + media(it, true) + '</div><p class="note">' + esc((it.prompt || '').slice(0, 200)) + '</p><div class="acts">' + acts + '<button class="btn" data-do="galback">Back</button></div>';
       return;
     }
-    b.innerHTML = !S.items ? '<p class="note">Loading…</p>' : !S.items.length ? '<p class="note">Nothing here yet.</p>' : '<div class="grid">' + S.items.map(function (it) {
+    b.innerHTML = !S.items ? '<p class="note">Loading…</p>' : !S.items.length ? '<p class="note">Nothing here yet.</p>' : '<div class="grid">' + S.items.slice(0, 90).map(function (it) {
       var t = it.thumbUrl || (it.kind === 'image' ? it.url : it.poster || '');
       return '<button class="tile" data-view="' + esc(it.id) + '" aria-label="' + esc((it.prompt || it.kind).slice(0, 60)) + '">' + (t ? '<img loading="lazy" src="' + esc(abs(t)) + '" alt="">' : '<span>' + esc(it.kind) + '</span>') + (it.kind !== 'image' ? '<i>' + (it.kind === 'video' ? '▶' : '3D') + '</i>' : '') + '</button>';
     }).join('') + '</div>';
@@ -750,7 +750,6 @@ story;
   drawBar();
   refresh();
   loadWriters();
-  if (S.tab === 'gallery') loadItems();
   setInterval(function () { if (!document.hidden) refresh(); }, 15000);
   setInterval(function () { if (!document.hidden && on() && STEPS[S.step] === 'maker') loadMakers(); }, 8000);
 })();
