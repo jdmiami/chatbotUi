@@ -95,11 +95,11 @@ export function PromptLab({ ai, machineOn, isActive, onKept }: { ai: LocalAi; ma
         <Toggle checked={lab.enabled} label="Make new ones in my style while the machine is on" onChange={(on) => void act('power', ai.setMemeLab(on))} />
       </LabHead>
       <p className="ai-muted meme-lab-dek">
-        The Lab reads the prompts you wrote in Make and keeps writing new ones in the same style. Your machine makes them with the same maker, size and look. It pauses whenever you make something.
+        The Lab runs on its own while your machine is on: the writer reads the prompts you wrote in Make and keeps writing new ones in the same style, and your machine makes them with the maker you used last. It steps aside whenever you make something, then carries on.
       </p>
       <Segmented<LabMix>
         label="What the Lab makes"
-        value={lab.mix ?? 'both'}
+        value={lab.mix ?? 'videos'}
         options={[
           { value: 'both', label: 'Both' },
           { value: 'pictures', label: 'Pictures' },
@@ -113,6 +113,11 @@ export function PromptLab({ ai, machineOn, isActive, onKept }: { ai: LocalAi; ma
           : `Learning from ${count(yours.pictures, 'picture prompt')} and ${count(yours.videos, 'video prompt')} of yours.`}
         {lab.writerReady === false ? ' The writer is not reachable from your machine right now.' : ''}
       </p>
+      {lab.makers && (
+        <p className="ai-muted" data-testid="lab-makers">
+          {makersLine(lab)}
+        </p>
+      )}
       {error && <p className="ai-error">{error}</p>}
 
       <div className="meme-lab-block">
@@ -299,6 +304,14 @@ export function PromptLab({ ai, machineOn, isActive, onKept }: { ai: LocalAi; ma
       )}
     </section>
   );
+}
+
+/** Which loaded makers it uses now: the ones you used last in Make. */
+function makersLine(lab: MemeLabState): string {
+  const m = lab.makers ?? {};
+  const mix = lab.mix ?? 'videos';
+  const parts = [mix !== 'pictures' && (m.clip ? `videos with ${m.clip.name}` : 'no video maker loaded'), mix !== 'videos' && (m.picture ? `pictures with ${m.picture.name}` : 'no picture maker loaded')].filter(Boolean);
+  return `Making ${parts.join(' and ')}: the makers you used last in Make, already loaded.`;
 }
 
 const count = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`;

@@ -26,14 +26,16 @@ export function sizeOf(width, height) {
  * from, so ones made from a photo, edits and Lab work are left out).
  *   items    gallery items (studio.items): { id, kind, maker, prompt, width, height, style, fromImage, photo, lab, movie, nsfw, createdAt }
  *   makers   studio.makers(): { id, kind, installed }
+ *   anyMaker  count prompts made with any maker, installed here or not
  */
-export function remixSources(items = [], makers = []) {
+export function remixSources(items = [], makers = [], { anyMaker = false } = {}) {
   const ok = new Map(makers.filter((m) => m && m.installed && (m.kind === 'image' || m.kind === 'video')).map((m) => [m.id, m.kind]));
   const seen = new Set();
   const out = [];
   for (const it of [...items].sort((a, b) => String(b?.createdAt || '').localeCompare(String(a?.createdAt || '')))) {
     if (!it || it.lab || it.movie || it.fromImage || it.photo || it.owner) continue;
-    const kind = ok.get(it.maker);
+    // anyMaker: every prompt of yours counts, whatever made it (the Lab learns your style from all of them).
+    const kind = anyMaker ? (it.kind === 'image' || it.kind === 'video' ? it.kind : null) : ok.get(it.maker);
     if (!kind || (kind === 'image') !== (it.kind === 'image')) continue;
     const prompt = clean(it.prompt);
     if (prompt.length < 3 || seen.has(prompt.toLowerCase())) continue;

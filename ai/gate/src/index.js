@@ -386,6 +386,8 @@ const lab =
     ? createPromptLab({
         studio,
         movies,
+        // Live video or Live draw on screen: a Lab video would stop them, so the Lab waits.
+        busy: () => Boolean(liveVideo?.state().running || liveDraw?.busy?.()),
         chat: labChat,
         load: async () => (r2 ? r2.getJson(LAB_KEY) : JSON.parse(await fs.readFile(labFile, 'utf8'))),
         save: async (state) => (r2 ? r2.put(LAB_KEY, JSON.stringify(state), 'application/json') : fs.writeFile(labFile, JSON.stringify(state))),

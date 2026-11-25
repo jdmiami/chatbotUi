@@ -1200,6 +1200,7 @@ export function createStudio(o) {
   let seq = 0;
   let fixing = 0;
   let loadedMaker = null; // the maker whose models ComfyUI has in memory
+  const lastUserMaker = { image: null, video: null }; // the makers you last used yourself (createJob)
 
   // Learned timings (ms per unit), kept on the volume.
   const timingsPath = path.join(dir, perRole('timings', '.json'));
@@ -1823,8 +1824,10 @@ export function createStudio(o) {
       createdAt: new Date(now()).toISOString(),
     };
     jobs.set(id, job);
+    // The maker you just used for a picture or a video: the Lab carries on with it (already loaded).
+    if (!job.background && !job.owner && (kind === 'image' || kind === 'video')) lastUserMaker[kind] = maker.id;
     connectWs();
-    // Your job doesn't wait behind a meme-lab video: that one stops and makes way.
+    // Your job doesn't wait behind a Lab job: that one stops and makes way.
     if (!job.background) {
       const lab = inFlight();
       if (lab?.background) {
@@ -2857,6 +2860,8 @@ export function createStudio(o) {
     },
     /** A video you asked for is being made (it needs the whole graphics card: live previews wait). */
     videoInFlight: () => active().some((j) => j.kind === 'video' && !j.background),
+    /** The makers you last used yourself for pictures and videos, and the one loaded now (the Lab follows them). */
+    recentMakers: () => ({ image: lastUserMaker.image, video: lastUserMaker.video, loaded: loadedMaker }),
     state,
     makers,
     installMaker,

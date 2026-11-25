@@ -278,6 +278,7 @@
 .ai-gallery.ai-gallery { max-width: 1100px; }
 .ai-gallery { list-style: none; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: var(--space-2); }
 @media (min-width: 700px) { .ai-gallery { grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); } }
+.ai-gallery-more { grid-column: 1 / -1; display: flex; justify-content: center; padding: var(--space-3) 0; }
 .ai-tile {
   position: relative; display: block; width: 100%; aspect-ratio: 1; padding: 0; border: 0; cursor: pointer;
   border-radius: var(--radius-md); overflow: hidden; background: var(--surface-3);

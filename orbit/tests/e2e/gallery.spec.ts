@@ -289,3 +289,38 @@ test('NSFW Ultra: only with Show NSFW on, plays the NSFW videos back to back wit
   await expectNoHorizontalOverflow(page);
   expect(errors).toEqual([]);
 });
+
+test('Gallery: search your prompts, sort newest, oldest or by maker, and a big gallery opens quickly', async ({ page }) => {
+  const many = Array.from({ length: 300 }, (_, i) =>
+    stored(`bulk${String(i).padStart(3, '0')}`, 'sunset.jpg', { prompt: i % 2 ? `A neon street, take ${i}` : `A quiet lake, take ${i}`, maker: i % 3 ? 'qwen' : 'krea-real', createdAt: new Date(Date.UTC(2026, 9, 1) + i * 60_000).toISOString() }),
+  );
+  const { win, errors } = await start(page, { machine: 'off', gallery: { configured: true, items: [...ITEMS, ...many] } });
+  const grid = win.getByRole('list', { name: 'All your creations' });
+  await expect(grid.getByRole('listitem').first()).toBeVisible();
+  // A screenful at a time: not all 305 tiles at once, more as you scroll.
+  const tiles = grid.locator('.ai-tile');
+  expect(await tiles.count()).toBeLessThanOrEqual(90);
+  await grid.locator('.ai-gallery-more').scrollIntoViewIfNeeded();
+  await expect.poll(() => tiles.count()).toBeGreaterThan(90);
+
+  // Search: every word, any order, any case.
+  await win.getByRole('searchbox', { name: 'Search your prompts' }).fill('LAKE take 298');
+  await expect(tiles).toHaveCount(1);
+  await expect(tiles.first()).toHaveAccessibleName('Image: A quiet lake, take 298');
+  await win.getByRole('searchbox', { name: 'Search your prompts' }).fill('nothing like this');
+  await expect(win.getByText('Nothing matches “nothing like this”.')).toBeVisible();
+  await win.getByRole('searchbox', { name: 'Search your prompts' }).fill('sunset');
+  await expect(tiles).toHaveCount(1);
+  await win.getByRole('searchbox', { name: 'Search your prompts' }).fill('');
+
+  // Oldest first, then back to newest; remembered.
+  const sort = win.getByRole('group', { name: 'Sort' });
+  await sort.getByRole('button', { name: 'Oldest' }).click();
+  await expect(tiles.first()).toHaveAccessibleName('Image: A quiet lake, take 0');
+  await sort.getByRole('button', { name: 'By maker' }).click();
+  await expect(sort.getByRole('button', { name: 'By maker' })).toHaveAttribute('aria-pressed', 'true');
+  await sort.getByRole('button', { name: 'Newest' }).click();
+  await expect(tiles.first()).toHaveAccessibleName('Image: A warm sunset over the hills');
+  await expectNoHorizontalOverflow(page);
+  expect(errors).toEqual([]);
+});

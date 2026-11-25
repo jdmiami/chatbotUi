@@ -43,6 +43,7 @@ async function standIns(page: Page, opts: { on?: boolean; both?: boolean } = {})
       { id: 'vace', kind: 'videoedit', name: 'Edit a video', needs: ['video'], tasks: ['replace', 'restyle', 'extend', 'motion'] },
       { id: 'person-swap', kind: 'videoedit', name: 'Swap a person', needs: ['video', 'target', 'photo'] },
       { id: 'rig', kind: 'rig', name: 'Rig it', needs: ['model3d'] },
+      { id: 'live-krea', kind: 'live', name: 'Krea Realtime' },
     ].map((m) =>
       loaded.includes(m.id)
         ? { ...m, installed: true, wanted: true, percent: 100 }
@@ -430,7 +431,10 @@ test('fast Make: only your own makers: with the machine off nothing goes to a cl
   // The gallery from cloud storage, with the machine off.
   await page.getByRole('navigation', { name: 'Sections' }).getByRole('link', { name: 'Gallery' }).click();
   await page.getByRole('button', { name: 'a kept sunset' }).click();
-  await expect(page.getByText('Turn the AI machine on to work on this one.')).toBeVisible();
+  const viewer = page.getByRole('dialog', { name: 'Your gallery' });
+  await expect(viewer.getByRole('button', { name: 'Use prompt' })).toBeVisible();
+  // Using it as a photo needs the machine on.
+  await expect(viewer.getByRole('button', { name: 'Use as my photo' })).toHaveCount(0);
   await noSideScroll(page);
 });
 
@@ -485,12 +489,12 @@ test('fast Make with both set up: GPU.ai goes on to its GPU list (Back returns) 
 
 // ---- Simple's other tabs: Lab, AI Center, Gallery
 
-test('Simple: four tabs; the Lab multiplies your prompts on your machine; keep what it made', async ({ page }, info) => {
+test('Simple: five tabs; the Lab multiplies your prompts on your machine; keep what it made', async ({ page }, info) => {
   const errors: string[] = [];
   page.on('pageerror', (e) => errors.push(e.message));
   const { calls } = await standIns(page, { on: true });
   let lab = {
-    kind: 'multiply', enabled: true, mix: 'both', writerReady: true, writing: false, yours: { pictures: 9, videos: 2 },
+    kind: 'multiply', enabled: true, mix: 'videos', writerReady: true, writing: false, yours: { pictures: 9, videos: 2 }, makers: { picture: null, clip: { id: 'ltx', name: 'LTX 10Eros' } },
     making: { prompt: 'A lone astronaut naps in a flooded neon subway car', kind: 'picture', job: { id: 'l1', status: 'running', progress: 30 } },
     queue: [{ id: 'q1', prompt: 'A lone astronaut buys noodles from a robot stall', kind: 'picture', maker: 'qwen' }, { id: 'q2', prompt: 'Fog through pines, camera low', kind: 'clip', maker: 'ltx', from: 'foggy forest' }],
     madeLastHour: 3, lastError: null as string | null,
@@ -510,12 +514,13 @@ test('Simple: four tabs; the Lab multiplies your prompts on your machine; keep w
   });
   await page.goto(`${SITE}/lite`);
   const tabs = page.getByRole('navigation', { name: 'Sections' });
-  await expect(tabs.getByRole('link')).toHaveText(['Make', 'Lab', 'AI Center', 'Gallery']);
+  await expect(tabs.getByRole('link')).toHaveText(['Make', 'Lab', 'Live', 'AI Center', 'Gallery']);
   await tabs.getByRole('link', { name: 'Lab' }).click();
   await expect(page).toHaveURL(/#lab$/);
   await expect(page.getByRole('heading', { level: 1 })).toHaveText('Your prompts, multiplied');
   await expect(page.getByRole('status', { name: 'Making now' })).toContainText('flooded neon subway car');
   await expect(page.getByTestId('lab-yours')).toHaveText('Learning from 9 picture and 2 video prompts of yours.');
+  await expect(page.getByTestId('lab-makers')).toHaveText('Making videos with LTX 10Eros: the makers you used last in Make, already loaded.');
   await expect(page.locator('.nav')).toBeHidden();
   await noSideScroll(page);
   await page.screenshot({ path: info.outputPath('simple-lab.png') });
@@ -600,5 +605,138 @@ test('Simple: the Gallery tab shows what you made (kept in cloud storage while t
   await expect(page.getByRole('heading', { level: 1 })).toHaveText('What will it be?');
   await expect(page.locator('.nav')).toBeVisible();
   await noSideScroll(page);
+  expect(errors).toEqual([]);
+});
+
+test('Simple Gallery: filters, search, sort, a viewer you can swipe, play all videos, select many to delete', async ({ page }, info) => {
+  const errors: string[] = [];
+  page.on('pageerror', (e) => errors.push(e.message));
+  await standIns(page);
+  const at = (d: number) => new Date(Date.UTC(2026, 10, d)).toISOString();
+  let items = [
+    { id: 'p1', kind: 'image', prompt: 'A red fox in snow', url: 'https://cdn.test/fox.png', createdAt: at(5), maker: 'qwen' },
+    { id: 'v1', kind: 'video', prompt: 'A dancer on a roof at dusk', url: 'https://cdn.test/dance.mp4', thumbUrl: 'https://cdn.test/d.png', createdAt: at(4), maker: 'ltx' },
+    { id: 'l1', kind: 'video', prompt: 'Neon koi in the rain', url: 'https://cdn.test/koi.mp4', thumbUrl: 'https://cdn.test/k.png', createdAt: at(3), lab: true, source: 'lab' },
+    { id: 'p2', kind: 'image', prompt: 'A quiet lake at dawn', url: 'https://cdn.test/lake.png', createdAt: at(2), nsfw: true },
+    ...Array.from({ length: 120 }, (_, i) => ({ id: `b${i}`, kind: 'image', prompt: `Old take ${i}`, url: 'https://cdn.test/old.png', createdAt: at(1) })),
+  ];
+  const posts: unknown[] = [];
+  await page.route(`${SITE}/api/gallery`, async (route) => {
+    if (route.request().method() === 'POST') {
+      const b = route.request().postDataJSON();
+      posts.push(b);
+      if (b.action === 'delete') items = items.filter((x) => x.id !== b.id);
+      return route.fulfill({ json: { ok: true } });
+    }
+    return route.fulfill({ json: { configured: true, items } });
+  });
+  // A real short video, so the player plays it (and nothing errors).
+  const clip = readFileSync(fileURLToPath(new URL('./fixtures/gallery/clip.webm', import.meta.url)));
+  await page.route('https://cdn.test/*.mp4', (route) => route.fulfill({ contentType: 'video/webm', body: clip }));
+  page.on('dialog', (d) => void d.accept());
+  await page.goto(`${SITE}/lite#gallery`);
+  await expect(page.getByRole('heading', { level: 1 })).toHaveText('Your gallery');
+  const tiles = page.locator('.tile[data-gview]');
+  // A screenful first (90 of 124), more as you scroll.
+  await expect(tiles).toHaveCount(90);
+  await page.locator('#gmore').scrollIntoViewIfNeeded();
+  await expect(tiles).toHaveCount(124);
+  // The NSFW one is blurred until Show NSFW.
+  await expect(page.locator('.tile[data-gview="p2"]')).toHaveClass(/nsfw/);
+
+  // Filters, search and sort.
+  const show = page.getByRole('group', { name: 'Show' });
+  await show.getByRole('button', { name: 'Videos' }).click();
+  await expect(tiles).toHaveCount(2);
+  await show.getByRole('button', { name: 'Lab' }).click();
+  await expect(tiles).toHaveCount(1);
+  await show.getByRole('button', { name: 'All' }).click();
+  await page.getByRole('searchbox', { name: 'Search your prompts' }).fill('FOX snow');
+  await expect(tiles).toHaveCount(1);
+  await expect(page.getByRole('searchbox', { name: 'Search your prompts' })).toBeFocused();
+  await page.getByRole('searchbox', { name: 'Search your prompts' }).fill('');
+  await page.getByRole('group', { name: 'Sort' }).getByRole('button', { name: 'Oldest' }).click();
+  await expect(tiles.first()).toHaveAttribute('data-gview', /^b/);
+  await page.getByRole('group', { name: 'Sort' }).getByRole('button', { name: 'Newest' }).click();
+  await expect(tiles.first()).toHaveAttribute('data-gview', 'p1');
+  await noSideScroll(page);
+  await page.screenshot({ path: info.outputPath('simple-gallery.png') });
+
+  // The viewer: next and previous (a swipe does the same), use the prompt in Make.
+  await tiles.first().click();
+  const viewer = page.getByRole('dialog', { name: 'Your gallery' });
+  await expect(viewer).toContainText('A red fox in snow');
+  await expect(viewer).toContainText('1 of 124');
+  await viewer.getByRole('button', { name: 'Next →' }).click();
+  await expect(viewer).toContainText('A dancer on a roof at dusk');
+  await viewer.getByRole('button', { name: '← Previous' }).click();
+  await expect(viewer).toContainText('A red fox in snow');
+  await viewer.getByRole('button', { name: 'Close' }).click();
+
+  // Play all videos: one after another, with only Pause and Exit.
+  await page.getByRole('button', { name: 'Play all videos' }).click();
+  await expect(page.locator('#pa video')).toHaveAttribute('src', 'https://cdn.test/dance.mp4');
+  await expect(page.locator('#pa button')).toHaveText(['Pause', 'Exit']);
+  await page.locator('#pa video').evaluate((v) => v.dispatchEvent(new Event('ended')));
+  await expect(page.locator('#pa video')).toHaveAttribute('src', 'https://cdn.test/koi.mp4');
+  await page.getByRole('button', { name: 'Exit' }).click();
+  await expect(page.locator('#pa')).toHaveCount(0);
+
+  // Select many, delete them (after asking).
+  await page.getByRole('button', { name: 'Select' }).click();
+  await page.locator('.tile[data-gview="b0"]').click();
+  await page.locator('.tile[data-gview="b1"]').click();
+  await expect(page.locator('.tile.sel')).toHaveCount(2);
+  await page.getByRole('button', { name: 'Delete 2' }).click();
+  await expect.poll(() => posts).toEqual([{ action: 'delete', id: 'b0' }, { action: 'delete', id: 'b1' }]);
+  await expect(page.locator('.tile[data-gview="b0"]')).toHaveCount(0);
+  expect(errors).toEqual([]);
+});
+
+test('Simple Live: load Krea Realtime, watch the video as it is made, change the words, save the last 10 s, stop', async ({ page }, info) => {
+  const errors: string[] = [];
+  page.on('pageerror', (e) => errors.push(e.message));
+  const { calls, loaded } = await standIns(page, { on: true });
+  const sent: Record<string, unknown>[] = [];
+  const FRAME = `data:image/png;base64,${PNG.toString('base64')}`;
+  await page.routeWebSocket(`${MACHINE.replace('https', 'wss')}/_orbit/live/video`, (ws) => {
+    ws.onMessage((raw) => {
+      const m = JSON.parse(String(raw));
+      sent.push(m);
+      if (m.type === 'start') {
+        ws.send(JSON.stringify({ type: 'state', state: 'loading', maker: 'live-krea', source: 'text' }));
+        ws.send(JSON.stringify({ type: 'state', state: 'live', maker: 'live-krea', source: 'text' }));
+        for (let i = 0; i < 3; i++) ws.send(JSON.stringify({ type: 'frame', image: FRAME, ms: 90 }));
+      }
+      if (m.type === 'save') ws.send(JSON.stringify({ type: 'saved', item: { id: 'live1', kind: 'video' } }));
+      if (m.type === 'stop') ws.send(JSON.stringify({ type: 'state', state: 'stopped' }));
+    });
+  });
+  await page.goto(`${SITE}/lite#live`);
+  await expect(page.getByRole('heading', { level: 1 })).toHaveText('Watch it as it is made');
+  // Not loaded yet: one tap loads it first.
+  await expect(page.getByTestId('live-maker')).toContainText('not loaded on this machine yet');
+  await page.getByRole('button', { name: 'Load Krea Realtime' }).click();
+  await expect.poll(() => calls.find((c) => c.path === 'machine:/_orbit/studio/makers/load')?.body).toEqual({ id: 'live-krea', first: true });
+  loaded(['qwen', 'h3-max', 'live-krea']);
+  await page.getByRole('navigation', { name: 'Sections' }).getByRole('link', { name: 'Gallery' }).click();
+  await page.getByRole('navigation', { name: 'Sections' }).getByRole('link', { name: 'Live' }).click();
+
+  await page.getByLabel('What to see').fill('A slow drone shot over a neon city in the rain');
+  await page.getByRole('button', { name: 'Start' }).click();
+  await expect(page.getByRole('img', { name: 'Live video' })).toHaveAttribute('src', FRAME);
+  await expect(page.getByRole('status')).toContainText('Live');
+  expect(sent[0]).toEqual({ type: 'start', maker: 'live-krea', source: 'text', prompt: 'A slow drone shot over a neon city in the rain' });
+  await noSideScroll(page);
+  await page.screenshot({ path: info.outputPath('simple-live.png') });
+
+  await page.getByLabel('What to see').fill('The same city at dawn, fog rolling in');
+  await page.getByRole('button', { name: 'Change the words' }).click();
+  await expect.poll(() => sent.at(-1)).toEqual({ type: 'prompt', prompt: 'The same city at dawn, fog rolling in' });
+  await page.getByRole('button', { name: 'Save the last 10 s' }).click();
+  await expect(page.getByText('Saved to your gallery.')).toBeVisible();
+  // Leaving Live stops it (it holds the whole graphics card).
+  await page.getByRole('navigation', { name: 'Sections' }).getByRole('link', { name: 'Make' }).click();
+  await expect.poll(() => sent.at(-1)).toEqual({ type: 'stop' });
   expect(errors).toEqual([]);
 });

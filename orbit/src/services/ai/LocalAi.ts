@@ -147,7 +147,8 @@ export interface LabIdea {
   id: string;
   prompt: string;
   kind: 'picture' | 'clip';
-  maker: string;
+  /** The maker it will be made with (picked when it starts); null: none loaded for that kind. */
+  maker?: string | null;
   size?: string;
   /** Multiply: the prompt of yours it was built on. */
   from?: string;
@@ -165,7 +166,9 @@ export interface MemeLabState {
   writing?: boolean;
   /** How many of your own Make prompts it writes from. */
   yours?: { pictures: number; videos: number };
-  making: { prompt: string; kind?: 'picture' | 'clip'; maker?: string; job: StudioJob | null } | null;
+  /** The loaded makers it uses now (the ones you used last in Make); null: none loaded for that kind. */
+  makers?: { picture?: { id: string; name: string } | null; clip?: { id: string; name: string } | null };
+  making: { prompt: string; kind?: 'picture' | 'clip'; maker?: string; makerName?: string; job: StudioJob | null } | null;
   /** Written prompts, in the order they will be made. */
   queue: LabIdea[];
   madeLastHour: number;
