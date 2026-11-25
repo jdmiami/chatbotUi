@@ -750,6 +750,7 @@ story;
   drawBar();
   refresh();
   loadWriters();
+  if (S.tab === 'gallery') loadItems();
   setInterval(function () { if (!document.hidden) refresh(); }, 15000);
   setInterval(function () { if (!document.hidden && on() && STEPS[S.step] === 'maker') loadMakers(); }, 8000);
 })();
