@@ -27,6 +27,7 @@ input[type=search]:focus{border-color:var(--accent)}
 .gv .in{max-height:96dvh}
 .gv .out img,.gv .out video{max-height:62dvh;object-fit:contain}
 .out.nsfw img,.out.nsfw video{filter:blur(24px)}
+#lvimg{max-height:50dvh;object-fit:contain}
 .pa{position:fixed;inset:0;background:#000;z-index:9;display:flex;flex-direction:column}
 .pa video{flex:1;width:100%;min-height:0;object-fit:contain;background:#000}
 .pa-bar{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:10px 16px calc(10px + env(safe-area-inset-bottom))}
@@ -34,7 +35,7 @@ input[type=search]:focus{border-color:var(--accent)}
 
 export const CENTER_JS = String.raw`
   // ---- the simple app: Make (above), Lab, AI Center and Gallery, one tab each
-  var TABS = [['make', 'Make'], ['lab', 'Lab'], ['ai', 'AI Center'], ['gallery', 'Gallery']];
+  var TABS = [['make', 'Make'], ['lab', 'Lab'], ['live', 'Live'], ['ai', 'AI Center'], ['gallery', 'Gallery']];
   var tabOk = function (t) { return TABS.some(function (x) { return x[0] === t; }); };
   S.tab = (location.hash || '').slice(1);
   if (!tabOk(S.tab)) S.tab = 'make';
@@ -48,18 +49,21 @@ export const CENTER_JS = String.raw`
     $('#dots').classList.toggle('hide', !make);
     $('.nav').classList.toggle('hide', !make);
     if (make) return drawMake();
-    var html = S.tab === 'lab' ? labPane() : S.tab === 'ai' ? aiPane() : galleryPane();
+    var html = S.tab === 'lab' ? labPane() : S.tab === 'live' ? livePane() : S.tab === 'ai' ? aiPane() : galleryPane();
     $('#pane').innerHTML = '<section class="pane">' + html + (S.note ? '<p class="note" role="status">' + esc(S.note) + '</p>' : '') + '</section>';
     var log = $('#msgs'); if (log && S.chatBusy) log.lastElementChild && log.lastElementChild.scrollIntoView({ block: 'end' });
     if (S.tab === 'gallery') watchMore();
   };
   function tab(t) {
     if (!tabOk(t)) t = 'make';
+    // Leaving Live stops the stream: it holds the whole graphics card.
+    if (S.tab === 'live' && t !== 'live') liveStop();
     S.tab = t; S.note = '';
     try { history.replaceState(null, '', t === 'make' ? location.pathname : '#' + t); } catch (e) {}
     draw(); window.scrollTo(0, 0);
     if (t === 'lab') loadLab();
     if (t === 'gallery') galleryLoad();
+    if (t === 'live' && on()) loadMakers();
   }
   var needOn = function (what) { return '<p class="dek">' + what + ' needs your AI machine on. Turn it on with the button at the top.</p>'; };
   var blurred = function (it) { return !S.showNsfw && (it.nsfwUser === true || (it.nsfw === true && it.nsfwUser !== false)); };
@@ -314,6 +318,79 @@ export const CENTER_JS = String.raw`
     go();
   }
 
+
+  // ---- Live: Krea Realtime makes a video from your words while you watch
+  S.live = { state: 'off', err: '', note: '', last: '', at: [] };
+  S.livePrompt = '';
+  var lv = null;
+  var liveMaker = function () { return (S.makers || []).filter(function (m) { return m.id === 'live-krea'; })[0] || null; };
+  var liveOn = function () { return S.live.state === 'connecting' || S.live.state === 'loading' || S.live.state === 'live'; };
+  function liveWords() {
+    var L = S.live;
+    if (L.state === 'connecting') return 'Connecting to your AI machine…';
+    if (L.state === 'loading') return 'Starting Krea Realtime. The first time after the machine starts takes a few minutes.';
+    if (L.state === 'live') {
+      var n = L.at.length, fps = n > 1 ? (n - 1) / Math.max(0.001, (L.at[n - 1] - L.at[0]) / 1000) : 0;
+      return 'Live' + (fps ? ' · ' + fps.toFixed(1) + ' frames a second' : '') + '. Change the words any time.';
+    }
+    return 'Stopped.';
+  }
+  function livePane() {
+    var head = '<p class="kick">Live</p><h1>Watch it as it is made</h1><p class="dek">Type what you want to see: Krea Realtime makes the video while it plays, and you can change the words while it runs. It needs an 80 GB graphics card (H100, H200 or A100 80 GB) and has the card to itself while it plays, so the Lab waits.</p>';
+    if (!on()) return head + needOn('Live video');
+    var m = liveMaker();
+    if (!S.makers) return head + '<p class="note">Checking your makers…</p>';
+    if (!m) return head + '<p class="note bad">Krea Realtime is not available on this machine.</p>';
+    if (!m.installed) {
+      return head + '<p class="note" data-testid="live-maker">' + (m.wanted ? 'Krea Realtime is loading (' + (m.percent || 0) + '%). It is big: this takes a while the first time.' : 'Krea Realtime is not loaded on this machine yet.') + '</p>' +
+        (m.problem ? '<p class="note bad">' + esc(m.problem) + '</p>' : '') + (m.wanted ? '' : '<div class="acts"><button class="btn p" data-do="lvload">Load Krea Realtime</button></div>');
+    }
+    var running = liveOn();
+    return head + (running || S.live.last ? '<div class="out"><img id="lvimg" alt="Live video"' + (S.live.last ? ' src="' + S.live.last + '"' : '') + '></div>' : '') +
+      (running ? '<p class="note" role="status" id="lvst">' + esc(liveWords()) + '</p>' : '') +
+      '<label class="f" for="lvp">What to see</label><textarea id="lvp" style="min-height:90px" placeholder="A slow drone shot over a neon city in the rain…">' + esc(S.livePrompt) + '</textarea>' +
+      '<div class="acts">' + (running ? '<button class="btn p" data-do="lvchange">Change the words</button><button class="btn a" data-do="lvsave"' + (S.live.state === 'live' ? '' : ' disabled') + '>Save the last 10 s</button><button class="btn" data-do="lvstop">Stop</button>' : '<button class="btn p" data-do="lvstart">Start</button>') + '</div>' +
+      (S.live.note ? '<p class="note">' + esc(S.live.note) + '</p>' : '') + (S.live.err ? '<p class="note bad" role="alert">' + esc(S.live.err) + '</p>' : '');
+  }
+  var liveSend = function (msg) { if (lv && lv.readyState === 1) lv.send(JSON.stringify(msg)); };
+  function liveStart() {
+    var words = (($('#lvp') && $('#lvp').value) || S.livePrompt).trim();
+    if (!words) { S.live.err = 'Describe what you want to see first.'; return draw(); }
+    S.livePrompt = words;
+    S.live = { state: 'connecting', err: '', note: '', last: '', at: [] };
+    draw();
+    grant().then(function (g) {
+      if (!g) throw new Error('Your AI machine is not on yet.');
+      var ws = new WebSocket(g.url.replace(/^http/, 'ws') + '/_orbit/live/video', ['orbit-live', g.token]);
+      lv = ws;
+      ws.onopen = function () { liveSend({ type: 'start', maker: 'live-krea', source: 'text', prompt: words }); };
+      ws.onmessage = function (ev) {
+        var m; try { m = JSON.parse(ev.data); } catch (e) { return; }
+        if (m.type === 'frame') {
+          S.live.last = m.image;
+          S.live.at = S.live.at.concat([Date.now()]).slice(-20);
+          var img = $('#lvimg');
+          if (S.live.state !== 'live' || !img) { S.live.state = 'live'; if (S.tab === 'live') draw(); return; }
+          img.src = m.image;
+          var st = $('#lvst'); if (st) st.textContent = liveWords();
+          return;
+        }
+        if (m.type === 'state') { S.live.state = m.state === 'stopped' ? 'off' : m.state; if (S.tab === 'live') draw(); return; }
+        if (m.type === 'saved') { S.live.note = 'Saved to your gallery.'; if (S.tab === 'live') draw(); return; }
+        if (m.type === 'error') { S.live.err = m.error || 'Live video stopped.'; if (m.status !== 422 || !liveOn()) S.live.state = 'off'; if (S.tab === 'live') draw(); }
+      };
+      ws.onclose = function () { if (lv === ws) lv = null; if (liveOn()) { S.live.state = 'off'; if (!S.live.err) S.live.err = 'The connection to your AI machine closed.'; } if (S.tab === 'live') draw(); };
+    }).catch(function (err) { S.live.state = 'off'; S.live.err = err.message; draw(); });
+  }
+  function liveStop() {
+    if (!lv) return;
+    liveSend({ type: 'stop' });
+    var ws = lv; lv = null;
+    setTimeout(function () { try { ws.close(); } catch (e) {} }, 300);
+    S.live.state = 'off';
+  }
+  window.addEventListener('pagehide', liveStop);
+
   document.addEventListener('click', function (e) {
     // A blurred picture or video in the viewer: a tap shows it.
     var bl = e.target.closest('#gv .out.nsfw');
@@ -330,6 +407,11 @@ export const CENTER_JS = String.raw`
     if (d === 'labmul') { var p = ($('#labseed') && $('#labseed').value.trim()) || ''; if (!p) { S.labErr = 'Paste a prompt to multiply first.'; return draw(); } S.labSeed = ''; return multiply(p); }
     if (d === 'labclose') return closeLabViewer();
     if (d === 'send') return sendChat();
+    if (d === 'lvstart') return liveStart();
+    if (d === 'lvstop') { liveStop(); return draw(); }
+    if (d === 'lvsave') { S.live.note = 'Saving…'; liveSend({ type: 'save' }); return draw(); }
+    if (d === 'lvchange') { var w = (($('#lvp') && $('#lvp').value) || '').trim(); if (!w) return; S.livePrompt = w; S.live.err = ''; S.live.note = 'Changing to the new words…'; liveSend({ type: 'prompt', prompt: w }); return draw(); }
+    if (d === 'lvload') { S.busy = 'lvload'; return machine('/_orbit/studio/makers/load', { method: 'POST', body: { id: 'live-krea', first: true } }).then(function (r) { if (Array.isArray(r.makers)) S.makers = r.makers; }).catch(function (err) { S.live.err = err.message; }).then(function () { S.busy = ''; draw(); }); }
     if (d === 'newchat') { S.chat = []; saveChat(); return draw(); }
     if (d === 'galreload') { S.gal = null; draw(); return galleryLoad(); }
     if (d === 'gmore') { S.glimit += 90; return regrid(); }
@@ -373,6 +455,7 @@ export const CENTER_JS = String.raw`
   document.addEventListener('input', function (e) {
     if (e.target.id === 'chatin') S.chatDraft = e.target.value;
     if (e.target.id === 'labseed') S.labSeed = e.target.value;
+    if (e.target.id === 'lvp') S.livePrompt = e.target.value;
     if (e.target.id === 'gq') { S.gq = e.target.value; S.glimit = 90; regrid(); }
   });
   document.addEventListener('keydown', function (e) {
@@ -388,12 +471,14 @@ export const CENTER_JS = String.raw`
   }, { passive: true });
   window.addEventListener('hashchange', function () { var h = (location.hash || '').slice(1); if (tabOk(h) && h !== S.tab) tab(h); });
   setInterval(function () { if (!document.hidden && S.tab === 'lab' && on() && !S.busy) loadLab(); }, 8000);
+  // A maker loading for Live: its percent, every few seconds.
+  setInterval(function () { var m = liveMaker(); if (!document.hidden && S.tab === 'live' && on() && m && !m.installed && m.wanted && !typing()) loadMakers(); }, 6000);
   // The machine just came on: the open tab fills in with what is on it.
   var setStatusMake = setStatus;
   setStatus = function (st) {
     var was = on();
     setStatusMake(st);
-    if (!was && on()) { if (S.tab === 'gallery') galleryLoad(); if (S.tab === 'lab') loadLab(); }
+    if (!was && on()) { if (S.tab === 'gallery') galleryLoad(); if (S.tab === 'lab') loadLab(); if (S.tab === 'live') loadMakers(); }
   };
   if (S.tab === 'gallery') galleryLoad();
 `;

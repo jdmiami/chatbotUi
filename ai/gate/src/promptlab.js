@@ -75,6 +75,7 @@ export const promptOk = (p) => !blockedPrompt(p) && !mentionsMinor(p);
  *   studio        studio.js: items, makers, state, createJob, job, cancel, labItems, promote, remove, hasUserWork
  *   chat          async ({ system, user, temperature }) => text: the writer (NVIDIA through the site)
  *   movies        optional: its ownerBusy() also counts as you being busy
+ *   busy          optional () => boolean: something else of yours on the graphics card (live video, Live draw)
  *   load / save   the Lab's saved state (R2 or a file)
  */
 export function createPromptLab(o) {
@@ -93,7 +94,9 @@ export function createPromptLab(o) {
   let turn = 0;
   let seq = 0;
   const id = () => `q${now().toString(36)}${(++seq).toString(36)}`;
-  const ownerBusy = () => studio.hasUserWork() || Boolean(o.movies?.ownerBusy?.());
+  // You are using the machine: a job of yours, one of your movies, or live video or Live draw on screen
+  // (a Lab video would take the graphics card from them).
+  const ownerBusy = () => studio.hasUserWork() || Boolean(o.movies?.ownerBusy?.()) || Boolean(o.busy?.());
   const persist = () => Promise.resolve(o.save?.(saved)).catch((err) => log.warn?.(`[lab] could not save: ${err.message}`));
   const madeLastHour = () => saved.records.filter((r) => now() - Date.parse(r.createdAt) < 3_600_000).length;
 

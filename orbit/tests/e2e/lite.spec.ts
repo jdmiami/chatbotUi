@@ -43,6 +43,7 @@ async function standIns(page: Page, opts: { on?: boolean; both?: boolean } = {})
       { id: 'vace', kind: 'videoedit', name: 'Edit a video', needs: ['video'], tasks: ['replace', 'restyle', 'extend', 'motion'] },
       { id: 'person-swap', kind: 'videoedit', name: 'Swap a person', needs: ['video', 'target', 'photo'] },
       { id: 'rig', kind: 'rig', name: 'Rig it', needs: ['model3d'] },
+      { id: 'live-krea', kind: 'live', name: 'Krea Realtime' },
     ].map((m) =>
       loaded.includes(m.id)
         ? { ...m, installed: true, wanted: true, percent: 100 }
@@ -488,7 +489,7 @@ test('fast Make with both set up: GPU.ai goes on to its GPU list (Back returns) 
 
 // ---- Simple's other tabs: Lab, AI Center, Gallery
 
-test('Simple: four tabs; the Lab multiplies your prompts on your machine; keep what it made', async ({ page }, info) => {
+test('Simple: five tabs; the Lab multiplies your prompts on your machine; keep what it made', async ({ page }, info) => {
   const errors: string[] = [];
   page.on('pageerror', (e) => errors.push(e.message));
   const { calls } = await standIns(page, { on: true });
@@ -513,7 +514,7 @@ test('Simple: four tabs; the Lab multiplies your prompts on your machine; keep w
   });
   await page.goto(`${SITE}/lite`);
   const tabs = page.getByRole('navigation', { name: 'Sections' });
-  await expect(tabs.getByRole('link')).toHaveText(['Make', 'Lab', 'AI Center', 'Gallery']);
+  await expect(tabs.getByRole('link')).toHaveText(['Make', 'Lab', 'Live', 'AI Center', 'Gallery']);
   await tabs.getByRole('link', { name: 'Lab' }).click();
   await expect(page).toHaveURL(/#lab$/);
   await expect(page.getByRole('heading', { level: 1 })).toHaveText('Your prompts, multiplied');
@@ -689,5 +690,53 @@ test('Simple Gallery: filters, search, sort, a viewer you can swipe, play all vi
   await page.getByRole('button', { name: 'Delete 2' }).click();
   await expect.poll(() => posts).toEqual([{ action: 'delete', id: 'b0' }, { action: 'delete', id: 'b1' }]);
   await expect(page.locator('.tile[data-gview="b0"]')).toHaveCount(0);
+  expect(errors).toEqual([]);
+});
+
+test('Simple Live: load Krea Realtime, watch the video as it is made, change the words, save the last 10 s, stop', async ({ page }, info) => {
+  const errors: string[] = [];
+  page.on('pageerror', (e) => errors.push(e.message));
+  const { calls, loaded } = await standIns(page, { on: true });
+  const sent: Record<string, unknown>[] = [];
+  const FRAME = `data:image/png;base64,${PNG.toString('base64')}`;
+  await page.routeWebSocket(`${MACHINE.replace('https', 'wss')}/_orbit/live/video`, (ws) => {
+    ws.onMessage((raw) => {
+      const m = JSON.parse(String(raw));
+      sent.push(m);
+      if (m.type === 'start') {
+        ws.send(JSON.stringify({ type: 'state', state: 'loading', maker: 'live-krea', source: 'text' }));
+        ws.send(JSON.stringify({ type: 'state', state: 'live', maker: 'live-krea', source: 'text' }));
+        for (let i = 0; i < 3; i++) ws.send(JSON.stringify({ type: 'frame', image: FRAME, ms: 90 }));
+      }
+      if (m.type === 'save') ws.send(JSON.stringify({ type: 'saved', item: { id: 'live1', kind: 'video' } }));
+      if (m.type === 'stop') ws.send(JSON.stringify({ type: 'state', state: 'stopped' }));
+    });
+  });
+  await page.goto(`${SITE}/lite#live`);
+  await expect(page.getByRole('heading', { level: 1 })).toHaveText('Watch it as it is made');
+  // Not loaded yet: one tap loads it first.
+  await expect(page.getByTestId('live-maker')).toContainText('not loaded on this machine yet');
+  await page.getByRole('button', { name: 'Load Krea Realtime' }).click();
+  await expect.poll(() => calls.find((c) => c.path === 'machine:/_orbit/studio/makers/load')?.body).toEqual({ id: 'live-krea', first: true });
+  loaded(['qwen', 'h3-max', 'live-krea']);
+  await page.getByRole('navigation', { name: 'Sections' }).getByRole('link', { name: 'Gallery' }).click();
+  await page.getByRole('navigation', { name: 'Sections' }).getByRole('link', { name: 'Live' }).click();
+
+  await page.getByLabel('What to see').fill('A slow drone shot over a neon city in the rain');
+  await page.getByRole('button', { name: 'Start' }).click();
+  await expect(page.getByRole('img', { name: 'Live video' })).toHaveAttribute('src', FRAME);
+  await expect(page.getByRole('status')).toContainText('Live');
+  expect(sent[0]).toEqual({ type: 'start', maker: 'live-krea', source: 'text', prompt: 'A slow drone shot over a neon city in the rain' });
+  await noSideScroll(page);
+  await page.screenshot({ path: info.outputPath('simple-live.png') });
+
+  await page.getByLabel('What to see').fill('The same city at dawn, fog rolling in');
+  await page.getByRole('button', { name: 'Change the words' }).click();
+  await expect.poll(() => sent.at(-1)).toEqual({ type: 'prompt', prompt: 'The same city at dawn, fog rolling in' });
+  await page.getByRole('button', { name: 'Save the last 10 s' }).click();
+  await expect(page.getByText('Saved to your gallery.')).toBeVisible();
+  // Leaving Live stops it (it holds the whole graphics card).
+  await page.getByRole('navigation', { name: 'Sections' }).getByRole('link', { name: 'Make' }).click();
+  await expect.poll(() => sent.at(-1)).toEqual({ type: 'stop' });
   expect(errors).toEqual([]);
 });

@@ -255,3 +255,15 @@ test('routes: GET the Lab, POST on/off and mix, write a round, multiply a prompt
     gate.close();
   }
 });
+
+test('the Lab waits while live video (or Live draw) is on screen, then carries on', async () => {
+  const studio = fakeStudio();
+  let live = true;
+  const lab = createPromptLab({ studio, chat: writer([]), busy: () => live, log: quiet });
+  await lab.tick();
+  assert.equal(studio.created.length, 0, 'a Lab video would stop the live stream');
+  assert.ok((await lab.state()).queue.length > 0, 'the prompts are still written meanwhile');
+  live = false;
+  await lab.tick();
+  assert.equal(studio.created.length, 1);
+});
