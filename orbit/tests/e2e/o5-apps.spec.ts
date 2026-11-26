@@ -116,7 +116,7 @@ test.describe('Orbit 0.5: the other apps', () => {
 
     // The Index lists every app with its drawing.
     const list = await index();
-    for (const id of ['ai', 'soreal', 'editor', 'terminal', 'agent', 'playground', 'vscode', 'desktop', 'windows', 'settings']) {
+    for (const id of ['ai', 'soreal', 'editor', 'terminal', 'agent', 'playground', 'vscode', 'desktop', 'windows', 'simple', 'settings']) {
       await expect(list.locator(`svg.app-art[data-app="${id}"]`)).toHaveCount(1);
     }
     await list.getByRole('button', { name: /^\d+ VS Code / }).click();

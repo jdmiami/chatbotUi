@@ -15,6 +15,8 @@ export type AppId =
   | 'gallery'
   | 'stats'
   | 'settings'
+  // Simple (the site's light page) inside an Orbit window.
+  | 'simple'
   // Full-screen apps that live on the site (Orbit shows their page and opens them).
   | 'playground'
   | 'vscode'
@@ -214,4 +216,4 @@ function migrate(s: Settings): Settings {
   return rest;
 }
 
-export const APP_ORDER: AppId[] = ['terminal', 'editor', 'agent', 'ai', 'make', 'livedraw', 'flipbook', 'store', 'soreal', 'lab', 'gallery', 'stats', 'playground', 'vscode', 'desktop', 'windows', 'settings'];
+export const APP_ORDER: AppId[] = ['terminal', 'editor', 'agent', 'ai', 'make', 'livedraw', 'flipbook', 'store', 'soreal', 'lab', 'gallery', 'simple', 'stats', 'playground', 'vscode', 'desktop', 'windows', 'settings'];

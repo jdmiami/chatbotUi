@@ -40,6 +40,7 @@ const raw: Record<AppId, () => Promise<{ default: ComponentType<AppProps> }>> = 
   soreal: () => import('./soreal/SoRealApp'),
   lab: () => import('./lab/LabApp'),
   gallery: () => import('./gallery/GalleryApp'),
+  simple: () => import('./simple/SimpleApp'),
   stats: () => import('./stats/StatsApp'),
   settings: () => import('./settings/SettingsApp'),
   playground: () => import('./portal/PortalApp').then((m) => ({ default: m.PlaygroundApp })),
@@ -175,6 +176,15 @@ export const APPS: Record<AppId, AppMeta> = {
     tile: 'linear-gradient(145deg, #7fd3ff, #3a6df0 55%, #2b1b6e)',
     glyph: '#ffffff',
     component: lazy(loaders.gallery),
+  },
+  simple: {
+    id: 'simple',
+    name: 'Simple',
+    description: 'The light page: Make, Lab, Live, AI Center and Gallery, here in a window',
+    icon: 'switcher',
+    tile: 'linear-gradient(145deg, #8b9cff, #3b3f8f 55%, #141533)',
+    glyph: '#ffffff',
+    component: lazy(loaders.simple),
   },
   playground: {
     id: 'playground',
