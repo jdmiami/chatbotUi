@@ -239,13 +239,15 @@ export const LITE_JS = String.raw`
   function loadMakers() {
     return machine('/_orbit/studio/makers').then(function (r) { S.makers = Array.isArray(r.makers) ? r.makers : []; draw(); }).catch(function () {});
   }
+  // Inside Orbit (its Simple app): Orbit is already around it, so no button back to it.
+  var embedded = (function () { try { return window.top !== window; } catch (e) { return true; } })();
   function drawBar() {
     var s = S.status || { state: 'off' };
     var st = s.state;
     var words = st === 'on' ? 'on' : st === 'starting' ? 'starting' : st === 'downloading' ? 'loading its models' : st === 'unconfigured' ? 'not set up' : st === 'error' ? 'not answering' : 'off';
     var price = s.costPerHour ? ' · $' + Number(s.costPerHour).toFixed(2) + '/h' : '';
     var btn = (st === 'on' ? '<button class="btn s" data-do="off">Turn off</button>' : st === 'off' ? '<button class="btn s a" data-do="power">Turn on</button>' : '');
-    $('#bar').innerHTML = '<span class="st"><span class="dot ' + (st === 'on' ? 'on' : st === 'starting' || st === 'downloading' ? 'wait' : '') + '"></span>AI machine: <b>' + words + '</b>' + esc(price) + '</span>' + btn + '<a class="btn s" href="/choose?ui=orbit">Orbit</a>';
+    $('#bar').innerHTML = '<span class="st"><span class="dot ' + (st === 'on' ? 'on' : st === 'starting' || st === 'downloading' ? 'wait' : '') + '"></span>AI machine: <b>' + words + '</b>' + esc(price) + '</span>' + btn + (embedded ? '' : '<a class="btn s" href="/choose?ui=orbit">Orbit</a>');
   }
   function power() {
     if (S.status && S.status.pickGpu) return gpuSheet();

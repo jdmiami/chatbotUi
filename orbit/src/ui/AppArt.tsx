@@ -17,6 +17,7 @@ export type ArtId =
   | 'soreal'
   | 'lab'
   | 'gallery'
+  | 'simple'
   | 'stats'
   | 'settings'
   | 'playground'
@@ -36,6 +37,7 @@ const TILES: Record<ArtId, [string, string, string?]> = {
   soreal: ['#ff6a6a', '#c2185b', '#4a148c'],
   lab: ['#ffd36b', '#ff7a59', '#8a2be2'],
   gallery: ['#7fd3ff', '#3a6df0', '#2b1b6e'],
+  simple: ['#8b9cff', '#3b3f8f', '#141533'],
   stats: ['#7ee0b5', '#1f8a70', '#12355b'],
   settings: ['#9aa3b6', '#454c5f'],
   playground: ['#ffb547', '#f0517a'],
@@ -95,6 +97,22 @@ function Glyph({ id, uid }: { id: ArtId; uid: string }) {
           <path d="M36 62h28l4 8a3 3 0 0 1-2.7 4H34.7a3 3 0 0 1-2.7-4z" fill="#fff6c9" />
           <circle cx="46" cy="55" r="3" fill={INK} />
           <circle cx="56" cy="50" r="2" fill={INK} />
+        </g>
+      );
+    case 'simple':
+      // A phone-sized page with its five tabs: the light way in.
+      return (
+        <g>
+          <rect x="31" y="20" width="38" height="60" rx="8" fill="none" stroke={INK} strokeWidth="4" />
+          <path d="M39 33h22M39 42h16" stroke={INK} strokeWidth="4" strokeLinecap="round" />
+          <rect x="39" y="51" width="22" height="14" rx="3" fill="#8b9cff" />
+          <g fill={INK}>
+            <circle cx="38" cy="72" r="2" />
+            <circle cx="44" cy="72" r="2" />
+            <circle cx="50" cy="72" r="2.6" />
+            <circle cx="56" cy="72" r="2" />
+            <circle cx="62" cy="72" r="2" />
+          </g>
         </g>
       );
     case 'gallery':

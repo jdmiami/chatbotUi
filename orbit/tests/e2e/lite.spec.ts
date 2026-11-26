@@ -865,3 +865,14 @@ test('Simple on the iPhone keyboard (Home Screen): what you type and its buttons
   // Upright there is room for Send too (sideways Enter sends: there is barely room for the box).
   if (seen > 200) await expect.poll(async () => { const b = (await page.getByRole('button', { name: 'Send' }).boundingBox())!; return b.y + b.height; }).toBeLessThanOrEqual(seen);
 });
+
+test('Simple inside Orbit (in a frame): no button back to Orbit, it is already there', async ({ page }) => {
+  await standIns(page);
+  await page.goto(`${SITE}/lite`);
+  await expect(page.getByLabel('AI machine').getByRole('link', { name: 'Orbit' })).toBeVisible();
+  await page.route(`${SITE}/frame`, (route) => route.fulfill({ contentType: 'text/html', body: `<!doctype html><iframe src="${SITE}/lite" title="Simple" style="width:100%;height:90vh;border:0"></iframe>` }));
+  await page.goto(`${SITE}/frame`);
+  const inside = page.frameLocator('iframe[title="Simple"]');
+  await expect(inside.getByLabel('AI machine')).toContainText('off');
+  await expect(inside.getByRole('link', { name: 'Orbit' })).toHaveCount(0);
+});

@@ -90,6 +90,7 @@ const APP_NAME: Record<AppId, string> = {
   soreal: 'soReal',
   lab: 'Lab',
   gallery: 'Gallery',
+  simple: 'Simple',
   stats: 'Stats',
   settings: 'Settings',
   playground: 'Playground',
