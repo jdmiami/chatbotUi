@@ -85,6 +85,17 @@ a.btn{color:var(--ink);text-decoration:none;display:inline-flex;align-items:cent
 .tile{position:relative;aspect-ratio:1;border:0;padding:0;border-radius:10px;overflow:hidden;background:var(--card)}
 .tile img{width:100%;height:100%;object-fit:cover;display:block}
 .tile i{position:absolute;right:4px;bottom:4px;font:600 11px/1 var(--ui);background:rgba(0,0,0,.6);padding:4px 6px;border-radius:8px;font-style:normal}
+/* Home Screen and landscape: clear of the notch and the rounded corners on every side. */
+.wrap{padding-left:max(16px,env(safe-area-inset-left));padding-right:max(16px,env(safe-area-inset-right))}
+.nav{padding-left:max(16px,env(safe-area-inset-left));padding-right:max(16px,env(safe-area-inset-right))}
+/* The keyboard is up: the step buttons step aside, the page can scroll what you type above the
+   keyboard (and the bar iOS floats over it), and sheets fit in what is left of the screen. */
+html.kb .nav{display:none}
+html.kb textarea{min-height:min(150px,calc(var(--vvh,100dvh) - 110px));max-height:calc(var(--vvh,100dvh) - 110px)}
+html.kb .wrap{padding-bottom:calc(var(--kb,0px) + 24px)}
+html.kb .sheet{inset:auto 0 auto 0;top:var(--vvt,0px);height:var(--vvh,100dvh)}
+html.kb .sheet .in{max-height:calc(var(--vvh,100dvh) - 12px);padding-bottom:16px}
+@media (display-mode: standalone){body{padding-top:max(8px,env(safe-area-inset-top))}}
 @media (prefers-reduced-motion:no-preference){.pane{animation:in .18s ease-out}@keyframes in{from{opacity:.3;transform:translateX(8px)}to{opacity:1;transform:none}}}
 `;
 
@@ -745,6 +756,53 @@ story;
     if (S.tab === 'make' && Math.abs(dx) > 70 && Math.abs(dx) > Math.abs(dy) * 1.5) go(S.step + (dx < 0 ? 1 : -1));
   }, { passive: true });
 
+  // ---- the iPhone keyboard (in Safari and from the Home Screen)
+  // The page doesn't get shorter when the keyboard comes up: the visual viewport does. While it is up,
+  // what you type and its buttons stay above it, and above the bar iOS 26 floats over the page just
+  // above the keyboard (AutoFill, hide keyboard), which the visual viewport doesn't count. Step
+  // buttons at the bottom step aside; sheets fit in the space that is left.
+  var UA = navigator.userAgent;
+  var IOS = Number((UA.match(/iPhone OS (\d+)_/) || [])[1] || 0);
+  var FLOAT_BAR = /iPhone/.test(UA) && Math.max(IOS, Number((UA.match(/Version\/(\d+)/) || [])[1] || 0)) >= 26 ? 76 : 0;
+  var kbTimer = 0;
+  var typingIn = function () {
+    var el = document.activeElement;
+    return el && (el.tagName === 'TEXTAREA' || el.isContentEditable || (el.tagName === 'INPUT' && !/^(file|button|submit|checkbox|radio|range|color)$/.test(el.type))) ? el : null;
+  };
+  function keyboard() {
+    var vv = window.visualViewport, H = window.innerHeight;
+    var vis = vv ? vv.height : H, top = vv ? vv.offsetTop : 0;
+    var under = Math.max(0, H - vis - top);
+    var el = typingIn();
+    var open = under > 120 || Boolean(el && window.matchMedia && matchMedia('(pointer: coarse)').matches && vis < H * 0.75);
+    var bar = open ? FLOAT_BAR : 0;
+    var r = document.documentElement;
+    r.classList.toggle('kb', open);
+    r.style.setProperty('--kb', Math.round(open ? under + bar : 0) + 'px');
+    r.style.setProperty('--vvh', Math.round(vis - bar) + 'px');
+    r.style.setProperty('--vvt', Math.round(top) + 'px');
+    if (open && el) {
+      clearTimeout(kbTimer);
+      // After the keyboard has finished sliding in: the box (and the buttons just under it) in view.
+      kbTimer = setTimeout(function () {
+        if (document.activeElement !== el) return;
+        var seen = (window.visualViewport ? visualViewport.height : innerHeight) - FLOAT_BAR;
+        var b = el.getBoundingClientRect(), next = el.nextElementSibling;
+        var bottom = b.bottom;
+        if (next && next.classList && next.classList.contains('acts')) bottom = Math.max(bottom, next.getBoundingClientRect().bottom);
+        var box = el.closest('.sheet .in');
+        var by = b.top < 8 ? b.top - 12 : bottom > seen - 8 ? Math.min(bottom - (seen - 12), b.top - 12) : 0;
+        if (!by) return;
+        if (box) box.scrollTop += by; else window.scrollBy({ top: by, behavior: 'smooth' });
+      }, 320);
+    }
+  }
+  if (window.visualViewport) { visualViewport.addEventListener('resize', keyboard); visualViewport.addEventListener('scroll', keyboard); }
+  window.addEventListener('resize', keyboard);
+  document.addEventListener('focusin', keyboard);
+  document.addEventListener('focusout', function () { setTimeout(keyboard, 60); });
+  keyboard();
+
 /*CENTER*/
   draw();
   drawBar();
@@ -759,7 +817,7 @@ story;
 export function liteMakePage(center: { css: string; js: string } = { css: '', js: '' }): string {
   return (
     '<!doctype html><html lang="en"><head><meta charset="utf-8">' +
-    '<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">' +
+    '<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,interactive-widget=resizes-content">' +
     '<meta name="theme-color" content="#0d0c0b"><meta name="apple-mobile-web-app-capable" content="yes">' +
     '<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"><meta name="apple-mobile-web-app-title" content="Simple">' +
     '<link rel="apple-touch-icon" href="/apple-icon.png"><title>Simple</title>' +
