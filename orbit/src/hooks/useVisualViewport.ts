@@ -75,12 +75,22 @@ export function useVisualViewport() {
   }, [setViewport]);
 }
 
-/** Height of Safari 26's floating bar above the iPhone keyboard (AutoFill, hide keyboard), with its margin. */
+/** Height of iOS 26's floating bar above the iPhone keyboard (AutoFill, hide keyboard), with its margin. */
 const FLOATING_BAR = 76;
-const floatingKeyboardBar =
-  typeof navigator !== 'undefined' &&
-  /iPhone/.test(navigator.userAgent) &&
-  Number(navigator.userAgent.match(/Version\/(\d+)/)?.[1] ?? 0) >= 26;
+const floatingKeyboardBar = typeof navigator !== 'undefined' && hasFloatingKeyboardBar(navigator.userAgent);
+
+/**
+ * iOS 26 and later float their AutoFill and hide-keyboard buttons over the page just above the iPhone
+ * keyboard, outside the visual viewport. Read from the iOS version ("iPhone OS 26_1"), not Safari's
+ * ("Version/26"): Orbit added to the Home Screen runs without Safari's version in its user agent,
+ * and the bar is there all the same.
+ */
+export function hasFloatingKeyboardBar(userAgent: string): boolean {
+  if (!/iPhone/.test(userAgent)) return false;
+  const ios = Number(userAgent.match(/iPhone OS (\d+)_/)?.[1] ?? 0);
+  const safari = Number(userAgent.match(/Version\/(\d+)/)?.[1] ?? 0);
+  return Math.max(ios, safari) >= 26;
+}
 
 let keepTimer = 0;
 /** Scroll the box being typed in into view, after the keyboard has finished arriving (it animates in). */

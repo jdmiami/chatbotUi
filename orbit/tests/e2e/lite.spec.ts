@@ -805,3 +805,63 @@ test('Simple Live: walk into a picture with Waypoint: pick the picture, hold the
   await expect.poll(() => (sent.filter((m) => m.type === 'control').at(-1)?.look as number[] | undefined)?.[0] ?? 0).toBeGreaterThan(0);
   expect(errors).toEqual([]);
 });
+
+// ---- the iPhone keyboard, from the Home Screen (iOS 26: no Safari version in the user agent)
+
+const HOME_SCREEN_UA = 'Mozilla/5.0 (iPhone; CPU iPhone OS 26_1 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148';
+/** A stand-in for the visual viewport, so a test can raise and lower "the keyboard". */
+async function fakeKeyboard(page: Page) {
+  await page.addInitScript((ua) => {
+    Object.defineProperty(navigator, 'userAgent', { get: () => ua });
+    const vv = new EventTarget() as EventTarget & { height: number; width: number; offsetTop: number; offsetLeft: number; scale: number };
+    vv.height = window.innerHeight;
+    vv.width = window.innerWidth;
+    vv.offsetTop = 0;
+    vv.offsetLeft = 0;
+    vv.scale = 1;
+    Object.defineProperty(window, 'visualViewport', { configurable: true, get: () => vv });
+    (window as unknown as { keyboardUp: (h: number) => void }).keyboardUp = (h: number) => {
+      vv.height = window.innerHeight - h;
+      vv.dispatchEvent(new Event('resize'));
+    };
+  }, HOME_SCREEN_UA);
+}
+
+test('Simple on the iPhone keyboard (Home Screen): what you type and its buttons stay above the keyboard and the bar iOS floats over it', async ({ page }, info) => {
+  test.skip(!/iphone/.test(info.project.name), 'the iPhone keyboard');
+  await fakeKeyboard(page);
+  await standIns(page, { on: true });
+  await page.goto(`${SITE}/lite`);
+  await page.getByRole('radio', { name: /A picture/ }).click();
+  await page.getByRole('button', { name: 'Describe it →' }).click();
+  const box = page.getByRole('textbox', { name: 'Describe it' });
+  await box.focus();
+  // The iPhone 14 Pro Max's keyboard with its suggestions: about 336 points tall upright, 200 sideways.
+  const keyboard = info.project.name.includes('landscape') ? 200 : 336;
+  await page.evaluate((h) => (window as unknown as { keyboardUp: (h: number) => void }).keyboardUp(h), keyboard);
+  // The step buttons step aside; the page knows how much is covered (keyboard + the floating bar).
+  await expect(page.locator('html')).toHaveClass(/kb/);
+  await expect(page.locator('.nav')).toBeHidden();
+  expect(await page.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue('--kb').trim())).toBe(`${keyboard + 76}px`);
+  // What you type is above both, its buttons under it too.
+  const seen = await page.evaluate((h) => window.innerHeight - h - 76, keyboard);
+  await expect.poll(async () => (await box.boundingBox())!.y + (await box.boundingBox())!.height).toBeLessThanOrEqual(seen);
+  await expect.poll(async () => (await box.boundingBox())!.y).toBeGreaterThanOrEqual(0);
+  await page.screenshot({ path: info.outputPath('simple-keyboard.png') });
+
+  // The keyboard goes: the step buttons come back.
+  await page.evaluate(() => (window as unknown as { keyboardUp: (h: number) => void }).keyboardUp(0));
+  await box.blur();
+  await expect(page.locator('html')).not.toHaveClass(/kb/);
+  await expect(page.locator('.nav')).toBeVisible();
+
+  // A chat message at the AI Center: the box and Send stay above the keyboard.
+  await page.getByRole('navigation', { name: 'Sections' }).getByRole('link', { name: 'AI Center' }).click();
+  const chat = page.getByRole('textbox', { name: 'Message' });
+  await chat.focus();
+  await page.evaluate((h) => (window as unknown as { keyboardUp: (h: number) => void }).keyboardUp(h), keyboard);
+  await expect.poll(async () => { const b = (await chat.boundingBox())!; return b.y + b.height; }).toBeLessThanOrEqual(seen);
+  await expect.poll(async () => (await chat.boundingBox())!.y).toBeGreaterThanOrEqual(0);
+  // Upright there is room for Send too (sideways Enter sends: there is barely room for the box).
+  if (seen > 200) await expect.poll(async () => { const b = (await page.getByRole('button', { name: 'Send' }).boundingBox())!; return b.y + b.height; }).toBeLessThanOrEqual(seen);
+});
